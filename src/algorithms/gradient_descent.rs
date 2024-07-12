@@ -19,6 +19,18 @@ pub struct GradientDescentOptions<F: Field> {
     #[builder(default = F::convert(1e-8))]
     pub tolerance: F,
 }
+
+/// Gradient Descent
+///
+/// This method uses the gradient of a function to determine the minimizing step direction:
+///
+/// ```math
+/// \vec{x}_{i+1} = \vec{x}_i - \gamma g_f(\vec{x}_i)
+/// ```
+/// where $`g_f`$ is the gradient vector, and $`0 \lt \gamma`$ is the learning rate.
+///
+/// This method will terminate if either [`GradientDescentOptions::max_iters`] steps are performed or if
+/// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`GradientDescentOptions::tolerance`].
 pub struct GradientDescent<F, E>
 where
     F: Field,
@@ -27,6 +39,7 @@ where
     options: GradientDescentOptions<F>,
     x: Vec<F>,
     fx: F,
+    fx_old: F,
     x_best: Vec<F>,
     fx_best: F,
 }
@@ -34,58 +47,78 @@ impl<F, E> GradientDescent<F, E>
 where
     F: Field,
 {
+    /// Create a new Gradient Descent optimizer from a struct which implements [`Function`], an initial
+    /// starting point `x0`, and some options.
     pub fn new<Func: Function<F, E> + 'static>(
         function: Func,
         x0: &[F],
-        options: GradientDescentOptions<F>,
+        options: Option<GradientDescentOptions<F>>,
     ) -> Self {
         Self {
             function: Box::new(function),
-            options,
+            options: options.unwrap_or_else(|| GradientDescentOptions::builder().build()),
             x: x0.to_vec(),
-            fx: F::infinity(),
-            x_best: vec![F::infinity(); x0.len()],
-            fx_best: F::infinity(),
+            fx: F::nan(),
+            fx_old: F::nan(),
+            x_best: vec![F::nan(); x0.len()],
+            fx_best: F::nan(),
         }
     }
 }
-pub enum GradientDescentMessage<F> {
-    Continue { x: Vec<F>, fx: F },
+/// A message passed into the [`GradientDescent::minimize`] callback.
+pub struct GradientDescentMessage<F> {
+    /// The current step number.
+    pub step: usize,
+    /// The current position of the minimizer.
+    pub x: Vec<F>,
+    /// The current value of the minimizer function.
+    pub fx: F,
 }
+
 impl<F, E> Minimizer<F, GradientDescentMessage<F>, E> for GradientDescent<F, E>
 where
     F: Field,
 {
-    fn step(&mut self) -> Result<GradientDescentMessage<F>, E> {
+    fn step(&mut self, i: usize) -> Result<GradientDescentMessage<F>, E> {
+        self.fx_old = self.fx;
         let gradient = self.function.gradient(&self.x)?;
         self.x
             .iter_mut()
             .zip(gradient.as_slice())
             .for_each(|(x, dx)| *x -= self.options.learning_rate * *dx);
         self.fx = self.function.evaluate(&self.x)?;
-        Ok(GradientDescentMessage::Continue {
+        Ok(GradientDescentMessage {
+            step: i,
             x: self.x.clone(),
             fx: self.fx,
         })
     }
 
     fn terminate(&self) -> bool {
-        false
+        ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance)
     }
 
-    fn minimize<Func: Fn(GradientDescentMessage<F>)>(&mut self, callback: Func) -> Result<(), E> {
-        for _ in 0..self.options.max_iters {
-            let m = self.step()?;
+    fn minimize<Func: Fn(&GradientDescentMessage<F>)>(
+        &mut self,
+        callback: Func,
+    ) -> Result<GradientDescentMessage<F>, E> {
+        let mut m = GradientDescentMessage {
+            step: 0,
+            x: self.x.clone(),
+            fx: self.fx,
+        };
+        for i in 0..self.options.max_iters {
+            m = self.step(i)?;
             if self.fx < self.fx_best {
                 self.x_best = self.x.clone();
                 self.fx_best = self.fx;
             }
-            callback(m);
+            callback(&m);
             if self.terminate() {
-                return Ok(());
+                return Ok(m);
             }
         }
-        Ok(())
+        Ok(m)
     }
 
     fn best(&self) -> (Vec<F>, F) {
