@@ -1,0 +1,28 @@
+name: coverage
+on: [push]
+jobs:
+  test:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+          override: true
+      - name: Checkout repository
+        uses: actions/checkout@main
+      - name: Install cargo-tarpaulin
+        uses: actions-rs/install@v0.1
+        with:
+          crate: cargo-tarpaulin
+          version: latest
+          use-tool-cache: true
+      - name: Generate code coverage
+        run: |
+          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@main
+        with:
+          token: ${{secrets.CODECOV_TOKEN}} # not required for public repos
+          fail_ci_if_error: true
