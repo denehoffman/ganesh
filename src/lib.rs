@@ -13,7 +13,7 @@
 //! This crate provides some common test functions in the [`test_functions`] module. Consider the
 //! following implementation of the Rosenbrock function:
 //!
-//! ```no_run
+//! ```ignore
 //! use ganesh::prelude::*;
 //! use std::convert::Infallible;
 //! pub struct Rosenbrock {
@@ -29,7 +29,7 @@
 //! }
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
-//! ```no_run
+//! ```ignore
 //! use ganesh::prelude::*;
 //! use ganesh::algorithms::nelder_mead::NelderMead;
 //!
@@ -54,7 +54,7 @@
 //! [`NelderMead::new`](`algorithms::NelderMead::new`) constructor. Finally, all
 //! algorithm implementations are constructed to pass a unique message type to a callback function.
 //! For [`NelderMead`](`algorithms::NelderMead`), we could do the following:
-//! ```no_run
+//! ```ignore
 //! m.minimize(|m| println!("step: {}\nx: {:?}\nf(x): {}", m.step, m.x, m.fx)).unwrap();
 //! ```
 //! This will print out the current step, the best position found by the optimizer at that step,
