@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 num-traits = "0.2.19"
 nalgebra = "0.33.0"
-derive_builder = "0.20.0"
+typed-builder = "0.18.2"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./docs-header.html"]

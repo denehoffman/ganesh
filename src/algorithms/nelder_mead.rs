@@ -1,29 +1,42 @@
-use derive_builder::Builder;
 use nalgebra::ComplexField;
+use typed_builder::TypedBuilder;
 
 use crate::{Field, Function, Minimizer};
 
-#[derive(Builder)]
+/// Used to set options for the [`NelderMead`] optimizer.
+///
+/// See also: [`NelderMeadOptions::builder()`]
+#[derive(TypedBuilder, Debug)]
 pub struct NelderMeadOptions<F: Field> {
     // TODO: validate coeffs, alpha > 0, gamma > 1, 0 < rho <= 0.5, sigma (0 < sigma < 1?)
-    #[builder(default = "F::from(0.1).unwrap()")]
-    simplex_size: F,
-    #[builder(default = "F::from(1.0).unwrap()")]
-    reflection_coeff: F,
-    #[builder(default = "F::from(2.0).unwrap()")]
-    expansion_coeff: F,
-    #[builder(default = "F::from(0.5).unwrap()")]
-    outside_contraction_coeff: F,
-    #[builder(default = "F::from(0.5).unwrap()")]
-    inside_contraction_coeff: F,
-    #[builder(default = "F::from(0.5).unwrap()")]
-    shrink_coeff: F,
-    #[builder(default = "F::from(1e-8).unwrap()")]
-    min_simplex_standard_deviation: F,
-    #[builder(default = "1000")]
-    max_iters: usize,
+    /// The step size from the starting point to each other point in the simplex (default = 1.0)
+    #[builder(default = F::convert(1.0))]
+    pub simplex_size: F,
+    /// The coefficient $`\alpha > 0`$ to use in the reflection step (default = 1.0)
+    #[builder(default = F::convert(1.0))]
+    pub reflection_coeff: F,
+    /// The coefficient $`\gamma > 1`$ to use in the expansion step (default = 2.0)
+    #[builder(default = F::convert(2.0))]
+    pub expansion_coeff: F,
+    /// The coefficient $`0 < \rho_o \leq 0.5`$ to use in the contraction step
+    /// in the case where the reflected point is better than the worst point in the simplex (default = 0.5)
+    #[builder(default = F::convert(0.5))]
+    pub outside_contraction_coeff: F,
+    /// The coefficient $`0 < \rho_i \leq 0.5`$ to use in the contraction step
+    /// in the case where the reflected point is worse than the worst point in the simplex (default = 0.5)
+    #[builder(default = F::convert(0.5))]
+    pub inside_contraction_coeff: F,
+    /// The coefficient $`\sigma > 0`$ to use in the shrink step (default = 0.5)
+    #[builder(default = F::convert(0.5))]
+    pub shrink_coeff: F,
+    /// If the standard deviation of the function at all points in the
+    /// simplex falls below this value, the algorithm will terminate/converge (default=1e-8)
+    #[builder(default = F::convert(1e-8))]
+    pub min_simplex_standard_deviation: F,
+    /// The maximum number of steps to compute (default = 1000)
+    #[builder(default = 1000)]
+    pub max_iters: usize,
 }
-
 pub struct NelderMead<F, E>
 where
     F: Field,

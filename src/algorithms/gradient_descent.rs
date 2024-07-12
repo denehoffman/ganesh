@@ -1,15 +1,24 @@
-use derive_builder::Builder;
+use nalgebra::ComplexField;
+use typed_builder::TypedBuilder;
 
 use crate::{Field, Function, Minimizer};
 
-#[derive(Builder)]
+/// Used to set options for the [`GradientDescent`] optimizer.
+///
+/// See also: [`GradientDescentOptions::builder()`]
+#[derive(TypedBuilder, Debug)]
 pub struct GradientDescentOptions<F: Field> {
-    #[builder(default = "F::one()")]
-    learning_rate: F,
-    #[builder(default = "1000")]
-    max_iters: usize,
+    /// The distance to move in the descent direction (default = 1.0)
+    #[builder(default = F::one())]
+    pub learning_rate: F,
+    /// The maximum number of steps to compute (default = 1000)
+    #[builder(default = 1000)]
+    pub max_iters: usize,
+    /// The minimum absolute difference between evaluations that will terminate the
+    /// algorithm (default = 1e-8)
+    #[builder(default = F::convert(1e-8))]
+    pub tolerance: F,
 }
-
 pub struct GradientDescent<F, E>
 where
     F: Field,

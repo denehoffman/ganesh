@@ -1,15 +1,24 @@
-use derive_builder::Builder;
+use nalgebra::ComplexField;
+use typed_builder::TypedBuilder;
 
 use crate::{Field, Function, Minimizer};
 
-#[derive(Builder)]
+/// Used to set options for the [`Newton`] optimizer.
+///
+/// See also: [`NewtonOptions::builder()`]
+#[derive(TypedBuilder, Debug)]
 pub struct NewtonOptions<F: Field> {
-    #[builder(default = "F::one()")]
-    step_size: F,
-    #[builder(default = "1000")]
-    max_iters: usize,
+    /// The distance to move in the Newton direction (default = 1.0)
+    #[builder(default = F::one())]
+    pub step_size: F,
+    /// The maximum number of steps to compute (default = 1000)
+    #[builder(default = 1000)]
+    pub max_iters: usize,
+    /// The minimum absolute difference between evaluations that will terminate the
+    /// algorithm (default = 1e-8)
+    #[builder(default = F::convert(1e-8))]
+    pub tolerance: F,
 }
-
 pub struct Newton<F, E>
 where
     F: Field,
