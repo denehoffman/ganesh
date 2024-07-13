@@ -2,6 +2,15 @@
 name = "ganesh"
 version = "0.1.0"
 edition = "2021"
+description = "Function minimization in Rust, simplified"
+documentation = "https://docs.rs/ganesh"
+readme = "README.md"
+homepage = "https://github.com/denehoffman/ganesh"
+repository = "https://github.com/denehoffman/ganesh"
+license-file = "LICENSE"
+keywords = ["optimization", "minimization"]
+categories = ["science", "mathematics"]
+
 
 [dependencies]
 num-traits = "0.2.19"
