@@ -25,7 +25,7 @@ checksum = "b236fc92302c97ed75b38da1f4917b5cdda4984745740f153a5d3059e48d725e"
 
 [[package]]
 name = "ganesh"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nalgebra",
  "num-traits",
