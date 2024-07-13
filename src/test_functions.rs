@@ -43,7 +43,7 @@ impl Function<f64, Infallible> for Sphere {
 /// ```math
 /// f(\vec{x}) = \sum_{i=1}^{n-1} \left[100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2 \right]
 /// ```
-/// where $`n >= 2`$. This function has a minimum at $`f(\vec{1}) = 0`$.
+/// where $`n \geq 2`$. This function has a minimum at $`f(\vec{1}) = 0`$.
 pub struct Rosenbrock {
     /// Number of dimensions (must be at least 2)
     pub n: usize,
