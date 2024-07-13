@@ -1,17 +1,25 @@
-//! A crate for function minimization using simple, generic traits.
+//! `ganesh`, (/ɡəˈneɪʃ/) named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`Function`] trait on some struct which will take a vector of parameters and return a single-valued [`Result`] ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide gradient and Hessian functions to speed up some algorithms, but a default finite-difference implementation is provided so that all algorithms will work out of the box.
 //!
-//! `ganesh`, named after the Hindu god of wisdom, provides several common minimization algorithms
-//! as well as a straightforward, trait-based interface to create your own extensions. This crate is
-//! intended to be as simple as possible. The user needs to implement the [`Function`] trait on some
-//! struct which will take a vector of parameters and return a single-valued result
-//! ($`f(\Reals^n) \to \Reals`$). Users can optionally provide gradient and Hessian functions to
-//! speed up some algorithms, but a default finite-difference implementation is provided so that all
-//! algorithms will work out of the box.
+//! <div class="warning">
+//!
+//! This crate is still in an early development phase, and the API is not stable. It can (and likely will) be subject to breaking changes before the 1.0.0 version release (and hopefully not many after that).
+//!
+//! </div>
+//!
+//! # Table of Contents
+//! - [Key Features](#key-features)
+//! - [Quick Start](#quick-start)
+//! - [Future Plans](#future-plans)
+//!
+//! # Key Features
+//! * Simple but powerful trait-oriented library which tries to follow the Unix philosophy of "do one thing and do it well".
+//! * Generics to allow for different numeric types to be used in the provided algorithms.
+//! * Algorithms that are simple to use with sensible defaults.
+//! * Traits which make developing future algorithms simple and consistent.
 //!
 //! # Quick Start
 //!
-//! This crate provides some common test functions in the [`test_functions`] module. Consider the
-//! following implementation of the Rosenbrock function:
+//! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the [`Rosenbrock`](`test_functions::Rosenbrock`) function:
 //!
 //! ```ignore
 //! use ganesh::prelude::*;
@@ -28,14 +36,14 @@
 //!     }
 //! }
 //! ```
-//! To minimize this function, we could consider using the Nelder-Mead algorithm:
+//! To minimize this function, we could consider using the [Nelder-Mead](`algorithms::NelderMead`) algorithm:
 //! ```ignore
 //! use ganesh::prelude::*;
-//! use ganesh::algorithms::nelder_mead::NelderMead;
+//! use ganesh::algorithms::NelderMead;
 //!
 //! let func = Rosenbrock { n: 2 };
 //! let mut m = NelderMead::new(func, &[-2.3, 3.4], None);
-//! m.minimize(|_| {}).unwrap();
+//! let status = minimize!(m).unwrap();
 //! let (x_best, fx_best) = m.best();
 //! println!("x: {:?}\nf(x): {}", x_best, fx_best);
 //! ```
@@ -46,20 +54,13 @@
 //! f(x): 0.000000006421349269800761
 //! ```
 //!
-//! We could also swap the `f64`s for `f32`s (or any type which implements the [`Field`] trait) in
-//! the Rosenbrock implementation. Additionally, if we wanted to modify any of the hyperparameters
-//! in the fitting algorithm, we could use
-//! [`NelderMeadOptions::builder()`](`algorithms::NelderMeadOptions::builder`) and
-//! pass it as the third argument in the
-//! [`NelderMead::new`](`algorithms::NelderMead::new`) constructor. Finally, all
-//! algorithm implementations are constructed to pass a unique message type to a callback function.
-//! For [`NelderMead`](`algorithms::NelderMead`), we could do the following:
+//! I have ignored the `status` variable here, but in practice, the [`Minimizer::minimize`] method should return the last message sent by the algorithm. This can indicate the status of a fit without explicitly causing an error. This makes it easier to debug, since it can be tedious to have two separate error types, one for the function and one for the algorithm, returned by the minimization (functions can always be failable in this crate). We could also swap the `f64`s for `f32`s (or any type which implements the [`Field`] trait) in the Rosenbrock implementation. Additionally, if we wanted to modify any of the hyperparameters in the fitting algorithm, we could use [`NelderMeadOptions::builder()`](`algorithms::nelder_mead::NelderMeadOptions::builder`) and pass it as the third argument in the [`NelderMead::new`][`algorithms::NelderMead::new`] constructor. Finally, all algorithm implementations are constructed to pass a unique message type to a callback function. For [`NelderMead`](`algorithms::NelderMead`), we could do the following:
 //! ```ignore
-//! m.minimize(|m| println!("step: {}\nx: {:?}\nf(x): {}", m.step, m.x, m.fx)).unwrap();
+//! let status = minimize!(m, |message| println!("step: {}\nx: {:?}\nf(x): {}", message.step, message.x, message.fx)).unwrap();
 //! ```
-//! This will print out the current step, the best position found by the optimizer at that step,
-//! and the function's evaluation at that position for each step in the algorithm. You can use the
-//! step number to limit printing (print only steps divisible by 100, for example).
+//! This will print out the current step, the best position found by the optimizer at that step, and the function's evaluation at that position for each step in the algorithm. You can use the step number to limit printing (print only steps divisible by 100, for example).
+//!
+//! The `minimize!` macro exists to simplify the [`Minimizer::minimize<Callback: Fn(M)>(&mut self, callback: Callback)`](`Minimizer::minimize`) call, which looks [a bit ugly](https://enet4.github.io/rust-tropes/#toilet-closure) if you don't actually want a callback.
 #![warn(
     clippy::nursery,
     clippy::unwrap_used,
