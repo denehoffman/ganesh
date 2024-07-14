@@ -1,7 +1,7 @@
 use nalgebra::ComplexField;
 use typed_builder::TypedBuilder;
 
-use crate::{Field, Function, Minimizer};
+use crate::core::{Field, Function, Minimizer};
 
 /// Used to set options for the [`NelderMead`] optimizer.
 ///
@@ -103,11 +103,11 @@ impl<F: Field> NelderMeadOptions<F> {
 /// See [`NelderMeadOptions`] to set the values of $`\alpha`$, $`\gamma`$, $`\rho_i`$, $`\rho_o`$,
 /// and $`\sigma`$.
 ///
-pub struct NelderMead<F, E>
+pub struct NelderMead<F, A, E>
 where
     F: Field,
 {
-    function: Box<dyn Function<F, E>>,
+    function: Box<dyn Function<F, A, E>>,
     options: NelderMeadOptions<F>,
     simplex_x: Vec<Vec<F>>,
     simplex_fx: Vec<F>,
@@ -117,13 +117,13 @@ where
     fx_best: F,
     n_simplex: usize,
 }
-impl<F, E> NelderMead<F, E>
+impl<F, A, E> NelderMead<F, A, E>
 where
     F: Field,
 {
     /// Create a new Nelder-Mead optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
-    pub fn new<Func: Function<F, E> + 'static>(
+    pub fn new<Func: Function<F, A, E> + 'static>(
         function: Func,
         x0: &[F],
         options: Option<NelderMeadOptions<F>>,
@@ -156,11 +156,11 @@ where
             })
             .collect()
     }
-    fn evaluate_simplex(&mut self) -> Result<(), E> {
+    fn evaluate_simplex(&mut self, args: &Option<A>) -> Result<(), E> {
         let simplex_fx_res = self
             .simplex_x
             .iter()
-            .map(|x| self.function.evaluate(x))
+            .map(|x| self.function.evaluate(x, args))
             .collect::<Result<Vec<F>, E>>()?;
         self.simplex_fx = simplex_fx_res;
         Ok(())
@@ -179,7 +179,7 @@ where
         self.simplex_x = sorted_simplex_x;
         self.simplex_fx = sorted_simplex_fx;
     }
-    fn calculate_centroid(&mut self) -> Result<(), E> {
+    fn calculate_centroid(&mut self, args: &Option<A>) -> Result<(), E> {
         assert!(!self.simplex_x.is_empty(), "Simplex is empty!");
         let dim = self.simplex_x[0].len();
         let n_points = F::convert_usize(self.simplex_x.len() - 1);
@@ -193,7 +193,7 @@ where
                     / n_points
             })
             .collect();
-        self.centroid_fx = self.function.evaluate(&self.centroid_x)?;
+        self.centroid_fx = self.function.evaluate(&self.centroid_x, args)?;
         Ok(())
     }
     fn reflect(&self) -> Vec<F> {
@@ -234,10 +234,10 @@ where
                 .collect();
         })
     }
-    fn replace_worst(&mut self, x: &[F]) -> Result<(), E> {
+    fn replace_worst(&mut self, x: &[F], args: &Option<A>) -> Result<(), E> {
         let i_last = self.simplex_x.len() - 1;
         self.simplex_x[i_last] = x.to_vec();
-        self.simplex_fx[i_last] = self.function.evaluate(x)?;
+        self.simplex_fx[i_last] = self.function.evaluate(x, args)?;
         Ok(())
     }
 }
@@ -255,20 +255,20 @@ pub struct NelderMeadMessage<F> {
     pub fx: F,
 }
 
-impl<F, E> Minimizer<F, NelderMeadMessage<F>, E> for NelderMead<F, E>
+impl<F, A, E> Minimizer<F, A, NelderMeadMessage<F>, E> for NelderMead<F, A, E>
 where
     F: Field,
 {
-    fn step(&mut self, i: usize) -> Result<NelderMeadMessage<F>, E> {
+    fn step(&mut self, i: usize, args: &Option<A>) -> Result<NelderMeadMessage<F>, E> {
         let fx_best = self.simplex_fx[0];
         let fx_second_worst = self.simplex_fx[self.n_simplex - 2];
         let fx_worst = self.simplex_fx[self.n_simplex - 1];
         let x_r = self.reflect();
-        let fx_r = self.function.evaluate(&x_r)?;
+        let fx_r = self.function.evaluate(&x_r, args)?;
         if fx_r < fx_best {
             let x_e = self.expand(&x_r);
-            let fx_e = self.function.evaluate(&x_e)?;
-            self.replace_worst(if fx_e < fx_r { &x_e } else { &x_r })?;
+            let fx_e = self.function.evaluate(&x_e, args)?;
+            self.replace_worst(if fx_e < fx_r { &x_e } else { &x_r }, args)?;
             return Ok(NelderMeadMessage {
                 step: i,
                 x_c: self.centroid_x.clone(),
@@ -277,7 +277,7 @@ where
                 fx: fx_r,
             });
         } else if fx_r < fx_second_worst {
-            self.replace_worst(&x_r)?;
+            self.replace_worst(&x_r, args)?;
             return Ok(NelderMeadMessage {
                 step: i,
                 x_c: self.centroid_x.clone(),
@@ -287,9 +287,9 @@ where
             });
         } else if fx_r < fx_worst {
             let x_c = self.contract_outside(&x_r);
-            let fx_c = self.function.evaluate(&x_c)?;
+            let fx_c = self.function.evaluate(&x_c, args)?;
             if fx_c < fx_r {
-                self.replace_worst(&x_c)?;
+                self.replace_worst(&x_c, args)?;
                 return Ok(NelderMeadMessage {
                     step: i,
                     x_c: self.centroid_x.clone(),
@@ -300,9 +300,9 @@ where
             }
         } else {
             let x_c = self.contract_inside(&x_r);
-            let fx_c = self.function.evaluate(&x_c)?;
+            let fx_c = self.function.evaluate(&x_c, args)?;
             if fx_c < fx_worst {
-                self.replace_worst(&x_c)?;
+                self.replace_worst(&x_c, args)?;
                 return Ok(NelderMeadMessage {
                     step: i,
                     x_c: self.centroid_x.clone(),
@@ -334,9 +334,10 @@ where
 
     fn minimize<Func: Fn(&NelderMeadMessage<F>)>(
         &mut self,
+        args: &Option<A>,
         callback: Func,
     ) -> Result<NelderMeadMessage<F>, E> {
-        self.evaluate_simplex()?;
+        self.evaluate_simplex(args)?;
         self.order_simplex();
         let mut m = NelderMeadMessage {
             step: 0,
@@ -349,11 +350,11 @@ where
             self.order_simplex();
             self.x_best = self.simplex_x[0].clone();
             self.fx_best = self.simplex_fx[0];
-            self.calculate_centroid()?;
+            self.calculate_centroid(args)?;
             if self.terminate() {
                 return Ok(m);
             }
-            m = self.step(i)?;
+            m = self.step(i, args)?;
             callback(&m);
         }
         Ok(m)
