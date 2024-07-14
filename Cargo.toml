@@ -17,5 +17,12 @@ num-traits = "0.2.19"
 nalgebra = "0.33.0"
 typed-builder = "0.18.2"
 
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "rosenbrock_benchmark"
+harness = false
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./docs-header.html"]
