@@ -51,11 +51,12 @@ impl Field for f64 {
 
 /// Represents a multivariate function that can be evaluated and differentiated.
 ///
-/// This trait is generic over the field type `F` and an error type `E`.
+/// This trait is generic over the field type `F`, an argument type `A`, and an error type `E`.
 ///
 /// # Type Parameters
 ///
 /// * `F`: A type that implements [`Field`] and has a `'static` lifetime.
+/// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `E`: The error type returned by the function's methods.
 pub trait Function<F, A, E>
 where
@@ -66,6 +67,8 @@ where
     /// # Arguments
     ///
     /// * `x`: A slice of `F` representing the point at which to evaluate the function.
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
     ///
     /// # Returns
     ///
@@ -84,6 +87,8 @@ where
     /// # Arguments
     ///
     /// * `x`: A slice of `F` representing the point at which to compute the gradient.
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
     ///
     /// # Returns
     ///
@@ -122,6 +127,8 @@ where
     /// # Arguments
     ///
     /// * `x`: A slice of `F` representing the point at which to compute the gradient and Hessian.
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
     ///
     /// # Returns
     ///
@@ -204,6 +211,7 @@ where
 /// # Type Parameters
 ///
 /// * `F`: A type that implements [`Field`].
+/// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `M`: A message type used to pass information from the algorithm to the callback function.
 /// * `E`: The error type returned by the minimizer's methods.
 pub trait Minimizer<F, A, M, E>
@@ -211,6 +219,12 @@ where
     F: Field,
 {
     /// Performs a single step of the minimization algorithm.
+    ///
+    /// # Arguments
+    ///
+    /// * `i`: Used to input the current step so that it can be passed around in messages.
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
     ///
     /// # Returns
     ///
@@ -236,6 +250,8 @@ where
     ///
     /// # Arguments
     ///
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
     /// * `callback`: A function that is called after each step with a message of type `M`. Use
     ///   `minimize(|_| {})` as a pass-through function if you don't need a callback.
     ///
