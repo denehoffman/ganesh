@@ -133,7 +133,7 @@ impl Field for f64 {
 ///
 /// * `F`: A type that implements [`Field`] and has a `'static` lifetime.
 /// * `E`: The error type returned by the function's methods.
-pub trait Function<F, E>
+pub trait Function<F, A, E>
 where
     F: Field + 'static,
 {
@@ -150,7 +150,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the evaluation fails.
-    fn evaluate(&self, x: &[F]) -> Result<F, E>;
+    fn evaluate(&self, x: &[F], args: &Option<A>) -> Result<F, E>;
 
     /// Computes the gradient of the function at the given point using central finite
     /// differences.
@@ -168,7 +168,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
-    fn gradient(&self, x: &[F]) -> Result<DVector<F>, E> {
+    fn gradient(&self, x: &[F], args: &Option<A>) -> Result<DVector<F>, E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let h = ComplexField::cbrt(F::epsilon());
@@ -178,8 +178,8 @@ where
             let mut x_minus = x.to_vec();
             x_plus[i] += h;
             x_minus[i] -= h;
-            let f_plus = self.evaluate(&x_plus)?;
-            let f_minus = self.evaluate(&x_minus)?;
+            let f_plus = self.evaluate(&x_plus, args)?;
+            let f_minus = self.evaluate(&x_minus, args)?;
             grad[i] = (f_plus - f_minus) / (F::convert(2.0) * h);
         }
 
@@ -203,7 +203,11 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
-    fn gradient_and_hessian(&self, x: &[F]) -> Result<(DVector<F>, DMatrix<F>), E> {
+    fn gradient_and_hessian(
+        &self,
+        x: &[F],
+        args: &Option<A>,
+    ) -> Result<(DVector<F>, DMatrix<F>), E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let mut hess = DMatrix::zeros(n, n);
@@ -221,9 +225,9 @@ where
                     x_plus[i] += h;
                     x_minus[i] -= h;
 
-                    let f_plus = self.evaluate(&x_plus)?;
-                    let f_minus = self.evaluate(&x_minus)?;
-                    let f_center = self.evaluate(x)?;
+                    let f_plus = self.evaluate(&x_plus, args)?;
+                    let f_minus = self.evaluate(&x_minus, args)?;
+                    let f_center = self.evaluate(x, args)?;
 
                     grad[i] = (f_plus - f_minus) / (two * h);
                     hess[(i, i)] = (f_plus - two * f_center + f_minus) / (h * h);
@@ -243,10 +247,10 @@ where
                     x_minus_minus[i] -= h;
                     x_minus_minus[j] -= h;
 
-                    let f_plus_plus = self.evaluate(&x_plus_plus)?;
-                    let f_plus_minus = self.evaluate(&x_plus_minus)?;
-                    let f_minus_plus = self.evaluate(&x_minus_plus)?;
-                    let f_minus_minus = self.evaluate(&x_minus_minus)?;
+                    let f_plus_plus = self.evaluate(&x_plus_plus, args)?;
+                    let f_plus_minus = self.evaluate(&x_plus_minus, args)?;
+                    let f_minus_plus = self.evaluate(&x_minus_plus, args)?;
+                    let f_minus_minus = self.evaluate(&x_minus_minus, args)?;
 
                     hess[(i, j)] = (f_plus_plus - f_plus_minus - f_minus_plus + f_minus_minus)
                         / (four * h * h);
@@ -268,7 +272,7 @@ where
 /// * `F`: A type that implements [`Field`].
 /// * `M`: A message type used to pass information from the algorithm to the callback function.
 /// * `E`: The error type returned by the minimizer's methods.
-pub trait Minimizer<F, M, E>
+pub trait Minimizer<F, A, M, E>
 where
     F: Field,
 {
@@ -281,7 +285,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the step fails.
-    fn step(&mut self, i: usize) -> Result<M, E>;
+    fn step(&mut self, i: usize, args: &Option<A>) -> Result<M, E>;
 
     /// Checks if the termination condition for the algorithm has been met.
     ///
@@ -304,7 +308,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the minimization process fails.
-    fn minimize<Callback: Fn(&M)>(&mut self, callback: Callback) -> Result<M, E>;
+    fn minimize<Callback: Fn(&M)>(&mut self, args: &Option<A>, callback: Callback) -> Result<M, E>;
 
     /// Returns the best solution found so far by the minimization algorithm.
     ///
@@ -320,10 +324,10 @@ where
 #[macro_export]
 macro_rules! minimize {
     ($minimizer:expr) => {
-        $minimizer.minimize(|_| {})
+        $minimizer.minimize(None, |_| {})
     };
     ($minimizer:expr, $callback:expr) => {
-        $minimizer.minimize($callback)
+        $minimizer.minimize(None, $callback)
     };
 }
 

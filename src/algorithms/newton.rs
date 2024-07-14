@@ -34,11 +34,11 @@ pub struct NewtonOptions<F: Field> {
 ///
 /// This method will terminate if either [`NewtonOptions::max_iters`] steps are performed or if
 /// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`NewtonOptions::tolerance`].
-pub struct Newton<F, E>
+pub struct Newton<F, A, E>
 where
     F: Field,
 {
-    function: Box<dyn Function<F, E>>,
+    function: Box<dyn Function<F, A, E>>,
     options: NewtonOptions<F>,
     x: Vec<F>,
     fx: F,
@@ -46,13 +46,13 @@ where
     x_best: Vec<F>,
     fx_best: F,
 }
-impl<F, E> Newton<F, E>
+impl<F, A, E> Newton<F, A, E>
 where
     F: Field,
 {
     /// Create a new Newton optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
-    pub fn new<Func: Function<F, E> + 'static>(
+    pub fn new<Func: Function<F, A, E> + 'static>(
         function: Func,
         x0: &[F],
         options: Option<NewtonOptions<F>>,
@@ -82,20 +82,20 @@ pub struct NewtonMessage<F> {
     pub singular_hessian: bool,
 }
 
-impl<F, E> Minimizer<F, NewtonMessage<F>, E> for Newton<F, E>
+impl<F, A, E> Minimizer<F, A, NewtonMessage<F>, E> for Newton<F, A, E>
 where
     F: Field,
 {
-    fn step(&mut self, i: usize) -> Result<NewtonMessage<F>, E> {
+    fn step(&mut self, i: usize, args: &Option<A>) -> Result<NewtonMessage<F>, E> {
         self.fx_old = self.fx;
-        let (gradient, hessian) = self.function.gradient_and_hessian(&self.x)?;
+        let (gradient, hessian) = self.function.gradient_and_hessian(&self.x, args)?;
         match hessian.lu().solve(&-gradient) {
             Some(sol) => {
                 self.x
                     .iter_mut()
                     .zip(sol.as_slice())
                     .for_each(|(x, dx)| *x += self.options.step_size * *dx);
-                self.fx = self.function.evaluate(&self.x)?;
+                self.fx = self.function.evaluate(&self.x, args)?;
                 Ok(NewtonMessage {
                     step: i,
                     x: self.x.clone(),
@@ -118,6 +118,7 @@ where
 
     fn minimize<Func: Fn(&NewtonMessage<F>)>(
         &mut self,
+        args: &Option<A>,
         callback: Func,
     ) -> Result<NewtonMessage<F>, E> {
         let mut m = NewtonMessage {
@@ -127,7 +128,7 @@ where
             singular_hessian: false,
         };
         for i in 0..self.options.max_iters {
-            m = self.step(i)?;
+            m = self.step(i, args)?;
             if self.fx < self.fx_best {
                 self.x_best = self.x.clone();
                 self.fx_best = self.fx;
