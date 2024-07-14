@@ -1,7 +1,7 @@
 use nalgebra::ComplexField;
 use typed_builder::TypedBuilder;
 
-use crate::{Field, Function, Minimizer};
+use crate::core::{Field, Function, Minimizer};
 
 /// Used to set options for the [`GradientDescent`] optimizer.
 ///

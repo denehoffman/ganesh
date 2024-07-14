@@ -1,7 +1,7 @@
 #![allow(clippy::suboptimal_flops)]
 use std::{convert::Infallible, f64::consts::PI};
 
-use crate::Function;
+use crate::core::Function;
 
 /// The Rastrigin function, a non-convex function with multiple modes.
 ///
