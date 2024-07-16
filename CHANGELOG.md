@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/denehoffman/ganesh/compare/v0.1.0...v0.2.0) - 2024-07-14
+
+### Fixed
+- re-implement args that were lost in merge
+- move main traits to core module and modify gradient and hessian methods to work better at larger values
+
+### Other
+- update docstrings to reflect arguments
+- Merge branch 'development' of https://github.com/denehoffman/ganesh into development
+- add benchmark
+- release
+
 ## [0.1.0](https://github.com/denehoffman/ganesh/releases/tag/v0.1.0) - 2024-07-13
 
 ### Added
