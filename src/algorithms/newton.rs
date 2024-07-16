@@ -11,9 +11,6 @@ pub struct NewtonOptions<F: Field> {
     /// The distance to move in the Newton direction (default = 1.0)
     #[builder(default = F::one())]
     pub step_size: F,
-    /// The maximum number of steps to compute (default = 1000)
-    #[builder(default = 1000)]
-    pub max_iters: usize,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
     #[builder(default = F::convert(1e-8))]
@@ -45,6 +42,8 @@ where
     fx_old: F,
     x_best: Vec<F>,
     fx_best: F,
+    current_step: usize,
+    singular_hessian: bool,
 }
 impl<F, A, E> Newton<F, A, E>
 where
@@ -65,28 +64,18 @@ where
             fx_old: F::nan(),
             x_best: vec![F::nan(); x0.len()],
             fx_best: F::nan(),
+            current_step: 0,
+            singular_hessian: false,
         }
     }
 }
 
-/// A message passed into the [`Newton::minimize`] callback.
-#[derive(Clone)]
-pub struct NewtonMessage<F> {
-    /// The current step number.
-    pub step: usize,
-    /// The current position of the minimizer.
-    pub x: Vec<F>,
-    /// The current value of the minimizer function.
-    pub fx: F,
-    /// Whether the Hessian was invertable or not
-    pub singular_hessian: bool,
-}
-
-impl<F, A, E> Minimizer<F, A, NewtonMessage<F>, E> for Newton<F, A, E>
+impl<F, A, E> Minimizer<F, A, E> for Newton<F, A, E>
 where
     F: Field,
 {
-    fn step(&mut self, i: usize, args: &Option<A>) -> Result<NewtonMessage<F>, E> {
+    fn step(&mut self, args: Option<&A>) -> Result<(), E> {
+        self.current_step += 1;
         self.fx_old = self.fx;
         let (gradient, hessian) = self.function.gradient_and_hessian(&self.x, args)?;
         match hessian.lu().solve(&-gradient) {
@@ -96,52 +85,25 @@ where
                     .zip(sol.as_slice())
                     .for_each(|(x, dx)| *x += self.options.step_size * *dx);
                 self.fx = self.function.evaluate(&self.x, args)?;
-                Ok(NewtonMessage {
-                    step: i,
-                    x: self.x.clone(),
-                    fx: self.fx,
-                    singular_hessian: false,
-                })
             }
-            None => Ok(NewtonMessage {
-                step: i,
-                x: self.x.clone(),
-                fx: self.fx,
-                singular_hessian: true,
-            }),
-        }
-    }
-
-    fn terminate(&self) -> bool {
-        ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance)
-    }
-
-    fn minimize<Func: Fn(&NewtonMessage<F>)>(
-        &mut self,
-        args: &Option<A>,
-        callback: Func,
-    ) -> Result<NewtonMessage<F>, E> {
-        let mut m = NewtonMessage {
-            step: 0,
-            x: self.x.clone(),
-            fx: self.fx,
-            singular_hessian: false,
+            None => self.singular_hessian = true,
         };
-        for i in 0..self.options.max_iters {
-            m = self.step(i, args)?;
-            if self.fx < self.fx_best {
-                self.x_best = self.x.clone();
-                self.fx_best = self.fx;
-            }
-            callback(&m);
-            if self.terminate() {
-                return Ok(m);
-            }
-        }
-        Ok(m)
+        Ok(())
     }
 
-    fn best(&self) -> (Vec<F>, F) {
-        (self.x_best.clone(), self.fx_best)
+    fn check_for_termination(&self) -> bool {
+        (ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance))
+            || self.singular_hessian
+    }
+
+    fn best(&self) -> (&Vec<F>, &F) {
+        (self.x_best.as_ref(), &self.fx_best)
+    }
+
+    fn update_best(&mut self) {
+        if self.fx < self.fx_best {
+            self.x_best = self.x.clone();
+            self.fx_best = self.fx;
+        }
     }
 }

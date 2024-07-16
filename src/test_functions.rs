@@ -14,7 +14,7 @@ pub struct Rastrigin {
     pub n: usize,
 }
 impl Function<f64, (), Infallible> for Rastrigin {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok(10.0 * (self.n as f64)
             + (0..self.n)
                 .map(|i| x[i].powi(2) - 10.0 * f64::cos(2.0 * PI * x[i]))
@@ -33,7 +33,7 @@ pub struct Sphere {
     pub n: usize,
 }
 impl Function<f64, (), Infallible> for Sphere {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok((0..self.n).map(|i| x[i].powi(2)).sum())
     }
 }
@@ -49,7 +49,7 @@ pub struct Rosenbrock {
     pub n: usize,
 }
 impl Function<f64, (), Infallible> for Rosenbrock {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
             .sum())
@@ -65,7 +65,7 @@ impl Function<f64, (), Infallible> for Rosenbrock {
 /// where $`-2 \leq x,y \leq 2`$. This function has a global minimum at $`f(0, -1) = 3`$.
 pub struct GoldsteinPrice;
 impl Function<f64, (), Infallible> for GoldsteinPrice {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok((1.0
             + (x[0] + x[1] + 1.0).powi(2)
                 * (19.0 - 14.0 * x[0] + 3.0 * x[0].powi(2) - 14.0 * x[1]
@@ -88,7 +88,7 @@ impl Function<f64, (), Infallible> for GoldsteinPrice {
 /// $`f(-10, 1) = 0`$.
 pub struct Bukin6;
 impl Function<f64, (), Infallible> for Bukin6 {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok(100.0 * f64::sqrt(f64::abs(x[1] - 0.01 * x[0].powi(2))) + 0.01 * f64::abs(x[0] + 10.0))
     }
 }
@@ -101,7 +101,7 @@ impl Function<f64, (), Infallible> for Bukin6 {
 /// where $`-4 \leq x,y,z,w \leq 5`$. This function has a global minimum at $`f(0,0,0,0) = 0`$.
 pub struct Powell;
 impl Function<f64, (), Infallible> for Powell {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         Ok((x[0] + 10.0 * x[1]).powi(2)
             + 5.0 * (x[2] - x[3]).powi(2)
             + (x[1] - 2.0 * x[2]).powi(4)
@@ -119,7 +119,7 @@ impl Function<f64, (), Infallible> for Powell {
 /// $`-100 \leq x,y,z \leq 100`$. This function has a global minimum at $`f(1,0,0) = 0`$.
 pub struct PowellFletcher;
 impl Function<f64, (), Infallible> for PowellFletcher {
-    fn evaluate(&self, x: &[f64], _args: &Option<()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
         let theta = if x[0] > 0.0 {
             f64::atan(x[1] / x[0]) / (2.0 * PI)
         } else {

@@ -77,7 +77,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the evaluation fails.
-    fn evaluate(&self, x: &[F], args: &Option<A>) -> Result<F, E>;
+    fn evaluate(&self, x: &[F], args: Option<&A>) -> Result<F, E>;
 
     /// Computes the gradient of the function at the given point using central finite
     /// differences.
@@ -97,7 +97,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
-    fn gradient(&self, x: &[F], args: &Option<A>) -> Result<DVector<F>, E> {
+    fn gradient(&self, x: &[F], args: Option<&A>) -> Result<DVector<F>, E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let h: Vec<F> = x
@@ -142,7 +142,7 @@ where
     fn gradient_and_hessian(
         &self,
         x: &[F],
-        args: &Option<A>,
+        args: Option<&A>,
     ) -> Result<(DVector<F>, DMatrix<F>), E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
@@ -212,35 +212,50 @@ where
 ///
 /// * `F`: A type that implements [`Field`].
 /// * `A`: A type that can be used to pass arguments to the wrapped function.
-/// * `M`: A message type used to pass information from the algorithm to the callback function.
 /// * `E`: The error type returned by the minimizer's methods.
-pub trait Minimizer<F, A, M, E>
+pub trait Minimizer<F, A, E>
 where
     F: Field,
 {
+    /// Start the algorithm with any initialization steps or evaluations.
+    ///
+    /// # Arguments
+    ///
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of type `E` if the initialization fails.
+    fn initialize(&mut self, _args: Option<&A>) -> Result<(), E> {
+        Ok(())
+    }
+
     /// Performs a single step of the minimization algorithm.
     ///
     /// # Arguments
     ///
-    /// * `i`: Used to input the current step so that it can be passed around in messages.
     /// * `args`: An optional argument struct used to pass static arguments to the internal
     ///   function.
-    ///
-    /// # Returns
-    ///
-    /// A message of type `M` containing information about the current state of the optimization.
     ///
     /// # Errors
     ///
     /// Returns an error of type `E` if the step fails.
-    fn step(&mut self, i: usize, args: &Option<A>) -> Result<M, E>;
+    fn step(&mut self, args: Option<&A>) -> Result<(), E>;
 
     /// Checks if the termination condition for the algorithm has been met.
     ///
     /// # Returns
     ///
     /// `true` if the algorithm should terminate, `false` otherwise.
-    fn terminate(&self) -> bool;
+    fn check_for_termination(&self) -> bool;
+
+    /// Update the best point found in the algorithm.
+    ///
+    /// Run any methods to update the best-yet point and evaluation. This method should probably
+    /// set some fields like `self.fx_best` and `self.x_best` which are then returned by
+    /// [`Minimizer::best`].
+    fn update_best(&mut self);
 
     /// Runs the minimization algorithm to completion, calling the provided callback after each step.
     ///
@@ -258,7 +273,23 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the minimization process fails.
-    fn minimize<Callback: Fn(&M)>(&mut self, args: &Option<A>, callback: Callback) -> Result<M, E>;
+    fn minimize<Callback: Fn(&Self)>(
+        &mut self,
+        args: Option<&A>,
+        steps: usize,
+        callback: Callback,
+    ) -> Result<(), E> {
+        self.initialize(args)?;
+        for _ in 0..steps {
+            self.step(args)?;
+            self.update_best();
+            callback(self);
+            if self.check_for_termination() {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
 
     /// Returns the best solution found so far by the minimization algorithm.
     ///
@@ -267,16 +298,16 @@ where
     /// A tuple containing:
     /// - A vector of `F` representing the best point found.
     /// - The function value of type `F` at the best point.
-    fn best(&self) -> (Vec<F>, F);
+    fn best(&self) -> (&Vec<F>, &F);
 }
 
 /// A macro to clean up minimization statements
 #[macro_export]
 macro_rules! minimize {
-    ($minimizer:expr) => {
-        $minimizer.minimize(&None, |_| {})
+    ($minimizer:expr, $nsteps:expr) => {
+        $minimizer.minimize(None, $nsteps as usize, |_| {})
     };
-    ($minimizer:expr, $callback:expr) => {
-        $minimizer.minimize(&None, $callback)
+    ($minimizer:expr, $nsteps:expr, $callback:expr) => {
+        $minimizer.minimize(None, $nsteps as usize, $callback)
     };
 }
