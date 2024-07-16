@@ -58,7 +58,7 @@ impl Field for f64 {
 /// * `F`: A type that implements [`Field`] and has a `'static` lifetime.
 /// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `E`: The error type returned by the function's methods.
-pub trait Function<F, A, E>
+pub trait Function<F, A, E>: Send + Sync
 where
     F: Field + 'static,
 {
