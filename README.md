@@ -1,4 +1,10 @@
 <p align="center">
+  <img
+    width="800"
+    src="media/logo.png"
+  />
+</p>
+<p align="center">
   <h1 align="center">Ganesh</h1>
 </p>
 <p align="center">
