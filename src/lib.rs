@@ -60,7 +60,7 @@
 //! ```
 //! This will print out the current step, the best position found by the optimizer at that step, and the function's evaluation at that position for each step in the algorithm. You can use the step number to limit printing (print only steps divisible by 100, for example).
 //!
-//! The `minimize!` macro exists to simplify the [`Minimizer::minimize<Callback: Fn(M)>(&mut self, callback: Callback)`](`Minimizer::minimize`) call, which looks [a bit ugly](https://enet4.github.io/rust-tropes/#toilet-closure) if you don't actually want a callback.
+//! The `minimize!` macro exists to simplify the [`Minimizer<F, A, E>::minimize<Callback: Fn(&Self)>(&mut self, args: Option<&A>, steps: usize, callback: Option<Callback>) -> Result<(), E>`](`Minimizer::minimize`) call if you don't actually want a callback or arguments.
 #![warn(
     clippy::nursery,
     clippy::unwrap_used,
