@@ -1,5 +1,4 @@
 use nalgebra::{ComplexField, DMatrix, DVector};
-use num_traits::Float;
 
 /// A trait that extends [`Float`] and [`ComplexField`] with additional conversion methods.
 ///
@@ -7,7 +6,13 @@ use num_traits::Float;
 /// - `Float`: Provides basic floating-point operations.
 /// - `ComplexField`: Allows for complex number operations.
 /// - `std::iter::Sum`: Enables summing of collections of this type.
-pub trait Field: Float + ComplexField + std::iter::Sum {
+pub trait Field: ComplexField + std::iter::Sum + Copy + std::cmp::PartialOrd {
+    /// Alias for machine epsilon.
+    /// See also [`f64::EPSILON`] and [`f32::EPSILON`].
+    const EPSILON: Self;
+    /// Alias for not-a-number (NAN).
+    /// See also [`f64::NAN`] and [`f32::NAN`].
+    const NAN: Self;
     /// Converts an f64 value to Self.
     ///
     /// # Arguments
@@ -31,6 +36,8 @@ pub trait Field: Float + ComplexField + std::iter::Sum {
     fn convert_usize(x: usize) -> Self;
 }
 impl Field for f32 {
+    const EPSILON: Self = Self::EPSILON;
+    const NAN: Self = Self::NAN;
     fn convert(x: f64) -> Self {
         x as Self
     }
@@ -40,6 +47,8 @@ impl Field for f32 {
     }
 }
 impl Field for f64 {
+    const EPSILON: Self = Self::EPSILON;
+    const NAN: Self = Self::NAN;
     fn convert(x: f64) -> Self {
         x as Self
     }
@@ -99,11 +108,12 @@ where
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
     fn gradient(&self, x: &[F], args: Option<&A>) -> Result<DVector<F>, E> {
         let n = x.len();
-        let mut grad = DVector::zeros(n);
+        let mut grad = DVector::from_vec(vec![F::zero(); n]);
         let h: Vec<F> = x
             .iter()
             .map(|&xi| {
-                ComplexField::cbrt(F::epsilon()) * (if xi == F::zero() { F::one() } else { xi })
+                nalgebra::ComplexField::cbrt(F::EPSILON)
+                    * (if xi == F::zero() { F::one() } else { xi })
             })
             .collect();
 
@@ -150,7 +160,7 @@ where
         let h: Vec<F> = x
             .iter()
             .map(|&xi| {
-                ComplexField::cbrt(F::epsilon()) * (if xi == F::zero() { F::one() } else { xi })
+                ComplexField::cbrt(F::EPSILON) * (if xi == F::zero() { F::one() } else { xi })
             })
             .collect();
         let two = F::convert(2.0);

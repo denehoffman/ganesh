@@ -1,4 +1,3 @@
-use nalgebra::ComplexField;
 use typed_builder::TypedBuilder;
 
 use crate::core::{Field, Function, Minimizer};
@@ -56,10 +55,10 @@ where
             function: Box::new(function),
             options: options.unwrap_or_else(|| GradientDescentOptions::builder().build()),
             x: x0.to_vec(),
-            fx: F::nan(),
-            fx_old: F::nan(),
-            x_best: vec![F::nan(); x0.len()],
-            fx_best: F::nan(),
+            fx: F::NAN,
+            fx_old: F::NAN,
+            x_best: vec![F::NAN; x0.len()],
+            fx_best: F::NAN,
             current_step: 0,
         }
     }
@@ -82,7 +81,7 @@ where
     }
 
     fn check_for_termination(&self) -> bool {
-        ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance)
+        F::abs(self.fx - self.fx_old) <= F::abs(self.options.tolerance)
     }
 
     fn best(&self) -> (&Vec<F>, &F) {
