@@ -1,4 +1,3 @@
-use nalgebra::ComplexField;
 use typed_builder::TypedBuilder;
 
 use crate::core::{Field, Function, Minimizer};
@@ -11,9 +10,6 @@ pub struct GradientDescentOptions<F: Field> {
     /// The distance to move in the descent direction (default = 1.0)
     #[builder(default = F::one())]
     pub learning_rate: F,
-    /// The maximum number of steps to compute (default = 1000)
-    #[builder(default = 1000)]
-    pub max_iters: usize,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
     #[builder(default = F::convert(1e-8))]
@@ -29,8 +25,8 @@ pub struct GradientDescentOptions<F: Field> {
 /// ```
 /// where $`g_f`$ is the gradient vector, and $`0 \lt \gamma`$ is the learning rate.
 ///
-/// This method will terminate if either [`GradientDescentOptions::max_iters`] steps are performed or if
-/// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`GradientDescentOptions::tolerance`].
+/// This method will terminate if $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than
+/// [`GradientDescentOptions::tolerance`].
 pub struct GradientDescent<F, A, E>
 where
     F: Field,
@@ -42,6 +38,7 @@ where
     fx_old: F,
     x_best: Vec<F>,
     fx_best: F,
+    current_step: usize,
 }
 impl<F, A, E> GradientDescent<F, A, E>
 where
@@ -58,28 +55,21 @@ where
             function: Box::new(function),
             options: options.unwrap_or_else(|| GradientDescentOptions::builder().build()),
             x: x0.to_vec(),
-            fx: F::nan(),
-            fx_old: F::nan(),
-            x_best: vec![F::nan(); x0.len()],
-            fx_best: F::nan(),
+            fx: F::NAN,
+            fx_old: F::NAN,
+            x_best: vec![F::NAN; x0.len()],
+            fx_best: F::NAN,
+            current_step: 0,
         }
     }
 }
-/// A message passed into the [`GradientDescent::minimize`] callback.
-pub struct GradientDescentMessage<F> {
-    /// The current step number.
-    pub step: usize,
-    /// The current position of the minimizer.
-    pub x: Vec<F>,
-    /// The current value of the minimizer function.
-    pub fx: F,
-}
 
-impl<F, A, E> Minimizer<F, A, GradientDescentMessage<F>, E> for GradientDescent<F, A, E>
+impl<F, A, E> Minimizer<F, A, E> for GradientDescent<F, A, E>
 where
     F: Field,
 {
-    fn step(&mut self, i: usize, args: &Option<A>) -> Result<GradientDescentMessage<F>, E> {
+    fn step(&mut self, args: Option<&A>) -> Result<(), E> {
+        self.current_step += 1;
         self.fx_old = self.fx;
         let gradient = self.function.gradient(&self.x, args)?;
         self.x
@@ -87,42 +77,21 @@ where
             .zip(gradient.as_slice())
             .for_each(|(x, dx)| *x -= self.options.learning_rate * *dx);
         self.fx = self.function.evaluate(&self.x, args)?;
-        Ok(GradientDescentMessage {
-            step: i,
-            x: self.x.clone(),
-            fx: self.fx,
-        })
+        Ok(())
     }
 
-    fn terminate(&self) -> bool {
-        ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance)
+    fn check_for_termination(&self) -> bool {
+        F::abs(self.fx - self.fx_old) <= F::abs(self.options.tolerance)
     }
 
-    fn minimize<Func: Fn(&GradientDescentMessage<F>)>(
-        &mut self,
-        args: &Option<A>,
-        callback: Func,
-    ) -> Result<GradientDescentMessage<F>, E> {
-        let mut m = GradientDescentMessage {
-            step: 0,
-            x: self.x.clone(),
-            fx: self.fx,
-        };
-        for i in 0..self.options.max_iters {
-            m = self.step(i, args)?;
-            if self.fx < self.fx_best {
-                self.x_best = self.x.clone();
-                self.fx_best = self.fx;
-            }
-            callback(&m);
-            if self.terminate() {
-                return Ok(m);
-            }
+    fn best(&self) -> (&Vec<F>, &F) {
+        (self.x_best.as_ref(), &self.fx_best)
+    }
+
+    fn update_best(&mut self) {
+        if self.fx < self.fx_best {
+            self.x_best = self.x.clone();
+            self.fx_best = self.fx;
         }
-        Ok(m)
-    }
-
-    fn best(&self) -> (Vec<F>, F) {
-        (self.x_best.clone(), self.fx_best)
     }
 }

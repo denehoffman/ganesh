@@ -33,9 +33,6 @@ pub struct NelderMeadOptions<F: Field> {
     /// simplex falls below this value, the algorithm will terminate/converge (default=1e-8)
     #[builder(default = F::convert(1e-8))]
     pub min_simplex_standard_deviation: F,
-    /// The maximum number of steps to compute (default = 1000)
-    #[builder(default = 1000)]
-    pub max_iters: usize,
 }
 
 impl<F: Field> NelderMeadOptions<F> {
@@ -57,7 +54,7 @@ impl<F: Field> NelderMeadOptions<F> {
     #[allow(clippy::type_complexity)]
     pub fn adaptive(
         dimension: usize,
-    ) -> NelderMeadOptionsBuilder<F, ((), (F,), (F,), (F,), (F,), (F,), (), ())> {
+    ) -> NelderMeadOptionsBuilder<F, ((), (F,), (F,), (F,), (F,), (F,), ())> {
         Self::builder()
             .reflection_coeff(F::convert(1.0))
             .expansion_coeff(F::convert(1.0 + 2.0 / (dimension as f64)))
@@ -115,7 +112,9 @@ where
     centroid_fx: F,
     x_best: Vec<F>,
     fx_best: F,
+    sstd: F,
     n_simplex: usize,
+    current_step: usize,
 }
 impl<F, A, E> NelderMead<F, A, E>
 where
@@ -135,12 +134,14 @@ where
             function: Box::new(function),
             options,
             simplex_x: Self::construct_simplex(x0, n_simplex, simplex_size),
-            simplex_fx: vec![F::nan(); n_simplex],
-            centroid_x: vec![F::nan(); x0.len()],
-            centroid_fx: F::nan(),
-            x_best: vec![F::nan(); x0.len()],
-            fx_best: F::nan(),
+            simplex_fx: vec![F::NAN; n_simplex],
+            centroid_x: vec![F::NAN; x0.len()],
+            centroid_fx: F::NAN,
+            x_best: vec![F::NAN; x0.len()],
+            fx_best: F::NAN,
+            sstd: F::NAN,
             n_simplex,
+            current_step: 0,
         }
     }
     fn construct_simplex(x0: &[F], n_simplex: usize, simplex_size: F) -> Vec<Vec<F>> {
@@ -156,7 +157,7 @@ where
             })
             .collect()
     }
-    fn evaluate_simplex(&mut self, args: &Option<A>) -> Result<(), E> {
+    fn evaluate_simplex(&mut self, args: Option<&A>) -> Result<(), E> {
         let simplex_fx_res = self
             .simplex_x
             .iter()
@@ -179,7 +180,7 @@ where
         self.simplex_x = sorted_simplex_x;
         self.simplex_fx = sorted_simplex_fx;
     }
-    fn calculate_centroid(&mut self, args: &Option<A>) -> Result<(), E> {
+    fn calculate_centroid(&mut self, args: Option<&A>) -> Result<(), E> {
         assert!(!self.simplex_x.is_empty(), "Simplex is empty!");
         let dim = self.simplex_x[0].len();
         let n_points = F::convert_usize(self.simplex_x.len() - 1);
@@ -234,11 +235,20 @@ where
                 .collect();
         })
     }
-    fn replace_worst(&mut self, x: &[F], args: &Option<A>) -> Result<(), E> {
+    fn replace_worst(&mut self, x: &[F], args: Option<&A>) -> Result<(), E> {
         let i_last = self.simplex_x.len() - 1;
         self.simplex_x[i_last] = x.to_vec();
         self.simplex_fx[i_last] = self.function.evaluate(x, args)?;
         Ok(())
+    }
+    fn calculate_standard_deviation(&mut self) {
+        self.sstd = ComplexField::sqrt(
+            self.simplex_fx
+                .iter()
+                .map(|&fx| ComplexField::powi(fx - self.centroid_fx, 2))
+                .sum::<F>()
+                / F::convert_usize(self.simplex_fx.len()),
+        );
     }
 }
 /// A message passed into the [`NelderMead::minimize`] callback.
@@ -253,13 +263,17 @@ pub struct NelderMeadMessage<F> {
     pub x: Vec<F>,
     /// The current best value of the minimizer function.
     pub fx: F,
+    /// Simplex standard deviation.
+    pub sstd: F,
 }
 
-impl<F, A, E> Minimizer<F, A, NelderMeadMessage<F>, E> for NelderMead<F, A, E>
+impl<F, A, E> Minimizer<F, A, E> for NelderMead<F, A, E>
 where
     F: Field,
 {
-    fn step(&mut self, i: usize, args: &Option<A>) -> Result<NelderMeadMessage<F>, E> {
+    fn step(&mut self, args: Option<&A>) -> Result<(), E> {
+        self.current_step += 1;
+        self.calculate_standard_deviation();
         let fx_best = self.simplex_fx[0];
         let fx_second_worst = self.simplex_fx[self.n_simplex - 2];
         let fx_worst = self.simplex_fx[self.n_simplex - 1];
@@ -269,98 +283,47 @@ where
             let x_e = self.expand(&x_r);
             let fx_e = self.function.evaluate(&x_e, args)?;
             self.replace_worst(if fx_e < fx_r { &x_e } else { &x_r }, args)?;
-            return Ok(NelderMeadMessage {
-                step: i,
-                x_c: self.centroid_x.clone(),
-                fx_c: self.centroid_fx,
-                x: x_r.clone(),
-                fx: fx_r,
-            });
         } else if fx_r < fx_second_worst {
             self.replace_worst(&x_r, args)?;
-            return Ok(NelderMeadMessage {
-                step: i,
-                x_c: self.centroid_x.clone(),
-                fx_c: self.centroid_fx,
-                x: self.simplex_x[0].clone(),
-                fx: fx_best,
-            });
         } else if fx_r < fx_worst {
             let x_c = self.contract_outside(&x_r);
             let fx_c = self.function.evaluate(&x_c, args)?;
             if fx_c < fx_r {
                 self.replace_worst(&x_c, args)?;
-                return Ok(NelderMeadMessage {
-                    step: i,
-                    x_c: self.centroid_x.clone(),
-                    fx_c: self.centroid_fx,
-                    x: self.simplex_x[0].clone(),
-                    fx: fx_best,
-                });
+            } else {
+                self.shrink();
             }
         } else {
             let x_c = self.contract_inside(&x_r);
             let fx_c = self.function.evaluate(&x_c, args)?;
             if fx_c < fx_worst {
                 self.replace_worst(&x_c, args)?;
-                return Ok(NelderMeadMessage {
-                    step: i,
-                    x_c: self.centroid_x.clone(),
-                    fx_c: self.centroid_fx,
-                    x: self.simplex_x[0].clone(),
-                    fx: fx_best,
-                });
+            } else {
+                self.shrink();
             }
         }
-        self.shrink();
-        Ok(NelderMeadMessage {
-            step: i,
-            x_c: self.centroid_x.clone(),
-            fx_c: self.centroid_fx,
-            x: self.simplex_x[0].clone(),
-            fx: fx_best,
-        })
+        self.order_simplex();
+        self.calculate_centroid(args)?;
+        Ok(())
     }
 
-    fn terminate(&self) -> bool {
-        ComplexField::sqrt(
-            self.simplex_fx
-                .iter()
-                .map(|&fx| ComplexField::powi(fx - self.centroid_fx, 2))
-                .sum::<F>()
-                / F::convert_usize(self.simplex_fx.len()),
-        ) <= self.options.min_simplex_standard_deviation
+    fn check_for_termination(&self) -> bool {
+        self.sstd <= self.options.min_simplex_standard_deviation
     }
 
-    fn minimize<Func: Fn(&NelderMeadMessage<F>)>(
-        &mut self,
-        args: &Option<A>,
-        callback: Func,
-    ) -> Result<NelderMeadMessage<F>, E> {
+    fn best(&self) -> (&Vec<F>, &F) {
+        (self.x_best.as_ref(), &self.fx_best)
+    }
+
+    fn update_best(&mut self) {
+        self.x_best = self.simplex_x[0].clone();
+        self.fx_best = self.simplex_fx[0];
+    }
+
+    fn initialize(&mut self, args: Option<&A>) -> Result<(), E> {
         self.evaluate_simplex(args)?;
         self.order_simplex();
-        let mut m = NelderMeadMessage {
-            step: 0,
-            x_c: self.centroid_x.clone(),
-            fx_c: self.centroid_fx,
-            x: self.x_best.clone(),
-            fx: self.fx_best,
-        };
-        for i in 0..self.options.max_iters {
-            self.order_simplex();
-            self.x_best = self.simplex_x[0].clone();
-            self.fx_best = self.simplex_fx[0];
-            self.calculate_centroid(args)?;
-            if self.terminate() {
-                return Ok(m);
-            }
-            m = self.step(i, args)?;
-            callback(&m);
-        }
-        Ok(m)
-    }
-
-    fn best(&self) -> (Vec<F>, F) {
-        (self.x_best.clone(), self.fx_best)
+        self.calculate_centroid(args)?;
+        Ok(())
     }
 }
