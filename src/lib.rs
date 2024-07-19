@@ -43,7 +43,7 @@
 //!
 //! let func = Rosenbrock { n: 2 };
 //! let mut m = NelderMead::new(func, &[-2.3, 3.4], None);
-//! let status = minimize!(m).unwrap();
+//! let status = minimize!(m, 1000).unwrap(); // Run at most 1000 algorithm steps
 //! let (x_best, fx_best) = m.best();
 //! println!("x: {:?}\nf(x): {}", x_best, fx_best);
 //! ```
@@ -56,11 +56,11 @@
 //!
 //! I have ignored the `status` variable here, but in practice, the [`Minimizer::minimize`] method should return the last message sent by the algorithm. This can indicate the status of a fit without explicitly causing an error. This makes it easier to debug, since it can be tedious to have two separate error types, one for the function and one for the algorithm, returned by the minimization (functions can always be failable in this crate). We could also swap the `f64`s for `f32`s (or any type which implements the [`Field`] trait) in the Rosenbrock implementation. Additionally, if we wanted to modify any of the hyperparameters in the fitting algorithm, we could use [`NelderMeadOptions::builder()`](`algorithms::nelder_mead::NelderMeadOptions::builder`) and pass it as the third argument in the [`NelderMead::new`][`algorithms::NelderMead::new`] constructor. Finally, all algorithm implementations are constructed to pass a unique message type to a callback function. For [`NelderMead`](`algorithms::NelderMead`), we could do the following:
 //! ```ignore
-//! let status = minimize!(m, |message| println!("step: {}\nx: {:?}\nf(x): {}", message.step, message.x, message.fx)).unwrap();
+//! let status = minimize!(m, 1000, |message| println!("step: {}\nx: {:?}\nf(x): {}", message.step, message.x, message.fx)).unwrap();
 //! ```
 //! This will print out the current step, the best position found by the optimizer at that step, and the function's evaluation at that position for each step in the algorithm. You can use the step number to limit printing (print only steps divisible by 100, for example).
 //!
-//! The `minimize!` macro exists to simplify the [`Minimizer<F, A, E>::minimize<Callback: Fn(&Self)>(&mut self, args: Option<&A>, steps: usize, callback: Option<Callback>) -> Result<(), E>`](`Minimizer::minimize`) call if you don't actually want a callback or arguments.
+//! The `minimize!` macro exists to simplify the [`Minimizer<F, A, E>::minimize<Callback: Fn(&Self)>(&mut self, args: Option<&A>, steps: usize, callback: Callback) -> Result<(), E>`](`Minimizer::minimize`) call if you don't actually want a callback or arguments.
 #![warn(
     clippy::nursery,
     clippy::unwrap_used,

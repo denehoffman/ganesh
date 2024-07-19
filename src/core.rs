@@ -287,15 +287,13 @@ where
         &mut self,
         args: Option<&A>,
         steps: usize,
-        callback: Option<Callback>,
+        callback: Callback,
     ) -> Result<(), E> {
         self.initialize(args)?;
         for _ in 0..steps {
             self.step(args)?;
             self.update_best();
-            if let Some(cb) = &callback {
-                cb(self);
-            }
+            callback(self);
             if self.check_for_termination() {
                 return Ok(());
             }
@@ -317,9 +315,9 @@ where
 #[macro_export]
 macro_rules! minimize {
     ($minimizer:expr, $nsteps:expr) => {
-        $minimizer.minimize(None, $nsteps as usize, None)
+        $minimizer.minimize(None, $nsteps as usize, |_| {})
     };
     ($minimizer:expr, $nsteps:expr, $callback:expr) => {
-        $minimizer.minimize(None, $nsteps as usize, Some($callback))
+        $minimizer.minimize(None, $nsteps as usize, $callback)
     };
 }
