@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/denehoffman/ganesh/compare/v0.2.0...v0.3.0) - 2024-07-19
+
+### Added
+- switch &Option<args> to Option<&args> and remove messages in favor of extending Minimizer trait
+- add Send/Sync to Function
+
+### Fixed
+- change callback to no longer be optional, this just required typing None::<fn(&_)> everywhere which is way uglier than |_|{}
+- make callback optional to avoid toilet bowl closure
+
+### Other
+- Merge branch 'development' of github.com:denehoffman/ganesh into development
+- update crate docs to reflect new changes
+- add wordmark
+- add logo to readme
+- remove num::Float trait dependence
+- add logo
+- Merge branch 'main' into development
+
 ## [0.2.0](https://github.com/denehoffman/ganesh/compare/v0.1.0...v0.2.0) - 2024-07-14
 
 ### Fixed
