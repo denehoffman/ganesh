@@ -31,11 +31,11 @@ pub struct NewtonOptions<F: Field> {
 ///
 /// This method will terminate if either [`NewtonOptions::max_iters`] steps are performed or if
 /// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`NewtonOptions::tolerance`].
-pub struct Newton<'f, F, A, E>
+pub struct Newton<F, A, E>
 where
     F: Field,
 {
-    function: &'f dyn Function<F, A, E>,
+    function: Box<dyn Function<F, A, E>>,
     options: NewtonOptions<F>,
     x: Vec<F>,
     fx: F,
@@ -45,19 +45,19 @@ where
     current_step: usize,
     singular_hessian: bool,
 }
-impl<'f, F, A, E> Newton<'f, F, A, E>
+impl<F, A, E> Newton<F, A, E>
 where
     F: Field,
 {
     /// Create a new Newton optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
     pub fn new<Func: Function<F, A, E> + 'static>(
-        function: &'f Func,
+        function: Func,
         x0: &[F],
         options: Option<NewtonOptions<F>>,
     ) -> Self {
         Self {
-            function,
+            function: Box::new(function),
             options: options.unwrap_or_else(|| NewtonOptions::builder().build()),
             x: x0.to_vec(),
             fx: F::NAN,
@@ -70,7 +70,7 @@ where
     }
 }
 
-impl<'f, F, A, E> Minimizer<F, A, E> for Newton<'f, F, A, E>
+impl<F, A, E> Minimizer<F, A, E> for Newton<F, A, E>
 where
     F: Field,
 {

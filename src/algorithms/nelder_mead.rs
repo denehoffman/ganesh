@@ -100,11 +100,11 @@ impl<F: Field> NelderMeadOptions<F> {
 /// See [`NelderMeadOptions`] to set the values of $`\alpha`$, $`\gamma`$, $`\rho_i`$, $`\rho_o`$,
 /// and $`\sigma`$.
 ///
-pub struct NelderMead<'f, F, A, E>
+pub struct NelderMead<F, A, E>
 where
     F: Field,
 {
-    function: &'f dyn Function<F, A, E>,
+    function: Box<dyn Function<F, A, E>>,
     options: NelderMeadOptions<F>,
     simplex_x: Vec<Vec<F>>,
     simplex_fx: Vec<F>,
@@ -116,14 +116,14 @@ where
     n_simplex: usize,
     current_step: usize,
 }
-impl<'f, F, A, E> NelderMead<'f, F, A, E>
+impl<F, A, E> NelderMead<F, A, E>
 where
     F: Field,
 {
     /// Create a new Nelder-Mead optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
     pub fn new<Func: Function<F, A, E> + 'static>(
-        function: &'f Func,
+        function: Func,
         x0: &[F],
         options: Option<NelderMeadOptions<F>>,
     ) -> Self {
@@ -131,7 +131,7 @@ where
         let options = options.unwrap_or_else(|| NelderMeadOptions::builder().build());
         let simplex_size = options.simplex_size;
         Self {
-            function,
+            function: Box::new(function),
             options,
             simplex_x: Self::construct_simplex(x0, n_simplex, simplex_size),
             simplex_fx: vec![F::NAN; n_simplex],
@@ -251,23 +251,8 @@ where
         );
     }
 }
-/// A message passed into the [`NelderMead::minimize`] callback.
-pub struct NelderMeadMessage<F> {
-    /// The current step number.
-    pub step: usize,
-    /// The current position of the simplex centroid.
-    pub x_c: Vec<F>,
-    /// The current value of the function evaluated at the simplex centroid.
-    pub fx_c: F,
-    /// The current best position of the minimizer.
-    pub x: Vec<F>,
-    /// The current best value of the minimizer function.
-    pub fx: F,
-    /// Simplex standard deviation.
-    pub sstd: F,
-}
 
-impl<'f, F, A, E> Minimizer<F, A, E> for NelderMead<'f, F, A, E>
+impl<F, A, E> Minimizer<F, A, E> for NelderMead<F, A, E>
 where
     F: Field,
 {
