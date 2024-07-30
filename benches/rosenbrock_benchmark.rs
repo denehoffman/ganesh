@@ -9,7 +9,7 @@ fn rosenbrock_benchmark(c: &mut Criterion) {
             let x0 = vec![5.0; *ndim];
             b.iter(|| {
                 let rb = Rosenbrock { n };
-                let mut m = NelderMead::new(rb, &x0, Some(NelderMeadOptions::builder().build()));
+                let mut m = NelderMead::new(&rb, &x0, Some(NelderMeadOptions::builder().build()));
                 minimize!(m, 1000000).unwrap();
             });
         });
@@ -17,7 +17,7 @@ fn rosenbrock_benchmark(c: &mut Criterion) {
             let x0 = vec![5.0; *ndim];
             b.iter(|| {
                 let rb = Rosenbrock { n };
-                let mut m = NelderMead::new(rb, &x0, Some(NelderMeadOptions::adaptive(n).build()));
+                let mut m = NelderMead::new(&rb, &x0, Some(NelderMeadOptions::adaptive(n).build()));
                 minimize!(m, 1000000).unwrap();
             });
         });

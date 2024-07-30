@@ -27,11 +27,11 @@ pub struct GradientDescentOptions<F: Field> {
 ///
 /// This method will terminate if $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than
 /// [`GradientDescentOptions::tolerance`].
-pub struct GradientDescent<F, A, E>
+pub struct GradientDescent<'f, F, A, E>
 where
     F: Field,
 {
-    function: Box<dyn Function<F, A, E>>,
+    function: &'f dyn Function<F, A, E>,
     options: GradientDescentOptions<F>,
     x: Vec<F>,
     fx: F,
@@ -40,19 +40,19 @@ where
     fx_best: F,
     current_step: usize,
 }
-impl<F, A, E> GradientDescent<F, A, E>
+impl<'f, F, A, E> GradientDescent<'f, F, A, E>
 where
     F: Field,
 {
     /// Create a new Gradient Descent optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
     pub fn new<Func: Function<F, A, E> + 'static>(
-        function: Func,
+        function: &'f Func,
         x0: &[F],
         options: Option<GradientDescentOptions<F>>,
     ) -> Self {
         Self {
-            function: Box::new(function),
+            function,
             options: options.unwrap_or_else(|| GradientDescentOptions::builder().build()),
             x: x0.to_vec(),
             fx: F::NAN,
@@ -64,7 +64,7 @@ where
     }
 }
 
-impl<F, A, E> Minimizer<F, A, E> for GradientDescent<F, A, E>
+impl<'f, F, A, E> Minimizer<F, A, E> for GradientDescent<'f, F, A, E>
 where
     F: Field,
 {
