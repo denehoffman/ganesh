@@ -7,3 +7,5 @@ pub use newton::{Newton, NewtonOptions};
 /// Module containing the Nelder-Mead minimization algorithm
 pub mod nelder_mead;
 pub use nelder_mead::{NelderMead, NelderMeadOptions};
+/// Module containing Line Search algorithms
+pub mod line_search;

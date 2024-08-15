@@ -72,8 +72,10 @@
     clippy::missing_errors_doc,
     clippy::perf,
     clippy::style,
+    clippy::dbg_macro,
     missing_docs
 )]
+#![allow(clippy::too_many_arguments)]
 
 /// Contains core functionality and traits.
 pub mod core;
@@ -89,6 +91,6 @@ pub mod test_functions;
 /// This module is designed to be glob-imported (`use crate::prelude::*;`) to quickly
 /// bring the core functionality of the crate into scope.
 pub mod prelude {
-    pub use crate::core::{Field, Function, Minimizer};
+    pub use crate::core::{Function, LineSearch, Minimizer};
     pub use crate::minimize;
 }

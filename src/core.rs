@@ -1,62 +1,4 @@
-use nalgebra::{ComplexField, DMatrix, DVector};
-
-/// A trait that extends [`Float`] and [`ComplexField`] with additional conversion methods.
-///
-/// This trait is implemented for types that satisfy the following bounds:
-/// - `Float`: Provides basic floating-point operations.
-/// - `ComplexField`: Allows for complex number operations.
-/// - `std::iter::Sum`: Enables summing of collections of this type.
-pub trait Field: ComplexField + std::iter::Sum + Copy + std::cmp::PartialOrd {
-    /// Alias for machine epsilon.
-    /// See also [`f64::EPSILON`] and [`f32::EPSILON`].
-    const EPSILON: Self;
-    /// Alias for not-a-number (NAN).
-    /// See also [`f64::NAN`] and [`f32::NAN`].
-    const NAN: Self;
-    /// Converts an f64 value to Self.
-    ///
-    /// # Arguments
-    ///
-    /// * `x` - The f64 value to convert.
-    ///
-    /// # Returns
-    ///
-    /// The converted value of type Self.
-    fn convert(x: f64) -> Self;
-
-    /// Converts a usize value to Self.
-    ///
-    /// # Arguments
-    ///
-    /// * `x` - The usize value to convert.
-    ///
-    /// # Returns
-    ///
-    /// The converted value of type Self.
-    fn convert_usize(x: usize) -> Self;
-}
-impl Field for f32 {
-    const EPSILON: Self = Self::EPSILON;
-    const NAN: Self = Self::NAN;
-    fn convert(x: f64) -> Self {
-        x as Self
-    }
-
-    fn convert_usize(x: usize) -> Self {
-        x as Self
-    }
-}
-impl Field for f64 {
-    const EPSILON: Self = Self::EPSILON;
-    const NAN: Self = Self::NAN;
-    fn convert(x: f64) -> Self {
-        x as Self
-    }
-
-    fn convert_usize(x: usize) -> Self {
-        x as Self
-    }
-}
+use nalgebra::{DMatrix, DVector, RealField};
 
 /// Represents a multivariate function that can be evaluated and differentiated.
 ///
@@ -64,18 +6,19 @@ impl Field for f64 {
 ///
 /// # Type Parameters
 ///
-/// * `F`: A type that implements [`Field`] and has a `'static` lifetime.
+/// * `F`: A type that implements [`RealField`], [`Copy`], [`From<f32>`], and has a
+///   `'static` lifetime.
 /// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `E`: The error type returned by the function's methods.
 pub trait Function<F, A, E>: Send + Sync
 where
-    F: Field + 'static,
+    F: RealField + Copy + From<f32> + 'static,
 {
     /// Evaluates the function at the given point.
     ///
     /// # Arguments
     ///
-    /// * `x`: A slice of `F` representing the point at which to evaluate the function.
+    /// * `x`: A [`DVector`] of `F` representing the point at which to evaluate the function.
     /// * `args`: An optional argument struct used to pass static arguments to the internal
     ///   function.
     ///
@@ -86,7 +29,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if the evaluation fails.
-    fn evaluate(&self, x: &[F], args: Option<&A>) -> Result<F, E>;
+    fn evaluate(&self, x: &DVector<F>, args: Option<&A>) -> Result<F, E>;
 
     /// Computes the gradient of the function at the given point using central finite
     /// differences.
@@ -95,7 +38,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `x`: A slice of `F` representing the point at which to compute the gradient.
+    /// * `x`: A [`DVector`] of `F` representing the point at which to compute the gradient.
     /// * `args`: An optional argument struct used to pass static arguments to the internal
     ///   function.
     ///
@@ -106,25 +49,25 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
-    fn gradient(&self, x: &[F], args: Option<&A>) -> Result<DVector<F>, E> {
+    fn gradient(&self, x: &DVector<F>, args: Option<&A>) -> Result<DVector<F>, E> {
         let n = x.len();
-        let mut grad = DVector::from_vec(vec![F::zero(); n]);
+        let mut grad = DVector::zeros(n);
+        // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
+        // cbrt(eps) if x_i = 0)
         let h: Vec<F> = x
             .iter()
             .map(|&xi| {
-                nalgebra::ComplexField::cbrt(F::EPSILON)
-                    * (if xi == F::zero() { F::one() } else { xi })
+                F::cbrt(F::default_epsilon()) * (if xi == F::zero() { F::one() } else { xi })
             })
             .collect();
-
         for i in 0..n {
-            let mut x_plus = x.to_vec();
-            let mut x_minus = x.to_vec();
+            let mut x_plus = x.clone_owned();
+            let mut x_minus = x.clone_owned();
             x_plus[i] += h[i];
             x_minus[i] -= h[i];
             let f_plus = self.evaluate(&x_plus, args)?;
             let f_minus = self.evaluate(&x_minus, args)?;
-            grad[i] = (f_plus - f_minus) / (F::convert(2.0) * h[i]);
+            grad[i] = (f_plus - f_minus) / (F::from(2.0) * h[i]);
         }
 
         Ok(grad)
@@ -151,28 +94,30 @@ where
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
     fn gradient_and_hessian(
         &self,
-        x: &[F],
+        x: &DVector<F>,
         args: Option<&A>,
     ) -> Result<(DVector<F>, DMatrix<F>), E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let mut hess = DMatrix::zeros(n, n);
+        // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
+        // cbrt(eps) if x_i = 0)
         let h: Vec<F> = x
             .iter()
             .map(|&xi| {
-                ComplexField::cbrt(F::EPSILON) * (if xi == F::zero() { F::one() } else { xi })
+                F::cbrt(F::default_epsilon()) * (if xi == F::zero() { F::one() } else { xi })
             })
             .collect();
-        let two = F::convert(2.0);
-        let four = two * two;
+        let two = F::from(2.0);
+        let four = F::from(4.0);
 
         // Compute Hessian
         for i in 0..n {
             for j in 0..=i {
                 if i == j {
                     // Diagonal element using central difference
-                    let mut x_plus = x.to_vec();
-                    let mut x_minus = x.to_vec();
+                    let mut x_plus = x.clone_owned();
+                    let mut x_minus = x.clone_owned();
                     x_plus[i] += h[i];
                     x_minus[i] -= h[i];
 
@@ -184,10 +129,10 @@ where
                     hess[(i, i)] = (f_plus - two * f_center + f_minus) / (h[i] * h[i]);
                 } else {
                     // Off-diagonal element
-                    let mut x_plus_plus = x.to_vec();
-                    let mut x_plus_minus = x.to_vec();
-                    let mut x_minus_plus = x.to_vec();
-                    let mut x_minus_minus = x.to_vec();
+                    let mut x_plus_plus = x.clone_owned();
+                    let mut x_plus_minus = x.clone_owned();
+                    let mut x_minus_plus = x.clone_owned();
+                    let mut x_minus_minus = x.clone_owned();
 
                     x_plus_plus[i] += h[i];
                     x_plus_plus[j] += h[i];
@@ -220,13 +165,10 @@ where
 ///
 /// # Type Parameters
 ///
-/// * `F`: A type that implements [`Field`].
+/// * `F`: A generic field used to represent real numbers.
 /// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `E`: The error type returned by the minimizer's methods.
-pub trait Minimizer<F, A, E>
-where
-    F: Field,
-{
+pub trait Minimizer<F, A, E> {
     /// Start the algorithm with any initialization steps or evaluations.
     ///
     /// # Arguments
@@ -306,12 +248,26 @@ where
     /// # Returns
     ///
     /// A tuple containing:
-    /// - A vector of `F` representing the best point found.
+    /// - A [`DVector`] of `F` representing the best point found.
     /// - The function value of type `F` at the best point.
-    fn best(&self) -> (&Vec<F>, &F);
+    ///
+    /// These are both returned as references with lifetimes tied to the minimizing struct.
+    fn best(&self) -> (&DVector<F>, &F);
 }
 
 /// A macro to clean up minimization statements
+///
+/// Usage:
+///
+/// Run a maximum of 1000 steps of an algorithm:
+/// ```ignore
+/// minimize!(minimization_algorithm, 1000)?;
+/// ```
+///
+/// Run a maximum of 1000 steps of an algorithm, printing the best result after each step:
+/// ```ignore
+/// minimize!(minimization_algorithm, 1000, |ma| println!("{:?}", ma.best))?;
+/// ```
 #[macro_export]
 macro_rules! minimize {
     ($minimizer:expr, $nsteps:expr) => {
@@ -320,4 +276,50 @@ macro_rules! minimize {
     ($minimizer:expr, $nsteps:expr, $callback:expr) => {
         $minimizer.minimize(None, $nsteps as usize, $callback)
     };
+}
+
+/// A trait which describes line search algorithms.
+///
+/// These algorithms typically involve some step direction given by `p` from the current location
+/// `x`. The implementation dictates how to use that information to get a "learning rate" `alpha`
+/// which determines some step in the direction `p`:
+///
+/// ```math
+/// \vec{x}_{i+1} = \vec{x}_{i} + \alpha \vec{p}
+/// ```
+///
+/// These methods occasionally require information about the previous iteration, so `x_prev`,
+/// `p_prev`, and `alpha_prev` are optionally given in the signature of the [`LineSearch::search`]
+/// method to provide these values.
+///
+/// See also: [`GradientDescent`](`crate::algorithms::GradientDescent`)
+pub trait LineSearch<F, A, E>: std::fmt::Debug
+where
+    F: RealField + Copy + From<f32>,
+{
+    /// A method which takes a function `func` and its arguments `args`, along with the current
+    /// position of the optimizer `x` (and optionally the previous position, `x_prev`), a step
+    /// direction vector `p` (and optionally the previous step direction vector, `p_prev`), and
+    /// optionally the previous learning rate, `alpha_prev`.
+    ///
+    /// # Returns
+    /// A tuple containing ($`\vec{x}_{i+1}`$, $`f(\vec{x}_{i+1})`$, $`\alpha`$), where $`\alpha`$
+    /// was the learning rate used to achieve this step.
+    ///
+    /// # Errors
+    /// This method returns an error of generic type `E` given by the [`Function`] being optimized
+    /// if that function fails.
+    fn search(
+        &self,
+        func: &dyn Function<F, A, E>,
+        args: Option<&A>,
+        x: &DVector<F>,
+        x_prev: &Option<DVector<F>>,
+        p: &DVector<F>,
+        p_prev: &Option<DVector<F>>,
+        alpha_prev: Option<F>,
+    ) -> Result<(DVector<F>, F, F), E>;
+
+    /// A method to get the base learning rate $`\alpha_0`$.
+    fn get_base_learning_rate(&self) -> F;
 }

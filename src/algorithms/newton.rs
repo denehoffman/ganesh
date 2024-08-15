@@ -1,19 +1,24 @@
-use nalgebra::ComplexField;
+use core::f32;
+
+use nalgebra::{ComplexField, DVector, RealField};
 use typed_builder::TypedBuilder;
 
-use crate::core::{Field, Function, Minimizer};
+use crate::core::{Function, Minimizer};
 
 /// Used to set options for the [`Newton`] optimizer.
 ///
 /// See also: [`NewtonOptions::builder()`]
 #[derive(TypedBuilder, Debug)]
-pub struct NewtonOptions<F: Field> {
+pub struct NewtonOptions<F>
+where
+    F: From<f32>,
+{
     /// The distance to move in the Newton direction (default = 1.0)
-    #[builder(default = F::one())]
+    #[builder(default = F::from(1.0))]
     pub step_size: F,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
-    #[builder(default = F::convert(1e-8))]
+    #[builder(default = F::from(1e-8))]
     pub tolerance: F,
 }
 
@@ -33,21 +38,21 @@ pub struct NewtonOptions<F: Field> {
 /// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`NewtonOptions::tolerance`].
 pub struct Newton<F, A, E>
 where
-    F: Field,
+    F: From<f32>,
 {
     function: Box<dyn Function<F, A, E>>,
     options: NewtonOptions<F>,
-    x: Vec<F>,
+    x: DVector<F>,
     fx: F,
     fx_old: F,
-    x_best: Vec<F>,
+    x_best: DVector<F>,
     fx_best: F,
     current_step: usize,
     singular_hessian: bool,
 }
 impl<F, A, E> Newton<F, A, E>
 where
-    F: Field,
+    F: RealField + From<f32> + Copy,
 {
     /// Create a new Newton optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
@@ -59,11 +64,11 @@ where
         Self {
             function: Box::new(function),
             options: options.unwrap_or_else(|| NewtonOptions::builder().build()),
-            x: x0.to_vec(),
-            fx: F::NAN,
-            fx_old: F::NAN,
-            x_best: vec![F::NAN; x0.len()],
-            fx_best: F::NAN,
+            x: DVector::from_row_slice(x0),
+            fx: F::from(f32::NAN),
+            fx_old: F::from(f32::NAN),
+            x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
+            fx_best: F::from(f32::INFINITY),
             current_step: 0,
             singular_hessian: false,
         }
@@ -72,7 +77,7 @@ where
 
 impl<F, A, E> Minimizer<F, A, E> for Newton<F, A, E>
 where
-    F: Field,
+    F: From<f32> + RealField + Copy,
 {
     fn step(&mut self, args: Option<&A>) -> Result<(), E> {
         self.current_step += 1;
@@ -96,8 +101,8 @@ where
             || self.singular_hessian
     }
 
-    fn best(&self) -> (&Vec<F>, &F) {
-        (self.x_best.as_ref(), &self.fx_best)
+    fn best(&self) -> (&DVector<F>, &F) {
+        (&self.x_best, &self.fx_best)
     }
 
     fn update_best(&mut self) {
