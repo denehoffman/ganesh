@@ -58,7 +58,7 @@ where
 /// \vec{x}_{i+1} = \vec{x}_i + \alpha \vec{p}
 /// ```
 ///
-/// [^1] Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
+/// [^1]: Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
 #[derive(Debug, TypedBuilder)]
 pub struct BacktrackingLineSearch<F>
 where
@@ -107,18 +107,18 @@ where
 /// A two-way backtracking line search.
 ///
 /// This is similar to the backtracking line search implemented in
-/// [`BacktrackingLineSearch`][^1]. However, with the assumption that the next value of the
+/// [`BacktrackingLineSearch`](`BacktrackingLineSearch`)[^1]. However, with the assumption that the next value of the
 /// learning rate $`\alpha`$ is similar to the learning rate from the previous step, this method
 /// can be used to skip a lot of the steps involved in the convergence to the Armijo condition,
 /// especially if the base learning rate is set too high. However, it is possible that the
 /// optimal step is larger than the previous step (but no larger than the base step), so this
 /// algorithm begins with a growth phase rather than shrinking the learning rate if it already
 /// satisfies the Armijo condition. The growth rate is just the inverse of the shrink parameter
-/// used in the typical backtracking line search.[^2][^3]
+/// used in the typical backtracking line search.[^2] [^3]
 ///
-/// [^1] Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
-/// [^2] Nocedal, Jorge; Wright, Stephen J. (2000), Numerical Optimization, Springer-Verlag, ISBN 0-387-98793-2
-/// [^3] Truong, T. T.; Nguyen, H.-T. (6 September 2020). "Backtracking Gradient Descent Method and Some Applications in Large Scale Optimisation. Part 2: Algorithms and Experiments". Applied Mathematics & Optimization. **84** (3): 2557–2586. doi:10.1007/s00245-020-09718-8. hdl:10852/79322.
+/// [^1]: Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
+/// [^2]: Nocedal, Jorge; Wright, Stephen J. (2000), Numerical Optimization, Springer-Verlag, ISBN 0-387-98793-2
+/// [^3]: Truong, T. T.; Nguyen, H.-T. (6 September 2020). "Backtracking Gradient Descent Method and Some Applications in Large Scale Optimisation. Part 2: Algorithms and Experiments". Applied Mathematics & Optimization. **84** (3): 2557–2586. doi:10.1007/s00245-020-09718-8. hdl:10852/79322.
 #[derive(Debug, TypedBuilder)]
 pub struct TwoWayBacktrackingLineSearch<F>
 where
@@ -204,9 +204,16 @@ pub enum BarzilaiBorweinStep {
 
 /// An implementation of the Barzilai-Borwein method, which uses the previous two positions
 /// $`\vec{x}_i`$ and $`\vec{x}_{i-1}`$ along with the previous two gradient evaluations, $`\vec{g}_i`$ and $`\vec{g}_{i-1}`$ to determine either a long or short stepped learning rate:[^1]
-/// $`\alpha_S = \frac{\Delta\vec{x}\cdot\Delta\vec{x}}{\Delta\vec{x}\cdot\Delta\vec{g}}`$.
+///
+/// ```math
+/// \alpha_S = \frac{\Delta\vec{x}\cdot\Delta\vec{x}}{\Delta\vec{x}\cdot\Delta\vec{g}}
+/// ```
+///
 /// or
-/// $`\alpha_L = \frac{\Delta\vec{x}\cdot\Delta\vec{g}}{\Delta\vec{g}\cdot\Delta\vec{g}}`$.
+///
+/// ```math
+/// \alpha_L = \frac{\Delta\vec{x}\cdot\Delta\vec{g}}{\Delta\vec{g}\cdot\Delta\vec{g}}
+/// ```
 ///
 /// This implementation uses a [`TwoWayBacktrackingLineSearch`] step if either the previous
 /// position or gradient is unavailable (for instance, in the first step of an optimization).
@@ -214,7 +221,7 @@ pub enum BarzilaiBorweinStep {
 /// Note that, because we define $`\vec{p}\equiv -\vec{g}`$, we must also have
 /// $`\Delta\vec{g}\equiv -\Delta\vec{p}`$ in the implementation below.
 ///
-/// [^1] Barzilai, Jonathan; Borwein, Jonathan M. (1988). "Two-Point Step Size Gradient Methods". IMA Journal of Numerical Analysis. **8**: 141–148. doi:10.1093/imanum/8.1.141.
+/// [^1]: Barzilai, Jonathan; Borwein, Jonathan M. (1988). "Two-Point Step Size Gradient Methods". IMA Journal of Numerical Analysis. **8**: 141–148. doi:10.1093/imanum/8.1.141.
 #[derive(Debug, TypedBuilder)]
 pub struct BarzilaiBorwein<F>
 where
