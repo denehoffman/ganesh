@@ -79,7 +79,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `x`: A slice of `F` representing the point at which to compute the gradient and Hessian.
+    /// * `x`: A [`DVector`] of `F` representing the point at which to compute the gradient and Hessian.
     /// * `args`: An optional argument struct used to pass static arguments to the internal
     ///   function.
     ///
