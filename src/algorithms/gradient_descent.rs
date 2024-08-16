@@ -51,7 +51,7 @@ where
     x_best: DVector<F>,
     fx_best: F,
     current_step: usize,
-    learning_rate: F,
+    learning_rate: Option<F>,
     g_old: Option<DVector<F>>,
 }
 impl<F, A, E> GradientDescent<F, A, E>
@@ -75,7 +75,7 @@ where
             x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
             fx_best: F::from(f32::INFINITY),
             current_step: 0,
-            learning_rate: F::from(f32::NAN),
+            learning_rate: None,
             g_old: None,
         }
     }
@@ -86,7 +86,7 @@ where
     F: From<f32> + RealField + Copy,
 {
     fn initialize(&mut self, _args: Option<&A>) -> Result<(), E> {
-        self.learning_rate = self.options.line_search_method.get_base_learning_rate();
+        self.learning_rate = Some(self.options.line_search_method.get_base_learning_rate());
         Ok(())
     }
     fn step(&mut self, args: Option<&A>) -> Result<(), E> {
@@ -100,13 +100,13 @@ where
             &self.x_old,
             &p,
             &self.g_old,
-            Some(self.learning_rate),
+            self.learning_rate,
         )?;
         self.x_old = Some(self.x.clone_owned()); // TODO: memory swap here?
         self.g_old = Some(p);
         self.x = step_and_rate.0;
         self.fx = step_and_rate.1;
-        self.learning_rate = step_and_rate.2;
+        self.learning_rate = Some(step_and_rate.2);
         Ok(())
     }
 
