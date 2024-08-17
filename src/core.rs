@@ -1,4 +1,30 @@
-use nalgebra::{DMatrix, DVector, RealField};
+use std::{
+    fmt::{Debug, Display},
+    iter::{Product, Sum},
+};
+
+use nalgebra::{DMatrix, DVector};
+use num::Float;
+use num::{
+    traits::{FloatConst, NumAssignOps},
+    FromPrimitive,
+};
+
+macro_rules! convert {
+    ($value:expr, $type:ty) => {{
+        #[allow(clippy::unwrap_used)]
+        <$type as num::NumCast>::from($value).unwrap()
+    }};
+}
+pub(crate) use convert;
+
+/// A trait representing a numeric field which can be used in optimization algorithms.
+pub trait Field:
+    Debug + Display + Float + FloatConst + NumAssignOps + Sum + Product + Default + FromPrimitive
+{
+}
+impl Field for f64 {}
+impl Field for f32 {}
 
 /// Represents a multivariate function that can be evaluated and differentiated.
 ///
@@ -6,13 +32,12 @@ use nalgebra::{DMatrix, DVector, RealField};
 ///
 /// # Type Parameters
 ///
-/// * `F`: A type that implements [`RealField`], [`Copy`], [`From<f32>`], and has a
-///   `'static` lifetime.
+/// * `F`: A type that implements [`Float`] and has a `'static` lifetime.
 /// * `A`: A type that can be used to pass arguments to the wrapped function.
 /// * `E`: The error type returned by the function's methods.
 pub trait Function<F, A, E>: Send + Sync
 where
-    F: RealField + Copy + From<f32> + 'static,
+    F: Field + 'static,
 {
     /// Evaluates the function at the given point.
     ///
@@ -56,9 +81,7 @@ where
         // cbrt(eps) if x_i = 0)
         let h: Vec<F> = x
             .iter()
-            .map(|&xi| {
-                F::cbrt(F::default_epsilon()) * (if xi == F::zero() { F::one() } else { xi })
-            })
+            .map(|&xi| F::cbrt(F::epsilon()) * (if xi == F::zero() { F::one() } else { xi }))
             .collect();
         for i in 0..n {
             let mut x_plus = x.clone_owned();
@@ -67,7 +90,7 @@ where
             x_minus[i] -= h[i];
             let f_plus = self.evaluate(&x_plus, args)?;
             let f_minus = self.evaluate(&x_minus, args)?;
-            grad[i] = (f_plus - f_minus) / (F::from(2.0) * h[i]);
+            grad[i] = (f_plus - f_minus) / (convert!(2.0, F) * h[i]);
         }
 
         Ok(grad)
@@ -104,12 +127,10 @@ where
         // cbrt(eps) if x_i = 0)
         let h: Vec<F> = x
             .iter()
-            .map(|&xi| {
-                F::cbrt(F::default_epsilon()) * (if xi == F::zero() { F::one() } else { xi })
-            })
+            .map(|&xi| F::cbrt(F::epsilon()) * (if xi == F::zero() { F::one() } else { xi }))
             .collect();
-        let two = F::from(2.0);
-        let four = F::from(4.0);
+        let two = convert!(2.0, F);
+        let four = convert!(4.0, F);
 
         // Compute Hessian
         for i in 0..n {
@@ -293,9 +314,9 @@ macro_rules! minimize {
 /// method to provide these values.
 ///
 /// See also: [`GradientDescent`](`crate::algorithms::GradientDescent`)
-pub trait LineSearch<F, A, E>: std::fmt::Debug
+pub trait LineSearch<F, A, E>
 where
-    F: RealField + Copy + From<f32>,
+    F: Float,
 {
     /// A method which takes a function `func` and its arguments `args`, along with the current
     /// position of the optimizer `x` (and optionally the previous position, `x_prev`), a step

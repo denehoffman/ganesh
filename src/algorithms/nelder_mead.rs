@@ -1,49 +1,47 @@
-use core::f32;
-use std::iter::Sum;
-
-use nalgebra::{ComplexField, DVector, RealField};
+use nalgebra::DVector;
+use num::Float;
 use typed_builder::TypedBuilder;
 
-use crate::core::{Function, Minimizer};
+use crate::core::{convert, Field, Function, Minimizer};
 
 /// Used to set options for the [`NelderMead`] optimizer.
 ///
 /// See also: [`NelderMeadOptions::builder()`]
-#[derive(TypedBuilder, Debug)]
+#[derive(TypedBuilder)]
 pub struct NelderMeadOptions<F>
 where
-    F: From<f32>,
+    F: Float,
 {
     // TODO: validate coeffs, alpha > 0, gamma > 1, 0 < rho <= 0.5, sigma (0 < sigma < 1?)
     /// The step size from the starting point to each other point in the simplex (default = 1.0)
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     pub simplex_size: F,
     /// The coefficient $`\alpha > 0`$ to use in the reflection step (default = 1.0)
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     pub reflection_coeff: F,
     /// The coefficient $`\gamma > 1`$ to use in the expansion step (default = 2.0)
-    #[builder(default = F::from(2.0))]
+    #[builder(default = convert!(2.0, F))]
     pub expansion_coeff: F,
     /// The coefficient $`0 < \rho_o \leq 0.5`$ to use in the contraction step
     /// in the case where the reflected point is better than the worst point in the simplex (default = 0.5)
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     pub outside_contraction_coeff: F,
     /// The coefficient $`0 < \rho_i \leq 0.5`$ to use in the contraction step
     /// in the case where the reflected point is worse than the worst point in the simplex (default = 0.5)
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     pub inside_contraction_coeff: F,
     /// The coefficient $`\sigma > 0`$ to use in the shrink step (default = 0.5)
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     pub shrink_coeff: F,
     /// If the standard deviation of the function at all points in the
     /// simplex falls below this value, the algorithm will terminate/converge (default=1e-8)
-    #[builder(default = F::from(1e-8))]
+    #[builder(default = convert!(1e-8, F))]
     pub min_simplex_standard_deviation: F,
 }
 
 impl<F> NelderMeadOptions<F>
 where
-    F: From<f32>,
+    F: Float,
 {
     /// A set of adaptive hyperparameters according to Gao and Han[^1]. This will produce a
     /// [`NelderMeadOptionsBuilder`] with most parameters set to their adaptive versions, leaving
@@ -65,11 +63,11 @@ where
         dimension: usize,
     ) -> NelderMeadOptionsBuilder<F, ((), (F,), (F,), (F,), (F,), (F,), ())> {
         Self::builder()
-            .reflection_coeff(F::from(1.0))
-            .expansion_coeff(F::from(1.0 + 2.0 / (dimension as f32)))
-            .outside_contraction_coeff(F::from(0.75 - 1.0 / (2.0 * (dimension as f32))))
-            .inside_contraction_coeff(F::from(0.75 - 1.0 / (2.0 * (dimension as f32))))
-            .shrink_coeff(F::from(1.0 - 1.0 / (dimension as f32)))
+            .reflection_coeff(F::one())
+            .expansion_coeff(convert!(1.0 + 2.0 / (dimension as f32), F))
+            .outside_contraction_coeff(convert!(0.75 - 1.0 / (2.0 * (dimension as f32)), F))
+            .inside_contraction_coeff(convert!(0.75 - 1.0 / (2.0 * (dimension as f32)), F))
+            .shrink_coeff(convert!(1.0 - 1.0 / (dimension as f32), F))
     }
 }
 
@@ -111,7 +109,7 @@ where
 ///
 pub struct NelderMead<F, A, E>
 where
-    F: From<f32>,
+    F: Float,
 {
     function: Box<dyn Function<F, A, E>>,
     options: NelderMeadOptions<F>,
@@ -127,7 +125,7 @@ where
 }
 impl<F, A, E> NelderMead<F, A, E>
 where
-    F: From<f32> + RealField + Copy + Sum,
+    F: Field + 'static,
 {
     /// Create a new Nelder-Mead optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
@@ -144,12 +142,12 @@ where
             function: Box::new(function),
             options,
             simplex_x: Self::construct_simplex(&x0, n_simplex, simplex_size),
-            simplex_fx: vec![F::from(f32::NAN); n_simplex],
-            centroid_x: DVector::from_element(x0.len(), F::from(f32::NAN)),
-            centroid_fx: F::from(f32::NAN),
-            x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
-            fx_best: F::from(f32::INFINITY),
-            sstd: F::from(f32::NAN),
+            simplex_fx: vec![F::nan(); n_simplex],
+            centroid_x: DVector::from_element(x0.len(), F::nan()),
+            centroid_fx: F::nan(),
+            x_best: DVector::from_element(x0.len(), F::nan()),
+            fx_best: F::infinity(),
+            sstd: F::nan(),
             n_simplex,
             current_step: 0,
         }
@@ -192,28 +190,24 @@ where
     fn calculate_centroid(&mut self, args: Option<&A>) -> Result<(), E> {
         assert!(!self.simplex_x.is_empty(), "Simplex is empty!");
         let dim = self.simplex_x.len();
-        self.centroid_x = self
-            .simplex_x
-            .iter()
-            .take(dim - 1)
-            .sum::<DVector<F>>()
-            .unscale(F::from(dim as f32 - 1.0));
+        self.centroid_x =
+            self.simplex_x.iter().take(dim - 1).sum::<DVector<F>>() / convert!(dim as f32 - 1.0, F);
         self.centroid_fx = self.function.evaluate(&self.centroid_x, args)?;
         Ok(())
     }
     fn reflect(&self) -> DVector<F> {
         &self.centroid_x
             + (&self.centroid_x - &self.simplex_x[self.n_simplex - 1])
-                .scale(self.options.expansion_coeff)
+                * self.options.expansion_coeff
     }
     fn expand(&self, x_r: &DVector<F>) -> DVector<F> {
-        &self.centroid_x + (x_r - &self.centroid_x).scale(self.options.expansion_coeff)
+        &self.centroid_x + (x_r - &self.centroid_x) * self.options.expansion_coeff
     }
     fn contract_outside(&self, x_r: &DVector<F>) -> DVector<F> {
-        &self.centroid_x + (x_r - &self.centroid_x).scale(self.options.outside_contraction_coeff)
+        &self.centroid_x + (x_r - &self.centroid_x) * self.options.outside_contraction_coeff
     }
     fn contract_inside(&self, x_r: &DVector<F>) -> DVector<F> {
-        &self.centroid_x - (x_r - &self.centroid_x).scale(self.options.inside_contraction_coeff)
+        &self.centroid_x - (x_r - &self.centroid_x) * self.options.inside_contraction_coeff
     }
     fn shrink(&mut self) {
         let simplex_x_best = self.simplex_x[0].clone_owned();
@@ -233,19 +227,19 @@ where
         Ok(())
     }
     fn calculate_standard_deviation(&mut self) {
-        self.sstd = ComplexField::sqrt(
+        self.sstd = F::sqrt(
             self.simplex_fx
                 .iter()
-                .map(|&fx| ComplexField::powi(fx - self.centroid_fx, 2))
+                .map(|&fx| F::powi(fx - self.centroid_fx, 2))
                 .sum::<F>()
-                / F::from(self.simplex_fx.len() as f32),
+                / convert!(self.simplex_fx.len() as f32, F),
         );
     }
 }
 
 impl<F, A, E> Minimizer<F, A, E> for NelderMead<F, A, E>
 where
-    F: From<f32> + RealField + Copy + Sum,
+    F: Field + 'static,
 {
     fn step(&mut self, args: Option<&A>) -> Result<(), E> {
         self.current_step += 1;

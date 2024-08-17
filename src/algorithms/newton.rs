@@ -1,24 +1,23 @@
-use core::f32;
-
-use nalgebra::{ComplexField, DVector, RealField};
+use nalgebra::{ComplexField, DVector};
+use num::Float;
 use typed_builder::TypedBuilder;
 
-use crate::core::{Function, Minimizer};
+use crate::core::{convert, Field, Function, Minimizer};
 
 /// Used to set options for the [`Newton`] optimizer.
 ///
 /// See also: [`NewtonOptions::builder()`]
-#[derive(TypedBuilder, Debug)]
+#[derive(TypedBuilder)]
 pub struct NewtonOptions<F>
 where
-    F: From<f32>,
+    F: Field,
 {
     /// The distance to move in the Newton direction (default = 1.0)
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     pub step_size: F,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
-    #[builder(default = F::from(1e-8))]
+    #[builder(default = convert!(1e-8, F))]
     pub tolerance: F,
 }
 
@@ -38,7 +37,7 @@ where
 /// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`NewtonOptions::tolerance`].
 pub struct Newton<F, A, E>
 where
-    F: From<f32>,
+    F: Field,
 {
     function: Box<dyn Function<F, A, E>>,
     options: NewtonOptions<F>,
@@ -52,7 +51,7 @@ where
 }
 impl<F, A, E> Newton<F, A, E>
 where
-    F: RealField + From<f32> + Copy,
+    F: Field + 'static,
 {
     /// Create a new Newton optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
@@ -65,10 +64,10 @@ where
             function: Box::new(function),
             options: options.unwrap_or_else(|| NewtonOptions::builder().build()),
             x: DVector::from_row_slice(x0),
-            fx: F::from(f32::NAN),
-            fx_old: F::from(f32::NAN),
-            x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
-            fx_best: F::from(f32::INFINITY),
+            fx: F::nan(),
+            fx_old: F::nan(),
+            x_best: DVector::from_element(x0.len(), F::nan()),
+            fx_best: F::infinity(),
             current_step: 0,
             singular_hessian: false,
         }
@@ -77,7 +76,7 @@ where
 
 impl<F, A, E> Minimizer<F, A, E> for Newton<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + ComplexField,
 {
     fn step(&mut self, args: Option<&A>) -> Result<(), E> {
         self.current_step += 1;
@@ -97,7 +96,7 @@ where
     }
 
     fn check_for_termination(&self) -> bool {
-        (ComplexField::abs(self.fx - self.fx_old) <= ComplexField::abs(self.options.tolerance))
+        (<F as Float>::abs(self.fx - self.fx_old) <= <F as Float>::abs(self.options.tolerance))
             || self.singular_hessian
     }
 

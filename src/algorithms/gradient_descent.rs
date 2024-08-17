@@ -1,20 +1,18 @@
-use core::f32;
-
-use nalgebra::{DVector, RealField};
+use nalgebra::DVector;
 use typed_builder::TypedBuilder;
 
 use crate::{
     algorithms::line_search::TwoWayBacktrackingLineSearch,
-    core::{Function, LineSearch, Minimizer},
+    core::{convert, Field, Function, LineSearch, Minimizer},
 };
 
 /// Used to set options for the [`GradientDescent`] optimizer.
 ///
 /// See also: [`GradientDescentOptions::builder()`]
-#[derive(TypedBuilder, Debug)]
+#[derive(TypedBuilder)]
 pub struct GradientDescentOptions<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     /// The line search algorithm to use for gradient descent. See
     /// [`algorithms::line_search`](`crate::algorithms::line_search`)
@@ -23,7 +21,7 @@ where
     pub line_search_method: Box<dyn LineSearch<F, A, E>>,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
-    #[builder(default = F::from(1e-8))]
+    #[builder(default = convert!(1e-8, F))]
     pub tolerance: F,
 }
 
@@ -40,7 +38,7 @@ where
 /// [`GradientDescentOptions::tolerance`].
 pub struct GradientDescent<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     function: Box<dyn Function<F, A, E>>,
     options: GradientDescentOptions<F, A, E>,
@@ -56,7 +54,7 @@ where
 }
 impl<F, A, E> GradientDescent<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     /// Create a new Gradient Descent optimizer from a struct which implements [`Function`], an initial
     /// starting point `x0`, and some options.
@@ -70,12 +68,12 @@ where
             options: options.unwrap_or_else(|| GradientDescentOptions::builder().build()),
             x: DVector::from_row_slice(x0),
             x_old: None,
-            fx: F::from(f32::NAN),
-            fx_old: F::from(f32::NAN),
-            x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
-            fx_best: F::from(f32::INFINITY),
+            fx: F::nan(),
+            fx_old: F::nan(),
+            x_best: DVector::from_element(x0.len(), F::nan()),
+            fx_best: F::infinity(),
             current_step: 0,
-            learning_rate: F::from(f32::NAN),
+            learning_rate: F::nan(),
             g_old: None,
         }
     }
@@ -83,7 +81,7 @@ where
 
 impl<F, A, E> Minimizer<F, A, E> for GradientDescent<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field,
 {
     fn initialize(&mut self, _args: Option<&A>) -> Result<(), E> {
         self.learning_rate = self.options.line_search_method.get_base_learning_rate();

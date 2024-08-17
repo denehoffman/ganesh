@@ -1,25 +1,26 @@
-use nalgebra::{DVector, RealField};
+use nalgebra::DVector;
+use num::Float;
 use typed_builder::TypedBuilder;
 
-use crate::core::{Function, LineSearch};
+use crate::core::{convert, Field, Function, LineSearch};
 
 /// A trivial line search algorithm which just steps at a fixed rate.
 ///
 /// ```math
 /// \vec{x}_{i+1} = \vec{x}_i + \alpha \vec{p}
 /// ```
-#[derive(Debug, TypedBuilder)]
+#[derive(TypedBuilder)]
 pub struct FixedRateLineSearch<F>
 where
-    F: From<f32>,
+    F: Field,
 {
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     base_learning_rate: F,
 }
 
 impl<F, A, E> LineSearch<F, A, E> for FixedRateLineSearch<F>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     fn search(
         &self,
@@ -31,7 +32,7 @@ where
         _p_prev: &Option<DVector<F>>,
         _alpha_prev: Option<F>,
     ) -> Result<(DVector<F>, F, F), E> {
-        let res_x = x + p.scale(self.base_learning_rate);
+        let res_x = x + p * self.base_learning_rate;
         let res_fx = func.evaluate(&res_x, args)?;
         Ok((res_x, res_fx, self.base_learning_rate))
     }
@@ -59,22 +60,22 @@ where
 /// ```
 ///
 /// [^1] Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
-#[derive(Debug, TypedBuilder)]
+#[derive(TypedBuilder)]
 pub struct BacktrackingLineSearch<F>
 where
-    F: From<f32>,
+    F: Field + 'static,
 {
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     control: F,
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     shrink: F,
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     base_learning_rate: F,
 }
 
 impl<F, A, E> LineSearch<F, A, E> for BacktrackingLineSearch<F>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field,
 {
     fn search(
         &self,
@@ -91,7 +92,7 @@ where
         let t = -self.control * m;
         let mut alpha_i = self.base_learning_rate;
         loop {
-            let res_x = x + p.scale(alpha_i);
+            let res_x = x + p * alpha_i;
             let res_fx = func.evaluate(&res_x, args)?;
             if (func.evaluate(x, args)? - res_fx) >= (alpha_i * t) {
                 return Ok((res_x, res_fx, alpha_i));
@@ -119,22 +120,22 @@ where
 /// [^1] Armijo, Larry (1966). "Minimization of functions having Lipschitz continuous first partial derivatives". Pacific J. Math. **16** (1): 1–3. doi:10.2140/pjm.1966.16.1.
 /// [^2] Nocedal, Jorge; Wright, Stephen J. (2000), Numerical Optimization, Springer-Verlag, ISBN 0-387-98793-2
 /// [^3] Truong, T. T.; Nguyen, H.-T. (6 September 2020). "Backtracking Gradient Descent Method and Some Applications in Large Scale Optimisation. Part 2: Algorithms and Experiments". Applied Mathematics & Optimization. **84** (3): 2557–2586. doi:10.1007/s00245-020-09718-8. hdl:10852/79322.
-#[derive(Debug, TypedBuilder)]
+#[derive(TypedBuilder)]
 pub struct TwoWayBacktrackingLineSearch<F>
 where
-    F: From<f32>,
+    F: Float,
 {
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     control: F,
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     shrink: F,
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     base_learning_rate: F,
 }
 
 impl<F, A, E> LineSearch<F, A, E> for TwoWayBacktrackingLineSearch<F>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     fn search(
         &self,
@@ -153,7 +154,7 @@ where
         // In this case, alpha_0 := alpha_{n-1} and
         // base_learning_rate := alpha_0, so we might want to increase
         // the learning rate first:
-        let res_x = x + p.scale(alpha);
+        let res_x = x + p * alpha;
         let res_fx = func.evaluate(&res_x, args)?;
         if (func.evaluate(x, args)? - res_fx) >= (alpha * t) {
             // if Armijo's condition is already satisfied
@@ -161,7 +162,7 @@ where
             let mut res_fx_old = res_fx;
             loop {
                 alpha /= self.shrink; // increase learning rate
-                let res_x = x + p.scale(alpha);
+                let res_x = x + p * alpha;
                 let res_fx = func.evaluate(&res_x, args)?;
                 if (func.evaluate(x, args)? - res_fx) < (alpha * t)
                     || alpha > self.base_learning_rate
@@ -176,7 +177,7 @@ where
             // if Armijo's condition is not satisfied
             loop {
                 alpha *= self.shrink; // decrease learning rate
-                let res_x = x + p.scale(alpha);
+                let res_x = x + p * alpha;
                 let res_fx = func.evaluate(&res_x, args)?;
                 if (func.evaluate(x, args)? - res_fx) >= (alpha * t) {
                     // once satisfied, return the values which satisfied the condition
@@ -192,7 +193,6 @@ where
 }
 
 /// Types of steps used by the Barzilai-Borwein algorithm implemented in [`BarzilaiBorwein`].
-#[derive(Debug)]
 pub enum BarzilaiBorweinStep {
     /// A short step which uses $`\alpha =
     /// \frac{\Delta\vec{x}\cdot\Delta\vec{x}}{\Delta\vec{x}\cdot\Delta\vec{g}}`$.
@@ -215,16 +215,16 @@ pub enum BarzilaiBorweinStep {
 /// $`\Delta\vec{g}\equiv -\Delta\vec{p}`$ in the implementation below.
 ///
 /// [^1] Barzilai, Jonathan; Borwein, Jonathan M. (1988). "Two-Point Step Size Gradient Methods". IMA Journal of Numerical Analysis. **8**: 141–148. doi:10.1093/imanum/8.1.141.
-#[derive(Debug, TypedBuilder)]
+#[derive(TypedBuilder)]
 pub struct BarzilaiBorwein<F>
 where
-    F: From<f32>,
+    F: Float,
 {
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     control: F,
-    #[builder(default = F::from(0.5))]
+    #[builder(default = convert!(0.5, F))]
     shrink: F,
-    #[builder(default = F::from(1.0))]
+    #[builder(default = F::one())]
     base_learning_rate: F,
     #[builder(default = BarzilaiBorweinStep::Short)]
     step_type: BarzilaiBorweinStep,
@@ -232,7 +232,7 @@ where
 
 impl<F, A, E> LineSearch<F, A, E> for BarzilaiBorwein<F>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     fn search(
         &self,
@@ -251,7 +251,7 @@ where
                 BarzilaiBorweinStep::Short => dx.dot(&dx) / dx.dot(&dp),
                 BarzilaiBorweinStep::Long => dx.dot(&dp) / dp.dot(&dp),
             };
-            let res_x = x + p.scale(alpha);
+            let res_x = x + p * alpha;
             let res_fx = func.evaluate(&res_x, args)?;
             Ok((res_x, res_fx, alpha))
         } else {
@@ -262,7 +262,7 @@ where
             // In this case, alpha_0 := alpha_{n-1} and
             // base_learning_rate := alpha_0, so we might want to increase
             // the learning rate first:
-            let res_x = x + p.scale(alpha);
+            let res_x = x + p * alpha;
             let res_fx = func.evaluate(&res_x, args)?;
             if (func.evaluate(x, args)? - res_fx) >= (alpha * t) {
                 // if Armijo's condition is already satisfied
@@ -270,7 +270,7 @@ where
                 let mut res_fx_old = res_fx;
                 loop {
                     alpha /= self.shrink; // increase learning rate
-                    let res_x = x + p.scale(alpha);
+                    let res_x = x + p * alpha;
                     let res_fx = func.evaluate(&res_x, args)?;
                     if (func.evaluate(x, args)? - res_fx) < (alpha * t)
                         || alpha > self.base_learning_rate
@@ -285,7 +285,7 @@ where
                 // if Armijo's condition is not satisfied
                 loop {
                     alpha *= self.shrink; // decrease learning rate
-                    let res_x = x + p.scale(alpha);
+                    let res_x = x + p * alpha;
                     let res_fx = func.evaluate(&res_x, args)?;
                     if (func.evaluate(x, args)? - res_fx) >= (alpha * t) {
                         // once satisfied, return the values which satisfied the condition
