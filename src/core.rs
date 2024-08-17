@@ -316,7 +316,7 @@ macro_rules! minimize {
 /// See also: [`GradientDescent`](`crate::algorithms::GradientDescent`)
 pub trait LineSearch<F, A, E>
 where
-    F: Float,
+    F: Field,
 {
     /// A method which takes a function `func` and its arguments `args`, along with the current
     /// position of the optimizer `x` (and optionally the previous position, `x_prev`), a step

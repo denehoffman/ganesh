@@ -1,5 +1,4 @@
 use nalgebra::DVector;
-use num::Float;
 use typed_builder::TypedBuilder;
 
 use crate::core::{convert, Field, Function, LineSearch};
@@ -123,7 +122,7 @@ where
 #[derive(TypedBuilder)]
 pub struct TwoWayBacktrackingLineSearch<F>
 where
-    F: Float,
+    F: Field,
 {
     #[builder(default = convert!(0.5, F))]
     control: F,
@@ -223,7 +222,7 @@ pub enum BarzilaiBorweinStep {
 #[derive(TypedBuilder)]
 pub struct BarzilaiBorwein<F>
 where
-    F: Float,
+    F: Field,
 {
     #[builder(default = convert!(0.5, F))]
     control: F,

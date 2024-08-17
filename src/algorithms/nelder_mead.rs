@@ -1,5 +1,4 @@
 use nalgebra::DVector;
-use num::Float;
 use typed_builder::TypedBuilder;
 
 use crate::core::{convert, Field, Function, Minimizer};
@@ -10,7 +9,7 @@ use crate::core::{convert, Field, Function, Minimizer};
 #[derive(TypedBuilder)]
 pub struct NelderMeadOptions<F>
 where
-    F: Float,
+    F: Field,
 {
     // TODO: validate coeffs, alpha > 0, gamma > 1, 0 < rho <= 0.5, sigma (0 < sigma < 1?)
     /// The step size from the starting point to each other point in the simplex (default = 1.0)
@@ -41,7 +40,7 @@ where
 
 impl<F> NelderMeadOptions<F>
 where
-    F: Float,
+    F: Field,
 {
     /// A set of adaptive hyperparameters according to Gao and Han[^1]. This will produce a
     /// [`NelderMeadOptionsBuilder`] with most parameters set to their adaptive versions, leaving
@@ -109,7 +108,7 @@ where
 ///
 pub struct NelderMead<F, A, E>
 where
-    F: Float,
+    F: Field,
 {
     function: Box<dyn Function<F, A, E>>,
     options: NelderMeadOptions<F>,
