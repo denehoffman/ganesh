@@ -45,9 +45,9 @@ where
 {
     /// A set of adaptive hyperparameters according to Gao and Han[^1]. This will produce a
     /// [`NelderMeadOptionsBuilder`] with most parameters set to their adaptive versions, leaving
-    /// the [`simplex_size`](`NelderMeadOptions::simplex_size`),
-    /// [`min_simplex_standard_deviation`](`NelderMeadOptions::min_simplex_standard_deviation`),
-    /// and [`max_iters`](`NelderMeadOptions::max_iters`) fields free for the user to set or leave
+    /// the [`simplex_size`](`NelderMeadOptions::simplex_size`) and
+    /// [`min_simplex_standard_deviation`](`NelderMeadOptions::min_simplex_standard_deviation`)
+    /// fields free for the user to set or leave
     /// as defaults. This method, dubbed ANMS for Adaptive Nelder-Mead Simplex, is identical to the
     /// Standard Nelder-Mead Simplex (SNMS) when the input dimension is equal to 2. The authors of
     /// the paper show that this method can significantly reduce the number of function evaluations

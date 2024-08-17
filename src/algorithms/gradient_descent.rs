@@ -30,9 +30,13 @@ where
 /// This method uses the gradient of a function to determine the minimizing step direction:
 ///
 /// ```math
-/// \vec{x}_{i+1} = \vec{x}_i - \gamma g_f(\vec{x}_i)
+/// \vec{x}_{i+1} = \vec{x}_i - \alpha_{i} g_f(\vec{x}_i)
 /// ```
-/// where $`g_f`$ is the gradient vector, and $`0 \lt \gamma`$ is the learning rate.
+/// where $`g_f`$ is the gradient vector, and $`0 \lt \alpha_{i}`$ is the learning rate at
+/// step $`i`$. Note that $`\alpha_{i}`$ can be dependent on the step or on the current/past
+/// position of the solver, and by default it is found by a two-way backtracking line search.
+/// Other methods for determining the learning rate can be found in the
+/// [`line_search`][crate::algorithms::line_search] module.
 ///
 /// This method will terminate if $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than
 /// [`GradientDescentOptions::tolerance`].
