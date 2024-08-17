@@ -105,4 +105,5 @@ pub mod test_functions;
 pub mod prelude {
     pub use crate::core::{Field, Function, LineSearch, Minimizer};
     pub use crate::minimize;
+    pub use nalgebra::DVector;
 }
