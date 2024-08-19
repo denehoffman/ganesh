@@ -1,6 +1,9 @@
 /// Module containing the Gradient Descent minimization algorithm
 pub mod gradient_descent;
 pub use gradient_descent::{GradientDescent, GradientDescentOptions};
+/// Module containing the BFGS minimization algorithm and variants
+pub mod bfgs;
+// pub use bfgs::{BFGS, BFGSOptions};
 /// Module containing the Newton-Raphson minimization algorithm
 pub mod newton;
 pub use newton::{Newton, NewtonOptions};
