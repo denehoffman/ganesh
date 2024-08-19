@@ -200,6 +200,7 @@ where
     /// # Errors
     ///
     /// Returns an error of type `E` if [`Function::evaluate`] fails.
+    #[allow(clippy::expect_used)]
     fn gradient_and_inverse_hessian(
         &self,
         x: &DVector<F>,
@@ -210,14 +211,14 @@ where
     {
         let (gradient, hessian) = self.gradient_and_hessian(x, args)?;
         if hessian.is_invertible() {
-            return Ok((gradient, hessian.try_inverse().expect("Hessian isn't square, something is horribly wrong. Please create an issue on the GitHub repository for `ganesh`!")));
+            Ok((gradient, hessian.try_inverse().expect("Hessian isn't square, something is horribly wrong. Please create an issue on the GitHub repository for `ganesh`!")))
         } else {
-            return Ok((
+            Ok((
                 gradient,
                 hessian
                     .pseudo_inverse(F::epsilon())
                     .expect("SVD pseudo inverse: the epsilon must be non-negative.\nThis is an `nalgebra` error! If this happens, please create an issue on the GitHub repository for `ganesh`!"),
-            ));
+            ))
         }
     }
 }
