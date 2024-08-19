@@ -254,7 +254,7 @@ where
     ) -> Result<(DVector<F>, F, F), E> {
         if let (Some(x_p), Some(p_p)) = (x_prev, p_prev) {
             let dx = x - x_p;
-            let dp = p_p - p;
+            let dp = p - p_p;
             let alpha = match self.step_type {
                 BarzilaiBorweinStep::Short => dx.dot(&dx) / dx.dot(&dp),
                 BarzilaiBorweinStep::Long => dx.dot(&dp) / dp.dot(&dp),

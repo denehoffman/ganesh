@@ -101,7 +101,7 @@ where
             &self.x,
             &self.x_old,
             &p,
-            &self.g_old,
+            &self.g_old.clone().map(|val| -val),
             self.learning_rate,
         )?;
         self.x_old = Some(self.x.clone_owned()); // TODO: memory swap here?
