@@ -96,7 +96,7 @@ where
     }
 
     fn check_for_termination(&self) -> bool {
-        (<F as Float>::abs(self.fx - self.fx_old) <= <F as Float>::abs(self.options.tolerance))
+        Float::abs(self.fx - self.fx_old) <= Float::abs(self.options.tolerance)
             || self.singular_hessian
     }
 
