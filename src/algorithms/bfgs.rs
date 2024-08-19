@@ -117,7 +117,7 @@ where
             args,
             self.x.len(),
         )?;
-        self.p = &self.b0_inv * &self.g;
+        self.p = &self.b0_inv * -&self.g;
         Ok(())
     }
     fn step(&mut self, args: Option<&A>) -> Result<(), E> {
@@ -144,7 +144,7 @@ where
         self.y_history.push_back(&g_next - &self.g);
         let mut rho_history: Vec<F> = vec![F::zero(); n_steps];
         let mut gamma_history: Vec<F> = vec![F::zero(); n_steps];
-        let mut p_next = self.p.clone_owned();
+        let mut p_next = -g_next.clone_owned();
         for i in (0..n_steps).rev() {
             rho_history[i] = F::one() / (self.y_history[i].dot(&self.s_history[i]));
             gamma_history[i] = rho_history[i] * (self.s_history[i].dot(&p_next));
