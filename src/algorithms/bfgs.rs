@@ -153,7 +153,7 @@ where
         p_next = &self.b0_inv * p_next;
         for i in 0..n_steps {
             let beta = rho_history[i] * (self.y_history[i].dot(&p_next));
-            p_next += self.s_history[i].scale(gamma_history[n_steps - i] - beta);
+            p_next += self.s_history[i].scale(gamma_history[n_steps - i - 1] - beta);
         }
 
         self.learning_rate = Some(learning_rate_next);
