@@ -2,11 +2,12 @@ use core::f32;
 use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector, RealField};
+use num::Float;
 use typed_builder::TypedBuilder;
 
 use crate::{
     algorithms::line_search::TwoWayBacktrackingLineSearch,
-    core::{Function, LineSearch, Minimizer},
+    core::{convert, Field, Function, LineSearch, Minimizer},
 };
 
 #[derive(Debug, Default)]
@@ -25,7 +26,7 @@ impl InverseHessianApproximation {
         ndim: usize,
     ) -> Result<(DVector<F>, DMatrix<F>), E>
     where
-        F: From<f32> + RealField + Copy,
+        F: Field + RealField,
     {
         match self {
             InverseHessianApproximation::Exact => func.gradient_and_inverse_hessian(x, args),
@@ -36,16 +37,16 @@ impl InverseHessianApproximation {
     }
 }
 
-#[derive(TypedBuilder, Debug)]
+#[derive(TypedBuilder)]
 pub struct BFGSOptions<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     #[builder(default = Box::new(TwoWayBacktrackingLineSearch::builder().build()))]
     pub line_search_method: Box<dyn LineSearch<F, A, E>>,
     /// The minimum absolute difference between evaluations that will terminate the
     /// algorithm (default = 1e-8)
-    #[builder(default = F::from(1e-8))]
+    #[builder(default = convert!(1e-8, F))]
     pub tolerance: F,
     #[builder(default = None)]
     pub memory_limit: Option<usize>,
@@ -55,7 +56,7 @@ where
 
 pub struct BFGS<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + 'static,
 {
     function: Box<dyn Function<F, A, E>>,
     options: BFGSOptions<F, A, E>,
@@ -76,7 +77,7 @@ where
 }
 impl<F, A, E> BFGS<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field,
 {
     pub fn new<Func: Function<F, A, E> + 'static>(
         function: Func,
@@ -89,10 +90,10 @@ where
             x: DVector::from_row_slice(x0),
             x_prev: None,
             g: DVector::default(),
-            fx: F::from(f32::NAN),
-            fx_old: F::from(f32::NAN),
-            x_best: DVector::from_element(x0.len(), F::from(f32::NAN)),
-            fx_best: F::from(f32::INFINITY),
+            fx: F::nan(),
+            fx_old: F::nan(),
+            x_best: DVector::from_element(x0.len(), F::nan()),
+            fx_best: F::infinity(),
             current_step: 0,
             learning_rate: None,
             s_history: VecDeque::default(),
@@ -106,7 +107,7 @@ where
 
 impl<F, A, E> Minimizer<F, A, E> for BFGS<F, A, E>
 where
-    F: From<f32> + RealField + Copy,
+    F: Field + RealField,
 {
     fn initialize(&mut self, args: Option<&A>) -> Result<(), E> {
         self.learning_rate = Some(self.options.line_search_method.get_base_learning_rate());
@@ -145,7 +146,7 @@ where
         let mut gamma_history: Vec<F> = vec![F::zero(); n_steps];
         let mut p_next = self.p.clone_owned();
         for i in (0..n_steps).rev() {
-            rho_history[i] = (self.y_history[i].dot(&self.s_history[i])).recip();
+            rho_history[i] = F::one() / (self.y_history[i].dot(&self.s_history[i]));
             gamma_history[i] = rho_history[i] * (self.s_history[i].dot(&p_next));
             p_next -= self.y_history[i].scale(gamma_history[i]);
         }
@@ -164,7 +165,7 @@ where
     }
 
     fn check_for_termination(&self) -> bool {
-        (self.fx - self.fx_old).abs() <= self.options.tolerance.abs()
+        Float::abs(self.fx - self.fx_old) <= Float::abs(self.options.tolerance)
     }
 
     fn best(&self) -> (&DVector<F>, &F) {

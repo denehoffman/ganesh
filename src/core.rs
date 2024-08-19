@@ -3,7 +3,7 @@ use std::{
     iter::{Product, Sum},
 };
 
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{DMatrix, DVector, RealField};
 use num::Float;
 use num::{
     traits::{FloatConst, NumAssignOps},
@@ -204,7 +204,10 @@ where
         &self,
         x: &DVector<F>,
         args: Option<&A>,
-    ) -> Result<(DVector<F>, DMatrix<F>), E> {
+    ) -> Result<(DVector<F>, DMatrix<F>), E>
+    where
+        F: RealField,
+    {
         let (gradient, hessian) = self.gradient_and_hessian(x, args)?;
         if hessian.is_invertible() {
             return Ok((gradient, hessian.try_inverse().expect("Hessian isn't square, something is horribly wrong. Please create an issue on the GitHub repository for `ganesh`!")));
@@ -212,7 +215,7 @@ where
             return Ok((
                 gradient,
                 hessian
-                    .pseudo_inverse(F::from(f32::EPSILON))
+                    .pseudo_inverse(F::epsilon())
                     .expect("SVD pseudo inverse: the epsilon must be non-negative.\nThis is an `nalgebra` error! If this happens, please create an issue on the GitHub repository for `ganesh`!"),
             ));
         }
