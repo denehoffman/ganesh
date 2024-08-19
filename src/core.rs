@@ -102,7 +102,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `x`: A slice of `F` representing the point at which to compute the gradient and Hessian.
+    /// * `x`: A [`DVector`] of `F` representing the point at which to compute the gradient and Hessian.
     /// * `args`: An optional argument struct used to pass static arguments to the internal
     ///   function.
     ///
@@ -177,6 +177,45 @@ where
         }
 
         Ok((grad, hess))
+    }
+
+    /// Computes both the gradient and the inverse of the Hessian matrix of the function at the given point.
+    ///
+    /// This method uses central finite differences to approximate both the gradient and the Hessian. It
+    /// then returns the gradient along with the inverse (if Hessian is invertable) or the pseudoinverse
+    /// of the Hessian.
+    ///
+    /// # Arguments
+    ///
+    /// * `x`: A [`DVector`] of `F` representing the point at which to compute the gradient and Hessian.
+    /// * `args`: An optional argument struct used to pass static arguments to the internal
+    ///   function.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    /// - The gradient at `x` as a [`DVector`] of `F`
+    /// - The inverse of the Hessian at `x` as a [`DMatrix`] of `F`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of type `E` if [`Function::evaluate`] fails.
+    fn gradient_and_inverse_hessian(
+        &self,
+        x: &DVector<F>,
+        args: Option<&A>,
+    ) -> Result<(DVector<F>, DMatrix<F>), E> {
+        let (gradient, hessian) = self.gradient_and_hessian(x, args)?;
+        if hessian.is_invertible() {
+            return Ok((gradient, hessian.try_inverse().expect("Hessian isn't square, something is horribly wrong. Please create an issue on the GitHub repository for `ganesh`!")));
+        } else {
+            return Ok((
+                gradient,
+                hessian
+                    .pseudo_inverse(F::from(f32::EPSILON))
+                    .expect("SVD pseudo inverse: the epsilon must be non-negative.\nThis is an `nalgebra` error! If this happens, please create an issue on the GitHub repository for `ganesh`!"),
+            ));
+        }
     }
 }
 

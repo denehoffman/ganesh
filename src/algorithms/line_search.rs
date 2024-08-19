@@ -107,7 +107,7 @@ where
 /// A two-way backtracking line search.
 ///
 /// This is similar to the backtracking line search implemented in
-/// [`BacktrackingLineSearch`][^1]. However, with the assumption that the next value of the
+/// [`BacktrackingLineSearch`](`BacktrackingLineSearch`)[^1]. However, with the assumption that the next value of the
 /// learning rate $`\alpha`$ is similar to the learning rate from the previous step, this method
 /// can be used to skip a lot of the steps involved in the convergence to the Armijo condition,
 /// especially if the base learning rate is set too high. However, it is possible that the
@@ -208,6 +208,10 @@ pub enum BarzilaiBorweinStep {
 /// \alpha_S = \frac{\Delta\vec{x}\cdot\Delta\vec{x}}{\Delta\vec{x}\cdot\Delta\vec{g}}
 /// ```
 /// or
+/// ```math
+/// \alpha_L = \frac{\Delta\vec{x}\cdot\Delta\vec{g}}{\Delta\vec{g}\cdot\Delta\vec{g}}
+/// ```
+///
 /// ```math
 /// \alpha_L = \frac{\Delta\vec{x}\cdot\Delta\vec{g}}{\Delta\vec{g}\cdot\Delta\vec{g}}
 /// ```

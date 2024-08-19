@@ -33,7 +33,7 @@ where
 /// $`0 \lt \gamma \leq 1`$ is the step size (for $`\gamma \neq 1`$, this method is referred to as
 /// the relaxed or damped Newton's method).
 ///
-/// This method will terminate if either the maximum requested steps are performed or if
+/// This method will terminate if either the maximum number of steps are performed or if
 /// $`|f(\vec{x}_{i}) - f(\vec{x}_{i-1})|`$ is smaller than [`NewtonOptions::tolerance`].
 pub struct Newton<F, A, E>
 where

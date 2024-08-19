@@ -46,14 +46,14 @@ where
     /// [`NelderMeadOptionsBuilder`] with most parameters set to their adaptive versions, leaving
     /// the [`simplex_size`](`NelderMeadOptions::simplex_size`) and
     /// [`min_simplex_standard_deviation`](`NelderMeadOptions::min_simplex_standard_deviation`)
-    /// fields free for the user to set or leave
-    /// as defaults. This method, dubbed ANMS for Adaptive Nelder-Mead Simplex, is identical to the
-    /// Standard Nelder-Mead Simplex (SNMS) when the input dimension is equal to 2. The authors of
-    /// the paper show that this method can significantly reduce the number of function evaluations
-    /// for dimensions greater than 10, although it has mixed results for the Moré-Garbow-Hilstrom
-    /// test functions with dimensions between 2 and 6 and can sometimes lead to significantly more
-    /// function evaluations. For dimensions greater than 6 for the subset of those test functions
-    /// which support higher dimensions, it generally required less evaluations (with several
+    /// fields free for the user to set or leave as defaults. This method, dubbed ANMS for
+    /// Adaptive Nelder-Mead Simplex, is identical to the Standard Nelder-Mead Simplex (SNMS)
+    /// when the input dimension is equal to 2. The authors of the paper show that this method
+    /// can significantly reduce the number of function evaluations for dimensions greater than
+    /// 10, although it has mixed results for the Moré-Garbow-Hilstrom test functions with
+    /// dimensions between 2 and 6 and can sometimes lead to significantly more function
+    /// evaluations. For dimensions greater than 6 for the subset of those test functions which
+    /// support higher dimensions, it generally required less evaluations (with several
     /// exceptions, see **Table 4** in the paper for more details).
     ///
     /// [^1]: Gao, F., Han, L. Implementing the Nelder-Mead simplex algorithm with adaptive parameters. *Comput Optim Appl* **51**, 259–277 (2012). <https://doi.org/10.1007/s10589-010-9329-3>
