@@ -8,7 +8,10 @@
 //     }
 // }
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use num::{Float, FromPrimitive};
 
@@ -28,7 +31,7 @@ macro_rules! convert {
         <$type as num::NumCast>::from($value).unwrap()
     }};
 }
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 pub enum Bound<T> {
     #[default]
     NoBound,
@@ -36,23 +39,56 @@ pub enum Bound<T> {
     UpperBound(T),
     LowerAndUpperBound(T, T),
 }
+impl<T> Display for Bound<T>
+where
+    T: Float + Debug + Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.lower(), self.upper())
+    }
+}
 impl<T> From<(T, T)> for Bound<T>
 where
     T: Float,
 {
     fn from(value: (T, T)) -> Self {
+        assert!(value.0 < value.1);
         match (value.0.is_finite(), value.1.is_finite()) {
             (true, true) => Self::LowerAndUpperBound(value.0, value.1),
             (true, false) => Self::LowerBound(value.0),
-            (false, true) => Self::UpperBound(value.0),
+            (false, true) => Self::UpperBound(value.1),
             (false, false) => Self::NoBound,
         }
     }
 }
 impl<T> Bound<T>
 where
-    T: Float,
+    T: Float + Debug,
 {
+    fn contains(&self, value: &T) -> bool {
+        match self {
+            Bound::NoBound => true,
+            Bound::LowerBound(lb) => value > lb,
+            Bound::UpperBound(ub) => value < ub,
+            Bound::LowerAndUpperBound(lb, ub) => value > lb && value < ub,
+        }
+    }
+    fn lower(&self) -> T {
+        match self {
+            Bound::NoBound => T::neg_infinity(),
+            Bound::LowerBound(lb) => *lb,
+            Bound::UpperBound(_) => T::neg_infinity(),
+            Bound::LowerAndUpperBound(lb, _) => *lb,
+        }
+    }
+    fn upper(&self) -> T {
+        match self {
+            Bound::NoBound => T::infinity(),
+            Bound::LowerBound(_) => T::infinity(),
+            Bound::UpperBound(ub) => *ub,
+            Bound::LowerAndUpperBound(_, ub) => *ub,
+        }
+    }
     fn to_bounded(values: &[T], bounds: &[Bound<T>]) -> Vec<T> {
         values
             .iter()
