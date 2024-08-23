@@ -214,7 +214,7 @@ where
 
 impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
 where
-    T: Float + FromPrimitive,
+    T: Float + FromPrimitive + Debug + Display,
 {
     const DEFAULT_MAX_STEPS: usize = 4000;
     pub fn new(algorithm: A, dimension: usize) -> Self {
@@ -273,6 +273,17 @@ where
         user_data: &mut U,
     ) -> Result<Status<T>, E> {
         assert!(x0.len() == self.dimension);
+        if let Some(bounds) = &self.bounds {
+            for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
+                assert!(
+                    bound_i.contains(x_i),
+                    "Parameter #{} = {} is outside of the given bound: {}",
+                    i,
+                    x_i,
+                    bound_i
+                )
+            }
+        }
         self.algorithm
             .initialize(func, x0, self.bounds.as_ref(), user_data)?;
         let mut current_step = 0;
