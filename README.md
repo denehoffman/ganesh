@@ -45,14 +45,14 @@
 This crate provides some common test functions in the `test_functions` module. Consider the following implementation of the Rosenbrock function:
 
 ```rust
-use ganesh::prelude::*;
 use std::convert::Infallible;
+use ganesh::prelude::*;
+
 pub struct Rosenbrock {
-    /// Number of dimensions (must be at least 2)
     pub n: usize,
 }
 impl Function<f64, (), Infallible> for Rosenbrock {
-    fn evaluate(&self, x: &[f64], _args: Option<&()>) -> Result<f64, Infallible> {
+    fn evaluate(&self, x: &[f64], _user_data: &mut ()) -> Result<f64, Infallible> {
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
             .sum())
@@ -64,30 +64,51 @@ To minimize this function, we could consider using the Nelder-Mead algorithm:
 use ganesh::prelude::*;
 use ganesh::algorithms::NelderMead;
 
-let func = Rosenbrock { n: 2 };
-let mut m = NelderMead::new(func, &[-2.3, 3.4], None);
-let status = minimize!(m, 1000).unwrap(); // Run at most 1000 algorithm steps
-let (x_best, fx_best) = m.best();
-println!("x: {:?}\nf(x): {}", x_best, fx_best);
+let problem = Rosenbrock { n: 2 };
+let nm = NelderMead::default();
+let mut m = Minimizer::new(nm, 2);
+let x0 = &[2.0; n];
+let status = opt.minimize(&problem, x0, &mut ()).unwrap();
+println!("{}", status);
 ```
 
 This should output
 ```shell
-x: [0.9999459113507765, 0.9998977381285472]
-f(x): 0.000000006421349269800761
+MSG:       term_f = STDDEV
+X:         [0.9999999946231828, 0.9999999884539057]
+F(X):      0.00000000000000009170942877687133
+N_EVALS:   160
+CONVERGED: true
 ```
 
-I have ignored the `status` variable here, but in practice, the `Minimizer::minimize` method should return the last message sent by the algorithm. This can indicate the status of a fit without explicitly causing an error. This makes it easier to debug, since it can be tedious to have two separate error types, one for the function and one for the algorithm, returned by the minimization (functions can always be failable in this crate). We could also swap the `f64`s for `f32`s (or any type which implements the `Field` trait) in the Rosenbrock implementation. Additionally, if we wanted to modify any of the hyperparameters in the fitting algorithm, we could use `NelderMeadOptions::builder()` and pass it as the third argument in the `NelderMead::new` constructor. Finally, all algorithm implementations are constructed to pass a themselves by reference to a callback function. For `NelderMead`, we could do the following:
-```rust
-let status = minimize!(m, 1000, |nm| println!("step: {}\nx: {:?}\nf(x): {}", nm.current_step, nm.x_best, nm.fx_best)).unwrap();
-```
-This will print out the current step, the best position found by the optimizer at that step, and the function's evaluation at that position for each step in the algorithm. You can use the step number to limit printing (print only steps divisible by 100, for example).
+# Bounds
+All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 
-The `minimize!` macro exists to simplify the `Minimizer<F, A, E>::minimize<Callback: Fn(&Self)>(&mut self, args: Option<&A>, steps: usize, callback: Callback) -> Result<(), E>` call if you don't actually want a callback or arguments.
+Upper and lower bounds:
+```math
+x_\text{int} = \arcsin\left(2\frac{x_\text{ext} - x_\text{min}}{x_\text{max} - x_\text{min}} - 1\right)
+```
+```math
+x_\text{ext} = x_\text{min} + \left(\sin(x_\text{int}) + 1\right)\frac{x_\text{max} - x_\text{min}}{2}
+```
+Upper bound only:
+```math
+x_\text{int} = \sqrt{(x_\text{max} - x_\text{ext} + 1)^2 - 1}
+```
+```math
+x_\text{ext} = x_\text{max} + 1 - \sqrt{x_\text{int}^2 + 1}
+```
+Lower bound only:
+```math
+x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
+```
+```math
+x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
+```
+As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should be used with caution. They turn linear problems into nonlinear ones, which can mess with error propagation and even fit convergence, not to mention increase function complexity. Methods which output covariance matrices need to be adjusted if bounded, and `MINUIT` recommends fitting a second time near a minimum without bounds to ensure proper error propagation.
 
 # Future Plans
 
 * Eventually, I would like to implement BGFS and variants, MCMC algorithms, and some more modern gradient-free optimization techniques.
 * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
-* Reduce the amount of `Vec::clone`s in the algorithms.
 * A test suite
