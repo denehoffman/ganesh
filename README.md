@@ -69,8 +69,8 @@ let problem = Rosenbrock { n: 2 };
 let nm = NelderMead::default();
 let mut m = Minimizer::new(nm, 2);
 let x0 = &[2.0, 2.0];
-let status = m.minimize(&problem, x0, &mut ()).unwrap();
-println!("{}", status);
+m.minimize(&problem, x0, &mut ()).unwrap();
+println!("{}", m.status);
 ```
 
 This should output

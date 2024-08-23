@@ -17,9 +17,9 @@ use crate::{Observer, Status};
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver;
 /// let mut m = Minimizer::new(nm, 2).with_observer(obs);
-/// let status = m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
+/// m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
 /// // ^ This will print debug messages for each step
-/// assert!(status.converged);
+/// assert!(m.status.converged);
 /// ```
 pub struct DebugObserver;
 impl<T, U> Observer<T, U> for DebugObserver
