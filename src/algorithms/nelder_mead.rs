@@ -142,7 +142,10 @@ where
                 point_0.evaluate(func, bounds, user_data)?;
                 points.push(point_0.clone());
                 let dim = point_0.len();
-                assert!(dim >= 2);
+                assert!(
+                    dim >= 2,
+                    "Nelder-Mead is only a suitable method for problems of dimension >= 2"
+                );
                 for i in 0..dim {
                     let mut point_i = point_0.clone();
                     point_i.x[i] += *simplex_size;
