@@ -1,25 +1,25 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use ganesh::{algorithms::NelderMead, test_functions::Rosenbrock};
-use ganesh::{algorithms::NelderMeadOptions, prelude::*};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use ganesh::algorithms::NelderMead;
+use ganesh::prelude::*;
+use ganesh::test_functions::rosenbrock::Rosenbrock;
 
 fn rosenbrock_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("nelder-mead: rosenbrock");
-    for n in [2, 3, 4, 5, 10, 15, 20, 30] {
+    // Standard can't handle n >= 15, but Adaptive does it quickly!
+    for n in [2, 3, 4, 5, 10] {
         group.bench_with_input(BenchmarkId::new("Standard", n), &n, |b, ndim| {
+            let problem = Rosenbrock { n: *ndim };
+            let nm = NelderMead::default();
+            let mut m = Minimizer::new(nm, *ndim).with_max_steps(10_000_000);
             let x0 = vec![5.0; *ndim];
-            b.iter(|| {
-                let rb = Rosenbrock { n };
-                let mut m = NelderMead::new(rb, &x0, Some(NelderMeadOptions::builder().build()));
-                minimize!(m, 1000000).unwrap();
-            });
+            b.iter(|| black_box(m.minimize(&problem, &x0, &mut ()).unwrap()));
         });
         group.bench_with_input(BenchmarkId::new("Adaptive", n), &n, |b, ndim| {
+            let problem = Rosenbrock { n: *ndim };
+            let nm = NelderMead::default().with_adaptive();
+            let mut m = Minimizer::new(nm, *ndim).with_max_steps(10_000_000);
             let x0 = vec![5.0; *ndim];
-            b.iter(|| {
-                let rb = Rosenbrock { n };
-                let mut m = NelderMead::new(rb, &x0, Some(NelderMeadOptions::adaptive(n).build()));
-                minimize!(m, 1000000).unwrap();
-            });
+            b.iter(|| black_box(m.minimize(&problem, &x0, &mut ()).unwrap()));
         });
     }
     group.finish();
