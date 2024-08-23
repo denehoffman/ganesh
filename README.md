@@ -32,6 +32,7 @@
 # Table of Contents
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
+- [Bounds](#bounds)
 - [Future Plans](#future-plans)
 
 # Key Features
