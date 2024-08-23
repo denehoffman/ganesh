@@ -7,7 +7,7 @@ documentation = "https://docs.rs/ganesh"
 readme = "README.md"
 homepage = "https://github.com/denehoffman/ganesh"
 repository = "https://github.com/denehoffman/ganesh"
-license-file = "LICENSE"
+license = "MIT OR Apache-2.0"
 keywords = ["optimization", "minimization"]
 categories = ["science", "mathematics"]
 
