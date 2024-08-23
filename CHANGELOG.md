@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/denehoffman/ganesh/compare/v0.6.0...v0.7.0) - 2024-08-23
+
+### Added
+- add useful assert warning for trying to construct a `NelderMead` `Simplex` with fewer than 2 points
+- add check to make sure starting position is within bounds
+- add display method, methods for getting `lower` and `upper` bounds, and `contains` method for `Bounds`
+- add `Debug`s to `NelderMead`
+- add preliminary implementation of BFGS algorithm
+- add method to return the gradient and inverse of Hessian matrix
+
+### Fixed
+- remove tracking `main.rs`, which I use for quick demos
+- adaptive Nelder-Mead now requires inputting the dimension
+- remove out-of-bounds issue
+- step direction should be opposite the gradient
+- `p` is `-grad_f` so this was right all along
+- allow expect in Hessian inverse function
+- update BFGS algorithm to recent changes with ganesh
+- change `learning_rate` to an `Option` in gradient descent
+
+### Other
+- adds documentation to all parts of crate, additionally makes some `Algorithm` methods return `Result`s now
+- fix typo in example
+- update dependencies
+- update licensing
+- switch license to MIT
+- add Bounds section to TOC
+- correct statements about `Function` trait in readme
+- typo in readme
+- update README.md
+- major rewrite of library, adds experimental bounds to Nelder Mead
+- qualify path to `abs` function
+- Merge remote-tracking branch 'origin/bfgs' into development
+- change slice to `DVector` in documentation
+- update docs and fix links/footnotes
+
 ## [0.6.0](https://github.com/denehoffman/ganesh/compare/v0.5.0...v0.6.0) - 2024-08-17
 
 ### Added
