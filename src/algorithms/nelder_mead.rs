@@ -494,8 +494,8 @@ where
         self.delta = value;
         self
     }
-    pub fn with_adaptive(mut self) -> Self {
-        let n = convert!(self.simplex.dimension - 1, T);
+    pub fn with_adaptive(mut self, n: usize) -> Self {
+        let n = convert!(n, T);
         self.alpha = T::one();
         self.beta = T::one() + (convert!(2, T) / n);
         self.gamma = convert!(0.75, T) - T::one() / (convert!(2, T) * n);

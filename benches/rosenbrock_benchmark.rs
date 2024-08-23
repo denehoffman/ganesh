@@ -16,7 +16,7 @@ fn rosenbrock_benchmark(c: &mut Criterion) {
         });
         group.bench_with_input(BenchmarkId::new("Adaptive", n), &n, |b, ndim| {
             let problem = Rosenbrock { n: *ndim };
-            let nm = NelderMead::default().with_adaptive();
+            let nm = NelderMead::default().with_adaptive(n);
             let mut m = Minimizer::new(nm, *ndim).with_max_steps(10_000_000);
             let x0 = vec![5.0; *ndim];
             b.iter(|| black_box(m.minimize(&problem, &x0, &mut ()).unwrap()));
