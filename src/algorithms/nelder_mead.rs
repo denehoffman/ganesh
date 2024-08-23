@@ -104,6 +104,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub enum SimplexConstructionMethod<T> {
     Orthogonal { simplex_size: T },
     Custom { simplex: Vec<Vec<T>> },
@@ -286,13 +287,14 @@ where
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum SimplexExpansionMethod {
     #[default]
     GreedyMinimization,
     GreedyExpansion,
 }
 
+#[derive(Debug)]
 pub enum NelderMeadFTerminator<T> {
     Amoeba { tol_f_rel: T },
     Absolute { tol_f_abs: T },
@@ -343,6 +345,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub enum NelderMeadXTerminator<T> {
     Diameter { tol_x_abs: T },
     Higham { tol_x_rel: T },
@@ -426,6 +429,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct NelderMead<T>
 where
     T: Float + Debug + 'static,
