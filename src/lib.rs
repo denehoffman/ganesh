@@ -453,6 +453,8 @@ pub struct Minimizer<T, U, E, A>
 where
     A: Algorithm<T, U, E>,
 {
+    /// The [`Status`] of the [`Minimizer`], usually read after minimization.
+    pub status: Status<T>,
     algorithm: A,
     bounds: Option<Vec<Bound<T>>>,
     max_steps: usize,
@@ -463,13 +465,14 @@ where
 
 impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
 where
-    T: Float + FromPrimitive + Debug + Display,
+    T: Float + FromPrimitive + Debug + Display + Default,
 {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
     pub fn new(algorithm: A, dimension: usize) -> Self {
         Self {
+            status: Status::default(),
             algorithm,
             bounds: None,
             max_steps: Self::DEFAULT_MAX_STEPS,
@@ -563,7 +566,7 @@ where
         func: &dyn Function<T, U, E>,
         x0: &[T],
         user_data: &mut U,
-    ) -> Result<Status<T>, E> {
+    ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
@@ -599,6 +602,7 @@ where
         if current_step == self.max_steps && !status.converged {
             status.update_message("MAX EVALS");
         }
-        Ok(status)
+        self.status = status;
+        Ok(())
     }
 }
