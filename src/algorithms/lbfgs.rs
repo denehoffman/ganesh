@@ -43,7 +43,6 @@ pub struct LBFGS<T, U, E> {
     terminator_g: LBFGSGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
     m: usize,
-    m_int: usize,
     y_store: VecDeque<DVector<T>>,
     s_store: VecDeque<DVector<T>>,
 }
@@ -82,7 +81,6 @@ where
             },
             line_search: Box::new(StrongWolfeLineSearch::default()),
             m: 10,
-            m_int: 0,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
         }
@@ -93,7 +91,8 @@ impl<T, U, E> LBFGS<T, U, E>
 where
     T: RealField + Float,
 {
-    fn g_approx(&self, m: usize) -> DVector<T> {
+    fn g_approx(&self) -> DVector<T> {
+        let m = self.s_store.len();
         let mut q = self.g.clone();
         let mut a = vec![T::zero(); m];
         let rho = DVector::from_fn(m, |j, _| T::one() / self.y_store[j].dot(&self.s_store[j]));
@@ -154,41 +153,19 @@ where
                 &mut self.status,
             )?;
             if valid {
-                self.s_store.push_back(dx.clone());
-                let grad_kp1_vec = DVector::from_vec(g_kp1);
-                self.y_store.push_back(&grad_kp1_vec - &self.g);
-                self.x += dx;
-                self.g = grad_kp1_vec;
-                self.m_int = 1;
-                self.status
-                    .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
-            } else {
-                self.status.set_converged();
-            }
-        } else if i_step > 0 && i_step < self.m {
-            self.p = -self.g_approx(self.m_int);
-            if let Some((alpha, f_kp1, g_kp1)) = self.line_search.search(
-                &self.x,
-                &self.p,
-                func,
-                bounds,
-                user_data,
-                &mut self.status,
-            )? {
                 let dx = self.p.scale(alpha);
                 self.s_store.push_back(dx.clone());
                 let grad_kp1_vec = DVector::from_vec(g_kp1);
                 self.y_store.push_back(&grad_kp1_vec - &self.g);
                 self.x += dx;
                 self.g = grad_kp1_vec;
-                self.m_int += 1;
                 self.status
                     .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
             } else {
                 self.status.set_converged();
             }
         } else {
-            self.p = -self.g_approx(self.m);
+            self.p = -self.g_approx();
             let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
                 &self.x,
                 &self.p,
@@ -201,10 +178,12 @@ where
             if valid {
                 let dx = self.p.scale(alpha);
                 self.s_store.push_back(dx.clone());
-                self.s_store.pop_front();
                 let grad_kp1_vec = DVector::from_vec(g_kp1);
                 self.y_store.push_back(&grad_kp1_vec - &self.g);
-                self.y_store.pop_front();
+                if self.s_store.len() > self.m {
+                    self.s_store.pop_front();
+                    self.y_store.pop_front();
+                }
                 self.x += dx;
                 self.g = grad_kp1_vec;
                 self.status
