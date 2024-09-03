@@ -27,7 +27,7 @@ where
 }
 impl<T> Point<T>
 where
-    T: Float + FromPrimitive + Debug,
+    T: Float + FromPrimitive + Debug + NumAssign,
 {
     fn evaluate<U, E>(
         &mut self,
@@ -35,12 +35,7 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        if let Some(bounds) = bounds {
-            let x = Bound::to_bounded(self.x.data.as_slice(), bounds);
-            self.fx = func.evaluate(&x, user_data)?;
-        } else {
-            self.fx = func.evaluate(self.x.data.as_slice(), user_data)?;
-        }
+        self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
         Ok(())
     }
 }
@@ -142,10 +137,7 @@ where
         match self {
             Self::Orthogonal { simplex_size } => {
                 let mut points = Vec::default();
-                let mut point_0 = bounds.map_or_else(
-                    || Point::from(x0),
-                    |bounds| Point::from(Bound::to_unbounded(x0, bounds)),
-                );
+                let mut point_0 = Point::from(Bound::to_unbounded(x0, bounds));
                 point_0.evaluate(func, bounds, user_data)?;
                 points.push(point_0.clone());
                 let dim = point_0.len();
@@ -169,10 +161,7 @@ where
                     &simplex
                         .iter()
                         .map(|x| {
-                            let mut point_i = bounds.map_or_else(
-                                || Point::from(x.clone()),
-                                |bounds| Point::from(Bound::to_unbounded(x, bounds)),
-                            );
+                            let mut point_i = Point::from(Bound::to_unbounded(x, bounds));
                             point_i.evaluate(func, bounds, user_data)?;
                             Ok(point_i)
                         })
@@ -246,11 +235,7 @@ where
     }
     fn best_position(&self, bounds: Option<&Vec<Bound<T>>>) -> (Vec<T>, T) {
         let (y, fx) = self.best().clone().into_vec_val();
-        if let Some(bounds) = bounds {
-            (Bound::to_bounded(&y, bounds), fx)
-        } else {
-            (y, fx)
-        }
+        (Bound::to_bounded(&y, bounds), fx)
     }
     fn best(&self) -> &Point<T> {
         &self.points[0]
@@ -700,6 +685,7 @@ where
 
     fn step(
         &mut self,
+        _i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
@@ -710,7 +696,7 @@ where
         let c = &self.simplex.centroid;
         let mut xr = Point::from(c + (c - &h.x).scale(self.alpha));
         xr.evaluate(func, bounds, user_data)?;
-        self.status.increment_n_evals();
+        self.status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
             // In this general case, we just know that r is better than s, we just don't know where
@@ -729,7 +715,7 @@ where
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xe = Point::from(c + (&xr.x - c).scale(self.beta));
             xe.evaluate(func, bounds, user_data)?;
-            self.status.increment_n_evals();
+            self.status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
                 match self.expansion_method {
@@ -767,7 +753,7 @@ where
                 // Try to contract outside if x_r < h
                 let mut xc = Point::from(c + (&xr.x - c).scale(self.gamma));
                 xc.evaluate(func, bounds, user_data)?;
-                self.status.increment_n_evals();
+                self.status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
@@ -789,7 +775,7 @@ where
                 // Contract inside if h <= x_r
                 let mut xc = Point::from(c + (&h.x - c).scale(self.gamma));
                 xc.evaluate(func, bounds, user_data)?;
-                self.status.increment_n_evals();
+                self.status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
@@ -813,7 +799,7 @@ where
         for p in self.simplex.points.iter_mut().skip(1) {
             *p = Point::from(&l_clone.x + (&p.x - &l_clone.x).scale(self.delta));
             p.evaluate(func, bounds, user_data)?;
-            self.status.increment_n_evals();
+            self.status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
         // things might have moved around a lot!

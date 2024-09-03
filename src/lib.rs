@@ -72,7 +72,7 @@
 //! ```
 //!
 //! # Bounds
-//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
 //! ```math
@@ -99,7 +99,7 @@
 //!
 //! # Future Plans
 //!
-//! * Eventually, I would like to implement BGFS and variants, MCMC algorithms, and some more modern gradient-free optimization techniques.
+//! * Eventually, I would like to implement MCMC algorithms and some more modern gradient-free optimization techniques.
 //! * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
 //! * A test suite
 #![warn(
@@ -121,7 +121,7 @@ use std::{
     marker::PhantomData,
 };
 
-use num::{Float, FromPrimitive};
+use num::{traits::NumAssign, Float, FromPrimitive};
 
 /// Module containing minimization algorithms
 pub mod algorithms;
@@ -228,12 +228,17 @@ where
     /// ```math
     /// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
     /// ```
-    pub fn to_bounded(values: &[T], bounds: &[Self]) -> Vec<T> {
-        values
-            .iter()
-            .zip(bounds)
-            .map(|(val, bound)| bound._to_bounded(*val))
-            .collect()
+    pub fn to_bounded(values: &[T], bounds: Option<&Vec<Self>>) -> Vec<T> {
+        bounds.map_or_else(
+            || values.to_vec(),
+            |bounds| {
+                values
+                    .iter()
+                    .zip(bounds)
+                    .map(|(val, bound)| bound._to_bounded(*val))
+                    .collect()
+            },
+        )
     }
     fn _to_bounded(&self, val: T) -> T {
         match *self {
@@ -259,12 +264,17 @@ where
     /// ```math
     /// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
     /// ```
-    pub fn to_unbounded(values: &[T], bounds: &[Self]) -> Vec<T> {
-        values
-            .iter()
-            .zip(bounds)
-            .map(|(val, bound)| bound._to_unbounded(*val))
-            .collect()
+    pub fn to_unbounded(values: &[T], bounds: Option<&Vec<Self>>) -> Vec<T> {
+        bounds.map_or_else(
+            || values.to_vec(),
+            |bounds| {
+                values
+                    .iter()
+                    .zip(bounds)
+                    .map(|(val, bound)| bound._to_unbounded(*val))
+                    .collect()
+            },
+        )
     }
     fn _to_unbounded(&self, val: T) -> T {
         match *self {
@@ -294,7 +304,7 @@ where
 /// to speed up gradient-dependent algorithms.
 pub trait Function<T, U, E>
 where
-    T: Float + FromPrimitive,
+    T: Float + FromPrimitive + Debug + NumAssign,
 {
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
@@ -303,29 +313,64 @@ where
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[T], user_data: &mut U) -> Result<T, E>;
-    /// The evaluation of the gradient at a point `x` with the given arguments/user data. The
-    /// gradient is passed by mutable reference as an input, which saves a bit on memory allocation
-    /// and also provides a similar format to some other fitting libraries.
+
+    /// The evaluation of the function at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    fn evaluate_bounded(
+        &self,
+        x: &[T],
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<T, E> {
+        self.evaluate(&Bound::to_bounded(x, bounds), user_data)
+    }
+    /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &[T], grad: &mut [T], user_data: &mut U) -> Result<(), E> {
+    fn gradient(&self, x: &[T], user_data: &mut U) -> Result<Vec<T>, E> {
         let n = x.len();
-        let mut x = x.to_vec();
-        let eps = T::cbrt(T::epsilon());
-        let two_eps = eps * (T::one() + T::one());
+        let mut grad = vec![T::zero(); n];
+        // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
+        // cbrt(eps) if x_i = 0)
+        let h: Vec<T> = x
+            .iter()
+            .map(|&xi| T::cbrt(T::epsilon()) * (if xi == T::zero() { T::one() } else { xi }))
+            .collect();
         for i in 0..n {
-            let xi = x[i];
-            x[i] = xi + eps;
-            let fm = self.evaluate(&x, user_data)?;
-            x[i] = xi - eps;
-            let fp = self.evaluate(&x, user_data)?;
-            grad[i] = (fp - fm) / (two_eps);
-            x[i] = xi;
+            let mut x_plus = x.to_vec();
+            let mut x_minus = x.to_vec();
+            x_plus[i] += h[i];
+            x_minus[i] -= h[i];
+            let f_plus = self.evaluate(&x_plus, user_data)?;
+            let f_minus = self.evaluate(&x_minus, user_data)?;
+            grad[i] = (f_plus - f_minus) / (convert!(2.0, T) * h[i]);
         }
-        Ok(())
+        Ok(grad)
+    }
+    /// The evaluation of the gradient at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn gradient_bounded(
+        &self,
+        x: &[T],
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<Vec<T>, E> {
+        self.gradient(&Bound::to_bounded(x, bounds), user_data)
     }
 }
 
@@ -340,7 +385,10 @@ pub struct Status<T> {
     pub fx: T,
     /// The number of function evaluations (approximately, this is left up to individual
     /// [`Algorithm`]s to correctly compute and may not be exact).
-    pub n_evals: usize,
+    pub n_f_evals: usize,
+    /// The number of gradient evaluations (approximately, this is left up to individual
+    /// [`Algorithm`]s to correctly compute and may not be exact).
+    pub n_g_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
 }
@@ -358,9 +406,13 @@ impl<T> Status<T> {
     pub fn set_converged(&mut self) {
         self.converged = true;
     }
-    /// Increments [`Status::n_evals`] by `1`.
-    pub fn increment_n_evals(&mut self) {
-        self.n_evals += 1;
+    /// Increments [`Status::n_f_evals`] by `1`.
+    pub fn inc_n_f_evals(&mut self) {
+        self.n_f_evals += 1;
+    }
+    /// Increments [`Status::n_g_evals`] by `1`.
+    pub fn inc_n_g_evals(&mut self) {
+        self.n_g_evals += 1;
     }
 }
 impl<T> Display for Status<T>
@@ -371,7 +423,8 @@ where
         writeln!(f, "MSG:       {}", self.message)?;
         writeln!(f, "X:         {:?}", self.x)?;
         writeln!(f, "F(X):      {}", self.fx)?;
-        writeln!(f, "N_EVALS:   {}", self.n_evals)?;
+        writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
+        writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
         write!(f, "CONVERGED: {}", self.converged)
     }
 }
@@ -403,6 +456,7 @@ pub trait Algorithm<T, U, E> {
     /// information.
     fn step(
         &mut self,
+        i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
@@ -587,7 +641,8 @@ where
                 .algorithm
                 .check_for_termination(func, self.bounds.as_ref(), user_data)?
         {
-            self.algorithm.step(func, self.bounds.as_ref(), user_data)?;
+            self.algorithm
+                .step(current_step, func, self.bounds.as_ref(), user_data)?;
             current_step += 1;
             if !self.observers.is_empty() {
                 let status = self.algorithm.get_status();
@@ -599,7 +654,7 @@ where
         self.algorithm
             .postprocessing(func, self.bounds.as_ref(), user_data)?;
         let mut status = self.algorithm.get_status().clone();
-        if current_step == self.max_steps && !status.converged {
+        if current_step > self.max_steps && !status.converged {
             status.update_message("MAX EVALS");
         }
         self.status = status;
