@@ -72,7 +72,7 @@
 //! ```
 //!
 //! # Bounds
-//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
 //! ```math
@@ -99,7 +99,7 @@
 //!
 //! # Future Plans
 //!
-//! * Eventually, I would like to implement BGFS and variants, MCMC algorithms, and some more modern gradient-free optimization techniques.
+//! * Eventually, I would like to implement MCMC algorithms and some more modern gradient-free optimization techniques.
 //! * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
 //! * A test suite
 #![warn(
