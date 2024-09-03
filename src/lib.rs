@@ -654,7 +654,7 @@ where
         self.algorithm
             .postprocessing(func, self.bounds.as_ref(), user_data)?;
         let mut status = self.algorithm.get_status().clone();
-        if current_step == self.max_steps && !status.converged {
+        if current_step > self.max_steps && !status.converged {
             status.update_message("MAX EVALS");
         }
         self.status = status;
