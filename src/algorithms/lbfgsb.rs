@@ -19,7 +19,7 @@ where
     T: RealField,
 {
     fn update_convergence(&self, fx_current: T, fx_previous: T, status: &mut Status<T>) {
-        if fx_previous - fx_current < self.tol_f_abs {
+        if (fx_previous - fx_current).abs() < self.tol_f_abs {
             status.set_converged();
             status.update_message("F_EVAL CONVERGED");
         }
@@ -234,11 +234,12 @@ where
             c += p.scale(dt_b);
             let g_b = self.g[b];
             let w_b_tr = self.w_mat.row(b);
-            df += dt_b * ddf + g_b * (g_b + self.theta * z_b - w_b_tr.dot(&(&self.m_mat * &c)));
+            df += dt_b * ddf
+                + g_b * (g_b + self.theta * z_b - w_b_tr.transpose().dot(&(&self.m_mat * &c)));
             ddf -= g_b
                 * (self.theta * g_b
-                    - convert!(2, T) * w_b_tr.dot(&(&self.m_mat * &p))
-                    - g_b * w_b_tr.dot(&(&self.m_mat * w_b_tr.transpose())));
+                    - convert!(2, T) * w_b_tr.transpose().dot(&(&self.m_mat * &p))
+                    - g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose())));
             // min here
             p += w_b_tr.transpose().scale(g_b);
             d[b] = T::zero();

@@ -19,7 +19,7 @@ where
     T: RealField,
 {
     fn update_convergence(&self, fx_current: T, fx_previous: T, status: &mut Status<T>) {
-        if fx_previous - fx_current < self.tol_f_abs {
+        if (fx_previous - fx_current).abs() < self.tol_f_abs {
             status.set_converged();
             status.update_message("F_EVAL CONVERGED");
         }
