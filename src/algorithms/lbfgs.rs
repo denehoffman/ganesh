@@ -7,6 +7,25 @@ use crate::{Algorithm, Bound, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 
+/// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the change in the
+/// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
+/// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
+/// CONVERGED".
+pub struct LBFGSFTerminator<T> {
+    tol_f_abs: T,
+}
+impl<T> LBFGSFTerminator<T>
+where
+    T: RealField,
+{
+    fn update_convergence(&self, fx_current: T, fx_previous: T, status: &mut Status<T>) {
+        if fx_current - fx_previous < self.tol_f_abs {
+            status.set_converged();
+            status.update_message("F_EVAL CONVERGED");
+        }
+    }
+}
+
 /// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
@@ -40,6 +59,8 @@ pub struct LBFGS<T, U, E> {
     x: DVector<T>,
     g: DVector<T>,
     p: DVector<T>,
+    f_previous: T,
+    terminator_f: LBFGSFTerminator<T>,
     terminator_g: LBFGSGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
     m: usize,
@@ -51,6 +72,11 @@ impl<T, U, E> LBFGS<T, U, E>
 where
     T: Float + RealField,
 {
+    /// Set the termination condition concerning the function values.
+    pub const fn with_terminator_f(mut self, term: LBFGSFTerminator<T>) -> Self {
+        self.terminator_f = term;
+        self
+    }
     /// Set the termination condition concerning the gradient values.
     pub const fn with_terminator_g(mut self, term: LBFGSGTerminator<T>) -> Self {
         self.terminator_g = term;
@@ -76,6 +102,10 @@ where
             x: Default::default(),
             g: Default::default(),
             p: Default::default(),
+            f_previous: T::infinity(),
+            terminator_f: LBFGSFTerminator {
+                tol_f_abs: Float::cbrt(T::epsilon()),
+            },
             terminator_g: LBFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
@@ -197,10 +227,14 @@ where
 
     fn check_for_termination(
         &mut self,
-        _func: &dyn Function<T, U, E>,
-        _bounds: Option<&Vec<Bound<T>>>,
-        _user_data: &mut U,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
     ) -> Result<bool, E> {
+        let f_current = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        self.terminator_f
+            .update_convergence(f_current, self.f_previous, &mut self.status);
+        self.f_previous = f_current;
         self.terminator_g
             .update_convergence(&self.g, &mut self.status);
         Ok(self.status.converged)
