@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/denehoffman/ganesh/compare/v0.7.1...v0.8.0) - 2024-09-03
+
+### Added
+- add L-BFGS-B algorithm
+- update line search to take a `max_step` optional argument and return a bool flag of validity rather than an `Option`
+- add `LineSearch` trait and implementations of BFGS and L-BFGS algorithms
+- update `NelderMead` to count gradient evals and use bounded interface
+- add bounded evaluation shortcuts to `Function` trait and count gradient evaluations in `Status`
+
+### Fixed
+- simplify logic by removing internal `m`
+- change to inequality to ensure a proper status message if the max iterations are passed
+
+### Other
+- fix brackets in readme and update main lib docs
+- update readme
+- remove unused collections module
+
 ## [0.7.1](https://github.com/denehoffman/ganesh/compare/v0.7.0...v0.7.1) - 2024-08-23
 
 ### Other
