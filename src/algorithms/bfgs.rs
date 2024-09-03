@@ -125,10 +125,16 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         self.p = -&self.h_inv * &self.g;
-        if let Some((alpha, f_kp1, g_kp1)) =
-            self.line_search
-                .search(&self.x, &self.p, func, bounds, user_data, &mut self.status)?
-        {
+        let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
+            &self.x,
+            &self.p,
+            None,
+            func,
+            bounds,
+            user_data,
+            &mut self.status,
+        )?;
+        if valid {
             let s = self.p.scale(alpha);
             let grad_kp1_vec = DVector::from_vec(g_kp1);
             let y = &grad_kp1_vec - &self.g;

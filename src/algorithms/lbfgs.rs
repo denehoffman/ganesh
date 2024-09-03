@@ -144,15 +144,16 @@ where
     ) -> Result<(), E> {
         if i_step == 0 {
             self.p = -self.g.clone();
-            if let Some((alpha, f_kp1, g_kp1)) = self.line_search.search(
+            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
                 &self.x,
                 &self.p,
+                None,
                 func,
                 bounds,
                 user_data,
                 &mut self.status,
-            )? {
-                let dx = self.p.scale(alpha);
+            )?;
+            if valid {
                 self.s_store.push_back(dx.clone());
                 let grad_kp1_vec = DVector::from_vec(g_kp1);
                 self.y_store.push_back(&grad_kp1_vec - &self.g);
@@ -188,14 +189,16 @@ where
             }
         } else {
             self.p = -self.g_approx(self.m);
-            if let Some((alpha, f_kp1, g_kp1)) = self.line_search.search(
+            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
                 &self.x,
                 &self.p,
+                None,
                 func,
                 bounds,
                 user_data,
                 &mut self.status,
-            )? {
+            )?;
+            if valid {
                 let dx = self.p.scale(alpha);
                 self.s_store.push_back(dx.clone());
                 self.s_store.pop_front();

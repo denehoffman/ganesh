@@ -13,22 +13,24 @@ pub trait LineSearch<T, U, E> {
     /// The search method takes the current position of the minimizer, `x`, the search direction
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
     /// objective function `user_data`, and returns a [`Result`] containing the tuple,
-    /// `(step_size, func(x + step_size * p), grad(x + step_size * p))`. Returns a [`None`]
+    /// `(valid, step_size, func(x + step_size * p), grad(x + step_size * p))`. Returns a [`None`]
     /// [`Result`] if the algorithm fails to find improvement.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
+    #[allow(clippy::too_many_arguments)]
     fn search(
         &mut self,
         x: &DVector<T>,
         p: &DVector<T>,
+        max_step: Option<T>,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
         status: &mut Status<T>,
-    ) -> Result<Option<(T, T, Vec<T>)>, E>;
+    ) -> Result<(bool, T, T, Vec<T>), E>;
 }
 
 /// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
@@ -36,7 +38,6 @@ pub trait LineSearch<T, U, E> {
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 pub struct BacktrackingLineSearch<T> {
-    alpha_0: T,
     rho: T,
     c: T,
 }
@@ -46,7 +47,6 @@ where
 {
     fn default() -> Self {
         Self {
-            alpha_0: T::one(),
             rho: convert!(0.5, T),
             c: convert!(1e-4, T),
         }
@@ -61,12 +61,13 @@ where
         &mut self,
         x: &DVector<T>,
         p: &DVector<T>,
+        max_step: Option<T>,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
         status: &mut Status<T>,
-    ) -> Result<Option<(T, T, Vec<T>)>, E> {
-        let mut alpha_i = self.alpha_0;
+    ) -> Result<(bool, T, T, Vec<T>), E> {
+        let mut alpha_i = max_step.map_or_else(T::one, |max_alpha| max_alpha);
         let phi = |alpha: T, ud: &mut U, st: &mut Status<T>| -> Result<T, E> {
             st.inc_n_f_evals();
             func.evaluate_bounded((x + p.scale(alpha)).as_slice(), bounds, ud)
@@ -88,7 +89,7 @@ where
             if armijo {
                 let g_alpha_i =
                     func.gradient_bounded((x + p.scale(alpha_i)).as_slice(), bounds, user_data)?;
-                return Ok(Some((alpha_i, phi_alpha_i, g_alpha_i)));
+                return Ok((true, alpha_i, phi_alpha_i, g_alpha_i));
             }
             alpha_i = self.rho * alpha_i;
             phi_alpha_i = phi(alpha_i, user_data, status)?;
@@ -101,12 +102,11 @@ where
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 pub struct StrongWolfeLineSearch<T> {
-    alpha_max: Option<T>,
     max_iters: usize,
     max_zoom: usize,
     c1: T,
     c2: T,
-    old_phi_0: Option<T>,
+    use_bounds: bool,
 }
 
 impl<T> Default for StrongWolfeLineSearch<T>
@@ -115,12 +115,11 @@ where
 {
     fn default() -> Self {
         Self {
-            alpha_max: None,
             max_iters: 100,
             max_zoom: 100,
             c1: convert!(1e-4, T),
             c2: convert!(0.9, T),
-            old_phi_0: None,
+            use_bounds: false,
         }
     }
 }
@@ -129,11 +128,6 @@ impl<T> StrongWolfeLineSearch<T>
 where
     T: Float,
 {
-    /// Set the maximum allowed step size for the search (defaults to [`None`]).
-    pub const fn with_max_step(mut self, alpha_max: Option<T>) -> Self {
-        self.alpha_max = alpha_max;
-        self
-    }
     /// Set the maximum allowed iterations of the algorithm (defaults to 10).
     pub const fn with_max_iterations(mut self, max_iters: usize) -> Self {
         self.max_iters = max_iters;
@@ -167,11 +161,94 @@ where
         self.c2 = c2;
         self
     }
-    /// Use the previous evaluation of the function to give a closer estimate for the initial step
-    /// size.
-    pub const fn with_previous_evaluation(mut self, fx: T) -> Self {
-        self.old_phi_0 = Some(fx);
+    /// Use the bounded forms of the function evaluators, transforming the function inputs in a
+    /// nonlinear way to convert between external and internal parameters. See
+    /// [`Bound`](`crate::Bound`) for more
+    /// details.
+    pub const fn with_bounds_transformation(mut self) -> Self {
+        self.use_bounds = true;
         self
+    }
+}
+
+impl<T> StrongWolfeLineSearch<T>
+where
+    T: Float + RealField,
+{
+    fn f_eval<U, E>(
+        &self,
+        func: &dyn Function<T, U, E>,
+        x: &DVector<T>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+        status: &mut Status<T>,
+    ) -> Result<T, E> {
+        status.inc_n_f_evals();
+        if self.use_bounds {
+            func.evaluate_bounded(x.as_slice(), bounds, user_data)
+        } else {
+            func.evaluate(x.as_slice(), user_data)
+        }
+    }
+    fn g_eval<U, E>(
+        &self,
+        func: &dyn Function<T, U, E>,
+        x: &DVector<T>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+        status: &mut Status<T>,
+    ) -> Result<DVector<T>, E> {
+        status.inc_n_f_evals();
+        if self.use_bounds {
+            func.gradient_bounded(x.as_slice(), bounds, user_data)
+                .map(DVector::from)
+        } else {
+            func.gradient(x.as_slice(), user_data).map(DVector::from)
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn zoom<U, E>(
+        &self,
+        func: &dyn Function<T, U, E>,
+        x0: &DVector<T>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+        f0: T,
+        g0: &DVector<T>,
+        p: &DVector<T>,
+        alpha_lo: T,
+        alpha_hi: T,
+        status: &mut Status<T>,
+    ) -> Result<(bool, T, T, Vec<T>), E> {
+        let mut alpha_lo = alpha_lo;
+        let mut alpha_hi = alpha_hi;
+        let dphi0 = g0.dot(p);
+        let mut i = 0;
+        loop {
+            let alpha_i = (alpha_lo + alpha_hi) / convert!(2, T);
+            let x = x0 + p.scale(alpha_i);
+            let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
+            let x_lo = x0 + p.scale(alpha_lo);
+            let f_lo = self.f_eval(func, &x_lo, bounds, user_data, status)?;
+            if (f_i > f0 + self.c1 * alpha_i * dphi0) || (f_i >= f_lo) {
+                alpha_hi = alpha_i
+            } else {
+                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
+                let dphi = g_i.dot(p);
+                if Float::abs(dphi) <= -self.c2 * dphi0 {
+                    return Ok((true, alpha_i, f_i, g_i.data.as_vec().to_vec()));
+                }
+                if dphi * (alpha_hi - alpha_lo) >= T::zero() {
+                    alpha_hi = alpha_lo;
+                }
+                alpha_lo = alpha_i;
+            }
+            i += 1;
+            if i > self.max_zoom {
+                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
+                return Ok((true, alpha_i, f_i, g_i.data.as_vec().to_vec()));
+            }
+        }
     }
 }
 
@@ -181,104 +258,47 @@ where
 {
     fn search(
         &mut self,
-        x: &DVector<T>,
+        x0: &DVector<T>,
         p: &DVector<T>,
+        max_step: Option<T>,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
         status: &mut Status<T>,
-    ) -> Result<Option<(T, T, Vec<T>)>, E> {
-        let phi = |alpha: T, ud: &mut U, st: &mut Status<T>| -> Result<T, E> {
-            st.inc_n_f_evals();
-            func.evaluate_bounded((x + p.scale(alpha)).as_slice(), bounds, ud)
-        };
-        let dphi = |alpha: T, ud: &mut U, st: &mut Status<T>| -> Result<(T, Vec<T>), E> {
-            st.inc_n_g_evals();
-            let gradient_vec =
-                func.gradient_bounded((x + p.scale(alpha)).as_slice(), bounds, ud)?;
-            Ok((DVector::from_vec(gradient_vec.clone()).dot(p), gradient_vec))
-        };
-        let phi_0 = phi(T::zero(), user_data, status)?;
-        let (dphi_0, g_0) = dphi(T::zero(), user_data, status)?;
-        let zoom = |alpha_lo: T,
-                    alpha_hi: T,
-                    ud: &mut U,
-                    st: &mut Status<T>|
-         -> Result<Option<(T, T, Vec<T>)>, E> {
-            let mut alpha_lo = alpha_lo;
-            let mut alpha_hi = alpha_hi;
-            let mut alpha_j = (alpha_lo + alpha_hi) / (convert!(2, T));
-            let mut phi_alpha_j = phi(alpha_j, ud, st)?;
-            for _ in 0..self.max_zoom {
-                let armijo = phi_alpha_j <= phi_0 + self.c1 * alpha_j * dphi_0;
-                if !armijo || (phi_alpha_j >= phi(alpha_lo, ud, st)?) {
-                    alpha_hi = alpha_j;
-                } else {
-                    let (dphi_alpha_j, g_alpha_j) = dphi(alpha_j, ud, st)?;
-                    let wolfe2 = Float::abs(dphi_alpha_j) <= -self.c2 * dphi_0;
-                    if wolfe2 {
-                        return Ok(Some((alpha_j, phi_alpha_j, g_alpha_j)));
-                    }
-                    if dphi_alpha_j * (alpha_hi - alpha_lo) >= T::zero() {
-                        alpha_hi = alpha_lo
-                    }
-                    alpha_lo = alpha_j;
-                }
-                (alpha_lo, alpha_hi) = if alpha_lo <= alpha_hi {
-                    (alpha_lo, alpha_hi)
-                } else {
-                    (alpha_hi, alpha_lo)
-                };
-                alpha_j = (alpha_lo + alpha_hi) / (convert!(2, T));
-                phi_alpha_j = phi(alpha_j, ud, st)?;
-            }
-            st.update_message("FAILED TO FIND LOCAL IMPROVEMENT");
-            Ok(None)
-        };
+    ) -> Result<(bool, T, T, Vec<T>), E> {
+        let f0 = self.f_eval(func, x0, bounds, user_data, status)?;
+        let g0 = self.g_eval(func, x0, bounds, user_data, status)?;
+        let alpha_max = max_step.map_or_else(T::one, |alpha_max| alpha_max);
         let mut alpha_im1 = T::zero();
-        let mut alpha_i = self.old_phi_0.map_or_else(T::one, |old_phi_0| {
-            if dphi_0 != T::zero() {
-                Float::min(T::one(), convert!(2.02, T) * (phi_0 - old_phi_0) / dphi_0)
-            } else {
-                T::one()
+        let mut alpha_i = T::one();
+        let mut f_im1 = f0;
+        let dphi0 = g0.dot(p);
+        let mut i = 0;
+        loop {
+            let x = x0 + p.scale(alpha_i);
+            let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
+            if (f_i > f0 + self.c1 * dphi0) || (i > 1 && f_i >= f_im1) {
+                return self.zoom(
+                    func, x0, bounds, user_data, f0, &g0, p, alpha_im1, alpha_i, status,
+                );
             }
-        });
-        if alpha_i < T::zero() {
-            alpha_i = T::one();
-        }
-        if let Some(alpha_max) = self.alpha_max {
-            alpha_i = Float::min(alpha_i, alpha_max)
-        }
-        let mut phi_alpha_im1 = phi_0;
-        #[allow(unused_assignments)]
-        let mut phi_alpha_i = phi_0;
-        #[allow(unused_assignments)]
-        let mut dphi_alpha_i = dphi_0;
-        #[allow(unused_assignments)]
-        let mut g_alpha_i = g_0;
-        for i in 0..self.max_iters {
-            phi_alpha_i = phi(alpha_i, user_data, status)?;
-            let armijo = phi_alpha_i <= phi_0 + self.c1 * alpha_i * dphi_0;
-            if !armijo || (phi_alpha_i >= phi_alpha_im1 && i > 0) {
-                return zoom(alpha_im1, alpha_i, user_data, status);
+            let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
+            let dphi = g_i.dot(p);
+            if Float::abs(dphi) <= -self.c2 * dphi0 {
+                return Ok((true, alpha_i, f_i, g_i.data.as_vec().to_vec()));
             }
-            (dphi_alpha_i, g_alpha_i) = dphi(alpha_i, user_data, status)?;
-            let wolfe2 = Float::abs(dphi_alpha_i) <= -self.c2 * dphi_0;
-            if wolfe2 {
-                return Ok(Some((alpha_i, phi_alpha_i, g_alpha_i)));
-            }
-            if dphi_alpha_i >= T::zero() {
-                return zoom(alpha_i, alpha_im1, user_data, status);
+            if dphi >= T::zero() {
+                return self.zoom(
+                    func, x0, bounds, user_data, f0, &g0, p, alpha_i, alpha_im1, status,
+                );
             }
             alpha_im1 = alpha_i;
-            phi_alpha_im1 = phi_alpha_i;
-            if let Some(alpha_max) = self.alpha_max {
-                alpha_i = (alpha_i + alpha_max) / convert!(2, T);
-            } else {
-                alpha_i *= convert!(2, T);
+            f_im1 = f_i;
+            alpha_i += convert!(0.8, T) * (alpha_max - alpha_i);
+            i += 1;
+            if i > self.max_iters {
+                return Ok((false, alpha_i, f_i, g_i.data.as_vec().to_vec()));
             }
         }
-        status.update_message("FAILED TO FIND LOCAL IMPROVEMENT");
-        Ok(None)
     }
 }
