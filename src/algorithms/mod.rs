@@ -10,3 +10,6 @@ pub mod bfgs;
 
 /// Module containing the L-BFGS method.
 pub mod lbfgs;
+
+/// Module containing the L-BFGS-B method.
+pub mod lbfgsb;
