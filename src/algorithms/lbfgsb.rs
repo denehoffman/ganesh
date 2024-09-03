@@ -26,6 +26,25 @@ where
     }
 }
 
+/// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the magnitude of the
+/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
+/// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
+/// CONVERGED".
+pub struct LBFGSBGTerminator<T> {
+    tol_g_abs: T,
+}
+impl<T> LBFGSBGTerminator<T>
+where
+    T: RealField,
+{
+    fn update_convergence(&self, gradient: &DVector<T>, status: &mut Status<T>) {
+        if gradient.dot(gradient).sqrt() < self.tol_g_abs {
+            status.set_converged();
+            status.update_message("GRADIENT CONVERGED");
+        }
+    }
+}
+
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
@@ -45,6 +64,7 @@ pub struct LBFGSB<T, U, E> {
     theta: T,
     f_previous: T,
     terminator_f: LBFGSBFTerminator<T>,
+    terminator_g: LBFGSBGTerminator<T>,
     g_tolerance: T,
     line_search: Box<dyn LineSearch<T, U, E>>,
     m: usize,
@@ -60,6 +80,11 @@ where
     /// Set the termination condition concerning the function values.
     pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator<T>) -> Self {
         self.terminator_f = term;
+        self
+    }
+    /// Set the termination condition concerning the gradient values.
+    pub const fn with_terminator_g(mut self, term: LBFGSBGTerminator<T>) -> Self {
+        self.terminator_g = term;
         self
     }
     /// Set the value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will
@@ -95,6 +120,9 @@ where
             f_previous: T::infinity(),
             terminator_f: LBFGSBFTerminator {
                 tol_f_abs: Float::cbrt(T::epsilon()),
+            },
+            terminator_g: LBFGSBGTerminator {
+                tol_g_abs: Float::cbrt(T::epsilon()),
             },
             g_tolerance: convert!(1e-5, T),
             line_search: Box::new(StrongWolfeLineSearch::default()),
@@ -411,6 +439,8 @@ where
         self.terminator_f
             .update_convergence(f_current, self.f_previous, &mut self.status);
         self.f_previous = f_current;
+        self.terminator_g
+            .update_convergence(&self.g, &mut self.status);
         if self.get_inf_norm_projected_gradient() < self.g_tolerance {
             self.status.set_converged();
             self.status

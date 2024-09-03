@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/denehoffman/ganesh/compare/v0.8.0...v0.8.1) - 2024-09-03
+
+### Added
+- add gradient tolerance to L-BFGS-B
+
+### Other
+- Merge branch 'main' into development
+- export BFGS methods in  mod
+
 ## [0.8.0](https://github.com/denehoffman/ganesh/compare/v0.7.1...v0.8.0) - 2024-09-03
 
 ### Added
