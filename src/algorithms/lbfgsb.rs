@@ -5,7 +5,29 @@ use num::Float;
 
 use crate::{convert, Algorithm, Bound, Function, Status};
 
-use super::line_search::{LineSearch, StrongWolfeLineSearch};
+use super::{
+    lbfgs::LBFGSGTerminator,
+    line_search::{LineSearch, StrongWolfeLineSearch},
+};
+
+/// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the magnitude of the
+/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
+/// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
+/// CONVERGED".
+pub struct LBFGSBGTerminator<T> {
+    tol_g_abs: T,
+}
+impl<T> LBFGSBGTerminator<T>
+where
+    T: RealField,
+{
+    fn update_convergence(&self, gradient: &DVector<T>, status: &mut Status<T>) {
+        if gradient.dot(gradient).sqrt() < self.tol_g_abs {
+            status.set_converged();
+            status.update_message("GRADIENT CONVERGED");
+        }
+    }
+}
 
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
@@ -14,7 +36,6 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// 6 of "Numerical Optimization"[^1] (pages 136-143).
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
-
 #[allow(clippy::upper_case_acronyms)]
 pub struct LBFGSB<T, U, E> {
     status: Status<T>,
@@ -26,6 +47,7 @@ pub struct LBFGSB<T, U, E> {
     w_mat: DMatrix<T>,
     theta: T,
     g_tolerance: T,
+    terminator_g: LBFGSBGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
     m: usize,
     y_store: VecDeque<DVector<T>>,
@@ -37,6 +59,11 @@ impl<T, U, E> LBFGSB<T, U, E>
 where
     T: Float + RealField,
 {
+    /// Set the termination condition concerning the gradient values.
+    pub const fn with_terminator_g(mut self, term: LBFGSBGTerminator<T>) -> Self {
+        self.terminator_g = term;
+        self
+    }
     /// Set the value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will
     /// successfully terminate the algorithm (default = `1e-5`).
     pub const fn with_g_tolerance(mut self, tol: T) -> Self {
@@ -68,6 +95,9 @@ where
             w_mat: Default::default(),
             theta: T::one(),
             g_tolerance: convert!(1e-5, T),
+            terminator_g: LBFGSBGTerminator {
+                tol_g_abs: Float::cbrt(T::epsilon()),
+            },
             line_search: Box::new(StrongWolfeLineSearch::default()),
             m: 10,
             y_store: VecDeque::default(),
