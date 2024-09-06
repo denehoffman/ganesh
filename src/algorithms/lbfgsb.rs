@@ -384,7 +384,6 @@ where
             func.evaluate(self.x.as_slice(), user_data)?,
         ));
         self.status.inc_n_f_evals();
-        // self.update_w_mat_m_mat();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
         Ok(())
