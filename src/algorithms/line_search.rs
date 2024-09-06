@@ -198,7 +198,7 @@ where
         user_data: &mut U,
         status: &mut Status<T>,
     ) -> Result<DVector<T>, E> {
-        status.inc_n_f_evals();
+        status.inc_n_g_evals();
         if self.use_bounds {
             func.gradient_bounded(x.as_slice(), bounds, user_data)
                 .map(DVector::from)
