@@ -230,8 +230,9 @@ where
             let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
             let x_lo = x0 + p.scale(alpha_lo);
             let f_lo = self.f_eval(func, &x_lo, bounds, user_data, status)?;
-            if (f_i > f0 + self.c1 * alpha_i * dphi0) || (f_i >= f_lo) {
-                alpha_hi = alpha_i
+            let valid = if (f_i > f0 + self.c1 * alpha_i * dphi0) || (f_i >= f_lo) {
+                alpha_hi = alpha_i;
+                false
             } else {
                 let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
                 let dphi = g_i.dot(p);
@@ -242,11 +243,12 @@ where
                     alpha_hi = alpha_lo;
                 }
                 alpha_lo = alpha_i;
-            }
+                true
+            };
             i += 1;
             if i > self.max_zoom {
                 let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
-                return Ok((true, alpha_i, f_i, g_i.data.as_vec().to_vec()));
+                return Ok((valid, alpha_i, f_i, g_i.data.as_vec().to_vec()));
             }
         }
     }
