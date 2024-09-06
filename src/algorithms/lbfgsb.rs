@@ -398,7 +398,7 @@ where
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
-        let (_valid, alpha, f_kp1, g_kp1) = self.line_search.search(
+        let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
             &self.x,
             &d,
             Some(max_step),
@@ -407,25 +407,34 @@ where
             user_data,
             &mut self.status,
         )?;
-        let dx = d.scale(alpha);
-        let grad_kp1_vec = DVector::from_vec(g_kp1);
-        let dg = &grad_kp1_vec - &self.g;
-        let sy = dx.dot(&dg);
-        let yy = dg.dot(&dg);
-        if sy > T::epsilon() * yy {
-            self.s_store.push_back(dx.clone());
-            self.y_store.push_back(dg);
-            self.theta = yy / sy;
-            if self.s_store.len() > self.m {
-                self.s_store.pop_front();
-                self.y_store.pop_front();
+        if valid {
+            let dx = d.scale(alpha);
+            let grad_kp1_vec = DVector::from_vec(g_kp1);
+            let dg = &grad_kp1_vec - &self.g;
+            let sy = dx.dot(&dg);
+            let yy = dg.dot(&dg);
+            if sy > T::epsilon() * yy {
+                self.s_store.push_back(dx.clone());
+                self.y_store.push_back(dg);
+                self.theta = yy / sy;
+                if self.s_store.len() > self.m {
+                    self.s_store.pop_front();
+                    self.y_store.pop_front();
+                }
+                self.update_w_mat_m_mat();
             }
-            self.update_w_mat_m_mat();
+            self.x += dx;
+            self.g = grad_kp1_vec;
+            self.status
+                .update_position((self.x.data.as_vec().to_vec(), f_kp1));
+        } else {
+            // reboot
+            self.s_store.clear();
+            self.y_store.clear();
+            self.w_mat = DMatrix::zeros(self.x.len(), 1);
+            self.m_mat = DMatrix::zeros(1, 1);
+            self.theta = T::one();
         }
-        self.x += dx;
-        self.g = grad_kp1_vec;
-        self.status
-            .update_position((self.x.data.as_vec().to_vec(), f_kp1));
         Ok(())
     }
 
