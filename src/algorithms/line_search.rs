@@ -286,7 +286,7 @@ where
             }
             let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
             let dphi = g_i.dot(p);
-            if Float::abs(dphi) <= -self.c2 * dphi0 {
+            if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
                 return Ok((true, alpha_i, f_i, g_i.data.as_vec().to_vec()));
             }
             if dphi >= T::zero() {
