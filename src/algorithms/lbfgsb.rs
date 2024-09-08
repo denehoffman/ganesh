@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::VecDeque};
+use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector, RealField};
 use num::{traits::float::TotalOrder, Float};
