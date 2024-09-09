@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/denehoffman/ganesh/compare/v0.8.5...v0.9.0) - 2024-09-09
+
+### Added
+
+- add errors to all algorithms
+- add Hessian evaluation to `Function` trait
+- kickstart BFGS with H-inverse scaling
+- switch to using nalgebra data structures by default
+
+### Fixed
+
+- simplify L-BFGS algorithm and ensure the first few steps are computed correctly
+- left and right matrices were switched by accident
+- make terminator epsilon fields public for BFGS methods, set default f tolerance to epsilon rather than its cube root
+
 ## [0.8.5](https://github.com/denehoffman/ganesh/compare/v0.8.4...v0.8.5) - 2024-09-09
 
 ### Added
