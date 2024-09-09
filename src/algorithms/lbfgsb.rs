@@ -505,3 +505,40 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use float_cmp::approx_eq;
+
+    use crate::{prelude::*, test_functions::Rosenbrock};
+
+    use super::LBFGSB;
+
+    #[test]
+    fn test_lbfgsb() -> Result<(), Infallible> {
+        let algo = LBFGSB::default();
+        let mut m = Minimizer::new(algo, 2);
+        let problem = Rosenbrock { n: 2 };
+        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        Ok(())
+    }
+}
