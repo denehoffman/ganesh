@@ -27,7 +27,7 @@ where
     }
 }
 
-/// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the magnitude of the
+/// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
