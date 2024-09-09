@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5](https://github.com/denehoffman/ganesh/compare/v0.8.4...v0.8.5) - 2024-09-09
+
+### Added
+
+- reboot L-BFGS-B on invalid line searches
+
+### Fixed
+
+- follow strong Wolfe condition a bit more carefully
+- make bounds inclusive
+- ensure sufficient decrease is met before marking line search as valid
+- make `g_eval` increment gradient evaluations rather than function evaluations
+- use  trait to implement ordering on float-like generics
+
+### Other
+
+- remove unused import
+- remove comment
+
 ## [0.8.4](https://github.com/denehoffman/ganesh/compare/v0.8.3...v0.8.4) - 2024-09-03
 
 ### Fixed
