@@ -53,22 +53,31 @@
 //! #             .sum())
 //! #     }
 //! # }
-//!
-//! let problem = Rosenbrock { n: 2 };
-//! let nm = NelderMead::default();
-//! let mut m = Minimizer::new(nm, 2);
-//! let x0 = &[2.0, 2.0];
-//! m.minimize(&problem, x0, &mut ()).unwrap();
-//! println!("{}", m.status);
+//! fn main() -> Result<(), Infallible> {
+//!     let problem = Rosenbrock { n: 2 };
+//!     let nm = NelderMead::default();
+//!     let mut m = Minimizer::new(nm, 2);
+//!     let x0 = &[2.0, 2.0];
+//!     m.minimize(&problem, x0, &mut ())?;
+//!     println!("{}", m.status);
+//!     Ok(())
+//! }
 //! ```
 //!
 //! This should output
 //! ```shell
 //! MSG:       term_f = STDDEV
-//! X:         [0.9999999946231828, 0.9999999884539057]
-//! F(X):      0.00000000000000009170942877687133
-//! N_EVALS:   160
+//! X:         +1.000 ± 0.707
+//!            +1.000 ± 1.416
+//! F(X):      +0.000
+//! N_F_EVALS: 159
+//! N_G_EVALS: 0
 //! CONVERGED: true
+//! COV:       
+//!   ┌             ┐
+//!   │ 0.500 1.000 │
+//!   │ 1.000 2.005 │
+//!   └             ┘
 //! ```
 //!
 //! # Bounds
@@ -500,9 +509,11 @@ impl<T: Scalar> Status<T> {
 }
 impl<T: Scalar + Float> Status<T> {
     /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, cov: DMatrix<T>) {
-        self.err = Some(cov.diagonal().map(|v| v.sqrt()));
-        self.cov = Some(cov);
+    pub fn set_cov(&mut self, cov: Option<DMatrix<T>>) {
+        if let Some(cov_mat) = cov {
+            self.err = Some(cov_mat.diagonal().map(|v| v.sqrt()));
+            self.cov = Some(cov_mat);
+        }
     }
 }
 impl<T> Display for Status<T>
@@ -511,19 +522,25 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "MSG:       {}", self.message)?;
-        writeln!(f, "X:         {}", self.x)?;
-        writeln!(f, "F(X):      {}", self.fx)?;
+        write!(f, "X:")?;
+        for i in 0..self.x.len() {
+            if i == 0 {
+                write!(f, "         {:+.3}", self.x[i])?;
+            } else {
+                write!(f, "           {:+.3}", self.x[i])?;
+            }
+            if let Some(e) = &self.err {
+                write!(f, " ± {:.3}", e[i])?;
+            }
+            writeln!(f)?;
+        }
+        writeln!(f, "F(X):      {:+.3}", self.fx)?;
         writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
         writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
         writeln!(f, "CONVERGED: {}", self.converged)?;
         write!(f, "COV:       ")?;
         match &self.cov {
-            Some(mat) => writeln!(f, "{}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        write!(f, "ERR:       ")?;
-        match &self.cov {
-            Some(mat) => writeln!(f, "{}", mat.diagonal().map(|v| v.sqrt())),
+            Some(mat) => writeln!(f, "{:.3}", mat),
             None => writeln!(f, "NOT COMPUTED"),
         }?;
         Ok(())

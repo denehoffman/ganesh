@@ -368,7 +368,7 @@ where
 
 impl<T, U, E> Algorithm<T, U, E> for LBFGSB<T, U, E>
 where
-    T: RealField + Float + TotalOrder,
+    T: RealField + Float + TotalOrder + Default,
 {
     fn initialize(
         &mut self,
@@ -377,6 +377,9 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
+        self.f_previous = T::infinity();
+        self.theta = T::one();
         self.l = DVector::from_element(x0.len(), T::neg_infinity());
         self.u = DVector::from_element(x0.len(), T::infinity());
         if let Some(bounds_vec) = bounds {
@@ -496,9 +499,46 @@ where
                 if covariance.is_none() {
                     covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
                 }
-                self.status.cov = covariance
+                self.status.set_cov(covariance);
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use float_cmp::approx_eq;
+
+    use crate::{prelude::*, test_functions::Rosenbrock};
+
+    use super::LBFGSB;
+
+    #[test]
+    fn test_lbfgsb() -> Result<(), Infallible> {
+        let algo = LBFGSB::default();
+        let mut m = Minimizer::new(algo, 2);
+        let problem = Rosenbrock { n: 2 };
+        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
         Ok(())
     }
 }

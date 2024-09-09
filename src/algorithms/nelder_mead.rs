@@ -712,6 +712,7 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
         self.simplex = self
             .construction_method
             .generate(func, x0, bounds, user_data)?;
@@ -887,8 +888,71 @@ where
             if covariance.is_none() {
                 covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
             }
-            self.status.cov = covariance
+            self.status.set_cov(covariance);
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use float_cmp::approx_eq;
+
+    use crate::{prelude::*, test_functions::Rosenbrock};
+
+    use super::NelderMead;
+
+    #[test]
+    fn test_nelder_mead() -> Result<(), Infallible> {
+        let algo = NelderMead::default();
+        let mut m = Minimizer::new(algo, 2);
+        let problem = Rosenbrock { n: 2 };
+        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        Ok(())
+    }
+
+    #[test]
+    fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
+        let algo = NelderMead::default().with_adaptive(2);
+        let mut m = Minimizer::new(algo, 2);
+        let problem = Rosenbrock { n: 2 };
+        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        assert!(m.status.converged);
+        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
         Ok(())
     }
 }
