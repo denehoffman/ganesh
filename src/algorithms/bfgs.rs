@@ -120,8 +120,8 @@ where
 {
     fn update_h_inv(&mut self, n: usize, s: &DVector<T>, y: &DVector<T>) {
         let rho = Float::recip(y.dot(s));
-        let m_left = DMatrix::identity(n, n) - (s * y.transpose()).scale(rho);
-        let m_right = DMatrix::identity(n, n) - (y * s.transpose()).scale(rho);
+        let m_left = DMatrix::identity(n, n) - (y * s.transpose()).scale(rho);
+        let m_right = DMatrix::identity(n, n) - (s * y.transpose()).scale(rho);
         let m_add = (s * s.transpose()).scale(rho);
         self.h_inv = (m_left * &self.h_inv * m_right) + m_add;
     }
