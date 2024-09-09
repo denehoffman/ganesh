@@ -379,6 +379,84 @@ where
     ) -> Result<DVector<T>, E> {
         self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
+
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn hessian(&self, x: &[T], user_data: &mut U) -> Result<DMatrix<T>, E> {
+        let x = DVector::from_column_slice(x);
+        let h: DVector<T> = x
+            .iter()
+            .map(|&xi| T::cbrt(T::epsilon()) * (if xi == T::zero() { T::one() } else { xi }))
+            .collect::<Vec<_>>()
+            .into();
+        let mut res = DMatrix::zeros(x.len(), x.len());
+        for i in 0..x.len() {
+            for j in 0..=i {
+                if i == j {
+                    let mut x_plus = x.clone();
+                    let mut x_minus = x.clone();
+                    x_plus[i] += h[i];
+                    x_minus[i] -= h[i];
+                    let f_plus = self.evaluate(x_plus.as_slice(), user_data)?;
+                    let f_minus = self.evaluate(x_minus.as_slice(), user_data)?;
+                    let f_center = self.evaluate(x.as_slice(), user_data)?;
+
+                    res[(i, i)] = (f_plus - convert!(2, T) * f_center + f_minus) / (h[i] * h[i]);
+                } else {
+                    // Off-diagonal element
+                    let mut x_plus_plus = x.clone();
+                    let mut x_plus_minus = x.clone();
+                    let mut x_minus_plus = x.clone();
+                    let mut x_minus_minus = x.clone();
+
+                    x_plus_plus[i] += h[i];
+                    x_plus_plus[j] += h[i];
+                    x_plus_minus[i] += h[i];
+                    x_plus_minus[j] -= h[i];
+                    x_minus_plus[i] -= h[i];
+                    x_minus_plus[j] += h[i];
+                    x_minus_minus[i] -= h[i];
+                    x_minus_minus[j] -= h[i];
+
+                    let f_plus_plus = self.evaluate(x_plus_plus.as_slice(), user_data)?;
+                    let f_plus_minus = self.evaluate(x_plus_minus.as_slice(), user_data)?;
+                    let f_minus_plus = self.evaluate(x_minus_plus.as_slice(), user_data)?;
+                    let f_minus_minus = self.evaluate(x_minus_minus.as_slice(), user_data)?;
+
+                    res[(i, j)] = (f_plus_plus - f_plus_minus - f_minus_plus + f_minus_minus)
+                        / (convert!(4, T) * h[i] * h[i]);
+                    res[(j, i)] = res[(i, j)];
+                }
+            }
+        }
+        Ok(res)
+    }
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn hessian_bounded(
+        &self,
+        x: &[T],
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<DMatrix<T>, E> {
+        self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ParameterError<T> {
+    Symmetric(T),
+    Asymmetric(T, T),
 }
 
 /// A status message struct containing all information about a minimization result.
@@ -435,7 +513,18 @@ where
         writeln!(f, "F(X):      {}", self.fx)?;
         writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
         writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
-        write!(f, "CONVERGED: {}", self.converged)
+        writeln!(f, "CONVERGED: {}", self.converged)?;
+        write!(f, "COV:       ")?;
+        match &self.cov {
+            Some(mat) => writeln!(f, "{}", mat),
+            None => writeln!(f, "NOT COMPUTED"),
+        }?;
+        write!(f, "ERR:       ")?;
+        match &self.cov {
+            Some(mat) => writeln!(f, "{}", mat.diagonal().map(|v| v.sqrt())),
+            None => writeln!(f, "NOT COMPUTED"),
+        }?;
+        Ok(())
     }
 }
 
