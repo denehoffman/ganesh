@@ -516,16 +516,16 @@ where
         write!(f, "X:")?;
         for i in 0..self.x.len() {
             if i == 0 {
-                write!(f, "         {:.3}", self.x[i])?;
+                write!(f, "         {:+.3}", self.x[i])?;
             } else {
-                write!(f, "           {:.3}", self.x[i])?;
+                write!(f, "           {:+.3}", self.x[i])?;
             }
             if let Some(e) = &self.err {
                 write!(f, " ± {:.3}", e[i])?;
             }
             writeln!(f)?;
         }
-        writeln!(f, "F(X):      {:.3}", self.fx)?;
+        writeln!(f, "F(X):      {:+.3}", self.fx)?;
         writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
         writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
         writeln!(f, "CONVERGED: {}", self.converged)?;
