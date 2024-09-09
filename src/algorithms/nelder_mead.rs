@@ -712,6 +712,7 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
         self.simplex = self
             .construction_method
             .generate(func, x0, bounds, user_data)?;

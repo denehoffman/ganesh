@@ -368,7 +368,7 @@ where
 
 impl<T, U, E> Algorithm<T, U, E> for LBFGSB<T, U, E>
 where
-    T: RealField + Float + TotalOrder,
+    T: RealField + Float + TotalOrder + Default,
 {
     fn initialize(
         &mut self,
@@ -377,6 +377,9 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
+        self.f_previous = T::infinity();
+        self.theta = T::one();
         self.l = DVector::from_element(x0.len(), T::neg_infinity());
         self.u = DVector::from_element(x0.len(), T::infinity());
         if let Some(bounds_vec) = bounds {

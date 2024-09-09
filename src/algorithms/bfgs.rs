@@ -150,7 +150,7 @@ where
 
 impl<T, U, E> Algorithm<T, U, E> for BFGS<T, U, E>
 where
-    T: RealField + Float,
+    T: RealField + Float + Default,
 {
     fn initialize(
         &mut self,
@@ -159,6 +159,8 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
+        self.f_previous = T::infinity();
         self.h_inv = DMatrix::identity(x0.len(), x0.len());
         self.x = Bound::to_unbounded(x0, bounds);
         self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;

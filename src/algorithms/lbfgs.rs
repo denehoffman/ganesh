@@ -171,7 +171,7 @@ where
 
 impl<T, U, E> Algorithm<T, U, E> for LBFGS<T, U, E>
 where
-    T: RealField + Float,
+    T: RealField + Float + Default,
 {
     fn initialize(
         &mut self,
@@ -180,6 +180,8 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.status = Status::default();
+        self.f_previous = T::infinity();
         self.x = Bound::to_unbounded(x0, bounds);
         self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         self.status.inc_n_g_evals();
