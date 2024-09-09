@@ -513,19 +513,25 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "MSG:       {}", self.message)?;
-        writeln!(f, "X:         {}", self.x)?;
-        writeln!(f, "F(X):      {}", self.fx)?;
+        write!(f, "X:")?;
+        for i in 0..self.x.len() {
+            if i == 0 {
+                write!(f, "         {:.3}", self.x[i])?;
+            } else {
+                write!(f, "           {:.3}", self.x[i])?;
+            }
+            if let Some(e) = &self.err {
+                write!(f, " ± {:.3}", e[i])?;
+            }
+            writeln!(f)?;
+        }
+        writeln!(f, "F(X):      {:.3}", self.fx)?;
         writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
         writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
         writeln!(f, "CONVERGED: {}", self.converged)?;
         write!(f, "COV:       ")?;
         match &self.cov {
-            Some(mat) => writeln!(f, "{}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        write!(f, "ERR:       ")?;
-        match &self.cov {
-            Some(mat) => writeln!(f, "{}", mat.diagonal().map(|v| v.sqrt())),
+            Some(mat) => writeln!(f, "{:.3}", mat),
             None => writeln!(f, "NOT COMPUTED"),
         }?;
         Ok(())
