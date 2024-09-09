@@ -126,6 +126,9 @@ where
     fn g_approx(&self) -> DVector<T> {
         let m = self.s_store.len();
         let mut q = self.g.clone();
+        if m <= 2 {
+            return q;
+        }
         let mut a = vec![T::zero(); m];
         let rho = DVector::from_fn(m, |j, _| T::one() / self.y_store[j].dot(&self.s_store[j]));
         for i in 0..m {
@@ -168,61 +171,39 @@ where
 
     fn step(
         &mut self,
-        i_step: usize,
+        _i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        if i_step == 0 {
-            self.p = -self.g.clone();
-            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
-                &self.x,
-                &self.p,
-                None,
-                func,
-                bounds,
-                user_data,
-                &mut self.status,
-            )?;
-            if valid {
-                let dx = self.p.scale(alpha);
-                self.s_store.push_back(dx.clone());
-                let grad_kp1_vec = DVector::from_vec(g_kp1);
-                self.y_store.push_back(&grad_kp1_vec - &self.g);
-                self.x += dx;
-                self.g = grad_kp1_vec;
-                self.status
-                    .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
-            } else {
-                self.status.set_converged();
+        self.p = -self.g_approx();
+        let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
+            &self.x,
+            &self.p,
+            None,
+            func,
+            bounds,
+            user_data,
+            &mut self.status,
+        )?;
+        if valid {
+            let dx = self.p.scale(alpha);
+            self.s_store.push_back(dx.clone());
+            if self.s_store.len() > self.m {
+                self.s_store.pop_front();
             }
+            let grad_kp1_vec = g_kp1;
+            self.y_store.push_back(&grad_kp1_vec - &self.g);
+            if self.y_store.len() > self.m {
+                self.y_store.pop_front();
+            }
+            self.x += dx;
+            self.g = grad_kp1_vec;
+            self.status
+                .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
         } else {
-            self.p = -self.g_approx();
-            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
-                &self.x,
-                &self.p,
-                None,
-                func,
-                bounds,
-                user_data,
-                &mut self.status,
-            )?;
-            if valid {
-                let dx = self.p.scale(alpha);
-                self.s_store.push_back(dx.clone());
-                let grad_kp1_vec = DVector::from_vec(g_kp1);
-                self.y_store.push_back(&grad_kp1_vec - &self.g);
-                if self.s_store.len() > self.m {
-                    self.s_store.pop_front();
-                    self.y_store.pop_front();
-                }
-                self.x += dx;
-                self.g = grad_kp1_vec;
-                self.status
-                    .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
-            } else {
-                self.status.set_converged();
-            }
+            self.status.update_message("LINE SEARCH FAILED");
+            self.status.set_converged();
         }
         Ok(())
     }
