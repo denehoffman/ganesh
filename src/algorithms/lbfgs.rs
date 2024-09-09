@@ -12,7 +12,8 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct LBFGSFTerminator<T> {
-    tol_f_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_f_abs: T,
 }
 impl<T> LBFGSFTerminator<T>
 where
@@ -31,7 +32,8 @@ where
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct LBFGSGTerminator<T> {
-    tol_g_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_g_abs: T,
 }
 impl<T> LBFGSGTerminator<T>
 where
@@ -104,7 +106,7 @@ where
             p: Default::default(),
             f_previous: T::infinity(),
             terminator_f: LBFGSFTerminator {
-                tol_f_abs: Float::cbrt(T::epsilon()),
+                tol_f_abs: T::epsilon(),
             },
             terminator_g: LBFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
