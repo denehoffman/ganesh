@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use nalgebra::{DMatrix, DVector, RealField};
+use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::{traits::float::TotalOrder, Float};
 
 use crate::{convert, Algorithm, Bound, Function, Status};
@@ -53,7 +53,7 @@ where
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 #[allow(clippy::upper_case_acronyms)]
-pub struct LBFGSB<T, U, E> {
+pub struct LBFGSB<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
@@ -377,12 +377,10 @@ where
                 x0[i]
             }
         });
-        self.g = DVector::from_vec(func.gradient(self.x.as_slice(), user_data)?);
+        self.g = func.gradient(self.x.as_slice(), user_data)?;
         self.status.inc_n_g_evals();
-        self.status.update_position((
-            self.x.data.as_vec().to_vec(),
-            func.evaluate(self.x.as_slice(), user_data)?,
-        ));
+        self.status
+            .update_position((self.x.clone(), func.evaluate(self.x.as_slice(), user_data)?));
         self.status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
@@ -409,7 +407,7 @@ where
         )?;
         if valid {
             let dx = d.scale(alpha);
-            let grad_kp1_vec = DVector::from_vec(g_kp1);
+            let grad_kp1_vec = g_kp1;
             let dg = &grad_kp1_vec - &self.g;
             let sy = dx.dot(&dg);
             let yy = dg.dot(&dg);
@@ -425,8 +423,7 @@ where
             }
             self.x += dx;
             self.g = grad_kp1_vec;
-            self.status
-                .update_position((self.x.data.as_vec().to_vec(), f_kp1));
+            self.status.update_position((self.x.clone(), f_kp1));
         } else {
             // reboot
             self.s_store.clear();

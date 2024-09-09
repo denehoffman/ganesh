@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, DVector, RealField};
+use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::Float;
 
 use crate::{Algorithm, Bound, Function, Status};
@@ -52,7 +52,7 @@ where
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct BFGS<T, U, E> {
+pub struct BFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
@@ -137,8 +137,8 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         self.h_inv = DMatrix::identity(x0.len(), x0.len());
-        self.x = DVector::from_vec(Bound::to_unbounded(x0, bounds));
-        self.g = DVector::from_vec(func.gradient_bounded(self.x.as_slice(), bounds, user_data)?);
+        self.x = Bound::to_unbounded(x0, bounds);
+        self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         self.status.inc_n_g_evals();
         self.status.update_position((
             Bound::to_bounded(self.x.as_slice(), bounds),
@@ -167,7 +167,7 @@ where
         )?;
         if valid {
             let s = self.p.scale(alpha);
-            let grad_kp1_vec = DVector::from_vec(g_kp1);
+            let grad_kp1_vec = g_kp1;
             let y = &grad_kp1_vec - &self.g;
             let n = self.x.len();
             self.update_h_inv(n, &s, &y);

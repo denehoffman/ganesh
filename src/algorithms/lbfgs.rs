@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use nalgebra::{DVector, RealField};
+use nalgebra::{DVector, RealField, Scalar};
 use num::Float;
 
 use crate::{Algorithm, Bound, Function, Status};
@@ -54,7 +54,7 @@ where
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct LBFGS<T, U, E> {
+pub struct LBFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
@@ -153,8 +153,8 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.x = DVector::from_vec(Bound::to_unbounded(x0, bounds));
-        self.g = DVector::from_vec(func.gradient_bounded(self.x.as_slice(), bounds, user_data)?);
+        self.x = Bound::to_unbounded(x0, bounds);
+        self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         self.status.inc_n_g_evals();
         self.status.update_position((
             Bound::to_bounded(self.x.as_slice(), bounds),

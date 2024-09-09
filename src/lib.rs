@@ -121,7 +121,8 @@ use std::{
     marker::PhantomData,
 };
 
-use num::{traits::NumAssign, Float, FromPrimitive};
+use nalgebra::{DMatrix, DVector, Scalar};
+use num::{traits::NumAssign, Float};
 
 /// Module containing minimization algorithms
 pub mod algorithms;
@@ -163,7 +164,7 @@ pub enum Bound<T> {
 }
 impl<T> Display for Bound<T>
 where
-    T: Float + Debug + Display,
+    T: Scalar + Float + Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({}, {})", self.lower(), self.upper())
@@ -171,7 +172,7 @@ where
 }
 impl<T> From<(T, T)> for Bound<T>
 where
-    T: Float,
+    T: Scalar + Float,
 {
     fn from(value: (T, T)) -> Self {
         assert!(value.0 < value.1);
@@ -185,7 +186,7 @@ where
 }
 impl<T> Bound<T>
 where
-    T: Float + Debug,
+    T: Float + Scalar + Debug,
 {
     /// Checks whether the given `value` is compatible with the bounds.
     pub fn contains(&self, value: &T) -> bool {
@@ -228,17 +229,19 @@ where
     /// ```math
     /// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
     /// ```
-    pub fn to_bounded(values: &[T], bounds: Option<&Vec<Self>>) -> Vec<T> {
-        bounds.map_or_else(
-            || values.to_vec(),
-            |bounds| {
-                values
-                    .iter()
-                    .zip(bounds)
-                    .map(|(val, bound)| bound._to_bounded(*val))
-                    .collect()
-            },
-        )
+    pub fn to_bounded(values: &[T], bounds: Option<&Vec<Self>>) -> DVector<T> {
+        bounds
+            .map_or_else(
+                || values.to_vec(),
+                |bounds| {
+                    values
+                        .iter()
+                        .zip(bounds)
+                        .map(|(val, bound)| bound._to_bounded(*val))
+                        .collect()
+                },
+            )
+            .into()
     }
     fn _to_bounded(&self, val: T) -> T {
         match *self {
@@ -264,17 +267,19 @@ where
     /// ```math
     /// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
     /// ```
-    pub fn to_unbounded(values: &[T], bounds: Option<&Vec<Self>>) -> Vec<T> {
-        bounds.map_or_else(
-            || values.to_vec(),
-            |bounds| {
-                values
-                    .iter()
-                    .zip(bounds)
-                    .map(|(val, bound)| bound._to_unbounded(*val))
-                    .collect()
-            },
-        )
+    pub fn to_unbounded(values: &[T], bounds: Option<&Vec<Self>>) -> DVector<T> {
+        bounds
+            .map_or_else(
+                || values.to_vec(),
+                |bounds| {
+                    values
+                        .iter()
+                        .zip(bounds)
+                        .map(|(val, bound)| bound._to_unbounded(*val))
+                        .collect()
+                },
+            )
+            .into()
     }
     fn _to_unbounded(&self, val: T) -> T {
         match *self {
@@ -304,7 +309,7 @@ where
 /// to speed up gradient-dependent algorithms.
 pub trait Function<T, U, E>
 where
-    T: Float + FromPrimitive + Debug + NumAssign,
+    T: Float + Scalar + NumAssign,
 {
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
@@ -328,7 +333,7 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<T, E> {
-        self.evaluate(&Bound::to_bounded(x, bounds), user_data)
+        self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
@@ -336,22 +341,24 @@ where
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &[T], user_data: &mut U) -> Result<Vec<T>, E> {
+    fn gradient(&self, x: &[T], user_data: &mut U) -> Result<DVector<T>, E> {
         let n = x.len();
-        let mut grad = vec![T::zero(); n];
+        let x = DVector::from_column_slice(x);
+        let mut grad = DVector::zeros(n);
         // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
         // cbrt(eps) if x_i = 0)
-        let h: Vec<T> = x
+        let h: DVector<T> = x
             .iter()
             .map(|&xi| T::cbrt(T::epsilon()) * (if xi == T::zero() { T::one() } else { xi }))
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
         for i in 0..n {
-            let mut x_plus = x.to_vec();
-            let mut x_minus = x.to_vec();
+            let mut x_plus = x.clone();
+            let mut x_minus = x.clone();
             x_plus[i] += h[i];
             x_minus[i] -= h[i];
-            let f_plus = self.evaluate(&x_plus, user_data)?;
-            let f_minus = self.evaluate(&x_minus, user_data)?;
+            let f_plus = self.evaluate(x_plus.as_slice(), user_data)?;
+            let f_minus = self.evaluate(x_minus.as_slice(), user_data)?;
             grad[i] = (f_plus - f_minus) / (convert!(2.0, T) * h[i]);
         }
         Ok(grad)
@@ -369,18 +376,18 @@ where
         x: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
-    ) -> Result<Vec<T>, E> {
-        self.gradient(&Bound::to_bounded(x, bounds), user_data)
+    ) -> Result<DVector<T>, E> {
+        self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 }
 
 /// A status message struct containing all information about a minimization result.
-#[derive(Debug, Default, Clone)]
-pub struct Status<T> {
+#[derive(Debug, Clone, Default)]
+pub struct Status<T: Scalar> {
     /// A [`String`] message that can be set by minimization [`Algorithm`]s.
     pub message: String,
     /// The current position of the minimization.
-    pub x: Vec<T>,
+    pub x: DVector<T>,
     /// The current value of the minimization problem function at [`Status::x`].
     pub fx: T,
     /// The number of function evaluations (approximately, this is left up to individual
@@ -391,14 +398,17 @@ pub struct Status<T> {
     pub n_g_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
+    /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
+    pub cov: Option<DMatrix<T>>,
+    pub err: Option<Vec<ParameterError<T>>>,
 }
-impl<T> Status<T> {
+impl<T: Scalar> Status<T> {
     /// Updates the [`Status::message`] field.
     pub fn update_message(&mut self, message: &str) {
         self.message = message.to_string();
     }
     /// Updates the [`Status::x`] and [`Status::fx`] fields.
-    pub fn update_position(&mut self, pos: (Vec<T>, T)) {
+    pub fn update_position(&mut self, pos: (DVector<T>, T)) {
         self.x = pos.0;
         self.fx = pos.1;
     }
@@ -417,11 +427,11 @@ impl<T> Status<T> {
 }
 impl<T> Display for Status<T>
 where
-    T: Debug + Display,
+    T: Float + Scalar + Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "MSG:       {}", self.message)?;
-        writeln!(f, "X:         {:?}", self.x)?;
+        writeln!(f, "X:         {}", self.x)?;
         writeln!(f, "F(X):      {}", self.fx)?;
         writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
         writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
@@ -433,7 +443,7 @@ where
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`] module, and contains
 /// all the methods needed to be run by a [`Minimizer`].
-pub trait Algorithm<T, U, E> {
+pub trait Algorithm<T: Scalar, U, E> {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -497,7 +507,7 @@ pub trait Algorithm<T, U, E> {
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`]'s [`Status`] during a minimization.
-pub trait Observer<T, U> {
+pub trait Observer<T: Scalar, U> {
     /// A function that is called at every step of a minimization [`Algorithm`].
     fn callback(&mut self, step: usize, status: &Status<T>, user_data: &mut U);
 }
@@ -506,6 +516,7 @@ pub trait Observer<T, U> {
 pub struct Minimizer<T, U, E, A>
 where
     A: Algorithm<T, U, E>,
+    T: Scalar,
 {
     /// The [`Status`] of the [`Minimizer`], usually read after minimization.
     pub status: Status<T>,
@@ -519,7 +530,7 @@ where
 
 impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
 where
-    T: Float + FromPrimitive + Debug + Display + Default,
+    T: Float + Scalar + Default + Display,
 {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number

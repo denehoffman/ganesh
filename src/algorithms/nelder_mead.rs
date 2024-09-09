@@ -255,7 +255,7 @@ where
             initial_volume: volume,
         }
     }
-    fn best_position(&self, bounds: Option<&Vec<Bound<T>>>) -> (Vec<T>, T) {
+    fn best_position(&self, bounds: Option<&Vec<Bound<T>>>) -> (DVector<T>, T) {
         let (y, fx) = self.best().clone().into_vec_val();
         (Bound::to_bounded(&y, bounds), fx)
     }
