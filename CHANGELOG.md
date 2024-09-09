@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/denehoffman/ganesh/compare/v0.9.0...v0.9.1) - 2024-09-09
+
+### Fixed
+
+- ensure all algorithms reset completely when their initialize method is called
+- use set_cov to also calculate errors, change method to take an `Option`
+- update BFGS and L-BFGS methods to be closer to the implementation for L-BFGS-B and fix errors in L-BFGS causing incorrect convergence
+
+### Other
+
+- update readme and main doc
+- add basic convergence tests to all algorithms
+- add leading signs to `Status` `Display` method
+- improve pretty printing for `Status`
+
 ## [0.9.0](https://github.com/denehoffman/ganesh/compare/v0.8.5...v0.9.0) - 2024-09-09
 
 ### Added
