@@ -53,22 +53,31 @@
 //! #             .sum())
 //! #     }
 //! # }
-//!
-//! let problem = Rosenbrock { n: 2 };
-//! let nm = NelderMead::default();
-//! let mut m = Minimizer::new(nm, 2);
-//! let x0 = &[2.0, 2.0];
-//! m.minimize(&problem, x0, &mut ()).unwrap();
-//! println!("{}", m.status);
+//! fn main() -> Result<(), Infallible> {
+//!     let problem = Rosenbrock { n: 2 };
+//!     let nm = NelderMead::default();
+//!     let mut m = Minimizer::new(nm, 2);
+//!     let x0 = &[2.0, 2.0];
+//!     m.minimize(&problem, x0, &mut ())?;
+//!     println!("{}", m.status);
+//!     Ok(())
+//! }
 //! ```
 //!
 //! This should output
 //! ```shell
 //! MSG:       term_f = STDDEV
-//! X:         [0.9999999946231828, 0.9999999884539057]
-//! F(X):      0.00000000000000009170942877687133
-//! N_EVALS:   160
+//! X:         +1.000 ± 0.707
+//!            +1.000 ± 1.416
+//! F(X):      +0.000
+//! N_F_EVALS: 159
+//! N_G_EVALS: 0
 //! CONVERGED: true
+//! COV:       
+//!   ┌             ┐
+//!   │ 0.500 1.000 │
+//!   │ 1.000 2.005 │
+//!   └             ┘
 //! ```
 //!
 //! # Bounds
