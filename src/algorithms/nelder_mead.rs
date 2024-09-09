@@ -1,7 +1,10 @@
 use std::{cmp::Ordering, fmt::Debug, iter::Sum};
 
 use nalgebra::{DMatrix, DVector};
-use num::{traits::NumAssign, Float, FromPrimitive, NumCast};
+use num::{
+    traits::{float::TotalOrder, NumAssign},
+    Float, FromPrimitive, NumCast,
+};
 
 use crate::{convert, Algorithm, Bound, Function, Status};
 
@@ -27,7 +30,7 @@ where
 }
 impl<T> Point<T>
 where
-    T: Float + FromPrimitive + Debug + NumAssign,
+    T: Float + FromPrimitive + Debug + NumAssign + TotalOrder,
 {
     fn evaluate<U, E>(
         &mut self,
@@ -37,6 +40,9 @@ where
     ) -> Result<(), E> {
         self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
         Ok(())
+    }
+    fn total_cmp(&self, other: &Self) -> Ordering {
+        self.fx.total_cmp(&other.fx)
     }
 }
 impl<T> From<DVector<T>> for Point<T>
@@ -125,7 +131,15 @@ where
 
 impl<T> SimplexConstructionMethod<T>
 where
-    T: Float + Debug + NumAssign + Sum + Default + FromPrimitive + nalgebra::RealField + 'static,
+    T: Float
+        + Debug
+        + NumAssign
+        + Sum
+        + Default
+        + FromPrimitive
+        + nalgebra::RealField
+        + 'static
+        + TotalOrder,
 {
     fn generate<U, E>(
         &self,
@@ -198,11 +212,19 @@ where
 }
 impl<T> Simplex<T>
 where
-    T: NumCast + Float + Sum + Debug + NumAssign + Default + nalgebra::RealField + 'static,
+    T: NumCast
+        + Float
+        + Sum
+        + Debug
+        + NumAssign
+        + Default
+        + nalgebra::RealField
+        + 'static
+        + TotalOrder,
 {
     fn new(points: &[Point<T>]) -> Self {
         let mut sorted_points = points.to_vec();
-        sorted_points.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        sorted_points.sort_by(|a, b| a.total_cmp(b));
         let initial_best = sorted_points[0].clone();
         let initial_worst = sorted_points[sorted_points.len() - 1].clone();
         let n_params = points.len() - 1;
@@ -262,8 +284,7 @@ where
     fn sort(&mut self) {
         if !self.sorted {
             self.sorted = true;
-            self.points
-                .sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            self.points.sort_by(|a, b| a.total_cmp(b));
         }
     }
     fn compute_centroid(&mut self) {
@@ -334,7 +355,7 @@ pub enum NelderMeadFTerminator<T> {
 }
 impl<T> NelderMeadFTerminator<T>
 where
-    T: Float + Debug + NumAssign + Sum + Default + nalgebra::RealField,
+    T: Float + Debug + NumAssign + Sum + Default + nalgebra::RealField + TotalOrder,
 {
     fn update_convergence(&self, simplex: &Simplex<T>, status: &mut Status<T>) {
         match self {
@@ -430,7 +451,7 @@ pub enum NelderMeadXTerminator<T> {
 
 impl<T> NelderMeadXTerminator<T>
 where
-    T: Float + Debug + NumAssign + Sum + nalgebra::RealField + Default,
+    T: Float + Debug + NumAssign + Sum + nalgebra::RealField + Default + TotalOrder,
 {
     fn update_convergence(&self, simplex: &Simplex<T>, status: &mut Status<T>) {
         match self {
@@ -451,7 +472,7 @@ where
                         }
                         inf_norm
                     })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap_or(Ordering::Equal))
+                    .max_by(|&a, &b| a.total_cmp(&b))
                     .unwrap_or_else(T::zero);
                 if max_inf_norm <= *tol_x_abs {
                     status.set_converged();
@@ -471,7 +492,7 @@ where
                         let diff = &point.x - &l.x;
                         diff.lp_norm(1)
                     })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap_or(Ordering::Equal))
+                    .max_by(|&a, &b| a.total_cmp(&b))
                     .unwrap_or_else(T::zero);
                 if numer / denom <= *tol_x_rel {
                     status.set_converged();
@@ -666,7 +687,15 @@ where
 }
 impl<T, U, E> Algorithm<T, U, E> for NelderMead<T>
 where
-    T: Float + NumAssign + Debug + FromPrimitive + Sum + nalgebra::RealField + Default + 'static,
+    T: Float
+        + NumAssign
+        + Debug
+        + FromPrimitive
+        + Sum
+        + nalgebra::RealField
+        + Default
+        + 'static
+        + TotalOrder,
 {
     fn initialize(
         &mut self,

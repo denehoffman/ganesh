@@ -191,9 +191,9 @@ where
     pub fn contains(&self, value: &T) -> bool {
         match self {
             Self::NoBound => true,
-            Self::LowerBound(lb) => value > lb,
-            Self::UpperBound(ub) => value < ub,
-            Self::LowerAndUpperBound(lb, ub) => value > lb && value < ub,
+            Self::LowerBound(lb) => value >= lb,
+            Self::UpperBound(ub) => value <= ub,
+            Self::LowerAndUpperBound(lb, ub) => value >= lb && value <= ub,
         }
     }
     /// Returns the lower bound or `-inf` if there is none.

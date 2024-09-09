@@ -1,7 +1,7 @@
-use std::{cmp::Ordering, collections::VecDeque};
+use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector, RealField};
-use num::Float;
+use num::{traits::float::TotalOrder, Float};
 
 use crate::{convert, Algorithm, Bound, Function, Status};
 
@@ -136,7 +136,7 @@ where
 
 impl<T, U, E> LBFGSB<T, U, E>
 where
-    T: RealField + Float,
+    T: RealField + Float + TotalOrder,
 {
     /// For Equation 6.1
     fn get_inf_norm_projected_gradient(&self) -> T {
@@ -151,7 +151,7 @@ where
                     Float::abs(self.g[i])
                 }
             })
-            .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+            .max_by(|a, b| a.total_cmp(b))
             .unwrap_or_else(T::zero)
     }
     /// Equations 3.3, 3.4, 3.5, 3.6
@@ -209,7 +209,7 @@ where
             .collect();
         let mut x_cp = self.x.clone();
         let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > T::zero()).collect();
-        free_indices.sort_by(|&a, &b| t[a].partial_cmp(&t[b]).unwrap_or(Ordering::Equal));
+        free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
         let free_indices = VecDeque::from(free_indices);
         let mut t_old = T::zero();
         let mut i_free = 0;
@@ -344,7 +344,7 @@ where
 
 impl<T, U, E> Algorithm<T, U, E> for LBFGSB<T, U, E>
 where
-    T: RealField + Float,
+    T: RealField + Float + TotalOrder,
 {
     fn initialize(
         &mut self,
@@ -384,7 +384,6 @@ where
             func.evaluate(self.x.as_slice(), user_data)?,
         ));
         self.status.inc_n_f_evals();
-        // self.update_w_mat_m_mat();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
         Ok(())
@@ -399,7 +398,7 @@ where
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
-        let (_valid, alpha, f_kp1, g_kp1) = self.line_search.search(
+        let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
             &self.x,
             &d,
             Some(max_step),
@@ -408,25 +407,34 @@ where
             user_data,
             &mut self.status,
         )?;
-        let dx = d.scale(alpha);
-        let grad_kp1_vec = DVector::from_vec(g_kp1);
-        let dg = &grad_kp1_vec - &self.g;
-        let sy = dx.dot(&dg);
-        let yy = dg.dot(&dg);
-        if sy > T::epsilon() * yy {
-            self.s_store.push_back(dx.clone());
-            self.y_store.push_back(dg);
-            self.theta = yy / sy;
-            if self.s_store.len() > self.m {
-                self.s_store.pop_front();
-                self.y_store.pop_front();
+        if valid {
+            let dx = d.scale(alpha);
+            let grad_kp1_vec = DVector::from_vec(g_kp1);
+            let dg = &grad_kp1_vec - &self.g;
+            let sy = dx.dot(&dg);
+            let yy = dg.dot(&dg);
+            if sy > T::epsilon() * yy {
+                self.s_store.push_back(dx.clone());
+                self.y_store.push_back(dg);
+                self.theta = yy / sy;
+                if self.s_store.len() > self.m {
+                    self.s_store.pop_front();
+                    self.y_store.pop_front();
+                }
+                self.update_w_mat_m_mat();
             }
-            self.update_w_mat_m_mat();
+            self.x += dx;
+            self.g = grad_kp1_vec;
+            self.status
+                .update_position((self.x.data.as_vec().to_vec(), f_kp1));
+        } else {
+            // reboot
+            self.s_store.clear();
+            self.y_store.clear();
+            self.w_mat = DMatrix::zeros(self.x.len(), 1);
+            self.m_mat = DMatrix::zeros(1, 1);
+            self.theta = T::one();
         }
-        self.x += dx;
-        self.g = grad_kp1_vec;
-        self.status
-            .update_position((self.x.data.as_vec().to_vec(), f_kp1));
         Ok(())
     }
 
