@@ -118,7 +118,10 @@ impl<T, U, E> BFGS<T, U, E>
 where
     T: Float + RealField,
 {
-    fn update_h_inv(&mut self, n: usize, s: &DVector<T>, y: &DVector<T>) {
+    fn update_h_inv(&mut self, step: usize, n: usize, s: &DVector<T>, y: &DVector<T>) {
+        if step == 0 {
+            self.h_inv = self.h_inv.scale((y.dot(s)) / (y.dot(y)));
+        }
         let rho = Float::recip(y.dot(s));
         let m_left = DMatrix::identity(n, n) - (y * s.transpose()).scale(rho);
         let m_right = DMatrix::identity(n, n) - (s * y.transpose()).scale(rho);
@@ -152,7 +155,7 @@ where
 
     fn step(
         &mut self,
-        _i_step: usize,
+        i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
@@ -172,7 +175,7 @@ where
             let grad_kp1_vec = g_kp1;
             let y = &grad_kp1_vec - &self.g;
             let n = self.x.len();
-            self.update_h_inv(n, &s, &y);
+            self.update_h_inv(i_step, n, &s, &y);
             self.x += s;
             self.g = grad_kp1_vec;
             self.status
