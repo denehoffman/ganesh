@@ -1,7 +1,7 @@
 use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::Float;
 
-use crate::{Algorithm, Bound, Function, Status};
+use crate::{convert, Algorithm, Bound, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 
@@ -68,12 +68,12 @@ pub struct BFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
-    p: DVector<T>,
     h_inv: DMatrix<T>,
     f_previous: T,
     terminator_f: BFGSFTerminator<T>,
     terminator_g: BFGSGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
+    max_step: T,
     error_mode: BFGSErrorMode,
 }
 
@@ -117,7 +117,6 @@ where
             status: Default::default(),
             x: Default::default(),
             g: Default::default(),
-            p: Default::default(),
             h_inv: Default::default(),
             f_previous: T::infinity(),
             terminator_f: BFGSFTerminator {
@@ -127,6 +126,7 @@ where
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
             line_search: Box::new(StrongWolfeLineSearch::default()),
+            max_step: convert!(1e8, T),
             error_mode: Default::default(),
         }
     }
@@ -178,23 +178,23 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.p = -&self.h_inv * &self.g;
+        let d = -&self.h_inv * &self.g;
         let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
             &self.x,
-            &self.p,
-            None,
+            &d,
+            Some(self.max_step),
             func,
             bounds,
             user_data,
             &mut self.status,
         )?;
         if valid {
-            let s = self.p.scale(alpha);
+            let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
-            let y = &grad_kp1_vec - &self.g;
+            let dg = &grad_kp1_vec - &self.g;
             let n = self.x.len();
-            self.update_h_inv(i_step, n, &s, &y);
-            self.x += s;
+            self.update_h_inv(i_step, n, &dx, &dg);
+            self.x += dx;
             self.g = grad_kp1_vec;
             self.status
                 .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));

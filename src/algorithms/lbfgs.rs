@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use nalgebra::{DVector, RealField, Scalar};
 use num::Float;
 
-use crate::{Algorithm, Bound, Function, Status};
+use crate::{convert, Algorithm, Bound, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 
@@ -68,7 +68,6 @@ pub struct LBFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
-    p: DVector<T>,
     f_previous: T,
     terminator_f: LBFGSFTerminator<T>,
     terminator_g: LBFGSGTerminator<T>,
@@ -76,6 +75,7 @@ pub struct LBFGS<T: Scalar, U, E> {
     m: usize,
     y_store: VecDeque<DVector<T>>,
     s_store: VecDeque<DVector<T>>,
+    max_step: T,
     error_mode: LBFGSErrorMode,
 }
 
@@ -124,7 +124,6 @@ where
             status: Default::default(),
             x: Default::default(),
             g: Default::default(),
-            p: Default::default(),
             f_previous: T::infinity(),
             terminator_f: LBFGSFTerminator {
                 tol_f_abs: T::epsilon(),
@@ -136,6 +135,7 @@ where
             m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
+            max_step: convert!(1e8, T),
             error_mode: Default::default(),
         }
     }
@@ -148,7 +148,7 @@ where
     fn g_approx(&self) -> DVector<T> {
         let m = self.s_store.len();
         let mut q = self.g.clone();
-        if m <= 2 {
+        if m < 1 {
             return q;
         }
         let mut a = vec![T::zero(); m];
@@ -198,34 +198,38 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.p = -self.g_approx();
+        let d = -self.g_approx();
         let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
             &self.x,
-            &self.p,
-            None,
+            &d,
+            Some(self.max_step),
             func,
             bounds,
             user_data,
             &mut self.status,
         )?;
         if valid {
-            let dx = self.p.scale(alpha);
-            self.s_store.push_back(dx.clone());
-            if self.s_store.len() > self.m {
-                self.s_store.pop_front();
-            }
+            let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
-            self.y_store.push_back(&grad_kp1_vec - &self.g);
-            if self.y_store.len() > self.m {
-                self.y_store.pop_front();
+            let dg = &grad_kp1_vec - &self.g;
+            let sy = dx.dot(&dg);
+            let yy = dg.dot(&dg);
+            if sy > T::epsilon() * yy {
+                self.s_store.push_back(dx.clone());
+                self.y_store.push_back(dg);
+                if self.s_store.len() > self.m {
+                    self.s_store.pop_front();
+                    self.y_store.pop_front();
+                }
             }
             self.x += dx;
             self.g = grad_kp1_vec;
             self.status
                 .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
         } else {
-            self.status.update_message("LINE SEARCH FAILED");
-            self.status.set_converged();
+            // reboot
+            self.s_store.clear();
+            self.y_store.clear();
         }
         Ok(())
     }
