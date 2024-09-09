@@ -47,6 +47,14 @@ where
     }
 }
 
+/// Error modes for [`LBFGS`] [`Algorithm`].
+#[derive(Default)]
+pub enum LBFGSErrorMode {
+    /// Computes the exact Hessian matrix via finite differences.
+    #[default]
+    ExactHessian,
+}
+
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
@@ -68,6 +76,7 @@ pub struct LBFGS<T: Scalar, U, E> {
     m: usize,
     y_store: VecDeque<DVector<T>>,
     s_store: VecDeque<DVector<T>>,
+    error_mode: LBFGSErrorMode,
 }
 
 impl<T, U, E> LBFGS<T, U, E>
@@ -90,6 +99,18 @@ where
     /// Using the Armijo condition alone will lead to slower convergence.
     pub fn with_line_search<LS: LineSearch<T, U, E> + 'static>(mut self, line_search: LS) -> Self {
         self.line_search = Box::new(line_search);
+        self
+    }
+    /// Set the number of stored L-BFGS updator steps. A larger value might improve performance
+    /// while sacrificing memory usage (default = `10`).
+    pub const fn with_memory_limit(mut self, limit: usize) -> Self {
+        self.m = limit;
+        self
+    }
+    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
+    /// recalculating an exact finite-difference Hessian.
+    pub const fn with_error_mode(mut self, error_mode: LBFGSErrorMode) -> Self {
+        self.error_mode = error_mode;
         self
     }
 }
@@ -115,6 +136,7 @@ where
             m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
+            error_mode: Default::default(),
         }
     }
 }
@@ -225,5 +247,24 @@ where
 
     fn get_status(&self) -> &Status<T> {
         &self.status
+    }
+
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        match self.error_mode {
+            LBFGSErrorMode::ExactHessian => {
+                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+                let mut covariance = hessian.clone().try_inverse();
+                if covariance.is_none() {
+                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
+                }
+                self.status.cov = covariance
+            }
+        }
+        Ok(())
     }
 }

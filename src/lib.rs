@@ -453,12 +453,6 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ParameterError<T> {
-    Symmetric(T),
-    Asymmetric(T, T),
-}
-
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default)]
 pub struct Status<T: Scalar> {
@@ -478,7 +472,8 @@ pub struct Status<T: Scalar> {
     pub converged: bool,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
     pub cov: Option<DMatrix<T>>,
-    pub err: Option<Vec<ParameterError<T>>>,
+    /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
+    pub err: Option<DVector<T>>,
 }
 impl<T: Scalar> Status<T> {
     /// Updates the [`Status::message`] field.
@@ -501,6 +496,13 @@ impl<T: Scalar> Status<T> {
     /// Increments [`Status::n_g_evals`] by `1`.
     pub fn inc_n_g_evals(&mut self) {
         self.n_g_evals += 1;
+    }
+}
+impl<T: Scalar + Float> Status<T> {
+    /// Sets the covariance matrix and updates parameter errors.
+    pub fn set_cov(&mut self, cov: DMatrix<T>) {
+        self.err = Some(cov.diagonal().map(|v| v.sqrt()));
+        self.cov = Some(cov);
     }
 }
 impl<T> Display for Status<T>

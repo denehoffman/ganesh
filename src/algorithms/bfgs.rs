@@ -45,6 +45,16 @@ where
     }
 }
 
+/// Error modes for [`BFGS`] [`Algorithm`].
+#[derive(Default)]
+pub enum BFGSErrorMode {
+    /// Computes the exact Hessian matrix via finite differences.
+    #[default]
+    ExactHessian,
+    /// Uses the approximate Hessian from the BFGS update.
+    ApproximateHessian,
+}
+
 /// The BFGS (Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
@@ -64,6 +74,7 @@ pub struct BFGS<T: Scalar, U, E> {
     terminator_f: BFGSFTerminator<T>,
     terminator_g: BFGSGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
+    error_mode: BFGSErrorMode,
 }
 
 impl<T, U, E> BFGS<T, U, E>
@@ -89,6 +100,12 @@ where
         self.line_search = Box::new(line_search);
         self
     }
+    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
+    /// recalculating an exact finite-difference Hessian.
+    pub const fn with_error_mode(mut self, error_mode: BFGSErrorMode) -> Self {
+        self.error_mode = error_mode;
+        self
+    }
 }
 
 impl<T, U, E> Default for BFGS<T, U, E>
@@ -110,6 +127,7 @@ where
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
             line_search: Box::new(StrongWolfeLineSearch::default()),
+            error_mode: Default::default(),
         }
     }
 }
@@ -203,5 +221,27 @@ where
 
     fn get_status(&self) -> &Status<T> {
         &self.status
+    }
+
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        match self.error_mode {
+            BFGSErrorMode::ExactHessian => {
+                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+                let mut covariance = hessian.clone().try_inverse();
+                if covariance.is_none() {
+                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
+                }
+                self.status.cov = covariance
+            }
+            BFGSErrorMode::ApproximateHessian => {
+                self.status.cov = Some(self.h_inv.clone());
+            }
+        }
+        Ok(())
     }
 }
