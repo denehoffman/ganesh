@@ -500,9 +500,11 @@ impl<T: Scalar> Status<T> {
 }
 impl<T: Scalar + Float> Status<T> {
     /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, cov: DMatrix<T>) {
-        self.err = Some(cov.diagonal().map(|v| v.sqrt()));
-        self.cov = Some(cov);
+    pub fn set_cov(&mut self, cov: Option<DMatrix<T>>) {
+        if let Some(cov_mat) = cov {
+            self.err = Some(cov_mat.diagonal().map(|v| v.sqrt()));
+            self.cov = Some(cov_mat);
+        }
     }
 }
 impl<T> Display for Status<T>

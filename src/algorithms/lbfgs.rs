@@ -266,7 +266,7 @@ where
                 if covariance.is_none() {
                     covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
                 }
-                self.status.cov = covariance
+                self.status.set_cov(covariance);
             }
         }
         Ok(())
