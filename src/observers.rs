@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use nalgebra::Scalar;
+
 use crate::{Observer, Status};
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
@@ -22,11 +24,7 @@ use crate::{Observer, Status};
 /// assert!(m.status.converged);
 /// ```
 pub struct DebugObserver;
-impl<T, U> Observer<T, U> for DebugObserver
-where
-    T: Debug,
-    U: Debug,
-{
+impl<T: Scalar, U: Debug> Observer<T, U> for DebugObserver {
     fn callback(&mut self, step: usize, status: &Status<T>, user_data: &mut U) {
         println!("{step}, {:?}, {:?}", status, user_data)
     }

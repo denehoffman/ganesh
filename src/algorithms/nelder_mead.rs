@@ -255,7 +255,7 @@ where
             initial_volume: volume,
         }
     }
-    fn best_position(&self, bounds: Option<&Vec<Bound<T>>>) -> (Vec<T>, T) {
+    fn best_position(&self, bounds: Option<&Vec<Bound<T>>>) -> (DVector<T>, T) {
         let (y, fx) = self.best().clone().into_vec_val();
         (Bound::to_bounded(&y, bounds), fx)
     }
@@ -569,6 +569,7 @@ where
     expansion_method: SimplexExpansionMethod,
     terminator_f: NelderMeadFTerminator<T>,
     terminator_x: NelderMeadXTerminator<T>,
+    compute_parameter_errors: bool,
 }
 impl<T> Default for NelderMead<T>
 where
@@ -600,6 +601,7 @@ where
             terminator_x: NelderMeadXTerminator::Singer {
                 tol_x_rel: T::epsilon(),
             },
+            compute_parameter_errors: true,
         }
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`).
@@ -682,6 +684,12 @@ where
     /// Set the termination condition concerning the simplex positions.
     pub const fn with_terminator_x(mut self, term: NelderMeadXTerminator<T>) -> Self {
         self.terminator_x = term;
+        self
+    }
+    /// Disable covariance calculation upon convergence (not recommended except for testing very large
+    /// problems).
+    pub const fn with_no_error_calculation(mut self) -> Self {
+        self.compute_parameter_errors = false;
         self
     }
 }
@@ -865,5 +873,22 @@ where
 
     fn get_status(&self) -> &Status<T> {
         &self.status
+    }
+
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        if self.compute_parameter_errors {
+            let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+            let mut covariance = hessian.clone().try_inverse();
+            if covariance.is_none() {
+                covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
+            }
+            self.status.cov = covariance
+        }
+        Ok(())
     }
 }

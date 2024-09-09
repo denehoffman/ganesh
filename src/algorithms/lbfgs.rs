@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use nalgebra::{DVector, RealField};
+use nalgebra::{DVector, RealField, Scalar};
 use num::Float;
 
 use crate::{Algorithm, Bound, Function, Status};
@@ -12,7 +12,8 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct LBFGSFTerminator<T> {
-    tol_f_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_f_abs: T,
 }
 impl<T> LBFGSFTerminator<T>
 where
@@ -31,7 +32,8 @@ where
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct LBFGSGTerminator<T> {
-    tol_g_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_g_abs: T,
 }
 impl<T> LBFGSGTerminator<T>
 where
@@ -45,6 +47,14 @@ where
     }
 }
 
+/// Error modes for [`LBFGS`] [`Algorithm`].
+#[derive(Default)]
+pub enum LBFGSErrorMode {
+    /// Computes the exact Hessian matrix via finite differences.
+    #[default]
+    ExactHessian,
+}
+
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
@@ -54,7 +64,7 @@ where
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct LBFGS<T, U, E> {
+pub struct LBFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
@@ -66,6 +76,7 @@ pub struct LBFGS<T, U, E> {
     m: usize,
     y_store: VecDeque<DVector<T>>,
     s_store: VecDeque<DVector<T>>,
+    error_mode: LBFGSErrorMode,
 }
 
 impl<T, U, E> LBFGS<T, U, E>
@@ -90,6 +101,18 @@ where
         self.line_search = Box::new(line_search);
         self
     }
+    /// Set the number of stored L-BFGS updator steps. A larger value might improve performance
+    /// while sacrificing memory usage (default = `10`).
+    pub const fn with_memory_limit(mut self, limit: usize) -> Self {
+        self.m = limit;
+        self
+    }
+    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
+    /// recalculating an exact finite-difference Hessian.
+    pub const fn with_error_mode(mut self, error_mode: LBFGSErrorMode) -> Self {
+        self.error_mode = error_mode;
+        self
+    }
 }
 
 impl<T, U, E> Default for LBFGS<T, U, E>
@@ -104,7 +127,7 @@ where
             p: Default::default(),
             f_previous: T::infinity(),
             terminator_f: LBFGSFTerminator {
-                tol_f_abs: Float::cbrt(T::epsilon()),
+                tol_f_abs: T::epsilon(),
             },
             terminator_g: LBFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
@@ -113,6 +136,7 @@ where
             m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
+            error_mode: Default::default(),
         }
     }
 }
@@ -124,6 +148,9 @@ where
     fn g_approx(&self) -> DVector<T> {
         let m = self.s_store.len();
         let mut q = self.g.clone();
+        if m <= 2 {
+            return q;
+        }
         let mut a = vec![T::zero(); m];
         let rho = DVector::from_fn(m, |j, _| T::one() / self.y_store[j].dot(&self.s_store[j]));
         for i in 0..m {
@@ -153,8 +180,8 @@ where
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.x = DVector::from_vec(Bound::to_unbounded(x0, bounds));
-        self.g = DVector::from_vec(func.gradient_bounded(self.x.as_slice(), bounds, user_data)?);
+        self.x = Bound::to_unbounded(x0, bounds);
+        self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         self.status.inc_n_g_evals();
         self.status.update_position((
             Bound::to_bounded(self.x.as_slice(), bounds),
@@ -166,61 +193,39 @@ where
 
     fn step(
         &mut self,
-        i_step: usize,
+        _i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        if i_step == 0 {
-            self.p = -self.g.clone();
-            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
-                &self.x,
-                &self.p,
-                None,
-                func,
-                bounds,
-                user_data,
-                &mut self.status,
-            )?;
-            if valid {
-                let dx = self.p.scale(alpha);
-                self.s_store.push_back(dx.clone());
-                let grad_kp1_vec = DVector::from_vec(g_kp1);
-                self.y_store.push_back(&grad_kp1_vec - &self.g);
-                self.x += dx;
-                self.g = grad_kp1_vec;
-                self.status
-                    .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
-            } else {
-                self.status.set_converged();
+        self.p = -self.g_approx();
+        let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
+            &self.x,
+            &self.p,
+            None,
+            func,
+            bounds,
+            user_data,
+            &mut self.status,
+        )?;
+        if valid {
+            let dx = self.p.scale(alpha);
+            self.s_store.push_back(dx.clone());
+            if self.s_store.len() > self.m {
+                self.s_store.pop_front();
             }
+            let grad_kp1_vec = g_kp1;
+            self.y_store.push_back(&grad_kp1_vec - &self.g);
+            if self.y_store.len() > self.m {
+                self.y_store.pop_front();
+            }
+            self.x += dx;
+            self.g = grad_kp1_vec;
+            self.status
+                .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
         } else {
-            self.p = -self.g_approx();
-            let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
-                &self.x,
-                &self.p,
-                None,
-                func,
-                bounds,
-                user_data,
-                &mut self.status,
-            )?;
-            if valid {
-                let dx = self.p.scale(alpha);
-                self.s_store.push_back(dx.clone());
-                let grad_kp1_vec = DVector::from_vec(g_kp1);
-                self.y_store.push_back(&grad_kp1_vec - &self.g);
-                if self.s_store.len() > self.m {
-                    self.s_store.pop_front();
-                    self.y_store.pop_front();
-                }
-                self.x += dx;
-                self.g = grad_kp1_vec;
-                self.status
-                    .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
-            } else {
-                self.status.set_converged();
-            }
+            self.status.update_message("LINE SEARCH FAILED");
+            self.status.set_converged();
         }
         Ok(())
     }
@@ -242,5 +247,24 @@ where
 
     fn get_status(&self) -> &Status<T> {
         &self.status
+    }
+
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        match self.error_mode {
+            LBFGSErrorMode::ExactHessian => {
+                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+                let mut covariance = hessian.clone().try_inverse();
+                if covariance.is_none() {
+                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
+                }
+                self.status.cov = covariance
+            }
+        }
+        Ok(())
     }
 }

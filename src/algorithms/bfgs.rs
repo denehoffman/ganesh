@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, DVector, RealField};
+use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::Float;
 
 use crate::{Algorithm, Bound, Function, Status};
@@ -10,7 +10,8 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct BFGSFTerminator<T> {
-    tol_f_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_f_abs: T,
 }
 impl<T> BFGSFTerminator<T>
 where
@@ -29,7 +30,8 @@ where
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 pub struct BFGSGTerminator<T> {
-    tol_g_abs: T,
+    /// Absolute tolerance $`\varepsilon`$.
+    pub tol_g_abs: T,
 }
 impl<T> BFGSGTerminator<T>
 where
@@ -43,6 +45,16 @@ where
     }
 }
 
+/// Error modes for [`BFGS`] [`Algorithm`].
+#[derive(Default)]
+pub enum BFGSErrorMode {
+    /// Computes the exact Hessian matrix via finite differences.
+    #[default]
+    ExactHessian,
+    /// Uses the approximate Hessian from the BFGS update.
+    ApproximateHessian,
+}
+
 /// The BFGS (Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
@@ -52,7 +64,7 @@ where
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct BFGS<T, U, E> {
+pub struct BFGS<T: Scalar, U, E> {
     status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
@@ -62,6 +74,7 @@ pub struct BFGS<T, U, E> {
     terminator_f: BFGSFTerminator<T>,
     terminator_g: BFGSGTerminator<T>,
     line_search: Box<dyn LineSearch<T, U, E>>,
+    error_mode: BFGSErrorMode,
 }
 
 impl<T, U, E> BFGS<T, U, E>
@@ -87,6 +100,12 @@ where
         self.line_search = Box::new(line_search);
         self
     }
+    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
+    /// recalculating an exact finite-difference Hessian.
+    pub const fn with_error_mode(mut self, error_mode: BFGSErrorMode) -> Self {
+        self.error_mode = error_mode;
+        self
+    }
 }
 
 impl<T, U, E> Default for BFGS<T, U, E>
@@ -102,12 +121,13 @@ where
             h_inv: Default::default(),
             f_previous: T::infinity(),
             terminator_f: BFGSFTerminator {
-                tol_f_abs: Float::cbrt(T::epsilon()),
+                tol_f_abs: T::epsilon(),
             },
             terminator_g: BFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
             line_search: Box::new(StrongWolfeLineSearch::default()),
+            error_mode: Default::default(),
         }
     }
 }
@@ -116,10 +136,13 @@ impl<T, U, E> BFGS<T, U, E>
 where
     T: Float + RealField,
 {
-    fn update_h_inv(&mut self, n: usize, s: &DVector<T>, y: &DVector<T>) {
+    fn update_h_inv(&mut self, step: usize, n: usize, s: &DVector<T>, y: &DVector<T>) {
+        if step == 0 {
+            self.h_inv = self.h_inv.scale((y.dot(s)) / (y.dot(y)));
+        }
         let rho = Float::recip(y.dot(s));
-        let m_left = DMatrix::identity(n, n) - (s * y.transpose()).scale(rho);
-        let m_right = DMatrix::identity(n, n) - (y * s.transpose()).scale(rho);
+        let m_left = DMatrix::identity(n, n) - (y * s.transpose()).scale(rho);
+        let m_right = DMatrix::identity(n, n) - (s * y.transpose()).scale(rho);
         let m_add = (s * s.transpose()).scale(rho);
         self.h_inv = (m_left * &self.h_inv * m_right) + m_add;
     }
@@ -137,8 +160,8 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         self.h_inv = DMatrix::identity(x0.len(), x0.len());
-        self.x = DVector::from_vec(Bound::to_unbounded(x0, bounds));
-        self.g = DVector::from_vec(func.gradient_bounded(self.x.as_slice(), bounds, user_data)?);
+        self.x = Bound::to_unbounded(x0, bounds);
+        self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         self.status.inc_n_g_evals();
         self.status.update_position((
             Bound::to_bounded(self.x.as_slice(), bounds),
@@ -150,7 +173,7 @@ where
 
     fn step(
         &mut self,
-        _i_step: usize,
+        i_step: usize,
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
@@ -167,10 +190,10 @@ where
         )?;
         if valid {
             let s = self.p.scale(alpha);
-            let grad_kp1_vec = DVector::from_vec(g_kp1);
+            let grad_kp1_vec = g_kp1;
             let y = &grad_kp1_vec - &self.g;
             let n = self.x.len();
-            self.update_h_inv(n, &s, &y);
+            self.update_h_inv(i_step, n, &s, &y);
             self.x += s;
             self.g = grad_kp1_vec;
             self.status
@@ -198,5 +221,27 @@ where
 
     fn get_status(&self) -> &Status<T> {
         &self.status
+    }
+
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<T, U, E>,
+        bounds: Option<&Vec<Bound<T>>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        match self.error_mode {
+            BFGSErrorMode::ExactHessian => {
+                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+                let mut covariance = hessian.clone().try_inverse();
+                if covariance.is_none() {
+                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
+                }
+                self.status.cov = covariance
+            }
+            BFGSErrorMode::ApproximateHessian => {
+                self.status.cov = Some(self.h_inv.clone());
+            }
+        }
+        Ok(())
     }
 }
