@@ -358,7 +358,7 @@ where
         // cbrt(eps) if x_i = 0)
         let h: DVector<T> = x
             .iter()
-            .map(|&xi| T::cbrt(T::epsilon()) * (if xi == T::zero() { T::one() } else { xi }))
+            .map(|&xi| T::cbrt(T::epsilon()) * (xi.abs() + T::one()))
             .collect::<Vec<_>>()
             .into();
         for i in 0..n {
@@ -399,7 +399,7 @@ where
         let x = DVector::from_column_slice(x);
         let h: DVector<T> = x
             .iter()
-            .map(|&xi| T::cbrt(T::epsilon()) * (if xi == T::zero() { T::one() } else { xi }))
+            .map(|&xi| T::cbrt(T::epsilon()) * (xi.abs() + T::one()))
             .collect::<Vec<_>>()
             .into();
         let mut res = DMatrix::zeros(x.len(), x.len());
