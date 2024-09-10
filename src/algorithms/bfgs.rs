@@ -233,12 +233,8 @@ where
     ) -> Result<(), E> {
         match self.error_mode {
             BFGSErrorMode::ExactHessian => {
-                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
-                let mut covariance = hessian.clone().try_inverse();
-                if covariance.is_none() {
-                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
-                }
-                self.status.set_cov(covariance);
+                let hessian = func.hessian_bounded(self.x.as_slice(), bounds, user_data)?;
+                self.status.set_hess(&hessian);
             }
             BFGSErrorMode::ApproximateHessian => {
                 self.status.set_cov(Some(self.h_inv.clone()));

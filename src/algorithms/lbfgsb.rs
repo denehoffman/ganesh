@@ -27,7 +27,7 @@ where
     }
 }
 
-/// A terminator for the [`LBFGS`] [`Algorithm`] which causes termination when the magnitude of the
+/// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
@@ -465,10 +465,10 @@ where
     fn check_for_termination(
         &mut self,
         func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<bool, E> {
-        let f_current = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
             .update_convergence(f_current, self.f_previous, &mut self.status);
         self.f_previous = f_current;
@@ -489,17 +489,13 @@ where
     fn postprocessing(
         &mut self,
         func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
-                let mut covariance = hessian.clone().try_inverse();
-                if covariance.is_none() {
-                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
-                }
-                self.status.set_cov(covariance);
+                let hessian = func.hessian(self.x.as_slice(), user_data)?;
+                self.status.set_hess(&hessian);
             }
         }
         Ok(())
