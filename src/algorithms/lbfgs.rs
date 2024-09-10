@@ -264,11 +264,7 @@ where
         match self.error_mode {
             LBFGSErrorMode::ExactHessian => {
                 let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
-                let mut covariance = hessian.clone().try_inverse();
-                if covariance.is_none() {
-                    covariance = hessian.pseudo_inverse(Float::cbrt(T::epsilon())).ok();
-                }
-                self.status.set_cov(covariance);
+                self.status.set_hess(&hessian);
             }
         }
         Ok(())

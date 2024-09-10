@@ -130,7 +130,7 @@ use std::{
     marker::PhantomData,
 };
 
-use nalgebra::{DMatrix, DVector, Scalar};
+use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::{traits::NumAssign, Float};
 
 /// Module containing minimization algorithms
@@ -462,6 +462,8 @@ pub struct Status<T: Scalar> {
     pub n_g_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
+    /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
+    pub hess: Option<DMatrix<T>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
     pub cov: Option<DMatrix<T>>,
     /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
@@ -490,13 +492,28 @@ impl<T: Scalar> Status<T> {
         self.n_g_evals += 1;
     }
 }
-impl<T: Scalar + Float> Status<T> {
+impl<T: Scalar + Float + RealField> Status<T> {
     /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, cov: Option<DMatrix<T>>) {
-        if let Some(cov_mat) = cov {
-            self.err = Some(cov_mat.diagonal().map(|v| v.sqrt()));
-            self.cov = Some(cov_mat);
+    pub fn set_cov(&mut self, covariance: Option<DMatrix<T>>) {
+        if let Some(cov_mat) = &covariance {
+            self.err = Some(cov_mat.diagonal().map(|v| Float::sqrt(v)));
         }
+        self.cov = covariance;
+    }
+    /// Sets the Hessian matrix, computes the covariance matrix, and updates parameter errors.
+    pub fn set_hess(&mut self, hessian: &DMatrix<T>) {
+        self.hess = Some(hessian.clone());
+        let mut covariance = hessian.clone().try_inverse();
+        if covariance.is_none() {
+            covariance = hessian
+                .clone()
+                .pseudo_inverse(Float::cbrt(T::epsilon()))
+                .ok();
+        }
+        if let Some(cov_mat) = &covariance {
+            self.err = Some(cov_mat.diagonal().map(|v| Float::sqrt(v)));
+        }
+        self.cov = covariance;
     }
 }
 impl<T> Display for Status<T>
@@ -523,6 +540,11 @@ where
         writeln!(f, "CONVERGED: {}", self.converged)?;
         write!(f, "COV:       ")?;
         match &self.cov {
+            Some(mat) => writeln!(f, "{:.3}", mat),
+            None => writeln!(f, "NOT COMPUTED"),
+        }?;
+        write!(f, "HESS:       ")?;
+        match &self.hess {
             Some(mat) => writeln!(f, "{:.3}", mat),
             None => writeln!(f, "NOT COMPUTED"),
         }?;
