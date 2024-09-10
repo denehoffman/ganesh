@@ -263,7 +263,7 @@ where
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSErrorMode::ExactHessian => {
-                let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+                let hessian = func.hessian_bounded(self.x.as_slice(), bounds, user_data)?;
                 self.status.set_hess(&hessian);
             }
         }

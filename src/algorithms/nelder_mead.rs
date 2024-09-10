@@ -879,11 +879,11 @@ where
     fn postprocessing(
         &mut self,
         func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         if self.compute_parameter_errors {
-            let hessian = func.hessian_bounded(self.status.x.as_slice(), bounds, user_data)?;
+            let hessian = func.hessian(self.status.x.as_slice(), user_data)?;
             self.status.set_hess(&hessian);
         }
         Ok(())
