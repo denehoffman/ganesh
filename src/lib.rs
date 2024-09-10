@@ -403,41 +403,24 @@ where
             .collect::<Vec<_>>()
             .into();
         let mut res = DMatrix::zeros(x.len(), x.len());
+        let mut g_plus = DMatrix::zeros(x.len(), x.len());
+        let mut g_minus = DMatrix::zeros(x.len(), x.len());
+        // g+ and g- are such that
+        // g+[(i, j)] = g[i](x + h_je_j) and
+        // g-[(i, j)] = g[i](x - h_je_j)
         for i in 0..x.len() {
+            let mut x_plus = x.clone();
+            let mut x_minus = x.clone();
+            x_plus[i] += h[i];
+            x_minus[i] -= h[i];
+            g_plus.set_column(i, &self.gradient(x_plus.as_slice(), user_data)?);
+            g_minus.set_column(i, &self.gradient(x_minus.as_slice(), user_data)?);
             for j in 0..=i {
                 if i == j {
-                    let mut x_plus = x.clone();
-                    let mut x_minus = x.clone();
-                    x_plus[i] += h[i];
-                    x_minus[i] -= h[i];
-                    let f_plus = self.evaluate(x_plus.as_slice(), user_data)?;
-                    let f_minus = self.evaluate(x_minus.as_slice(), user_data)?;
-                    let f_center = self.evaluate(x.as_slice(), user_data)?;
-
-                    res[(i, i)] = (f_plus - convert!(2, T) * f_center + f_minus) / (h[i] * h[i]);
+                    res[(i, j)] = (g_plus[(i, j)] - g_minus[(i, j)]) / (convert!(2, T) * h[i]);
                 } else {
-                    // Off-diagonal element
-                    let mut x_plus_plus = x.clone();
-                    let mut x_plus_minus = x.clone();
-                    let mut x_minus_plus = x.clone();
-                    let mut x_minus_minus = x.clone();
-
-                    x_plus_plus[i] += h[i];
-                    x_plus_plus[j] += h[i];
-                    x_plus_minus[i] += h[i];
-                    x_plus_minus[j] -= h[i];
-                    x_minus_plus[i] -= h[i];
-                    x_minus_plus[j] += h[i];
-                    x_minus_minus[i] -= h[i];
-                    x_minus_minus[j] -= h[i];
-
-                    let f_plus_plus = self.evaluate(x_plus_plus.as_slice(), user_data)?;
-                    let f_plus_minus = self.evaluate(x_plus_minus.as_slice(), user_data)?;
-                    let f_minus_plus = self.evaluate(x_minus_plus.as_slice(), user_data)?;
-                    let f_minus_minus = self.evaluate(x_minus_minus.as_slice(), user_data)?;
-
-                    res[(i, j)] = (f_plus_plus - f_plus_minus - f_minus_plus + f_minus_minus)
-                        / (convert!(4, T) * h[i] * h[i]);
+                    res[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (convert!(4, T) * h[j]))
+                        + ((g_plus[(j, i)] - g_minus[(j, i)]) / (convert!(4, T) * h[i]));
                     res[(j, i)] = res[(i, j)];
                 }
             }
