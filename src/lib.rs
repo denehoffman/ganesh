@@ -224,6 +224,18 @@ where
             Self::LowerAndUpperBound(_, ub) => *ub,
         }
     }
+    /// Checks if the given value is equal to one of the bounds.
+    ///
+    /// TODO: his just does equality comparison right now, which probably needs to be improved
+    /// to something with an epsilon (significant but not critical to most fits right now).
+    pub fn at_bound(&self, value: T) -> bool {
+        match self {
+            Self::NoBound => false,
+            Self::LowerBound(lb) => value == *lb,
+            Self::UpperBound(ub) => value == *ub,
+            Self::LowerAndUpperBound(lb, ub) => value == *lb || value == *ub,
+        }
+    }
     /// Converts an unbounded "external" parameter into a bounded "internal" one via the transform:
     ///
     /// Upper and lower bounds:
