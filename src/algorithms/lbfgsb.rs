@@ -64,7 +64,6 @@ pub enum LBFGSBErrorMode {
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 #[allow(clippy::upper_case_acronyms)]
 pub struct LBFGSB<T: Scalar, U, E> {
-    status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
     l: DVector<T>,
@@ -132,7 +131,6 @@ where
 {
     fn default() -> Self {
         Self {
-            status: Default::default(),
             x: Default::default(),
             g: Default::default(),
             l: Default::default(),
@@ -376,8 +374,8 @@ where
         x0: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
-        self.status = Status::default();
         self.f_previous = T::infinity();
         self.theta = T::one();
         self.l = DVector::from_element(x0.len(), T::neg_infinity());
@@ -405,10 +403,9 @@ where
             }
         });
         self.g = func.gradient(self.x.as_slice(), user_data)?;
-        self.status.inc_n_g_evals();
-        self.status
-            .update_position((self.x.clone(), func.evaluate(self.x.as_slice(), user_data)?));
-        self.status.inc_n_f_evals();
+        status.inc_n_g_evals();
+        status.update_position((self.x.clone(), func.evaluate(self.x.as_slice(), user_data)?));
+        status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
         Ok(())
@@ -420,6 +417,7 @@ where
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
@@ -430,7 +428,7 @@ where
             func,
             bounds,
             user_data,
-            &mut self.status,
+            status,
         )?;
         if valid {
             let dx = d.scale(alpha);
@@ -450,7 +448,7 @@ where
             }
             self.x += dx;
             self.g = grad_kp1_vec;
-            self.status.update_position((self.x.clone(), f_kp1));
+            status.update_position((self.x.clone(), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -467,23 +465,18 @@ where
         func: &dyn Function<T, U, E>,
         _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<bool, E> {
         let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
-            .update_convergence(f_current, self.f_previous, &mut self.status);
+            .update_convergence(f_current, self.f_previous, status);
         self.f_previous = f_current;
-        self.terminator_g
-            .update_convergence(&self.g, &mut self.status);
+        self.terminator_g.update_convergence(&self.g, status);
         if self.get_inf_norm_projected_gradient() < self.g_tolerance {
-            self.status.set_converged();
-            self.status
-                .update_message("PROJECTED GRADIENT WITHIN TOLERANCE");
+            status.set_converged();
+            status.update_message("PROJECTED GRADIENT WITHIN TOLERANCE");
         }
-        Ok(self.status.converged)
-    }
-
-    fn get_status(&self) -> &Status<T> {
-        &self.status
+        Ok(status.converged)
     }
 
     fn postprocessing(
@@ -491,11 +484,12 @@ where
         func: &dyn Function<T, U, E>,
         _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSBErrorMode::ExactHessian => {
                 let hessian = func.hessian(self.x.as_slice(), user_data)?;
-                self.status.set_hess(&hessian);
+                status.set_hess(&hessian);
             }
         }
         Ok(())

@@ -65,7 +65,6 @@ pub enum LBFGSErrorMode {
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct LBFGS<T: Scalar, U, E> {
-    status: Status<T>,
     x: DVector<T>,
     g: DVector<T>,
     f_previous: T,
@@ -121,7 +120,6 @@ where
 {
     fn default() -> Self {
         Self {
-            status: Default::default(),
             x: Default::default(),
             g: Default::default(),
             f_previous: T::infinity(),
@@ -179,17 +177,17 @@ where
         x0: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
-        self.status = Status::default();
         self.f_previous = T::infinity();
         self.x = Bound::to_unbounded(x0, bounds);
         self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
-        self.status.inc_n_g_evals();
-        self.status.update_position((
+        status.inc_n_g_evals();
+        status.update_position((
             Bound::to_bounded(self.x.as_slice(), bounds),
             func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?,
         ));
-        self.status.inc_n_f_evals();
+        status.inc_n_f_evals();
         Ok(())
     }
 
@@ -199,6 +197,7 @@ where
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         let d = -self.g_approx();
         let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
@@ -208,7 +207,7 @@ where
             func,
             bounds,
             user_data,
-            &mut self.status,
+            status,
         )?;
         if valid {
             let dx = d.scale(alpha);
@@ -226,8 +225,7 @@ where
             }
             self.x += dx;
             self.g = grad_kp1_vec;
-            self.status
-                .update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
+            status.update_position((Bound::to_bounded(self.x.as_slice(), bounds), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -241,18 +239,14 @@ where
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<bool, E> {
         let f_current = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
         self.terminator_f
-            .update_convergence(f_current, self.f_previous, &mut self.status);
+            .update_convergence(f_current, self.f_previous, status);
         self.f_previous = f_current;
-        self.terminator_g
-            .update_convergence(&self.g, &mut self.status);
-        Ok(self.status.converged)
-    }
-
-    fn get_status(&self) -> &Status<T> {
-        &self.status
+        self.terminator_g.update_convergence(&self.g, status);
+        Ok(status.converged)
     }
 
     fn postprocessing(
@@ -260,11 +254,12 @@ where
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSErrorMode::ExactHessian => {
                 let hessian = func.hessian_bounded(self.x.as_slice(), bounds, user_data)?;
-                self.status.set_hess(&hessian);
+                status.set_hess(&hessian);
             }
         }
         Ok(())
