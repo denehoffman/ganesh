@@ -685,7 +685,7 @@ where
 impl<T, U, E, A> Display for Minimizer<T, U, E, A>
 where
     A: Algorithm<T, U, E>,
-    T: Scalar + Display + Float,
+    T: Scalar + Display + Float + UpperExp,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.status)
