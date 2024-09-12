@@ -126,7 +126,7 @@
 )]
 
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, UpperExp},
     marker::PhantomData,
 };
 
@@ -464,6 +464,10 @@ pub struct Status<T: Scalar> {
     pub message: String,
     /// The current position of the minimization.
     pub x: DVector<T>,
+    /// The initial position of the minimization.
+    pub x0: DVector<T>,
+    /// The bounds used for the minimization.
+    pub bounds: Option<Vec<Bound<T>>>,
     /// The current value of the minimization problem function at [`Status::x`].
     pub fx: T,
     /// The number of function evaluations (approximately, this is left up to individual
@@ -530,37 +534,61 @@ impl<T: Scalar + Float + RealField> Status<T> {
 }
 impl<T> Display for Status<T>
 where
-    T: Float + Scalar + Display,
+    T: Float + Scalar + Display + UpperExp,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "MSG:       {}", self.message)?;
-        write!(f, "X:")?;
-        for i in 0..self.x.len() {
-            if i == 0 {
-                write!(f, "         {:+.3}", self.x[i])?;
+        let title = format!(
+            "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
+│{:^94}│",
+            "FIT RESULTS",
+        );
+        let status = format!(
+            "╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
+│ Status: {}                    │ fval: {:+12.3E} │ #fcn: {:>5} │ #grad: {:>5} │",
+            if self.converged {
+                "Converged      "
             } else {
-                write!(f, "           {:+.3}", self.x[i])?;
-            }
-            if let Some(e) = &self.err {
-                write!(f, " ± {:.3}", e[i])?;
-            }
-            writeln!(f)?;
+                "Invalid Minimum"
+            },
+            self.fx,
+            self.n_f_evals,
+            self.n_f_evals,
+        );
+        let message = format!(
+            "├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
+│ Message: {:<83} │",
+            self.message,
+        );
+        let header = "├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
+│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
+├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤"
+            .to_string();
+        let mut res_list: Vec<String> = vec![];
+        let errs = self
+            .err
+            .clone()
+            .unwrap_or_else(|| DVector::from_element(self.x.len(), T::nan()));
+        let bounds = self
+            .bounds
+            .clone()
+            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()]);
+        for i in 0..self.x.len() {
+            let row =
+                format!(
+                "│ {:>5} ║ {:>+12.3E} │ {:>+12.3E} ║ {:>+12.3E} │ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
+                i,
+                self.x[i],
+                errs[i],
+                self.x0[i],
+                bounds[i].lower(),
+                bounds[i].upper(),
+                if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
+            );
+            res_list.push(row);
         }
-        writeln!(f, "F(X):      {:+.3}", self.fx)?;
-        writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
-        writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
-        writeln!(f, "CONVERGED: {}", self.converged)?;
-        write!(f, "COV:       ")?;
-        match &self.cov {
-            Some(mat) => writeln!(f, "{:.3}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        write!(f, "HESS:       ")?;
-        match &self.hess {
-            Some(mat) => writeln!(f, "{:.3}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        Ok(())
+        let bottom = "└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘".to_string();
+        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
+        write!(f, "{}", out)
     }
 }
 
