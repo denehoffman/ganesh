@@ -581,6 +581,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         x0: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -595,6 +596,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
     /// Developers should also update the internal [`Status`] of the algorithm here if converged.
@@ -608,10 +610,8 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<bool, E>;
-    /// Returns the internal [`Status`] of the algorithm. This is a field that all [`Algorithm`]s
-    /// should probably contain.
-    fn get_status(&self) -> &Status<T>;
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
     ///
@@ -625,6 +625,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         Ok(())
     }
@@ -710,6 +711,7 @@ where
         } else {
             self.bounds = None
         }
+        self.status.bounds = self.bounds.clone();
         self
     }
     /// Sets the [`Bound`] of the parameter at the given index.
@@ -729,6 +731,7 @@ where
             }
             self.bounds = Some(bounds);
         }
+        self.status.bounds = self.bounds.clone();
         self
     }
     /// Minimize the given [`Function`] starting at the point `x0`.
@@ -769,31 +772,37 @@ where
                 )
             }
         }
+        self.status.x0 = DVector::from_column_slice(x0);
         self.algorithm
-            .initialize(func, x0, self.bounds.as_ref(), user_data)?;
+            .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
         let mut current_step = 0;
         while current_step <= self.max_steps
-            && !self
-                .algorithm
-                .check_for_termination(func, self.bounds.as_ref(), user_data)?
+            && !self.algorithm.check_for_termination(
+                func,
+                self.bounds.as_ref(),
+                user_data,
+                &mut self.status,
+            )?
         {
-            self.algorithm
-                .step(current_step, func, self.bounds.as_ref(), user_data)?;
+            self.algorithm.step(
+                current_step,
+                func,
+                self.bounds.as_ref(),
+                user_data,
+                &mut self.status,
+            )?;
             current_step += 1;
             if !self.observers.is_empty() {
-                let status = self.algorithm.get_status();
                 for observer in self.observers.iter_mut() {
-                    observer.callback(current_step, status, user_data);
+                    observer.callback(current_step, &self.status, user_data);
                 }
             }
         }
         self.algorithm
-            .postprocessing(func, self.bounds.as_ref(), user_data)?;
-        let mut status = self.algorithm.get_status().clone();
-        if current_step > self.max_steps && !status.converged {
-            status.update_message("MAX EVALS");
+            .postprocessing(func, self.bounds.as_ref(), user_data, &mut self.status)?;
+        if current_step > self.max_steps && !self.status.converged {
+            self.status.update_message("MAX EVALS");
         }
-        self.status = status;
         Ok(())
     }
 }
