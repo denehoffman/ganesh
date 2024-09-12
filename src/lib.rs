@@ -700,6 +700,13 @@ where
             _phantom: PhantomData,
         }
     }
+    fn reset_status(&mut self) {
+        let new_status = Status {
+            bounds: self.status.bounds.clone(),
+            ..Default::default()
+        };
+        self.status = new_status;
+    }
     /// Set the [`Algorithm`] used by the [`Minimizer`].
     pub fn with_algorithm(mut self, algorithm: A) -> Self {
         self.algorithm = algorithm;
@@ -789,6 +796,7 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
+        self.reset_status();
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
                 assert!(
