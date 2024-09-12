@@ -682,6 +682,16 @@ where
     _phantom: PhantomData<E>,
 }
 
+impl<T, U, E, A> Display for Minimizer<T, U, E, A>
+where
+    A: Algorithm<T, U, E>,
+    T: Scalar + Display + Float,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.status)
+    }
+}
+
 impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
 where
     T: Float + Scalar + Default + Display,
