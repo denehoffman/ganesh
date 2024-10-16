@@ -559,7 +559,6 @@ pub struct NelderMead<T>
 where
     T: Float + Debug + 'static,
 {
-    status: Status<T>,
     alpha: T,
     beta: T,
     gamma: T,
@@ -587,7 +586,6 @@ where
     /// [`NelderMead::default()`].
     pub fn new() -> Self {
         Self {
-            status: Status::default(),
             alpha: convert!(1, T),
             beta: convert!(2, T),
             gamma: convert!(0.5, T),
@@ -711,13 +709,12 @@ where
         x0: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
-        self.status = Status::default();
         self.simplex = self
             .construction_method
             .generate(func, x0, bounds, user_data)?;
-        self.status
-            .update_position(self.simplex.best_position(bounds));
+        status.update_position(self.simplex.best_position(bounds));
         Ok(())
     }
 
@@ -727,6 +724,7 @@ where
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         let h = self.simplex.worst();
         let s = self.simplex.second_worst();
@@ -734,16 +732,15 @@ where
         let c = &self.simplex.centroid;
         let mut xr = Point::from(c + (c - &h.x).scale(self.alpha));
         xr.evaluate(func, bounds, user_data)?;
-        self.status.inc_n_f_evals();
+        status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
             // In this general case, we just know that r is better than s, we just don't know where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            self.status
-                .update_position(self.simplex.best_position(bounds));
-            self.status.update_message("REFLECT");
+            status.update_position(self.simplex.best_position(bounds));
+            status.update_message("REFLECT");
             self.simplex.scale_volume(self.alpha);
             return Ok(());
         } else if &xr < l {
@@ -753,7 +750,7 @@ where
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xe = Point::from(c + (&xr.x - c).scale(self.beta));
             xe.evaluate(func, bounds, user_data)?;
-            self.status.inc_n_f_evals();
+            status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
                 match self.expansion_method {
@@ -767,9 +764,8 @@ where
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            self.status
-                .update_position(self.simplex.best_position(bounds));
-            self.status.update_message("EXPAND");
+            status.update_position(self.simplex.best_position(bounds));
+            status.update_message("EXPAND");
             self.simplex.scale_volume(self.alpha * self.beta);
             return Ok(());
         } else if s <= &xr {
@@ -791,20 +787,19 @@ where
                 // Try to contract outside if x_r < h
                 let mut xc = Point::from(c + (&xr.x - c).scale(self.gamma));
                 xc.evaluate(func, bounds, user_data)?;
-                self.status.inc_n_f_evals();
+                status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        self.status
-                            .update_position(self.simplex.best_position(bounds));
+                        status.update_position(self.simplex.best_position(bounds));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
                         self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
                     }
-                    self.status.update_message("CONTRACT OUT");
+                    status.update_message("CONTRACT OUT");
                     self.simplex.scale_volume(self.alpha * self.gamma);
                     return Ok(());
                 }
@@ -813,20 +808,19 @@ where
                 // Contract inside if h <= x_r
                 let mut xc = Point::from(c + (&h.x - c).scale(self.gamma));
                 xc.evaluate(func, bounds, user_data)?;
-                self.status.inc_n_f_evals();
+                status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        self.status
-                            .update_position(self.simplex.best_position(bounds));
+                        status.update_position(self.simplex.best_position(bounds));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
                         self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
                     }
-                    self.status.update_message("CONTRACT IN");
+                    status.update_message("CONTRACT IN");
                     self.simplex.scale_volume(self.gamma);
                     return Ok(());
                 }
@@ -837,7 +831,7 @@ where
         for p in self.simplex.points.iter_mut().skip(1) {
             *p = Point::from(&l_clone.x + (&p.x - &l_clone.x).scale(self.delta));
             p.evaluate(func, bounds, user_data)?;
-            self.status.inc_n_f_evals();
+            status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
         // things might have moved around a lot!
@@ -845,9 +839,8 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_centroid();
-        self.status
-            .update_position(self.simplex.best_position(bounds));
-        self.status.update_message("SHRINK");
+        status.update_position(self.simplex.best_position(bounds));
+        status.update_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(self.delta, self.simplex.dimension as i32));
         Ok(())
@@ -858,22 +851,17 @@ where
         _func: &dyn Function<T, U, E>,
         _bounds: Option<&Vec<Bound<T>>>,
         _user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<bool, E> {
-        self.terminator_x
-            .update_convergence(&self.simplex, &mut self.status);
-        if self.status.converged {
+        self.terminator_x.update_convergence(&self.simplex, status);
+        if status.converged {
             return Ok(true);
         }
-        self.terminator_f
-            .update_convergence(&self.simplex, &mut self.status);
-        if self.status.converged {
+        self.terminator_f.update_convergence(&self.simplex, status);
+        if status.converged {
             return Ok(true);
         }
         Ok(false)
-    }
-
-    fn get_status(&self) -> &Status<T> {
-        &self.status
     }
 
     fn postprocessing(
@@ -881,10 +869,11 @@ where
         func: &dyn Function<T, U, E>,
         _bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         if self.compute_parameter_errors {
-            let hessian = func.hessian(self.status.x.as_slice(), user_data)?;
-            self.status.set_hess(&hessian);
+            let hessian = func.hessian(status.x.as_slice(), user_data)?;
+            status.set_hess(&hessian);
         }
         Ok(())
     }

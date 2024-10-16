@@ -126,7 +126,7 @@
 )]
 
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, UpperExp},
     marker::PhantomData,
 };
 
@@ -222,6 +222,18 @@ where
             Self::LowerBound(_) => T::infinity(),
             Self::UpperBound(ub) => *ub,
             Self::LowerAndUpperBound(_, ub) => *ub,
+        }
+    }
+    /// Checks if the given value is equal to one of the bounds.
+    ///
+    /// TODO: his just does equality comparison right now, which probably needs to be improved
+    /// to something with an epsilon (significant but not critical to most fits right now).
+    pub fn at_bound(&self, value: T) -> bool {
+        match self {
+            Self::NoBound => false,
+            Self::LowerBound(lb) => value == *lb,
+            Self::UpperBound(ub) => value == *ub,
+            Self::LowerAndUpperBound(lb, ub) => value == *lb || value == *ub,
         }
     }
     /// Converts an unbounded "external" parameter into a bounded "internal" one via the transform:
@@ -452,6 +464,10 @@ pub struct Status<T: Scalar> {
     pub message: String,
     /// The current position of the minimization.
     pub x: DVector<T>,
+    /// The initial position of the minimization.
+    pub x0: DVector<T>,
+    /// The bounds used for the minimization.
+    pub bounds: Option<Vec<Bound<T>>>,
     /// The current value of the minimization problem function at [`Status::x`].
     pub fx: T,
     /// The number of function evaluations (approximately, this is left up to individual
@@ -518,37 +534,61 @@ impl<T: Scalar + Float + RealField> Status<T> {
 }
 impl<T> Display for Status<T>
 where
-    T: Float + Scalar + Display,
+    T: Float + Scalar + Display + UpperExp,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "MSG:       {}", self.message)?;
-        write!(f, "X:")?;
-        for i in 0..self.x.len() {
-            if i == 0 {
-                write!(f, "         {:+.3}", self.x[i])?;
+        let title = format!(
+            "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
+│{:^94}│",
+            "FIT RESULTS",
+        );
+        let status = format!(
+            "╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
+│ Status: {}                    │ fval: {:+12.3E} │ #fcn: {:>5} │ #grad: {:>5} │",
+            if self.converged {
+                "Converged      "
             } else {
-                write!(f, "           {:+.3}", self.x[i])?;
-            }
-            if let Some(e) = &self.err {
-                write!(f, " ± {:.3}", e[i])?;
-            }
-            writeln!(f)?;
+                "Invalid Minimum"
+            },
+            self.fx,
+            self.n_f_evals,
+            self.n_f_evals,
+        );
+        let message = format!(
+            "├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
+│ Message: {:<83} │",
+            self.message,
+        );
+        let header = "├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
+│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
+├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤"
+            .to_string();
+        let mut res_list: Vec<String> = vec![];
+        let errs = self
+            .err
+            .clone()
+            .unwrap_or_else(|| DVector::from_element(self.x.len(), T::nan()));
+        let bounds = self
+            .bounds
+            .clone()
+            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()]);
+        for i in 0..self.x.len() {
+            let row =
+                format!(
+                "│ {:>5} ║ {:>+12.3E} │ {:>+12.3E} ║ {:>+12.3E} │ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
+                i,
+                self.x[i],
+                errs[i],
+                self.x0[i],
+                bounds[i].lower(),
+                bounds[i].upper(),
+                if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
+            );
+            res_list.push(row);
         }
-        writeln!(f, "F(X):      {:+.3}", self.fx)?;
-        writeln!(f, "N_F_EVALS: {}", self.n_f_evals)?;
-        writeln!(f, "N_G_EVALS: {}", self.n_g_evals)?;
-        writeln!(f, "CONVERGED: {}", self.converged)?;
-        write!(f, "COV:       ")?;
-        match &self.cov {
-            Some(mat) => writeln!(f, "{:.3}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        write!(f, "HESS:       ")?;
-        match &self.hess {
-            Some(mat) => writeln!(f, "{:.3}", mat),
-            None => writeln!(f, "NOT COMPUTED"),
-        }?;
-        Ok(())
+        let bottom = "└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘".to_string();
+        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
+        write!(f, "{}", out)
     }
 }
 
@@ -569,6 +609,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         x0: &[T],
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -583,6 +624,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
     /// Developers should also update the internal [`Status`] of the algorithm here if converged.
@@ -596,10 +638,8 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<bool, E>;
-    /// Returns the internal [`Status`] of the algorithm. This is a field that all [`Algorithm`]s
-    /// should probably contain.
-    fn get_status(&self) -> &Status<T>;
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
     ///
@@ -613,6 +653,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         func: &dyn Function<T, U, E>,
         bounds: Option<&Vec<Bound<T>>>,
         user_data: &mut U,
+        status: &mut Status<T>,
     ) -> Result<(), E> {
         Ok(())
     }
@@ -641,6 +682,16 @@ where
     _phantom: PhantomData<E>,
 }
 
+impl<T, U, E, A> Display for Minimizer<T, U, E, A>
+where
+    A: Algorithm<T, U, E>,
+    T: Scalar + Display + Float + UpperExp,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.status)
+    }
+}
+
 impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
 where
     T: Float + Scalar + Default + Display,
@@ -658,6 +709,13 @@ where
             dimension,
             _phantom: PhantomData,
         }
+    }
+    fn reset_status(&mut self) {
+        let new_status = Status {
+            bounds: self.status.bounds.clone(),
+            ..Default::default()
+        };
+        self.status = new_status;
     }
     /// Set the [`Algorithm`] used by the [`Minimizer`].
     pub fn with_algorithm(mut self, algorithm: A) -> Self {
@@ -698,6 +756,7 @@ where
         } else {
             self.bounds = None
         }
+        self.status.bounds = self.bounds.clone();
         self
     }
     /// Sets the [`Bound`] of the parameter at the given index.
@@ -717,6 +776,7 @@ where
             }
             self.bounds = Some(bounds);
         }
+        self.status.bounds = self.bounds.clone();
         self
     }
     /// Minimize the given [`Function`] starting at the point `x0`.
@@ -746,6 +806,7 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
+        self.reset_status();
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
                 assert!(
@@ -757,31 +818,37 @@ where
                 )
             }
         }
+        self.status.x0 = DVector::from_column_slice(x0);
         self.algorithm
-            .initialize(func, x0, self.bounds.as_ref(), user_data)?;
+            .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
         let mut current_step = 0;
         while current_step <= self.max_steps
-            && !self
-                .algorithm
-                .check_for_termination(func, self.bounds.as_ref(), user_data)?
+            && !self.algorithm.check_for_termination(
+                func,
+                self.bounds.as_ref(),
+                user_data,
+                &mut self.status,
+            )?
         {
-            self.algorithm
-                .step(current_step, func, self.bounds.as_ref(), user_data)?;
+            self.algorithm.step(
+                current_step,
+                func,
+                self.bounds.as_ref(),
+                user_data,
+                &mut self.status,
+            )?;
             current_step += 1;
             if !self.observers.is_empty() {
-                let status = self.algorithm.get_status();
                 for observer in self.observers.iter_mut() {
-                    observer.callback(current_step, status, user_data);
+                    observer.callback(current_step, &self.status, user_data);
                 }
             }
         }
         self.algorithm
-            .postprocessing(func, self.bounds.as_ref(), user_data)?;
-        let mut status = self.algorithm.get_status().clone();
-        if current_step > self.max_steps && !status.converged {
-            status.update_message("MAX EVALS");
+            .postprocessing(func, self.bounds.as_ref(), user_data, &mut self.status)?;
+        if current_step > self.max_steps && !self.status.converged {
+            self.status.update_message("MAX EVALS");
         }
-        self.status = status;
         Ok(())
     }
 }

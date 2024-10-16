@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/denehoffman/ganesh/compare/v0.10.0...v0.11.0) - 2024-09-12
+
+### Added
+
+- add `Display` to `Minimizer`
+- add initial value and bounds to `Status` and improve `Display` output
+- add (sketchy) function to check if a parameter is at its bounds
+
+### Fixed
+
+- add `UpperExp` trait bound to `Minimizer` `Display`
+- make sure `Status` is reset on a new run of the same minimizer
+
+### Other
+
+- move all `Status` structs out of `Algorithm`s and into `Minimizer` and `Algorithm` method signatures
+
+## [0.10.0](https://github.com/denehoffman/ganesh/compare/v0.9.1...v0.10.0) - 2024-09-10
+
+### Added
+
+- move Hessian inversion to `Status` and add `hess` field
+
+### Fixed
+
+- use cargo-llvm-cov (messed up git history on previous attempt)
+- use correct internal/external bounded/regular calls in all algorithms
+- change finite difference delta
+
+### Other
+
+- Merge pull request [#31](https://github.com/denehoffman/ganesh/pull/31) from denehoffman/hotfixes
+- change implementation of Hessian to use gradients
+- fix link
+
 ## [0.9.1](https://github.com/denehoffman/ganesh/compare/v0.9.0...v0.9.1) - 2024-09-09
 
 ### Fixed
