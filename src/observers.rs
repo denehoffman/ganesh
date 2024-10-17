@@ -25,7 +25,8 @@ use crate::{Observer, Status};
 /// ```
 pub struct DebugObserver;
 impl<T: Scalar, U: Debug> Observer<T, U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &Status<T>, user_data: &mut U) {
-        println!("{step}, {:?}, {:?}", status, user_data)
+    fn callback(&mut self, step: usize, status: &mut Status<T>, user_data: &mut U) -> bool {
+        println!("{step}, {:?}, {:?}", status, user_data);
+        true
     }
 }

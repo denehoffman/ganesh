@@ -662,8 +662,9 @@ pub trait Algorithm<T: Scalar, U, E> {
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`]'s [`Status`] during a minimization.
 pub trait Observer<T: Scalar, U> {
-    /// A function that is called at every step of a minimization [`Algorithm`].
-    fn callback(&mut self, step: usize, status: &Status<T>, user_data: &mut U);
+    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
+    /// `false`, the [`Minimizer::minimize`] method will terminate.
+    fn callback(&mut self, step: usize, status: &mut Status<T>, user_data: &mut U) -> bool;
 }
 
 /// The main struct used for running [`Algorithm`]s on [`Function`]s.
@@ -822,7 +823,9 @@ where
         self.algorithm
             .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
         let mut current_step = 0;
+        let mut observer_termination = false;
         while current_step <= self.max_steps
+            && !observer_termination
             && !self.algorithm.check_for_termination(
                 func,
                 self.bounds.as_ref(),
@@ -840,7 +843,9 @@ where
             current_step += 1;
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
-                    observer.callback(current_step, &self.status, user_data);
+                    observer_termination =
+                        !observer.callback(current_step, &mut self.status, user_data)
+                            || observer_termination;
                 }
             }
         }
