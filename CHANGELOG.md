@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1](https://github.com/denehoffman/ganesh/compare/v0.11.0...v0.11.1) - 2024-10-17
+
+### Other
+
+- relocate html docs header
+- fix link in README
+- Merge branch 'main' of https://github.com/denehoffman/ganesh
+- correct default in docstring
+- add comma
+
 ## [0.11.0](https://github.com/denehoffman/ganesh/compare/v0.10.0...v0.11.0) - 2024-09-12
 
 ### Added
