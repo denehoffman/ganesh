@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/denehoffman/ganesh/compare/v0.11.1...v0.11.2) - 2024-10-17
+
+### Added
+
+- allow `Observer`s to modify fit `Status` and terminate minimization
+
 ## [0.11.1](https://github.com/denehoffman/ganesh/compare/v0.11.0...v0.11.1) - 2024-10-17
 
 ### Other
