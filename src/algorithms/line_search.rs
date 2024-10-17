@@ -128,12 +128,12 @@ impl<T> StrongWolfeLineSearch<T>
 where
     T: Float,
 {
-    /// Set the maximum allowed iterations of the algorithm (defaults to 10).
+    /// Set the maximum allowed iterations of the algorithm (defaults to 100).
     pub const fn with_max_iterations(mut self, max_iters: usize) -> Self {
         self.max_iters = max_iters;
         self
     }
-    /// Set the maximum allowed iterations of the internal zoom algorithm (defaults to 10).
+    /// Set the maximum allowed iterations of the internal zoom algorithm (defaults to 100).
     pub const fn with_max_zoom(mut self, max_zoom: usize) -> Self {
         self.max_zoom = max_zoom;
         self
