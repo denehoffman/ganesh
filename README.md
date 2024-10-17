@@ -14,7 +14,7 @@
     <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/denehoffman/ganesh?style=for-the-badge&logo=github"></a>
   <a href="https://github.com/denehoffman/ganesh/actions" alt="Build Status">
     <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/denehoffman/ganesh/rust.yml?style=for-the-badge&logo=github"></a>
-  <a href="LICENSE" alt="License">
+  <a href="LICENSE-APACHE" alt="License">
     <img alt="GitHub License" src="https://img.shields.io/github/license/denehoffman/ganesh?style=for-the-badge"></a>
   <a href="https://crates.io/crates/ganesh" alt="Ganesh on crates.io">
     <img alt="Crates.io Version" src="https://img.shields.io/crates/v/ganesh?style=for-the-badge&logo=rust&logoColor=red&color=red"></a>
