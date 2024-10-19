@@ -17,6 +17,8 @@
 //! * Generics to allow for different numeric types to be used in the provided algorithms.
 //! * Algorithms that are simple to use with sensible defaults.
 //! * Traits which make developing future algorithms simple and consistent.
+//! * Pressing `Ctrl-C` during a fit will still output a [`Status`], but the fit message will
+//!   indicate that the fit was ended by the user.
 //!
 //! # Quick Start
 //!
@@ -128,8 +130,13 @@
 use std::{
     fmt::{Debug, Display, UpperExp},
     marker::PhantomData,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Once,
+    },
 };
 
+use lazy_static::lazy_static;
 use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::{traits::NumAssign, Float};
 
@@ -144,6 +151,28 @@ pub mod test_functions;
 /// purposes
 pub mod prelude {
     pub use crate::{Algorithm, Bound, Function, Minimizer, Observer, Status};
+}
+
+lazy_static! {
+    pub(crate) static ref CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
+}
+
+static INIT: Once = Once::new();
+
+pub(crate) fn init_ctrl_c_handler() {
+    INIT.call_once(|| {
+        #[allow(clippy::expect_used)]
+        ctrlc::set_handler(move || CTRL_C_PRESSED.store(true, Ordering::SeqCst))
+            .expect("Error setting Ctrl-C handler");
+    });
+}
+
+pub(crate) fn reset_ctrl_c_handler() {
+    CTRL_C_PRESSED.store(false, Ordering::SeqCst)
+}
+
+pub(crate) fn is_ctrl_c_pressed() -> bool {
+    CTRL_C_PRESSED.load(Ordering::SeqCst)
 }
 
 #[macro_export]
@@ -807,6 +836,8 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
+        init_ctrl_c_handler();
+        reset_ctrl_c_handler();
         self.reset_status();
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
@@ -832,6 +863,7 @@ where
                 user_data,
                 &mut self.status,
             )?
+            && !is_ctrl_c_pressed()
         {
             self.algorithm.step(
                 current_step,
@@ -853,6 +885,9 @@ where
             .postprocessing(func, self.bounds.as_ref(), user_data, &mut self.status)?;
         if current_step > self.max_steps && !self.status.converged {
             self.status.update_message("MAX EVALS");
+        }
+        if is_ctrl_c_pressed() {
+            self.status.update_message("Ctrl-C Pressed");
         }
         Ok(())
     }
