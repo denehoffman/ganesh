@@ -40,6 +40,8 @@
 * Generics to allow for different numeric types to be used in the provided algorithms.
 * Algorithms that are simple to use with sensible defaults.
 * Traits which make developing future algorithms simple and consistent.
+* Pressing `Ctrl-C` during a fit will still output a [`Status`], but the fit message will
+  indicate that the fit was ended by the user.
 
 # Quick Start
 
