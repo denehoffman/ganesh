@@ -104,7 +104,7 @@ where
 }
 
 /// Gives a method for constructing a simplex.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SimplexConstructionMethod<T> {
     /// Creates a simplex by starting at the given `x0` and stepping a distance of `+simplex_size`
     /// in every orthogonal direction.
@@ -188,7 +188,7 @@ where
 
 /// A [`Simplex`] represents a list of [`Point`]s. This particular implementation is intended to be
 /// sorted.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Simplex<T>
 where
     T: Debug + Float + 'static,
@@ -311,7 +311,7 @@ where
 /// Selects the expansion method used in the Nelder-Mead algorithm. See Lagarias et al.[^1] for more details.
 ///
 /// [^1]: [J. C. Lagarias, J. A. Reeds, M. H. Wright, and P. E. Wright, ‘Convergence Properties of the Nelder--Mead Simplex Method in Low Dimensions’, SIAM Journal on Optimization, vol. 9, no. 1, pp. 112–147, 1998.](https://doi.org/10.1137/S1052623496303470)
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub enum SimplexExpansionMethod {
     /// Greedy minimization will calculate both a reflected an expanded point in an expansion step
     /// but will return the one that gives the best minimum.
@@ -326,7 +326,7 @@ pub enum SimplexExpansionMethod {
 /// simplex. See Singer et al.[^1] for more details.
 ///
 /// [^1]: [S. Singer and S. Singer, ‘Efficient Implementation of the Nelder–Mead Search Algorithm’, Applied Numerical Analysis & Computational Mathematics, vol. 1, no. 2, pp. 524–534, 2004.](https://doi.org/10.1002/anac.200410015)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NelderMeadFTerminator<T> {
     /// For the worst point $`x_h`$ and best point $`x_l`$, converge if the following is true:
     /// ```math
@@ -401,7 +401,7 @@ where
 /// See Singer et al.[^1] for more details.
 ///
 /// [^1]: [S. Singer and S. Singer, ‘Efficient Implementation of the Nelder–Mead Search Algorithm’, Applied Numerical Analysis & Computational Mathematics, vol. 1, no. 2, pp. 524–534, 2004.](https://doi.org/10.1002/anac.200410015)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NelderMeadXTerminator<T> {
     /// For the best point in the simplex $`x_l`$, converge if the following condition is met:
     /// ```math
@@ -554,7 +554,7 @@ where
 ///    go to **Step 9**.
 /// 9. **Shrink**: Replace all the points except the best, $`\vec{x}^*`$, with $`\vec{x}_i =
 ///    \vec{x}^* + \sigma (\vec{x}_i - \vec{x}^*)`$ and go to **Step 1**.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NelderMead<T>
 where
     T: Float + Debug + 'static,
@@ -892,7 +892,7 @@ mod tests {
     #[test]
     fn test_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default();
-        let mut m = Minimizer::new(algo, 2);
+        let mut m = Minimizer::new(&algo, 2);
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
@@ -918,7 +918,7 @@ mod tests {
     #[test]
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default().with_adaptive(2);
-        let mut m = Minimizer::new(algo, 2);
+        let mut m = Minimizer::new(&algo, 2);
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);

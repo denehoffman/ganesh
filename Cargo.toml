@@ -17,6 +17,7 @@ nalgebra = "0.33.0"
 num = "0.4.3"
 ctrlc = "3.4.5"
 lazy_static = "1.5.0"
+dyn-clone = "1.0.17"
 
 [dev-dependencies]
 criterion = "0.5.1"

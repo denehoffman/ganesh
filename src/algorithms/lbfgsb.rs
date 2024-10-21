@@ -11,6 +11,7 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
+#[derive(Clone)]
 pub struct LBFGSBFTerminator<T> {
     /// Absolute tolerance $`\varepsilon`$.
     pub tol_f_abs: T,
@@ -31,6 +32,7 @@ where
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
+#[derive(Clone)]
 pub struct LBFGSBGTerminator<T> {
     /// Absolute tolerance $`\varepsilon`$.
     pub tol_g_abs: T,
@@ -48,7 +50,7 @@ where
 }
 
 /// Error modes for [`LBFGSB`] [`Algorithm`].
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum LBFGSBErrorMode {
     /// Computes the exact Hessian matrix via finite differences.
     #[default]
@@ -63,6 +65,7 @@ pub enum LBFGSBErrorMode {
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Clone)]
 pub struct LBFGSB<T: Scalar, U, E> {
     x: DVector<T>,
     g: DVector<T>,
@@ -367,6 +370,8 @@ where
 impl<T, U, E> Algorithm<T, U, E> for LBFGSB<T, U, E>
 where
     T: RealField + Float + TotalOrder + Default,
+    U: Clone,
+    E: Clone,
 {
     fn initialize(
         &mut self,
@@ -509,7 +514,7 @@ mod tests {
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
-        let mut m = Minimizer::new(algo, 2);
+        let mut m = Minimizer::new(&algo, 2);
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);

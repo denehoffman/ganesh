@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use dyn_clone::DynClone;
 use nalgebra::{DVector, RealField, Scalar};
 use num::{Float, FromPrimitive};
 
@@ -9,7 +10,7 @@ use crate::{convert, Bound, Function, Status};
 ///
 /// Line searches are one-dimensional minimizers typically used to determine optimal step sizes for
 /// [`Algorithm`](`crate::Algorithm`)s which only provide a direction for the next optimal step.
-pub trait LineSearch<T, U, E>
+pub trait LineSearch<T, U, E>: DynClone
 where
     T: Scalar,
 {
@@ -35,11 +36,13 @@ where
         status: &mut Status<T>,
     ) -> Result<(bool, T, T, DVector<T>), E>;
 }
+dyn_clone::clone_trait_object!(<T, U, E> LineSearch<T, U, E> where T: Scalar);
 
 /// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
 /// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
+#[derive(Clone)]
 pub struct BacktrackingLineSearch<T> {
     rho: T,
     c: T,
@@ -101,6 +104,7 @@ where
 /// Optimization"[^1] (pages 60-61). This algorithm upholds the strong Wolfe conditions.
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
+#[derive(Clone)]
 pub struct StrongWolfeLineSearch<T> {
     max_iters: usize,
     max_zoom: usize,

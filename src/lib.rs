@@ -58,7 +58,7 @@
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
-//!     let mut m = Minimizer::new(nm, 2);
+//!     let mut m = Minimizer::new(&nm, 2);
 //!     let x0 = &[2.0, 2.0];
 //!     m.minimize(&problem, x0, &mut ())?;
 //!     println!("{}", m.status);
@@ -68,18 +68,18 @@
 //!
 //! This should output
 //! ```shell
-//! MSG:       term_f = STDDEV
-//! X:         +1.000 ± 0.707
-//!            +1.000 ± 1.416
-//! F(X):      +0.000
-//! N_F_EVALS: 159
-//! N_G_EVALS: 0
-//! CONVERGED: true
-//! COV:       
-//!   ┌             ┐
-//!   │ 0.500 1.000 │
-//!   │ 1.000 2.005 │
-//!   └             ┘
+//!╒══════════════════════════════════════════════════════════════════════════════════════════════╕
+//!│                                         FIT RESULTS                                          │
+//!╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
+//!│ Status: Converged                          │ fval:   +4.219E-16 │ #fcn:   159 │ #grad:   159 │
+//!├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
+//!│ Message: term_f = STDDEV                                                                     │
+//!├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
+//!│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
+//!├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤
+//!│     0 ║     +1.000E0 │    +7.071E-1 ║     +2.000E0 │         -inf │         +inf │           │
+//!│     1 ║     +1.000E0 │     +1.416E0 ║     +2.000E0 │         -inf │         +inf │           │
+//!└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘
 //! ```
 //!
 //! # Bounds
@@ -136,6 +136,7 @@ use std::{
     },
 };
 
+use dyn_clone::DynClone;
 use lazy_static::lazy_static;
 use nalgebra::{DMatrix, DVector, RealField, Scalar};
 use num::{traits::NumAssign, Float};
@@ -625,7 +626,7 @@ where
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`] module, and contains
 /// all the methods needed to be run by a [`Minimizer`].
-pub trait Algorithm<T: Scalar, U, E> {
+pub trait Algorithm<T: Scalar, U, E>: DynClone {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -687,6 +688,7 @@ pub trait Algorithm<T: Scalar, U, E> {
         Ok(())
     }
 }
+dyn_clone::clone_trait_object!(<T, U, E> Algorithm<T, U, E> where T: Scalar);
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`]'s [`Status`] during a minimization.
@@ -729,10 +731,10 @@ where
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new(algorithm: A, dimension: usize) -> Self {
+    pub fn new(algorithm: &A, dimension: usize) -> Self {
         Self {
             status: Status::default(),
-            algorithm,
+            algorithm: dyn_clone::clone(algorithm),
             bounds: None,
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
@@ -748,8 +750,8 @@ where
         self.status = new_status;
     }
     /// Set the [`Algorithm`] used by the [`Minimizer`].
-    pub fn with_algorithm(mut self, algorithm: A) -> Self {
-        self.algorithm = algorithm;
+    pub fn with_algorithm(mut self, algorithm: &A) -> Self {
+        self.algorithm = dyn_clone::clone(algorithm);
         self
     }
     /// Set the maximum number of steps to perform before failure (default: 4000).
