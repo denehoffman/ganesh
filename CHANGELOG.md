@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/denehoffman/ganesh/compare/v0.11.3...v0.12.0) - 2024-10-21
+
+### Added
+
+- use `dyn-clone` to pass `Algorithm`s to `Minimizer`s by reference
+
+### Other
+
+- add criterion benchmark comparison for PRs
+- update documentation to reflect the output of pretty-printing a `Status`
+
 ## [0.11.3](https://github.com/denehoffman/ganesh/compare/v0.11.2...v0.11.3) - 2024-10-19
 
 ### Added

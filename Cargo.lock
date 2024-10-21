@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "ganesh"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "criterion",
  "ctrlc",
