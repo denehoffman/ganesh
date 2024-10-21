@@ -901,3 +901,19 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use crate::{algorithms::LBFGSB, Algorithm, Minimizer};
+
+    #[test]
+    #[allow(unused_variables)]
+    fn test_minimizer_constructors() {
+        let algo: LBFGSB<f64, (), Infallible> = LBFGSB::default();
+        let minimizer = Minimizer::new(&algo, 5);
+        let algo_boxed: Box<dyn Algorithm<f64, (), Infallible>> = Box::new(algo);
+        let minimizer_from_box = Minimizer::new_from_box(algo_boxed, 5);
+    }
+}
