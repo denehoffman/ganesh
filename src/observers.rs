@@ -18,7 +18,7 @@ use crate::{Observer, Status};
 /// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver;
-/// let mut m = Minimizer::new(nm, 2).with_observer(obs);
+/// let mut m = Minimizer::new(&nm, 2).with_observer(obs);
 /// m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
