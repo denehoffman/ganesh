@@ -129,7 +129,6 @@
 
 use std::{
     fmt::{Debug, Display, UpperExp},
-    marker::PhantomData,
     sync::{
         atomic::{AtomicBool, Ordering},
         Once,
@@ -699,24 +698,21 @@ pub trait Observer<T: Scalar, U> {
 }
 
 /// The main struct used for running [`Algorithm`]s on [`Function`]s.
-pub struct Minimizer<T, U, E, A>
+pub struct Minimizer<T, U, E>
 where
-    A: Algorithm<T, U, E>,
     T: Scalar,
 {
     /// The [`Status`] of the [`Minimizer`], usually read after minimization.
     pub status: Status<T>,
-    algorithm: A,
+    algorithm: Box<dyn Algorithm<T, U, E>>,
     bounds: Option<Vec<Bound<T>>>,
     max_steps: usize,
     observers: Vec<Box<dyn Observer<T, U>>>,
     dimension: usize,
-    _phantom: PhantomData<E>,
 }
 
-impl<T, U, E, A> Display for Minimizer<T, U, E, A>
+impl<T, U, E> Display for Minimizer<T, U, E>
 where
-    A: Algorithm<T, U, E>,
     T: Scalar + Display + Float + UpperExp,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -724,23 +720,33 @@ where
     }
 }
 
-impl<T, U, E, A> Minimizer<T, U, E, A>
+impl<T, U, E> Minimizer<T, U, E>
 where
     T: Float + Scalar + Default + Display,
-    A: Algorithm<T, U, E> + Clone,
 {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new(algorithm: &A, dimension: usize) -> Self {
+    pub fn new<A: Algorithm<T, U, E> + 'static>(algorithm: &A, dimension: usize) -> Self {
         Self {
             status: Status::default(),
-            algorithm: algorithm.clone(),
+            algorithm: Box::new(dyn_clone::clone(algorithm)),
             bounds: None,
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
             dimension,
-            _phantom: PhantomData,
+        }
+    }
+    /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
+    /// of free parameters in the minimization problem.
+    pub fn new_from_box(algorithm: Box<dyn Algorithm<T, U, E>>, dimension: usize) -> Self {
+        Self {
+            status: Status::default(),
+            algorithm,
+            bounds: None,
+            max_steps: Self::DEFAULT_MAX_STEPS,
+            observers: Vec::default(),
+            dimension,
         }
     }
     fn reset_status(&mut self) {
@@ -751,8 +757,8 @@ where
         self.status = new_status;
     }
     /// Set the [`Algorithm`] used by the [`Minimizer`].
-    pub fn with_algorithm(mut self, algorithm: &A) -> Self {
-        self.algorithm = dyn_clone::clone(algorithm);
+    pub fn with_algorithm<A: Algorithm<T, U, E> + 'static>(mut self, algorithm: &A) -> Self {
+        self.algorithm = Box::new(dyn_clone::clone(algorithm));
         self
     }
     /// Set the maximum number of steps to perform before failure (default: 4000).
