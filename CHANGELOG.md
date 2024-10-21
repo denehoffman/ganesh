@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1](https://github.com/denehoffman/ganesh/compare/v0.12.0...v0.12.1) - 2024-10-21
+
+### Fixed
+
+- store `Algorithm` in a `Box` in `Minimizer` and add `new_from_box` constructor
+- add  trait bound to  constructor
+
+### Other
+
+- add test for  constructors
+
 ## [0.12.0](https://github.com/denehoffman/ganesh/compare/v0.11.3...v0.12.0) - 2024-10-21
 
 ### Added
