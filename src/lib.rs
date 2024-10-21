@@ -724,9 +724,10 @@ where
     }
 }
 
-impl<T, U, E, A: Algorithm<T, U, E>> Minimizer<T, U, E, A>
+impl<T, U, E, A> Minimizer<T, U, E, A>
 where
     T: Float + Scalar + Default + Display,
+    A: Algorithm<T, U, E> + Clone,
 {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
@@ -734,7 +735,7 @@ where
     pub fn new(algorithm: &A, dimension: usize) -> Self {
         Self {
             status: Status::default(),
-            algorithm: dyn_clone::clone(algorithm),
+            algorithm: algorithm.clone(),
             bounds: None,
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
