@@ -121,7 +121,7 @@ where
             h_inv: Default::default(),
             f_previous: T::infinity(),
             terminator_f: BFGSFTerminator {
-                tol_f_abs: T::epsilon(),
+                tol_f_abs: Float::sqrt(T::epsilon()),
             },
             terminator_g: BFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
@@ -248,7 +248,7 @@ where
 mod tests {
     use std::convert::Infallible;
 
-    use float_cmp::approx_eq;
+    use float_cmp::assert_approx_eq;
 
     use crate::{prelude::*, test_functions::Rosenbrock};
 
@@ -261,22 +261,22 @@ mod tests {
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
         m.minimize(&problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
         m.minimize(&problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
         m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
         m.minimize(&problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
         m.minimize(&problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
         Ok(())
     }
 }
