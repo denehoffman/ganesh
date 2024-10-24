@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2](https://github.com/denehoffman/ganesh/compare/v0.12.1...v0.12.2) - 2024-10-24
+
+### Fixed
+
+- change default tolerances to be a bit more realistic
+
 ## [0.12.1](https://github.com/denehoffman/ganesh/compare/v0.12.0...v0.12.1) - 2024-10-21
 
 ### Fixed
