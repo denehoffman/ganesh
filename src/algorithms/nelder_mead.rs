@@ -594,10 +594,10 @@ where
             construction_method: SimplexConstructionMethod::default(),
             expansion_method: SimplexExpansionMethod::default(),
             terminator_f: NelderMeadFTerminator::StdDev {
-                tol_f_abs: T::epsilon(),
+                tol_f_abs: T::epsilon().powf(convert!(0.25, T)),
             },
             terminator_x: NelderMeadXTerminator::Singer {
-                tol_x_rel: T::epsilon(),
+                tol_x_rel: T::epsilon().powf(convert!(0.25, T)),
             },
             compute_parameter_errors: true,
         }
@@ -883,7 +883,7 @@ where
 mod tests {
     use std::convert::Infallible;
 
-    use float_cmp::approx_eq;
+    use float_cmp::assert_approx_eq;
 
     use crate::{prelude::*, test_functions::Rosenbrock};
 
@@ -896,22 +896,22 @@ mod tests {
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-3);
         m.minimize(&problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
         Ok(())
     }
 
@@ -922,22 +922,22 @@ mod tests {
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-3);
         m.minimize(&problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-4);
         m.minimize(&problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
-        assert!(approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10));
+        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
         Ok(())
     }
 }
