@@ -13,14 +13,15 @@ categories = ["science", "mathematics"]
 
 
 [dependencies]
-nalgebra = "0.33.0"
+nalgebra = { version = "0.33.0", features = ["serde-serialize"] }
 num = "0.4.3"
 ctrlc = "3.4.5"
 lazy_static = "1.5.0"
 dyn-clone = "1.0.17"
+serde = { version = "1.0.214", features = ["derive"] }
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = { version = "2.7.2", package = "codspeed-criterion-compat", features = ["html_reports"] }
 float-cmp = "0.10.0"
 
 [[bench]]
