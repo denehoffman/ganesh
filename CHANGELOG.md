@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/denehoffman/ganesh/compare/v0.12.2...v0.13.0) - 2024-11-05
+
+### Added
+
+- add optional parameter names field to `Status`
+- add `serde` serialization and deserialization to `Status`
+
+### Other
+
+- switch to codspeed for benchmarks
+
 ## [0.12.2](https://github.com/denehoffman/ganesh/compare/v0.12.1...v0.12.2) - 2024-10-24
 
 ### Fixed
