@@ -514,6 +514,8 @@ pub struct Status<T: Scalar> {
     pub cov: Option<DMatrix<T>>,
     /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
     pub err: Option<DVector<T>>,
+    /// Optional parameter names
+    pub parameters: Option<Vec<String>>,
 }
 impl<T: Scalar> Status<T> {
     /// Updates the [`Status::message`] field.
@@ -536,6 +538,10 @@ impl<T: Scalar> Status<T> {
     /// Increments [`Status::n_g_evals`] by `1`.
     pub fn inc_n_g_evals(&mut self) {
         self.n_g_evals += 1;
+    }
+    /// Sets parameter names.
+    pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
+        self.parameters = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
 }
 impl<T: Scalar + Float + RealField> Status<T> {
