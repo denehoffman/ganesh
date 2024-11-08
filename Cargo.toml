@@ -22,7 +22,9 @@ dyn-clone = "1.0.17"
 serde = { version = "1.0.214", features = ["derive"] }
 
 [dev-dependencies]
-criterion = { version = "2.7.2", package = "codspeed-criterion-compat", features = ["html_reports"] }
+criterion = { version = "2.7.2", package = "codspeed-criterion-compat", features = [
+  "html_reports",
+] }
 float-cmp = "0.10.0"
 
 [[bench]]
