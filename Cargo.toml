@@ -10,6 +10,7 @@ repository = "https://github.com/denehoffman/ganesh"
 license = "MIT OR Apache-2.0"
 keywords = ["optimization", "minimization"]
 categories = ["science", "mathematics"]
+rust-version = "1.69.0"
 
 
 [dependencies]

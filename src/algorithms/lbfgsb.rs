@@ -231,7 +231,7 @@ where
                 };
                 (ti, di)
             })
-            .collect();
+            .unzip();
         let mut x_cp = self.x.clone();
         let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > T::zero()).collect();
         free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
