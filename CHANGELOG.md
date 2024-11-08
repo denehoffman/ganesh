@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1](https://github.com/denehoffman/ganesh/compare/v0.13.0...v0.13.1) - 2024-11-08
+
+### Added
+
+- use unzip to support 1.69.0 as MSRV
+
+### Fixed
+
+- clippy lints
+
+### Other
+
+- add codspeed link to readme
+- change indents
+
 ## [0.13.0](https://github.com/denehoffman/ganesh/compare/v0.12.2...v0.13.0) - 2024-11-05
 
 ### Added
