@@ -517,6 +517,7 @@ pub struct Status<T: Scalar> {
     /// Optional parameter names
     pub parameters: Option<Vec<String>>,
 }
+
 impl<T: Scalar> Status<T> {
     /// Updates the [`Status::message`] field.
     pub fn update_message(&mut self, message: &str) {
@@ -802,7 +803,7 @@ where
         } else {
             self.bounds = None
         }
-        self.status.bounds = self.bounds.clone();
+        self.status.bounds.clone_from(&self.bounds);
         self
     }
     /// Sets the [`Bound`] of the parameter at the given index.
@@ -822,7 +823,7 @@ where
             }
             self.bounds = Some(bounds);
         }
-        self.status.bounds = self.bounds.clone();
+        self.status.bounds.clone_from(&self.bounds);
         self
     }
     /// Minimize the given [`Function`] starting at the point `x0`.

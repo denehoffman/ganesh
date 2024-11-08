@@ -132,7 +132,7 @@ where
             terminator_g: LBFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
-            line_search: Box::new(StrongWolfeLineSearch::default()),
+            line_search: Box::<StrongWolfeLineSearch<T>>::default(),
             m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),

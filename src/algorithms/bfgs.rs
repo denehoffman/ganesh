@@ -126,7 +126,7 @@ where
             terminator_g: BFGSGTerminator {
                 tol_g_abs: Float::cbrt(T::epsilon()),
             },
-            line_search: Box::new(StrongWolfeLineSearch::default()),
+            line_search: Box::<StrongWolfeLineSearch<T>>::default(),
             max_step: convert!(1e8, T),
             error_mode: Default::default(),
         }
