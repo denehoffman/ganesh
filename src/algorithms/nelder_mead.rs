@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Debug, iter::Sum};
+use std::{fmt::Debug, iter::Sum};
 
 use nalgebra::{DMatrix, DVector};
 use num::{
@@ -6,102 +6,7 @@ use num::{
     Float, FromPrimitive, NumCast,
 };
 
-use crate::{convert, Algorithm, Bound, Function, Status};
-
-/// Describes a point in a [`Simplex`].
-#[derive(Eq, PartialEq, Clone, Default, Debug)]
-pub struct Point<T>
-where
-    T: Clone + Debug + Float + 'static,
-{
-    x: DVector<T>,
-    fx: T,
-}
-impl<T> Point<T>
-where
-    T: Clone + Debug + Float,
-{
-    fn len(&self) -> usize {
-        self.x.len()
-    }
-    fn into_vec_val(self) -> (Vec<T>, T) {
-        (self.x.data.into(), self.fx)
-    }
-}
-impl<T> Point<T>
-where
-    T: Float + FromPrimitive + Debug + NumAssign + TotalOrder,
-{
-    fn evaluate<U, E>(
-        &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
-        Ok(())
-    }
-    fn total_cmp(&self, other: &Self) -> Ordering {
-        self.fx.total_cmp(&other.fx)
-    }
-}
-impl<T> From<DVector<T>> for Point<T>
-where
-    T: Float + Debug,
-{
-    fn from(value: DVector<T>) -> Self {
-        Self {
-            x: value,
-            fx: T::nan(),
-        }
-    }
-}
-impl<T> From<Vec<T>> for Point<T>
-where
-    T: Float + Debug + 'static,
-{
-    fn from(value: Vec<T>) -> Self {
-        Self {
-            x: DVector::from_vec(value),
-            fx: T::nan(),
-        }
-    }
-}
-impl<'a, T> From<&'a Point<T>> for &'a Vec<T>
-where
-    T: Debug + Float,
-{
-    fn from(value: &'a Point<T>) -> Self {
-        value.x.data.as_vec()
-    }
-}
-impl<T> From<&[T]> for Point<T>
-where
-    T: Float + Debug + 'static,
-{
-    fn from(value: &[T]) -> Self {
-        Self {
-            x: DVector::from_column_slice(value),
-            fx: T::nan(),
-        }
-    }
-}
-impl<'a, T> From<&'a Point<T>> for &'a [T]
-where
-    T: Debug + Float,
-{
-    fn from(value: &'a Point<T>) -> Self {
-        value.x.data.as_slice()
-    }
-}
-impl<T> PartialOrd for Point<T>
-where
-    T: PartialOrd + Debug + Float,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.fx.partial_cmp(&other.fx)
-    }
-}
+use crate::{algorithms::Point, convert, Algorithm, Bound, Function, Status};
 
 /// Gives a method for constructing a simplex.
 #[derive(Debug, Clone)]
@@ -152,7 +57,7 @@ where
             Self::Orthogonal { simplex_size } => {
                 let mut points = Vec::default();
                 let mut point_0 = Point::from(Bound::to_unbounded(x0, bounds));
-                point_0.evaluate(func, bounds, user_data)?;
+                point_0.evaluate_bounded(func, bounds, user_data)?;
                 points.push(point_0.clone());
                 let dim = point_0.len();
                 assert!(
@@ -162,7 +67,7 @@ where
                 for i in 0..dim {
                     let mut point_i = point_0.clone();
                     point_i.x[i] += *simplex_size;
-                    point_i.evaluate(func, bounds, user_data)?;
+                    point_i.evaluate_bounded(func, bounds, user_data)?;
                     points.push(point_i);
                 }
                 Ok(Simplex::new(&points))
@@ -176,7 +81,7 @@ where
                         .iter()
                         .map(|x| {
                             let mut point_i = Point::from(Bound::to_unbounded(x, bounds));
-                            point_i.evaluate(func, bounds, user_data)?;
+                            point_i.evaluate_bounded(func, bounds, user_data)?;
                             Ok(point_i)
                         })
                         .collect::<Result<Vec<Point<T>>, E>>()?,
@@ -731,7 +636,7 @@ where
         let l = self.simplex.best();
         let c = &self.simplex.centroid;
         let mut xr = Point::from(c + (c - &h.x).scale(self.alpha));
-        xr.evaluate(func, bounds, user_data)?;
+        xr.evaluate_bounded(func, bounds, user_data)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -749,7 +654,7 @@ where
             // accept the expanded point x_e regardless (greedy expansion), or we should do one
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xe = Point::from(c + (&xr.x - c).scale(self.beta));
-            xe.evaluate(func, bounds, user_data)?;
+            xe.evaluate_bounded(func, bounds, user_data)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
@@ -786,7 +691,7 @@ where
             if &xr < h {
                 // Try to contract outside if x_r < h
                 let mut xc = Point::from(c + (&xr.x - c).scale(self.gamma));
-                xc.evaluate(func, bounds, user_data)?;
+                xc.evaluate_bounded(func, bounds, user_data)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
@@ -807,7 +712,7 @@ where
             } else {
                 // Contract inside if h <= x_r
                 let mut xc = Point::from(c + (&h.x - c).scale(self.gamma));
-                xc.evaluate(func, bounds, user_data)?;
+                xc.evaluate_bounded(func, bounds, user_data)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
@@ -830,7 +735,7 @@ where
         let l_clone = l.clone();
         for p in self.simplex.points.iter_mut().skip(1) {
             *p = Point::from(&l_clone.x + (&p.x - &l_clone.x).scale(self.delta));
-            p.evaluate(func, bounds, user_data)?;
+            p.evaluate_bounded(func, bounds, user_data)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
