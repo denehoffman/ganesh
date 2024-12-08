@@ -32,7 +32,19 @@ default = []
 f32 = []
 
 [[bench]]
-name = "rosenbrock_benchmark"
+name = "nelder_mead_benchmark"
+harness = false
+
+[[bench]]
+name = "bfgs_benchmark"
+harness = false
+
+[[bench]]
+name = "lbfgs_benchmark"
+harness = false
+
+[[bench]]
+name = "lbfgsb_benchmark"
 harness = false
 
 [package.metadata.docs.rs]
