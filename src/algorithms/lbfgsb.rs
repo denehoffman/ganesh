@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
-use nalgebra::{DMatrix, DVector, RealField, Scalar};
-use num::{traits::float::TotalOrder, Float};
+use nalgebra::{DMatrix, DVector};
 
-use crate::{convert, Algorithm, Bound, Function, Status};
+use crate::{Algorithm, Bound, Float, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 
@@ -12,15 +11,12 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
-pub struct LBFGSBFTerminator<T> {
+pub struct LBFGSBFTerminator {
     /// Absolute tolerance $`\varepsilon`$.
-    pub tol_f_abs: T,
+    pub tol_f_abs: Float,
 }
-impl<T> LBFGSBFTerminator<T>
-where
-    T: RealField,
-{
-    fn update_convergence(&self, fx_current: T, fx_previous: T, status: &mut Status<T>) {
+impl LBFGSBFTerminator {
+    fn update_convergence(&self, fx_current: Float, fx_previous: Float, status: &mut Status) {
         if (fx_previous - fx_current).abs() < self.tol_f_abs {
             status.set_converged();
             status.update_message("F_EVAL CONVERGED");
@@ -33,15 +29,12 @@ where
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
-pub struct LBFGSBGTerminator<T> {
+pub struct LBFGSBGTerminator {
     /// Absolute tolerance $`\varepsilon`$.
-    pub tol_g_abs: T,
+    pub tol_g_abs: Float,
 }
-impl<T> LBFGSBGTerminator<T>
-where
-    T: RealField,
-{
-    fn update_convergence(&self, gradient: &DVector<T>, status: &mut Status<T>) {
+impl LBFGSBGTerminator {
+    fn update_convergence(&self, gradient: &DVector<Float>, status: &mut Status) {
         if gradient.dot(gradient).sqrt() < self.tol_g_abs {
             status.set_converged();
             status.update_message("GRADIENT CONVERGED");
@@ -66,43 +59,40 @@ pub enum LBFGSBErrorMode {
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
-pub struct LBFGSB<T: Scalar, U, E> {
-    x: DVector<T>,
-    g: DVector<T>,
-    l: DVector<T>,
-    u: DVector<T>,
-    m_mat: DMatrix<T>,
-    w_mat: DMatrix<T>,
-    theta: T,
-    f_previous: T,
-    terminator_f: LBFGSBFTerminator<T>,
-    terminator_g: LBFGSBGTerminator<T>,
-    g_tolerance: T,
-    line_search: Box<dyn LineSearch<T, U, E>>,
+pub struct LBFGSB<U, E> {
+    x: DVector<Float>,
+    g: DVector<Float>,
+    l: DVector<Float>,
+    u: DVector<Float>,
+    m_mat: DMatrix<Float>,
+    w_mat: DMatrix<Float>,
+    theta: Float,
+    f_previous: Float,
+    terminator_f: LBFGSBFTerminator,
+    terminator_g: LBFGSBGTerminator,
+    g_tolerance: Float,
+    line_search: Box<dyn LineSearch<U, E>>,
     m: usize,
-    y_store: VecDeque<DVector<T>>,
-    s_store: VecDeque<DVector<T>>,
-    max_step: T,
+    y_store: VecDeque<DVector<Float>>,
+    s_store: VecDeque<DVector<Float>>,
+    max_step: Float,
     error_mode: LBFGSBErrorMode,
 }
 
-impl<T, U, E> LBFGSB<T, U, E>
-where
-    T: Float + RealField,
-{
+impl<U, E> LBFGSB<U, E> {
     /// Set the termination condition concerning the function values.
-    pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator<T>) -> Self {
+    pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator) -> Self {
         self.terminator_f = term;
         self
     }
     /// Set the termination condition concerning the gradient values.
-    pub const fn with_terminator_g(mut self, term: LBFGSBGTerminator<T>) -> Self {
+    pub const fn with_terminator_g(mut self, term: LBFGSBGTerminator) -> Self {
         self.terminator_g = term;
         self
     }
     /// Set the value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will
     /// successfully terminate the algorithm (default = `1e-5`).
-    pub const fn with_g_tolerance(mut self, tol: T) -> Self {
+    pub const fn with_g_tolerance(mut self, tol: Float) -> Self {
         self.g_tolerance = tol;
         self
     }
@@ -110,7 +100,7 @@ where
     /// search which satisfies the strong Wolfe conditions, [`StrongWolfeLineSearch`]. Note that in
     /// general, this should only use [`LineSearch`] algorithms which satisfy the Wolfe conditions.
     /// Using the Armijo condition alone will lead to slower convergence.
-    pub fn with_line_search<LS: LineSearch<T, U, E> + 'static>(mut self, line_search: LS) -> Self {
+    pub fn with_line_search<LS: LineSearch<U, E> + 'static>(mut self, line_search: LS) -> Self {
         self.line_search = Box::new(line_search);
         self
     }
@@ -128,10 +118,7 @@ where
     }
 }
 
-impl<T, U, E> Default for LBFGSB<T, U, E>
-where
-    T: Float + RealField + Default,
-{
+impl<U, E> Default for LBFGSB<U, E> {
     fn default() -> Self {
         Self {
             x: Default::default(),
@@ -140,31 +127,28 @@ where
             u: Default::default(),
             m_mat: Default::default(),
             w_mat: Default::default(),
-            theta: T::one(),
-            f_previous: T::infinity(),
+            theta: 1.0,
+            f_previous: Float::INFINITY,
             terminator_f: LBFGSBFTerminator {
-                tol_f_abs: Float::sqrt(T::epsilon()),
+                tol_f_abs: Float::sqrt(Float::EPSILON),
             },
             terminator_g: LBFGSBGTerminator {
-                tol_g_abs: Float::cbrt(T::epsilon()),
+                tol_g_abs: Float::cbrt(Float::EPSILON),
             },
-            g_tolerance: Float::cbrt(T::epsilon()),
-            line_search: Box::<StrongWolfeLineSearch<T>>::default(),
+            g_tolerance: Float::cbrt(Float::EPSILON),
+            line_search: Box::<StrongWolfeLineSearch>::default(),
             m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
-            max_step: convert!(1e8, T),
+            max_step: 1e8,
             error_mode: Default::default(),
         }
     }
 }
 
-impl<T, U, E> LBFGSB<T, U, E>
-where
-    T: RealField + Float + TotalOrder,
-{
+impl<U, E> LBFGSB<U, E> {
     /// For Equation 6.1
-    fn get_inf_norm_projected_gradient(&self) -> T {
+    fn get_inf_norm_projected_gradient(&self) -> Float {
         let x_minus_g = &self.x - &self.g;
         (0..x_minus_g.len())
             .map(|i| {
@@ -177,7 +161,7 @@ where
                 }
             })
             .max_by(|a, b| a.total_cmp(b))
-            .unwrap_or_else(T::zero)
+            .unwrap_or(0.0)
     }
     /// Equations 3.3, 3.4, 3.5, 3.6
     #[allow(clippy::expect_used)]
@@ -199,7 +183,7 @@ where
         let s_tr_y = s_mat.transpose() * &y_mat;
         let d_vec = s_tr_y.diagonal();
         let mut l_mat = s_tr_y.lower_triangle();
-        l_mat.set_diagonal(&DVector::from_element(m, T::zero()));
+        l_mat.set_diagonal(&DVector::from_element(m, 0.0));
         let mut m_mat_inv = DMatrix::zeros(2 * m, 2 * m);
         let mut d_view = m_mat_inv.view_mut((0, 0), (m, m));
         d_view.set_diagonal(&(-&d_vec));
@@ -213,30 +197,26 @@ where
             .try_inverse()
             .expect("Error: Something has gone horribly wrong, inversion of M failed!");
     }
-    fn get_xcp_c_free_indices(&self) -> (DVector<T>, DVector<T>, Vec<usize>) {
+    fn get_xcp_c_free_indices(&self) -> (DVector<Float>, DVector<Float>, Vec<usize>) {
         // Equations 4.1 and 4.2
-        let (t, mut d): (DVector<T>, DVector<T>) = (0..self.g.len())
+        let (t, mut d): (DVector<Float>, DVector<Float>) = (0..self.g.len())
             .map(|i| {
-                let ti = if self.g[i] < T::zero() {
+                let ti = if self.g[i] < 0.0 {
                     (self.x[i] - self.u[i]) / self.g[i]
-                } else if self.g[i] > T::zero() {
+                } else if self.g[i] > 0.0 {
                     (self.x[i] - self.l[i]) / self.g[i]
                 } else {
-                    T::infinity()
+                    Float::INFINITY
                 };
-                let di = if ti < T::epsilon() {
-                    T::zero()
-                } else {
-                    -self.g[i]
-                };
+                let di = if ti < Float::EPSILON { 0.0 } else { -self.g[i] };
                 (ti, di)
             })
             .unzip();
         let mut x_cp = self.x.clone();
-        let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > T::zero()).collect();
+        let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > 0.0).collect();
         free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
         let free_indices = VecDeque::from(free_indices);
-        let mut t_old = T::zero();
+        let mut t_old = 0.0;
         let mut i_free = 0;
         let mut b = free_indices[0];
         let mut t_b = t[b];
@@ -245,29 +225,31 @@ where
         let mut p = self.w_mat.transpose() * &d;
         let mut c = DVector::zeros(p.len());
         let mut df = -d.dot(&d);
-        let mut ddf = -self.theta * df - p.dot(&(&self.m_mat * &p));
+        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_mat * &p)));
         let mut dt_min = -df / ddf;
 
         while dt_min >= dt_b && i_free < free_indices.len() {
             // b is the index of the smallest positive nonzero element of t, so d_b is never zero!
-            x_cp[b] = if d[b] > T::zero() {
-                self.u[b]
-            } else {
-                self.l[b]
-            };
+            x_cp[b] = if d[b] > 0.0 { self.u[b] } else { self.l[b] };
             let z_b = x_cp[b] - self.x[b];
             c += p.scale(dt_b);
             let g_b = self.g[b];
             let w_b_tr = self.w_mat.row(b);
-            df += dt_b * ddf
-                + g_b * (g_b + self.theta * z_b - w_b_tr.transpose().dot(&(&self.m_mat * &c)));
+            df += dt_b.mul_add(
+                ddf,
+                g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&(&self.m_mat * &c))),
+            );
             ddf -= g_b
-                * (self.theta * g_b
-                    - convert!(2, T) * w_b_tr.transpose().dot(&(&self.m_mat * &p))
-                    - g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose())));
+                * self.theta.mul_add(
+                    g_b,
+                    (-2.0 as Float).mul_add(
+                        w_b_tr.transpose().dot(&(&self.m_mat * &p)),
+                        -(g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose()))),
+                    ),
+                );
             // min here
             p += w_b_tr.transpose().scale(g_b);
-            d[b] = T::zero();
+            d[b] = 0.0;
             dt_min = -df / ddf;
             t_old = t_b;
             i_free += 1;
@@ -276,10 +258,10 @@ where
                 t_b = t[b];
                 dt_b = t_b - t_old;
             } else {
-                t_b = T::infinity();
+                t_b = Float::INFINITY;
             }
         }
-        dt_min = Float::max(dt_min, T::zero());
+        dt_min = Float::max(dt_min, 0.0);
         t_old += dt_min;
         // for i in free_indices.iter() {
         for i in 0..self.x.len() {
@@ -301,15 +283,15 @@ where
     #[allow(clippy::expect_used)]
     fn direct_primal_min(
         &self,
-        x_cp: &DVector<T>,
-        c: &DVector<T>,
+        x_cp: &DVector<Float>,
+        c: &DVector<Float>,
         free_indices: &[usize],
-    ) -> DVector<T> {
+    ) -> DVector<Float> {
         let z_mat = DMatrix::from_fn(self.x.len(), free_indices.len(), |i, j| {
             if i == free_indices[j] {
-                T::one()
+                1.0
             } else {
-                T::zero()
+                0.0
             }
         });
         let r_hat_c = z_mat.transpose()
@@ -324,12 +306,12 @@ where
         let d_hat_u =
             -(r_hat_c + (w_tr_z_mat.transpose() * v).unscale(self.theta)).unscale(self.theta);
         // The minus sign here is missing in equation 5.11, this is a typo!
-        let mut alpha_star = T::one();
+        let mut alpha_star = 1.0;
         for i in 0..free_indices.len() {
             let i_free = free_indices[i];
-            alpha_star = if d_hat_u[i] > T::zero() {
+            alpha_star = if d_hat_u[i] > 0.0 {
                 Float::min(alpha_star, (self.u[i_free] - x_cp[i_free]) / d_hat_u[i])
-            } else if d_hat_u[i] < T::zero() {
+            } else if d_hat_u[i] < 0.0 {
                 Float::min(alpha_star, (self.l[i_free] - x_cp[i_free]) / d_hat_u[i])
             } else {
                 alpha_star
@@ -343,7 +325,7 @@ where
         }
         x_bar
     }
-    fn compute_step_direction(&self) -> DVector<T> {
+    fn compute_step_direction(&self) -> DVector<Float> {
         let (xcp, c, free_indices) = self.get_xcp_c_free_indices();
         let x_bar = if free_indices.is_empty() {
             xcp
@@ -352,12 +334,12 @@ where
         };
         x_bar - &self.x
     }
-    fn compute_max_step(&self, d: &DVector<T>) -> T {
+    fn compute_max_step(&self, d: &DVector<Float>) -> Float {
         let mut max_step = self.max_step;
         for i in 0..self.x.len() {
-            max_step = if d[i] > T::zero() {
+            max_step = if d[i] > 0.0 {
                 Float::min(max_step, (self.u[i] - self.x[i]) / d[i])
-            } else if d[i] < T::zero() {
+            } else if d[i] < 0.0 {
                 Float::min(max_step, (self.l[i] - self.x[i]) / d[i])
             } else {
                 max_step
@@ -367,24 +349,23 @@ where
     }
 }
 
-impl<T, U, E> Algorithm<T, U, E> for LBFGSB<T, U, E>
+impl<U, E> Algorithm<U, E> for LBFGSB<U, E>
 where
-    T: RealField + Float + TotalOrder + Default,
     U: Clone,
     E: Clone,
 {
     fn initialize(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        x0: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        x0: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
-        self.f_previous = T::infinity();
-        self.theta = T::one();
-        self.l = DVector::from_element(x0.len(), T::neg_infinity());
-        self.u = DVector::from_element(x0.len(), T::infinity());
+        self.f_previous = Float::INFINITY;
+        self.theta = 1.0;
+        self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
+        self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
@@ -419,10 +400,10 @@ where
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
@@ -441,7 +422,7 @@ where
             let dg = &grad_kp1_vec - &self.g;
             let sy = dx.dot(&dg);
             let yy = dg.dot(&dg);
-            if sy > T::epsilon() * yy {
+            if sy > Float::EPSILON * yy {
                 self.s_store.push_back(dx.clone());
                 self.y_store.push_back(dg);
                 self.theta = yy / sy;
@@ -460,17 +441,17 @@ where
             self.y_store.clear();
             self.w_mat = DMatrix::zeros(self.x.len(), 1);
             self.m_mat = DMatrix::zeros(1, 1);
-            self.theta = T::one();
+            self.theta = 1.0;
         }
         Ok(())
     }
 
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        _bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        _bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<bool, E> {
         let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
@@ -486,10 +467,10 @@ where
 
     fn postprocessing(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        _bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        _bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSBErrorMode::ExactHessian => {
@@ -505,9 +486,9 @@ where
 mod tests {
     use std::convert::Infallible;
 
-    use float_cmp::assert_approx_eq;
+    use approx::assert_relative_eq;
 
-    use crate::{prelude::*, test_functions::Rosenbrock};
+    use crate::{test_functions::Rosenbrock, Float, Minimizer};
 
     use super::LBFGSB;
 
@@ -518,22 +499,48 @@ mod tests {
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-6);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         m.minimize(&problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         m.minimize(&problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         m.minimize(&problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         m.minimize(&problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        Ok(())
+    }
+
+    #[test]
+    fn test_bounded_lbfgsb() -> Result<(), Infallible> {
+        let algo = LBFGSB::default();
+        let mut m = Minimizer::new(&algo, 2).with_bounds(Some(vec![(-4.0, 4.0), (-4.0, 4.0)]));
+        let problem = Rosenbrock { n: 2 };
+        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
     }
 }
