@@ -73,7 +73,7 @@ impl<U, E> LineSearch<U, E> for BacktrackingLineSearch {
         let mut phi_alpha_i = phi(alpha_i, user_data, status)?;
         let dphi_0 = dphi(0.0, user_data, status)?;
         loop {
-            let armijo = phi_alpha_i <= phi_0 + self.c * alpha_i * dphi_0;
+            let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
                 let g_alpha_i =
                     func.gradient_bounded((x + p.scale(alpha_i)).as_slice(), bounds, user_data)?;
@@ -210,7 +210,7 @@ impl StrongWolfeLineSearch {
             let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
             let x_lo = x0 + p.scale(alpha_lo);
             let f_lo = self.f_eval(func, &x_lo, bounds, user_data, status)?;
-            let valid = if (f_i > f0 + self.c1 * alpha_i * dphi0) || (f_i >= f_lo) {
+            let valid = if (f_i > (self.c1 * alpha_i).mul_add(dphi0, f0)) || (f_i >= f_lo) {
                 alpha_hi = alpha_i;
                 false
             } else {
@@ -256,7 +256,7 @@ impl<U, E> LineSearch<U, E> for StrongWolfeLineSearch {
         loop {
             let x = x0 + p.scale(alpha_i);
             let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
-            if (f_i > f0 + self.c1 * dphi0) || (i > 1 && f_i >= f_im1) {
+            if (f_i > self.c1.mul_add(dphi0, f0)) || (i > 1 && f_i >= f_im1) {
                 return self.zoom(
                     func, x0, bounds, user_data, f0, &g0, p, alpha_im1, alpha_i, status,
                 );

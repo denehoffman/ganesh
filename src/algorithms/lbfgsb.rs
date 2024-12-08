@@ -225,7 +225,7 @@ impl<U, E> LBFGSB<U, E> {
         let mut p = self.w_mat.transpose() * &d;
         let mut c = DVector::zeros(p.len());
         let mut df = -d.dot(&d);
-        let mut ddf = -self.theta * df - p.dot(&(&self.m_mat * &p));
+        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_mat * &p)));
         let mut dt_min = -df / ddf;
 
         while dt_min >= dt_b && i_free < free_indices.len() {
@@ -235,12 +235,18 @@ impl<U, E> LBFGSB<U, E> {
             c += p.scale(dt_b);
             let g_b = self.g[b];
             let w_b_tr = self.w_mat.row(b);
-            df += dt_b * ddf
-                + g_b * (g_b + self.theta * z_b - w_b_tr.transpose().dot(&(&self.m_mat * &c)));
+            df += dt_b.mul_add(
+                ddf,
+                g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&(&self.m_mat * &c))),
+            );
             ddf -= g_b
-                * (self.theta * g_b
-                    - 2.0 * w_b_tr.transpose().dot(&(&self.m_mat * &p))
-                    - g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose())));
+                * self.theta.mul_add(
+                    g_b,
+                    (-2.0 as Float).mul_add(
+                        w_b_tr.transpose().dot(&(&self.m_mat * &p)),
+                        -(g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose()))),
+                    ),
+                );
             // min here
             p += w_b_tr.transpose().scale(g_b);
             d[b] = 0.0;
