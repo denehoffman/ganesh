@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use nalgebra::Scalar;
 
 use crate::{Observer, Status};
 
@@ -24,8 +23,8 @@ use crate::{Observer, Status};
 /// assert!(m.status.converged);
 /// ```
 pub struct DebugObserver;
-impl<T: Scalar, U: Debug> Observer<T, U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &mut Status<T>, user_data: &mut U) -> bool {
+impl<U: Debug> Observer<U> for DebugObserver {
+    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool {
         println!("{step}, {:?}, {:?}", status, user_data);
         true
     }

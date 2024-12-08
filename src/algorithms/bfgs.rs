@@ -1,7 +1,6 @@
-use nalgebra::{DMatrix, DVector, RealField, Scalar};
-use num::Float;
+use nalgebra::{DMatrix, DVector};
 
-use crate::{convert, Algorithm, Bound, Function, Status};
+use crate::{Algorithm, Bound, Float, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 
@@ -10,15 +9,12 @@ use super::line_search::{LineSearch, StrongWolfeLineSearch};
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
-pub struct BFGSFTerminator<T> {
+pub struct BFGSFTerminator {
     /// Absolute tolerance $`\varepsilon`$.
-    pub tol_f_abs: T,
+    pub tol_f_abs: Float,
 }
-impl<T> BFGSFTerminator<T>
-where
-    T: RealField,
-{
-    fn update_convergence(&self, fx_current: T, fx_previous: T, status: &mut Status<T>) {
+impl BFGSFTerminator {
+    fn update_convergence(&self, fx_current: Float, fx_previous: Float, status: &mut Status) {
         if (fx_previous - fx_current).abs() < self.tol_f_abs {
             status.set_converged();
             status.update_message("F_EVAL CONVERGED");
@@ -31,15 +27,12 @@ where
 /// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
-pub struct BFGSGTerminator<T> {
+pub struct BFGSGTerminator {
     /// Absolute tolerance $`\varepsilon`$.
-    pub tol_g_abs: T,
+    pub tol_g_abs: Float,
 }
-impl<T> BFGSGTerminator<T>
-where
-    T: RealField,
-{
-    fn update_convergence(&self, gradient: &DVector<T>, status: &mut Status<T>) {
+impl BFGSGTerminator {
+    fn update_convergence(&self, gradient: &DVector<Float>, status: &mut Status) {
         if gradient.dot(gradient).sqrt() < self.tol_g_abs {
             status.set_converged();
             status.update_message("GRADIENT CONVERGED");
@@ -67,30 +60,27 @@ pub enum BFGSErrorMode {
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
-pub struct BFGS<T: Scalar, U, E> {
-    x: DVector<T>,
-    g: DVector<T>,
-    h_inv: DMatrix<T>,
-    f_previous: T,
-    terminator_f: BFGSFTerminator<T>,
-    terminator_g: BFGSGTerminator<T>,
-    line_search: Box<dyn LineSearch<T, U, E>>,
-    max_step: T,
+pub struct BFGS<U, E> {
+    x: DVector<Float>,
+    g: DVector<Float>,
+    h_inv: DMatrix<Float>,
+    f_previous: Float,
+    terminator_f: BFGSFTerminator,
+    terminator_g: BFGSGTerminator,
+    line_search: Box<dyn LineSearch<U, E>>,
+    max_step: Float,
     error_mode: BFGSErrorMode,
 }
 
-impl<T, U, E> BFGS<T, U, E>
-where
-    T: Float + RealField,
-{
+impl<U, E> BFGS<U, E> {
     /// Set the termination condition concerning the function values.
-    pub const fn with_terminator_f(mut self, term: BFGSFTerminator<T>) -> Self {
+    pub const fn with_terminator_f(mut self, term: BFGSFTerminator) -> Self {
         self.terminator_f = term;
         self
     }
 
     /// Set the termination condition concerning the gradient values.
-    pub const fn with_terminator_g(mut self, term: BFGSGTerminator<T>) -> Self {
+    pub const fn with_terminator_g(mut self, term: BFGSGTerminator) -> Self {
         self.terminator_g = term;
         self
     }
@@ -98,7 +88,7 @@ where
     /// search which satisfies the strong Wolfe conditions, [`StrongWolfeLineSearch`]. Note that in
     /// general, this should only use [`LineSearch`] algorithms which satisfy the Wolfe conditions.
     /// Using the Armijo condition alone will lead to slower convergence.
-    pub fn with_line_search<LS: LineSearch<T, U, E> + 'static>(mut self, line_search: LS) -> Self {
+    pub fn with_line_search<LS: LineSearch<U, E> + 'static>(mut self, line_search: LS) -> Self {
         self.line_search = Box::new(line_search);
         self
     }
@@ -110,34 +100,28 @@ where
     }
 }
 
-impl<T, U, E> Default for BFGS<T, U, E>
-where
-    T: Float + RealField + Default,
-{
+impl<U, E> Default for BFGS<U, E> {
     fn default() -> Self {
         Self {
             x: Default::default(),
             g: Default::default(),
             h_inv: Default::default(),
-            f_previous: T::infinity(),
+            f_previous: Float::INFINITY,
             terminator_f: BFGSFTerminator {
-                tol_f_abs: Float::sqrt(T::epsilon()),
+                tol_f_abs: Float::sqrt(Float::EPSILON),
             },
             terminator_g: BFGSGTerminator {
-                tol_g_abs: Float::cbrt(T::epsilon()),
+                tol_g_abs: Float::cbrt(Float::EPSILON),
             },
-            line_search: Box::<StrongWolfeLineSearch<T>>::default(),
-            max_step: convert!(1e8, T),
+            line_search: Box::<StrongWolfeLineSearch>::default(),
+            max_step: 1e8,
             error_mode: Default::default(),
         }
     }
 }
 
-impl<T, U, E> BFGS<T, U, E>
-where
-    T: Float + RealField,
-{
-    fn update_h_inv(&mut self, step: usize, n: usize, s: &DVector<T>, y: &DVector<T>) {
+impl<U, E> BFGS<U, E> {
+    fn update_h_inv(&mut self, step: usize, n: usize, s: &DVector<Float>, y: &DVector<Float>) {
         if step == 0 {
             self.h_inv = self.h_inv.scale((y.dot(s)) / (y.dot(y)));
         }
@@ -149,21 +133,20 @@ where
     }
 }
 
-impl<T, U, E> Algorithm<T, U, E> for BFGS<T, U, E>
+impl<U, E> Algorithm<U, E> for BFGS<U, E>
 where
-    T: RealField + Float + Default,
     U: Clone,
     E: Clone,
 {
     fn initialize(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        x0: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        x0: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
-        self.f_previous = T::infinity();
+        self.f_previous = Float::INFINITY;
         self.h_inv = DMatrix::identity(x0.len(), x0.len());
         self.x = Bound::to_unbounded(x0, bounds);
         self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
@@ -179,10 +162,10 @@ where
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
         let d = -&self.h_inv * &self.g;
         let (valid, alpha, f_kp1, g_kp1) = self.line_search.search(
@@ -211,10 +194,10 @@ where
 
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<bool, E> {
         let f_current = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
         self.terminator_f
@@ -226,10 +209,10 @@ where
 
     fn postprocessing(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
         match self.error_mode {
             BFGSErrorMode::ExactHessian => {
@@ -248,9 +231,9 @@ where
 mod tests {
     use std::convert::Infallible;
 
-    use float_cmp::assert_approx_eq;
+    use approx::assert_relative_eq;
 
-    use crate::{prelude::*, test_functions::Rosenbrock};
+    use crate::{test_functions::Rosenbrock, Float, Minimizer};
 
     use super::BFGS;
 
@@ -261,22 +244,22 @@ mod tests {
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         m.minimize(&problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
         m.minimize(&problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         m.minimize(&problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         m.minimize(&problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
-        assert_approx_eq!(f64, m.status.fx, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())
     }
 }

@@ -17,113 +17,101 @@ pub use lbfgs::LBFGS;
 pub mod lbfgsb;
 pub use lbfgsb::LBFGSB;
 
-/// Module containing the Particle Swarm Optimization method.
-pub mod pso;
-pub use pso::PSO;
-
 use nalgebra::DVector;
-use num::{
-    traits::{float::TotalOrder, NumAssign},
-    Float, FromPrimitive,
-};
 use std::{cmp::Ordering, fmt::Debug};
 
-use crate::{Bound, Function};
+use crate::{Bound, Float, Function};
 
 /// Describes a point in parameter space that can be used in [`Algorithm`](`crate::Algorithm`)s.
-#[derive(Eq, PartialEq, Clone, Default, Debug)]
-pub struct Point<T>
-where
-    T: Clone + Debug + Float + 'static,
-{
-    x: DVector<T>,
-    fx: T,
+#[derive(PartialEq, Clone, Default, Debug)]
+pub struct Point {
+    x: DVector<Float>,
+    fx: Float,
 }
-impl<T> Point<T>
-where
-    T: Clone + Debug + Float,
-{
-    fn len(&self) -> usize {
+impl Point {
+    /// Get the dimension of the underlying space.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
         self.x.len()
     }
-    fn into_vec_val(self) -> (Vec<T>, T) {
+    /// Convert the [`Point`] into a [`Vec`]-`Float` tuple.
+    pub fn into_vec_val(self) -> (Vec<Float>, Float) {
         (self.x.data.into(), self.fx)
     }
 }
-impl<T> Point<T>
-where
-    T: Float + FromPrimitive + Debug + NumAssign + TotalOrder,
-{
-    fn evaluate<U, E>(&mut self, func: &dyn Function<T, U, E>, user_data: &mut U) -> Result<(), E> {
+impl Point {
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn evaluate<U, E>(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
         self.fx = func.evaluate(self.x.as_slice(), user_data)?;
         Ok(())
     }
-    fn evaluate_bounded<U, E>(
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    /// This function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn evaluate_bounded<U, E>(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
         Ok(())
     }
-    fn total_cmp(&self, other: &Self) -> Ordering {
+    /// Compare two points by their `fx` value.
+    pub fn total_cmp(&self, other: &Self) -> Ordering {
         self.fx.total_cmp(&other.fx)
     }
 }
-impl<T> From<DVector<T>> for Point<T>
-where
-    T: Float + Debug,
-{
-    fn from(value: DVector<T>) -> Self {
+
+impl From<DVector<Float>> for Point {
+    fn from(value: DVector<Float>) -> Self {
         Self {
             x: value,
-            fx: T::nan(),
+            fx: Float::NAN,
         }
     }
 }
-impl<T> From<Vec<T>> for Point<T>
-where
-    T: Float + Debug + 'static,
-{
-    fn from(value: Vec<T>) -> Self {
+impl From<Vec<Float>> for Point {
+    fn from(value: Vec<Float>) -> Self {
         Self {
             x: DVector::from_vec(value),
-            fx: T::nan(),
+            fx: Float::NAN,
         }
     }
 }
-impl<'a, T> From<&'a Point<T>> for &'a Vec<T>
-where
-    T: Debug + Float,
-{
-    fn from(value: &'a Point<T>) -> Self {
+impl<'a> From<&'a Point> for &'a Vec<Float> {
+    fn from(value: &'a Point) -> Self {
         value.x.data.as_vec()
     }
 }
-impl<T> From<&[T]> for Point<T>
-where
-    T: Float + Debug + 'static,
-{
-    fn from(value: &[T]) -> Self {
+impl From<&[Float]> for Point {
+    fn from(value: &[Float]) -> Self {
         Self {
             x: DVector::from_column_slice(value),
-            fx: T::nan(),
+            fx: Float::NAN,
         }
     }
 }
-impl<'a, T> From<&'a Point<T>> for &'a [T]
-where
-    T: Debug + Float,
-{
-    fn from(value: &'a Point<T>) -> Self {
+impl<'a> From<&'a Point> for &'a [Float] {
+    fn from(value: &'a Point) -> Self {
         value.x.data.as_slice()
     }
 }
-impl<T> PartialOrd for Point<T>
-where
-    T: PartialOrd + Debug + Float,
-{
+impl PartialOrd for Point {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.fx.partial_cmp(&other.fx)
     }

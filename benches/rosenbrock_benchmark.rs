@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use ganesh::algorithms::NelderMead;
-use ganesh::prelude::*;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
+use ganesh::Minimizer;
 
 fn rosenbrock_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("nelder-mead: rosenbrock");
