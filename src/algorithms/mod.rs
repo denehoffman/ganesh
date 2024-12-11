@@ -17,8 +17,14 @@ pub use lbfgs::LBFGS;
 pub mod lbfgsb;
 pub use lbfgsb::LBFGSB;
 
+/// Module containing Markov Chain Monte Carlo methods.
+pub mod mcmc;
+
 use nalgebra::DVector;
-use std::{cmp::Ordering, fmt::Debug};
+use std::{
+    cmp::Ordering,
+    fmt::{Debug, Display},
+};
 
 use crate::{Bound, Float, Function};
 
@@ -51,7 +57,9 @@ impl Point {
         func: &dyn Function<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.fx = func.evaluate(self.x.as_slice(), user_data)?;
+        if self.fx.is_nan() {
+            self.fx = func.evaluate(self.x.as_slice(), user_data)?;
+        }
         Ok(())
     }
     /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
@@ -68,12 +76,30 @@ impl Point {
         bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        if self.fx.is_nan() {
+            self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        }
         Ok(())
     }
     /// Compare two points by their `fx` value.
     pub fn total_cmp(&self, other: &Self) -> Ordering {
         self.fx.total_cmp(&other.fx)
+    }
+    pub fn set_position(&mut self, x: DVector<Float>) {
+        self.x = x;
+        self.fx = Float::NAN;
+    }
+
+    pub fn get_fx(&self) -> Float {
+        assert!(!self.fx.is_nan(), "Point value requested before evaluation");
+        self.fx
+    }
+}
+
+impl Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "fx: {}", self.fx)?;
+        writeln!(f, "{}", self.x)
     }
 }
 

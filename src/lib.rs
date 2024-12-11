@@ -184,6 +184,63 @@ pub type Float = f64;
 #[cfg(feature = "f32")]
 pub type Float = f32;
 
+/// A helper trait to get feature-gated floating-point random values
+pub trait SampleFloat {
+    /// Get a random value in a range
+    fn range(&mut self, lower: Float, upper: Float) -> Float;
+    /// Get a random value in the range [0, 1]
+    fn float(&mut self) -> Float;
+    /// Get a random Normal value
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float;
+}
+impl SampleFloat for Rng {
+    #[cfg(not(feature = "f32"))]
+    fn range(&mut self, lower: Float, upper: Float) -> Float {
+        self.f64_range(lower..upper)
+    }
+    #[cfg(feature = "f32")]
+    fn range(&mut self, lower: Float, upper: Float) -> Float {
+        self.f32_range(lower..upper)
+    }
+    #[cfg(not(feature = "f32"))]
+    fn float(&mut self) -> Float {
+        self.f64()
+    }
+    #[cfg(feature = "f32")]
+    fn float(&mut self) -> Float {
+        self.f32()
+    }
+    #[cfg(not(feature = "f32"))]
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float {
+        self.f64_normal(mu, sigma)
+    }
+    #[cfg(feature = "f32")]
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float {
+        self.f32_normal(mu, sigma)
+    }
+}
+
+/// A helper trait to provide a weighted random choice method
+pub trait RandChoice {
+    /// Return an random index sampled with the given weights
+    fn choice_weighted(&mut self, weights: &[Float]) -> Option<usize>;
+}
+
+impl RandChoice for Rng {
+    fn choice_weighted(&mut self, weights: &[Float]) -> Option<usize> {
+        let total_weight = weights.iter().sum();
+        let u: Float = self.range(0.0, total_weight);
+        let mut cumulative_weight = 0.0;
+        for (index, &weight) in weights.iter().enumerate() {
+            cumulative_weight += weight;
+            if u <= cumulative_weight {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
+
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
@@ -811,8 +868,7 @@ impl<U, E> Minimizer<U, E> {
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
     /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
-    /// call to all given [`Observer`]s' callback functions, which will use the [`Status`] received
-    /// from that step's call to [`Algorithm::get_status`]. Finally, regardless of convergence,
+    /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. If the algorithm did not converge in the given
     /// step limit, the [`Status::message`] will be set to `"MAX EVALS"` at termination.
     ///

@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 
-
-use crate::{Observer, Status};
+use crate::{
+    algorithms::mcmc::{Ensemble, MCMCObserver},
+    Observer, Status,
+};
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
 /// in an algorithm.
@@ -26,6 +28,14 @@ pub struct DebugObserver;
 impl<U: Debug> Observer<U> for DebugObserver {
     fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool {
         println!("{step}, {:?}, {:?}", status, user_data);
+        true
+    }
+}
+
+pub struct DebugMCMCObserver;
+impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
+    fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool {
+        println!("{step}, {:?}, {:?}", ensemble, user_data);
         true
     }
 }
