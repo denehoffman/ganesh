@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 
-use nalgebra::Scalar;
-
-use crate::{Observer, Status};
+use crate::{
+    algorithms::mcmc::{Ensemble, MCMCObserver},
+    Observer, Status,
+};
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
 /// in an algorithm.
@@ -24,9 +25,17 @@ use crate::{Observer, Status};
 /// assert!(m.status.converged);
 /// ```
 pub struct DebugObserver;
-impl<T: Scalar, U: Debug> Observer<T, U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &mut Status<T>, user_data: &mut U) -> bool {
+impl<U: Debug> Observer<U> for DebugObserver {
+    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool {
         println!("{step}, {:?}, {:?}", status, user_data);
+        true
+    }
+}
+
+pub struct DebugMCMCObserver;
+impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
+    fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool {
+        println!("{step}, {:?}, {:?}", ensemble, user_data);
         true
     }
 }
