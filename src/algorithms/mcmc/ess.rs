@@ -1,85 +1,4 @@
 // https://arxiv.org/abs/2002.06212
-// Ensemble Slice Sampling (ESS)
-//
-// TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt]):
-// if t <= M[adapt] then
-//     μ(t+1) = 2μ(t)N₊(t)/(N₊(t) + N₋(t))
-// else
-//     μ(t+1) = μ(t)
-// endif
-//
-// This tells us the length scale at step t given the number of expansions N₊(t) and contractions N₋(t) at step t
-//
-// Differential Move:
-//
-// Given a walker Xₖ and complementary set of walkers S, pick two walkers Xₗ and Xₘ from S (without
-// replacement) and compute direction vector ηₖ = μ(Xₗ - Xₘ)
-//
-// Gaussian Move:
-//
-// Cₛ = 1/|S|   ⅀ (Xₗ - X̅ₛ)(Xₗ - X̅ₛ)†
-//            Xₗ∈S
-// sample ηₖ/(2μ) ∝ Norm(0, Cₛ)
-//
-// Global Move (skip for now)
-//
-// ESS algorithm:
-//
-// Given t, f, μ(t), S[0], S[1], and M[adapt]:
-// N₊(t) <- 0
-// N₋(t) <- 0
-// for i = 0,1 do
-//     for k = 1,...,N/2 do
-//         k <- k + i N/2 (assuming walker indices are just split down the middle, this selects the right ensemble)
-//         ηₖ <- Differential Move
-//         Y ~ U(0, f(Xₖ(t)))
-//         U ~ U(0, 1)
-//         L <- -U
-//         R <- L + 1
-//         while Y < f(L) do
-//             L <- L - 1
-//             N₊(t) <- N₊(t) + 1
-//         end while
-//         while Y < f(R) do
-//             R <- R + 1
-//             N₊(t) <- N₊(t) + 1
-//         end while
-//         while True do
-//             X' ~ U(L, R)
-//             Y' <- f(X'ηₖ + Xₖ(t))
-//             if Y < Y' then
-//                 break
-//             end if
-//             if X' < 0 then
-//                 L <- X'
-//                 N₋(t) <- N₋(t) + 1
-//             else
-//                 R <- X'
-//                 N₋(t) <- N₋(t) + 1
-//             end if
-//         end while
-//         Xₖ(t+1) <- X'ηₖ + Xₖ(t)
-//     end for
-// end for
-// μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
-//
-// Integrated Autocorrelation Time (IAT)
-//             ∞
-// IAT = 1 + 2 ⅀ ρ(k)
-//            k=1
-//
-// This needs to be approximated (see Sokal A (1997) Monte carlo methods in statistical mechanics: foundations and new algorithms. In: Functional integration, Springer, pp 131–192):
-//
-// ρ̂(k) = ĉ(k) / ĉ(0)
-//
-// where
-//                   n-k
-// ĉ(k) = 1 / (n - k) ⅀ [X(k+m) - X̅][X(m) - X̅]
-//                   m=1
-//
-// where X̅ is the mean of the samples.
-//
-// We can then calculate the number of effectively independent samples as n/IAT.
 use std::sync::Arc;
 
 use fastrand::Rng;
@@ -98,7 +17,7 @@ pub enum ESStep {
 impl ESStep {
     fn step<U, E>(
         &self,
-        i: usize,
+        step: usize,
         n_adaptive: usize,
         max_steps: usize,
         mu: &mut Float,
@@ -196,7 +115,7 @@ impl ESStep {
             positions.push(Arc::new(RwLock::new(proposal)))
         }
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
-        if i <= n_adaptive {
+        if step <= n_adaptive {
             *mu *= 2.0 * (n_expand as Float) / (n_expand + n_contract) as Float
         }
         ensemble.push(positions);
