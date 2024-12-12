@@ -6,13 +6,11 @@ use std::{
 
 use dyn_clone::DynClone;
 use fastrand::Rng;
-use nalgebra::DVector;
+use nalgebra::{Complex, ComplexField, DVector};
 use parking_lot::RwLock;
+use rustfft::FftPlanner;
 
 use crate::{init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound, Float, Function};
-    init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound, Float, Function,
-    SampleFloat,
-};
 
 use super::Point;
 
@@ -269,6 +267,73 @@ impl Ensemble {
         let chain = self.get_chain(burn, thin);
         chain.into_iter().flatten().collect()
     }
+
+    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis et
+    /// al.[^Karamanis]
+    ///
+    /// `c` is an optional window size (default: 5.0), see Sokal[^Sokal].
+    ///
+    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
+    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
+    pub fn get_integrated_autocorrelation_times(&self, c: Float) -> DVector<Float> {
+        let n_walkers = self.walkers.len();
+        let n_steps = self
+            .walkers
+            .first()
+            .map_or(0, |walker| walker.history.len());
+        let n_parameters = self.walkers.first().map_or(0, |walker| {
+            walker.history.first().map_or(0, |step| step.read().x.len())
+        });
+        let samples: Vec<DVector<Float>> = (0..n_steps)
+            .flat_map(|step| {
+                (0..n_walkers)
+                    .map(move |walker| self.walkers[walker].history[step].read().x.clone())
+            })
+            .collect();
+        let mut forward_planner = FftPlanner::new();
+        let mut n = 1;
+        while n < samples.len() {
+            n <<= 1;
+        }
+        let fft = forward_planner.plan_fft_forward(n);
+        let mut inverse_planner = FftPlanner::new();
+        let ifft = inverse_planner.plan_fft_inverse(samples.len());
+        DVector::from_iterator(
+            n_parameters,
+            (0..n_parameters).map(|i_parameter| {
+                let x: Vec<Float> = samples.iter().map(|sample| sample[i_parameter]).collect();
+                let x_mean = x.iter().sum::<Float>() / x.len() as Float;
+                let x_minus_mean: Vec<Float> = x.iter().map(|xi| xi - x_mean).collect();
+                let mut buffer: Vec<Complex<Float>> = vec![Complex::ZERO; n];
+                (0..x_minus_mean.len()).for_each(|i| buffer[i] = Complex::from(x_minus_mean[i]));
+                fft.process(&mut buffer);
+                buffer = buffer
+                    .iter()
+                    .map(|b| b * b.conjugate())
+                    .take(samples.len())
+                    .collect();
+                ifft.process(&mut buffer);
+                let acfs: Vec<Float> = (0..samples.len())
+                    .map(|i| buffer[i].real() / 4.0 * n as Float)
+                    .collect();
+                let acfs_normed: Vec<Float> = acfs.iter().map(|acf| acf / acfs[0]).collect();
+                let taus: Vec<Float> = acfs_normed
+                    .iter()
+                    .scan(0.0, |acc, &x| {
+                        *acc += x;
+                        Some(*acc)
+                    })
+                    .map(|x| 2.0f64.mul_add(x, -1.0))
+                    .collect();
+                let ind = taus
+                    .iter()
+                    .enumerate()
+                    .position(|(idx, &tau)| (idx as f64) < c * tau)
+                    .unwrap_or(taus.len() - 1);
+                taus[ind]
+            }),
+        )
+    }
 }
 
 /// A trait representing an MCMC algorithm.
@@ -354,6 +419,7 @@ pub struct Sampler<U, E> {
     max_steps: usize,
     observers: Vec<Box<dyn MCMCObserver<U>>>,
     dimension: usize,
+    sokal_window: Float,
 }
 
 impl<U, E> Sampler<U, E> {
@@ -372,6 +438,7 @@ impl<U, E> Sampler<U, E> {
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
             dimension,
+            sokal_window: 7.0,
         }
     }
     /// Creates a new [`Sampler`] with the given (boxed) [`MCMCAlgorithm`] and `dimension` set to the number
@@ -388,6 +455,7 @@ impl<U, E> Sampler<U, E> {
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
             dimension,
+            sokal_window: 7.0,
         }
     }
     fn reset(&mut self) {
