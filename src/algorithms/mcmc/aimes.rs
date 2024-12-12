@@ -9,11 +9,11 @@ use crate::{algorithms::Point, Bound, Float, Function, RandChoice, SampleFloat};
 use super::{Ensemble, MCMCAlgorithm};
 
 #[derive(Copy, Clone)]
-pub enum AIMStep {
+pub enum AIStep {
     Stretch { a: Float },
     Walk,
 }
-impl AIMStep {
+impl AIStep {
     fn step<U, E>(
         &self,
         func: &dyn Function<U, E>,
@@ -102,13 +102,13 @@ impl AIMStep {
 ///
 /// <http://msp.berkeley.edu/camcos/2010/5-1/p04.xhtml>
 #[derive(Clone)]
-pub struct AIMES {
+pub struct AIES {
     rng: Rng,
-    step_types: Vec<(AIMStep, Float)>,
+    step_types: Vec<(AIStep, Float)>,
 }
 
-impl AIMES {
-    pub fn new(step_types: &[(AIMStep, Float)], rng: Rng) -> Self {
+impl AIES {
+    pub fn new(step_types: &[(AIStep, Float)], rng: Rng) -> Self {
         Self {
             rng,
             step_types: step_types.to_vec(),
@@ -116,7 +116,7 @@ impl AIMES {
     }
 }
 
-impl<U, E> MCMCAlgorithm<U, E> for AIMES {
+impl<U, E> MCMCAlgorithm<U, E> for AIES {
     fn initialize(
         &mut self,
         func: &dyn Function<U, E>,
