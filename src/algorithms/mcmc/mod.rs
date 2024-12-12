@@ -9,7 +9,7 @@ use fastrand::Rng;
 use nalgebra::DVector;
 use parking_lot::RwLock;
 
-use crate::{
+use crate::{init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound, Float, Function};
     init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound, Float, Function,
     SampleFloat,
 };
@@ -475,28 +475,9 @@ impl<U, E> Sampler<U, E> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the length of `x0` is not equal to the dimension of the problem
-    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
-    /// [`Sampler`].
     pub fn sample(&mut self, func: &dyn Function<U, E>, user_data: &mut U) -> Result<(), E> {
-        // assert!(x0.len() == self.dimension);
-        // init_ctrl_c_handler();
-        // reset_ctrl_c_handler();
-        // if let Some(bounds) = &self.bounds {
-        //     for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
-        //         assert!(
-        //             bound_i.contains(*x_i),
-        //             "Parameter #{} = {} is outside of the given bound: {}",
-        //             i,
-        //             x_i,
-        //             bound_i
-        //         )
-        //     }
-        // }
-        // self.status.x0 = DVector::from_column_slice(x0);
+        init_ctrl_c_handler();
+        reset_ctrl_c_handler();
         self.mcmc_algorithm.initialize(
             func,
             self.bounds.as_ref(),
@@ -537,9 +518,6 @@ impl<U, E> Sampler<U, E> {
             user_data,
             &mut self.ensemble,
         )?;
-        // if is_ctrl_c_pressed() {
-        // self.status.update_message("Ctrl-C Pressed");
-        // }
         Ok(())
     }
     /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
