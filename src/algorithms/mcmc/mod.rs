@@ -22,24 +22,41 @@ pub mod aimes;
 /// Ensemble Slice Sampler
 pub mod ess;
 
+/// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug)]
 pub struct Walker {
     history: Vec<Arc<RwLock<Point>>>,
 }
 
 impl Walker {
+    /// Create a new [`Walker`] located at `x0` and set the history capacity to `max_steps`
+    ///
+    /// Note that `max_steps` is not fixed, but only using the given number of steps can result in
+    /// fewer memory allocations.
     pub fn new(x0: DVector<Float>, max_steps: usize) -> Self {
         let mut history = Vec::with_capacity(max_steps);
         history.push(Arc::new(RwLock::new(Point::from(x0))));
-        Walker { history }
+        Self { history }
     }
+    /// Reset the history of the [`Walker`]
     pub fn reset(&mut self) {
         self.history = Vec::with_capacity(self.history.capacity());
     }
+    /// Get the most recent (current) [`Walker`]'s position
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the walker has no history.
     pub fn get_latest(&self) -> Arc<RwLock<Point>> {
-        assert!(self.history.len() > 0);
+        assert!(!self.history.is_empty());
         self.history[self.history.len() - 1].clone()
     }
+    /// Evaluate the most recent position of the [`Walker`]
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
         func: &dyn Function<U, E>,
@@ -47,9 +64,15 @@ impl Walker {
     ) -> Result<(), E> {
         self.get_latest().write().evaluate(func, user_data)
     }
-    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
-        self.history.push(position)
-    }
+    /// Evaluate the most recent position of the [`Walker`]
+    ///
+    /// This function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
     pub fn evaluate_latest_bounded<U, E>(
         &mut self,
         func: &dyn Function<U, E>,
@@ -60,9 +83,13 @@ impl Walker {
             .write()
             .evaluate_bounded(func, bounds, user_data)
     }
+    /// Add a new position to the [`Walker`]'s history
+    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
+        self.history.push(position)
+    }
 }
 
-/// A collection of walkers for MCMC
+/// A collection of [`Walker`]s
 #[derive(Clone, Debug)]
 pub struct Ensemble {
     walkers: Vec<Walker>,
@@ -81,33 +108,40 @@ impl DerefMut for Ensemble {
     }
 }
 impl Ensemble {
+    /// Create a new [`Ensemble`] from a set of starting positions `x0` and `max_steps`
+    ///
+    /// # See Also
+    /// [`Walker::new`]
     pub fn new(x0: Vec<DVector<Float>>, max_steps: usize) -> Self {
-        Ensemble {
+        Self {
             walkers: x0
                 .into_iter()
                 .map(|pos| Walker::new(pos, max_steps))
                 .collect(),
         }
     }
-    // pub fn get_latest(&self) -> Vec<Arc<RwLock<Point>>> {
-    //     self.walkers
-    //         .iter()
-    //         .map(|walker| walker.get_latest())
-    //         .collect()
-    // }
+    /// Add a set of positions to the [`Ensemble`], adding each position to the corresponding
+    /// [`Walker`] in the given order
     pub fn push(&mut self, positions: Vec<Arc<RwLock<Point>>>) {
         self.walkers
             .iter_mut()
-            .zip(positions.into_iter())
+            .zip(positions)
             .for_each(|(walker, position)| {
                 walker.push(position);
             });
     }
+    /// Reset all [`Walker`]s in the [`Ensemble`]
     pub fn reset(&mut self) {
         for walker in self.walkers.iter_mut() {
             walker.reset();
         }
     }
+    /// Evaluate the most recent position of all [`Walker`]s in the [`Ensemble`]
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
         func: &dyn Function<U, E>,
@@ -118,6 +152,15 @@ impl Ensemble {
         }
         Ok(())
     }
+    /// Evaluate the most recent position of all [`Walker`]s in the [`Ensemble`]
+    ///
+    /// This function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
     pub fn evaluate_latest_bounded<U, E>(
         &mut self,
         func: &dyn Function<U, E>,
@@ -129,12 +172,19 @@ impl Ensemble {
         }
         Ok(())
     }
+    /// Randomly draw a [`Walker`] from the [`Ensemble`] other than the one at the provided `index`
     pub fn get_compliment_walker(&self, index: usize, rng: &mut Rng) -> Walker {
         let n_tot = self.walkers.len();
         let r = rng.usize(0..n_tot - 1);
         let j = if r >= index { r + 1 } else { r };
         self.walkers[j].clone()
     }
+    /// Randomly draw `n` [`Walker`]s from the [`Ensemble`] other than the one at the provided `index`
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if you try to draw more [`Walker`]s than are in the [`Ensemble`]
+    /// (aside from the excluded one at the provided `index`).
     pub fn get_compliment_walkers(&self, index: usize, n: usize, rng: &mut Rng) -> Vec<Walker> {
         assert!(n < self.walkers.len());
         let mut indices: Vec<usize> = (0..self.walkers.len()).filter(|&i| i != index).collect();
@@ -144,6 +194,14 @@ impl Ensemble {
             .map(|&j| self.walkers[j].clone())
             .collect()
     }
+    /// Get the average position of all [`Walker`]s
+    pub fn mean(&self) -> DVector<Float> {
+        self.walkers
+            .iter()
+            .map(|walker| walker.get_latest().read().x.clone())
+            .sum()
+    }
+    /// Get the average position of all [`Walker`]s except for the one at the provided `index`
     pub fn mean_compliment(&self, index: usize) -> DVector<Float> {
         self.walkers
             .iter()
@@ -158,6 +216,7 @@ impl Ensemble {
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
+    /// Iterate through all the [`Walker`]s other than the one at the provided `index`
     pub fn iter_compliment(&self, index: usize) -> impl Iterator<Item = Arc<RwLock<Point>>> + '_ {
         self.walkers
             .iter()
@@ -170,6 +229,13 @@ impl Ensemble {
                 }
             })
     }
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
     pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
         let burn = burn.unwrap_or(0);
         let thin = thin.unwrap_or(1);
@@ -192,6 +258,13 @@ impl Ensemble {
             })
             .collect()
     }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
     pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
         let chain = self.get_chain(burn, thin);
         chain.into_iter().flatten().collect()
@@ -469,31 +542,36 @@ impl<U, E> Sampler<U, E> {
         // }
         Ok(())
     }
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
     pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
-        let burn = burn.unwrap_or(0);
-        let thin = thin.unwrap_or(1);
-        self.ensemble
-            .walkers
-            .iter()
-            .map(|walker| {
-                walker
-                    .history
-                    .iter()
-                    .skip(burn)
-                    .enumerate()
-                    .filter_map(|(i, position)| {
-                        if i % thin == 0 {
-                            Some(position.read().x.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
+        self.ensemble.get_chain(burn, thin)
     }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
     pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
-        let chain = self.get_chain(burn, thin);
-        chain.into_iter().flatten().collect()
+        self.ensemble.get_flat_chain(burn, thin)
+    }
+
+    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis et
+    /// al.[^Karamanis]
+    ///
+    /// `c` is an optional window size (default: 5.0), see Sokal[^Sokal].
+    ///
+    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
+    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
+    pub fn get_integrated_autocorrelation_times(&self) -> DVector<Float> {
+        self.ensemble
+            .get_integrated_autocorrelation_times(self.sokal_window)
     }
 }
