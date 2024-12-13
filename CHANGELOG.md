@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/denehoffman/ganesh/compare/v0.13.1...v0.14.0) - 2024-12-13
+
+### Added
+
+- add interface for setting Sokal window size
+- add interface to update `ESS` hyperparameter settings
+- finishing touches on `mcmc` module
+- add integrated autocorrelation time
+- add ctrl-c back to MCMC sampler
+- add Multivariate normal ESS example
+- add initial MCMC interface
+- use `mul_add` where applicable
+- add benchmarks for each algorithm
+- move `Point` to be usable by other algorithms and correct the way Nelder-Mead functions are evaluated with bounds
+
+### Other
+
+- fix Just -> just
+- remove trace plots
+- update README.md and crate-level documnetation with MCMC section
+- ignore .pkl files
+- rename `Point::len` to `Point::dimension`
+- rename i -> step
+- add docstrings to sampler
+- rename AIMES -> AIES
+- get rid of generics
+
 ## [0.13.1](https://github.com/denehoffman/ganesh/compare/v0.13.0...v0.13.1) - 2024-11-08
 
 ### Added
