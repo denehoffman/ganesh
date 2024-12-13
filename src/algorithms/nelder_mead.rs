@@ -39,7 +39,7 @@ impl SimplexConstructionMethod {
                 let mut point_0 = Point::from(Bound::to_unbounded(x0, bounds));
                 point_0.evaluate_bounded(func, bounds, user_data)?;
                 points.push(point_0.clone());
-                let dim = point_0.len();
+                let dim = point_0.dimension();
                 assert!(
                     dim >= 2,
                     "Nelder-Mead is only a suitable method for problems of dimension >= 2"

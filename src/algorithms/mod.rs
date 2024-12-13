@@ -37,7 +37,7 @@ pub struct Point {
 impl Point {
     /// Get the dimension of the underlying space.
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
+    pub fn dimension(&self) -> usize {
         self.x.len()
     }
     /// Convert the [`Point`] into a [`Vec`]-`Float` tuple.
