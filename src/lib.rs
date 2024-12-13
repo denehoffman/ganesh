@@ -9,6 +9,7 @@
 //! # Table of Contents
 //! - [Key Features](#key-features)
 //! - [Quick Start](#quick-start)
+//! - [MCMC](#mcmc)
 //! - [Bounds](#bounds)
 //! - [Future Plans](#future-plans)
 //! - [Citations](#citations)
@@ -82,6 +83,21 @@
 //!│     1 ║     +1.003E0 │     +1.695E0 ║     +2.000E0 │         -inf │         +inf │           │
 //!└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘
 //! ```
+//! # MCMC
+//! Markov Chain Monte Carlo samplers can be found in the `mcmc` module, and an example can be found in `/examples/multivariate_normal_ess`:
+//! ```shell
+//! cd examples/multivariate_normal_ess
+//! pip install -r requirements.txt
+//! just
+//! ```
+//! if [`Just`](https://github.com/casey/just) is installed, or
+//! ```shell
+//! cd examples/multivariate_normal_ess
+//! pip install -r requirements.txt
+//! cargo r -r --example multivariate_normal_ess
+//! python visualize.py
+//! ```
+//! to run manually.
 //!
 //! # Bounds
 //! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
