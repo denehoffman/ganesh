@@ -112,13 +112,7 @@ pip install -r requirements.txt
 cargo r -r --example multivariate_normal_ess
 python visualize.py
 ```
-to run manually. This example can be easily extended to other problems, but should result in the following plots:
-<p align="center">
-  <img
-    width="800"
-    src="examples/multivariate_normal_ess/traces.svg"
-  />
-</p>
+to run manually. This example can be easily extended to other problems and produces the following corner plot (as well as some trace plots):
 <p align="center">
   <img
     width="800"
