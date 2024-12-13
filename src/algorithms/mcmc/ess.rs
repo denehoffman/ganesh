@@ -169,6 +169,21 @@ impl ESS {
             mu: 1.0,
         }
     }
+    /// Set the number of adaptive moves to perform at the start of sampling (default: `0`)
+    pub const fn with_n_adaptive(mut self, n_adaptive: usize) -> Self {
+        self.n_adaptive = n_adaptive;
+        self
+    }
+    /// Set the maximum number of expansion/contractions to perform at each step (default: `10000`)
+    pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
+        self.max_steps = max_steps;
+        self
+    }
+    /// Set the adaptive scaling parameter, $`\mu`$ (default: `1.0`)
+    pub const fn with_mu(mut self, mu: Float) -> Self {
+        self.mu = mu;
+        self
+    }
 }
 
 impl<U, E> MCMCAlgorithm<U, E> for ESS {
@@ -182,7 +197,6 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
         ensemble.evaluate_latest(func, user_data)?;
         Ok(())
     }
-
     fn step(
         &mut self,
         i_step: usize,
