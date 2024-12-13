@@ -12,23 +12,42 @@ keywords = ["optimization", "minimization"]
 categories = ["science", "mathematics"]
 rust-version = "1.69.0"
 
-
 [dependencies]
 nalgebra = { version = "0.33.0", features = ["serde-serialize"] }
-num = "0.4.3"
 ctrlc = "3.4.5"
 lazy_static = "1.5.0"
 dyn-clone = "1.0.17"
 serde = { version = "1.0.214", features = ["derive"] }
+serde-pickle = "1.2.0"
+fastrand = "2.2.0"
+fastrand-contrib = "0.1.0"
+parking_lot = "0.12.3"
+rustfft = "6.2.0"
 
 [dev-dependencies]
 criterion = { version = "2.7.2", package = "codspeed-criterion-compat", features = [
   "html_reports",
 ] }
-float-cmp = "0.10.0"
+approx = "0.5.1"
+
+[features]
+default = []
+f32 = []
 
 [[bench]]
-name = "rosenbrock_benchmark"
+name = "nelder_mead_benchmark"
+harness = false
+
+[[bench]]
+name = "bfgs_benchmark"
+harness = false
+
+[[bench]]
+name = "lbfgs_benchmark"
+harness = false
+
+[[bench]]
+name = "lbfgsb_benchmark"
 harness = false
 
 [package.metadata.docs.rs]

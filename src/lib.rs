@@ -9,8 +9,10 @@
 //! # Table of Contents
 //! - [Key Features](#key-features)
 //! - [Quick Start](#quick-start)
+//! - [MCMC](#mcmc)
 //! - [Bounds](#bounds)
 //! - [Future Plans](#future-plans)
+//! - [Citations](#citations)
 //!
 //! # Key Features
 //! * Simple but powerful trait-oriented library which tries to follow the Unix philosophy of "do one thing and do it well".
@@ -26,13 +28,13 @@
 //!
 //! ```rust
 //! use std::convert::Infallible;
-//! use ganesh::prelude::*;
+//! use ganesh::{Function, Float};
 //!
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl Function<f64, (), Infallible> for Rosenbrock {
-//!     fn evaluate(&self, x: &[f64], _user_data: &mut ()) -> Result<f64, Infallible> {
+//! impl Function<(), Infallible> for Rosenbrock {
+//!     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
 //!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //!             .sum())
@@ -41,15 +43,15 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::prelude::*;
+//! use ganesh::{Function, Float, Minimizer};
 //! use ganesh::algorithms::NelderMead;
 //! # use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
 //! #     pub n: usize,
 //! # }
-//! # impl Function<f64, (), Infallible> for Rosenbrock {
-//! #     fn evaluate(&self, x: &[f64], _user_data: &mut ()) -> Result<f64, Infallible> {
+//! # impl Function<(), Infallible> for Rosenbrock {
+//! #     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
 //! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //! #             .sum())
@@ -81,6 +83,21 @@
 //!│     1 ║     +1.003E0 │     +1.695E0 ║     +2.000E0 │         -inf │         +inf │           │
 //!└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘
 //! ```
+//! # MCMC
+//! Markov Chain Monte Carlo samplers can be found in the `mcmc` module, and an example can be found in `/examples/multivariate_normal_ess`:
+//! ```shell
+//! cd examples/multivariate_normal_ess
+//! pip install -r requirements.txt
+//! just
+//! ```
+//! if [`Just`](https://github.com/casey/just) is installed, or
+//! ```shell
+//! cd examples/multivariate_normal_ess
+//! pip install -r requirements.txt
+//! cargo r -r --example multivariate_normal_ess
+//! python visualize.py
+//! ```
+//! to run manually.
 //!
 //! # Bounds
 //! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
@@ -110,9 +127,40 @@
 //!
 //! # Future Plans
 //!
-//! * Eventually, I would like to implement MCMC algorithms and some more modern gradient-free optimization techniques.
+//! * Eventually, I would like to implement some more modern gradient-free optimization techniques.
 //! * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
-//! * A test suite
+//! * There should be more tests (as usual).
+//!
+//! # Citations
+//! While this project does not currently have an associated paper, most of the algorithms it implements do, and they should be cited appropriately. Citations are also generally available in the documentation.
+//!
+//! ### ESS MCMC Sampler
+//! ```text
+//! @article{karamanis2020ensemble,
+//!   title = {Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions},
+//!   author = {Karamanis, Minas and Beutler, Florian},
+//!   journal = {arXiv preprint arXiv: 2002.06212},
+//!   year = {2020}
+//! }
+//! ```
+//!
+//! ### AIES MCMC Sampler
+//! ```text
+//! @article{Goodman2010,
+//!   title = {Ensemble samplers with affine invariance},
+//!   volume = {5},
+//!   ISSN = {1559-3940},
+//!   url = {http://dx.doi.org/10.2140/camcos.2010.5.65},
+//!   DOI = {10.2140/camcos.2010.5.65},
+//!   number = {1},
+//!   journal = {Communications in Applied Mathematics and Computational Science},
+//!   publisher = {Mathematical Sciences Publishers},
+//!   author = {Goodman,  Jonathan and Weare,  Jonathan},
+//!   year = {2010},
+//!   month = jan,
+//!   pages = {65–80}
+//! }
+//! ```
 #![warn(
     clippy::nursery,
     clippy::unwrap_used,
@@ -128,7 +176,7 @@
 )]
 
 use std::{
-    fmt::{Debug, Display, UpperExp},
+    fmt::{Debug, Display},
     sync::{
         atomic::{AtomicBool, Ordering},
         Once,
@@ -136,9 +184,10 @@ use std::{
 };
 
 use dyn_clone::DynClone;
+use fastrand::Rng;
+use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
-use nalgebra::{DMatrix, DVector, RealField, Scalar};
-use num::{traits::NumAssign, Float};
+use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
 /// Module containing minimization algorithms
@@ -148,10 +197,14 @@ pub mod observers;
 /// Module containing standard functions for testing algorithms
 pub mod test_functions;
 
-/// Prelude module containing everything someone should need to use this crate for non-development
-/// purposes
-pub mod prelude {
-    pub use crate::{Algorithm, Bound, Function, Minimizer, Observer, Status};
+pub use algorithms::mcmc;
+pub use algorithms::mcmc::Sampler;
+
+/// Module containing useful traits
+pub mod traits {
+    pub use crate::mcmc::{MCMCAlgorithm, MCMCObserver};
+    pub use crate::SampleFloat;
+    pub use crate::{Algorithm, Function, Observer};
 }
 
 lazy_static! {
@@ -176,44 +229,95 @@ pub(crate) fn is_ctrl_c_pressed() -> bool {
     CTRL_C_PRESSED.load(Ordering::SeqCst)
 }
 
-#[macro_export]
-/// Convenience macro for converting raw numeric values to a generic
-macro_rules! convert {
-    ($value:expr, $type:ty) => {{
-        #[allow(clippy::unwrap_used)]
-        <$type as num::NumCast>::from($value).unwrap()
-    }};
+/// A floating-point number type (defaults to [`f64`], see `f32` feature).
+#[cfg(not(feature = "f32"))]
+pub type Float = f64;
+
+/// A floating-point number type (defaults to [`f64`], see `f32` feature).
+#[cfg(feature = "f32")]
+pub type Float = f32;
+
+/// A helper trait to get feature-gated floating-point random values
+pub trait SampleFloat {
+    /// Get a random value in a range
+    fn range(&mut self, lower: Float, upper: Float) -> Float;
+    /// Get a random value in the range [0, 1]
+    fn float(&mut self) -> Float;
+    /// Get a random Normal value
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float;
 }
+impl SampleFloat for Rng {
+    #[cfg(not(feature = "f32"))]
+    fn range(&mut self, lower: Float, upper: Float) -> Float {
+        self.f64_range(lower..upper)
+    }
+    #[cfg(feature = "f32")]
+    fn range(&mut self, lower: Float, upper: Float) -> Float {
+        self.f32_range(lower..upper)
+    }
+    #[cfg(not(feature = "f32"))]
+    fn float(&mut self) -> Float {
+        self.f64()
+    }
+    #[cfg(feature = "f32")]
+    fn float(&mut self) -> Float {
+        self.f32()
+    }
+    #[cfg(not(feature = "f32"))]
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float {
+        self.f64_normal(mu, sigma)
+    }
+    #[cfg(feature = "f32")]
+    fn normal(&mut self, mu: Float, sigma: Float) -> Float {
+        self.f32_normal(mu, sigma)
+    }
+}
+
+/// A helper trait to provide a weighted random choice method
+pub trait RandChoice {
+    /// Return an random index sampled with the given weights
+    fn choice_weighted(&mut self, weights: &[Float]) -> Option<usize>;
+}
+
+impl RandChoice for Rng {
+    fn choice_weighted(&mut self, weights: &[Float]) -> Option<usize> {
+        let total_weight = weights.iter().sum();
+        let u: Float = self.range(0.0, total_weight);
+        let mut cumulative_weight = 0.0;
+        for (index, &weight) in weights.iter().enumerate() {
+            cumulative_weight += weight;
+            if u <= cumulative_weight {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
+
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
 /// bounded [`Algorithm`]s directly, or by unbounded [`Algorithm`]s using parameter space
 /// transformations (experimental).
 #[derive(Default, Copy, Clone, Debug, Serialize, Deserialize)]
-pub enum Bound<T> {
+pub enum Bound {
     #[default]
     /// `(-inf, +inf)`
     NoBound,
     /// `(min, +inf)`
-    LowerBound(T),
+    LowerBound(Float),
     /// `(-inf, max)`
-    UpperBound(T),
+    UpperBound(Float),
     /// `(min, max)`
-    LowerAndUpperBound(T, T),
+    LowerAndUpperBound(Float, Float),
 }
-impl<T> Display for Bound<T>
-where
-    T: Scalar + Float + Display,
-{
+impl Display for Bound {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({}, {})", self.lower(), self.upper())
     }
 }
-impl<T> From<(T, T)> for Bound<T>
-where
-    T: Scalar + Float,
-{
-    fn from(value: (T, T)) -> Self {
+impl From<(Float, Float)> for Bound {
+    fn from(value: (Float, Float)) -> Self {
         assert!(value.0 < value.1);
         match (value.0.is_finite(), value.1.is_finite()) {
             (true, true) => Self::LowerAndUpperBound(value.0, value.1),
@@ -223,33 +327,40 @@ where
         }
     }
 }
-impl<T> Bound<T>
-where
-    T: Float + Scalar + Debug,
-{
+impl Bound {
+    /// Get a value in the uniform distribution between `lower` and `upper`.
+    #[cfg(not(feature = "f32"))]
+    pub fn get_uniform(&self, rng: &mut Rng) -> Float {
+        rng.f64_range(self.lower()..self.upper()) as Float
+    }
+    /// Get a value in the uniform distribution between `lower` and `upper`.
+    #[cfg(feature = "f32")]
+    pub fn get_uniform(&self, rng: &mut Rng) -> Float {
+        rng.f32_range(self.lower()..self.upper()) as Float
+    }
     /// Checks whether the given `value` is compatible with the bounds.
-    pub fn contains(&self, value: &T) -> bool {
+    pub fn contains(&self, value: Float) -> bool {
         match self {
             Self::NoBound => true,
-            Self::LowerBound(lb) => value >= lb,
-            Self::UpperBound(ub) => value <= ub,
-            Self::LowerAndUpperBound(lb, ub) => value >= lb && value <= ub,
+            Self::LowerBound(lb) => value >= *lb,
+            Self::UpperBound(ub) => value <= *ub,
+            Self::LowerAndUpperBound(lb, ub) => value >= *lb && value <= *ub,
         }
     }
     /// Returns the lower bound or `-inf` if there is none.
-    pub fn lower(&self) -> T {
+    pub const fn lower(&self) -> Float {
         match self {
-            Self::NoBound => T::neg_infinity(),
+            Self::NoBound => Float::NEG_INFINITY,
             Self::LowerBound(lb) => *lb,
-            Self::UpperBound(_) => T::neg_infinity(),
+            Self::UpperBound(_) => Float::NEG_INFINITY,
             Self::LowerAndUpperBound(lb, _) => *lb,
         }
     }
     /// Returns the upper bound or `+inf` if there is none.
-    pub fn upper(&self) -> T {
+    pub const fn upper(&self) -> Float {
         match self {
-            Self::NoBound => T::infinity(),
-            Self::LowerBound(_) => T::infinity(),
+            Self::NoBound => Float::INFINITY,
+            Self::LowerBound(_) => Float::INFINITY,
             Self::UpperBound(ub) => *ub,
             Self::LowerAndUpperBound(_, ub) => *ub,
         }
@@ -258,7 +369,7 @@ where
     ///
     /// TODO: his just does equality comparison right now, which probably needs to be improved
     /// to something with an epsilon (significant but not critical to most fits right now).
-    pub fn at_bound(&self, value: T) -> bool {
+    pub fn at_bound(&self, value: Float) -> bool {
         match self {
             Self::NoBound => false,
             Self::LowerBound(lb) => value == *lb,
@@ -280,7 +391,7 @@ where
     /// ```math
     /// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
     /// ```
-    pub fn to_bounded(values: &[T], bounds: Option<&Vec<Self>>) -> DVector<T> {
+    pub fn to_bounded(values: &[Float], bounds: Option<&Vec<Self>>) -> DVector<Float> {
         bounds
             .map_or_else(
                 || values.to_vec(),
@@ -294,13 +405,11 @@ where
             )
             .into()
     }
-    fn _to_bounded(&self, val: T) -> T {
+    fn _to_bounded(&self, val: Float) -> Float {
         match *self {
-            Self::LowerBound(lb) => lb - T::one() + T::sqrt(T::powi(val, 2) + T::one()),
-            Self::UpperBound(ub) => ub + T::one() - T::sqrt(T::powi(val, 2) + T::one()),
-            Self::LowerAndUpperBound(lb, ub) => {
-                lb + (T::sin(val) + T::one()) * (ub - lb) / (T::one() + T::one())
-            }
+            Self::LowerBound(lb) => lb - 1.0 + Float::sqrt(Float::powi(val, 2) + 1.0),
+            Self::UpperBound(ub) => ub + 1.0 - Float::sqrt(Float::powi(val, 2) + 1.0),
+            Self::LowerAndUpperBound(lb, ub) => lb + (Float::sin(val) + 1.0) * (ub - lb) / 2.0,
             Self::NoBound => val,
         }
     }
@@ -318,7 +427,7 @@ where
     /// ```math
     /// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
     /// ```
-    pub fn to_unbounded(values: &[T], bounds: Option<&Vec<Self>>) -> DVector<T> {
+    pub fn to_unbounded(values: &[Float], bounds: Option<&Vec<Self>>) -> DVector<Float> {
         bounds
             .map_or_else(
                 || values.to_vec(),
@@ -332,15 +441,11 @@ where
             )
             .into()
     }
-    fn _to_unbounded(&self, val: T) -> T {
+    fn _to_unbounded(&self, val: Float) -> Float {
         match *self {
-            Self::LowerBound(lb) => T::sqrt(T::powi(val - lb + T::one(), 2) - T::one()),
-            Self::UpperBound(ub) => T::sqrt(T::powi(ub - val + T::one(), 2) - T::one()),
-            Self::LowerAndUpperBound(lb, ub) =>
-            {
-                #[allow(clippy::suspicious_operation_groupings)]
-                T::asin((T::one() + T::one()) * (val - lb) / (ub - lb) - T::one())
-            }
+            Self::LowerBound(lb) => Float::sqrt(Float::powi(val - lb + 1.0, 2) - 1.0),
+            Self::UpperBound(ub) => Float::sqrt(Float::powi(ub - val + 1.0, 2) - 1.0),
+            Self::LowerAndUpperBound(lb, ub) => Float::asin(2.0 * (val - lb) / (ub - lb) - 1.0),
             Self::NoBound => val,
         }
     }
@@ -358,17 +463,14 @@ where
 /// There is also a default implementation of a gradient function which uses a central
 /// finite-difference method to evaluate derivatives. If an exact gradient is known, it can be used
 /// to speed up gradient-dependent algorithms.
-pub trait Function<T, U, E>
-where
-    T: Float + Scalar + NumAssign,
-{
+pub trait Function<U, E> {
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
-    fn evaluate(&self, x: &[T], user_data: &mut U) -> Result<T, E>;
+    fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
 
     /// The evaluation of the function at a point `x` with the given arguments/user data. This
     /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
@@ -380,10 +482,10 @@ where
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate_bounded(
         &self,
-        x: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-    ) -> Result<T, E> {
+    ) -> Result<Float, E> {
         self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
@@ -392,15 +494,15 @@ where
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &[T], user_data: &mut U) -> Result<DVector<T>, E> {
+    fn gradient(&self, x: &[Float], user_data: &mut U) -> Result<DVector<Float>, E> {
         let n = x.len();
         let x = DVector::from_column_slice(x);
         let mut grad = DVector::zeros(n);
         // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
         // cbrt(eps) if x_i = 0)
-        let h: DVector<T> = x
+        let h: DVector<Float> = x
             .iter()
-            .map(|&xi| T::cbrt(T::epsilon()) * (xi.abs() + T::one()))
+            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
             .collect::<Vec<_>>()
             .into();
         for i in 0..n {
@@ -410,7 +512,7 @@ where
             x_minus[i] -= h[i];
             let f_plus = self.evaluate(x_plus.as_slice(), user_data)?;
             let f_minus = self.evaluate(x_minus.as_slice(), user_data)?;
-            grad[i] = (f_plus - f_minus) / (convert!(2.0, T) * h[i]);
+            grad[i] = (f_plus - f_minus) / (2.0 * h[i]);
         }
         Ok(grad)
     }
@@ -424,10 +526,10 @@ where
     /// information.
     fn gradient_bounded(
         &self,
-        x: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-    ) -> Result<DVector<T>, E> {
+    ) -> Result<DVector<Float>, E> {
         self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 
@@ -437,11 +539,11 @@ where
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    fn hessian(&self, x: &[T], user_data: &mut U) -> Result<DMatrix<T>, E> {
+    fn hessian(&self, x: &[Float], user_data: &mut U) -> Result<DMatrix<Float>, E> {
         let x = DVector::from_column_slice(x);
-        let h: DVector<T> = x
+        let h: DVector<Float> = x
             .iter()
-            .map(|&xi| T::cbrt(T::epsilon()) * (xi.abs() + T::one()))
+            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
             .collect::<Vec<_>>()
             .into();
         let mut res = DMatrix::zeros(x.len(), x.len());
@@ -459,10 +561,10 @@ where
             g_minus.set_column(i, &self.gradient(x_minus.as_slice(), user_data)?);
             for j in 0..=i {
                 if i == j {
-                    res[(i, j)] = (g_plus[(i, j)] - g_minus[(i, j)]) / (convert!(2, T) * h[i]);
+                    res[(i, j)] = (g_plus[(i, j)] - g_minus[(i, j)]) / (2.0 * h[i]);
                 } else {
-                    res[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (convert!(4, T) * h[j]))
-                        + ((g_plus[(j, i)] - g_minus[(j, i)]) / (convert!(4, T) * h[i]));
+                    res[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (4.0 * h[j]))
+                        + ((g_plus[(j, i)] - g_minus[(j, i)]) / (4.0 * h[i]));
                     res[(j, i)] = res[(i, j)];
                 }
             }
@@ -479,27 +581,27 @@ where
     /// information.
     fn hessian_bounded(
         &self,
-        x: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-    ) -> Result<DMatrix<T>, E> {
+    ) -> Result<DMatrix<Float>, E> {
         self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 }
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Status<T: Scalar> {
+pub struct Status {
     /// A [`String`] message that can be set by minimization [`Algorithm`]s.
     pub message: String,
     /// The current position of the minimization.
-    pub x: DVector<T>,
+    pub x: DVector<Float>,
     /// The initial position of the minimization.
-    pub x0: DVector<T>,
+    pub x0: DVector<Float>,
     /// The bounds used for the minimization.
-    pub bounds: Option<Vec<Bound<T>>>,
+    pub bounds: Option<Vec<Bound>>,
     /// The current value of the minimization problem function at [`Status::x`].
-    pub fx: T,
+    pub fx: Float,
     /// The number of function evaluations (approximately, this is left up to individual
     /// [`Algorithm`]s to correctly compute and may not be exact).
     pub n_f_evals: usize,
@@ -509,22 +611,22 @@ pub struct Status<T: Scalar> {
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
     /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
-    pub hess: Option<DMatrix<T>>,
+    pub hess: Option<DMatrix<Float>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
-    pub cov: Option<DMatrix<T>>,
+    pub cov: Option<DMatrix<Float>>,
     /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
-    pub err: Option<DVector<T>>,
+    pub err: Option<DVector<Float>>,
     /// Optional parameter names
     pub parameters: Option<Vec<String>>,
 }
 
-impl<T: Scalar> Status<T> {
+impl Status {
     /// Updates the [`Status::message`] field.
     pub fn update_message(&mut self, message: &str) {
         self.message = message.to_string();
     }
     /// Updates the [`Status::x`] and [`Status::fx`] fields.
-    pub fn update_position(&mut self, pos: (DVector<T>, T)) {
+    pub fn update_position(&mut self, pos: (DVector<Float>, Float)) {
         self.x = pos.0;
         self.fx = pos.1;
     }
@@ -545,34 +647,31 @@ impl<T: Scalar> Status<T> {
         self.parameters = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
 }
-impl<T: Scalar + Float + RealField> Status<T> {
+impl Status {
     /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, covariance: Option<DMatrix<T>>) {
+    pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
-            self.err = Some(cov_mat.diagonal().map(|v| Float::sqrt(v)));
+            self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
     }
     /// Sets the Hessian matrix, computes the covariance matrix, and updates parameter errors.
-    pub fn set_hess(&mut self, hessian: &DMatrix<T>) {
+    pub fn set_hess(&mut self, hessian: &DMatrix<Float>) {
         self.hess = Some(hessian.clone());
         let mut covariance = hessian.clone().try_inverse();
         if covariance.is_none() {
             covariance = hessian
                 .clone()
-                .pseudo_inverse(Float::cbrt(T::epsilon()))
+                .pseudo_inverse(Float::cbrt(Float::EPSILON))
                 .ok();
         }
         if let Some(cov_mat) = &covariance {
-            self.err = Some(cov_mat.diagonal().map(|v| Float::sqrt(v)));
+            self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
     }
 }
-impl<T> Display for Status<T>
-where
-    T: Float + Scalar + Display + UpperExp,
-{
+impl Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let title = format!(
             "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
@@ -604,7 +703,7 @@ where
         let errs = self
             .err
             .clone()
-            .unwrap_or_else(|| DVector::from_element(self.x.len(), T::nan()));
+            .unwrap_or_else(|| DVector::from_element(self.x.len(), Float::NAN));
         let bounds = self
             .bounds
             .clone()
@@ -633,7 +732,7 @@ where
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`] module, and contains
 /// all the methods needed to be run by a [`Minimizer`].
-pub trait Algorithm<T: Scalar, U, E>: DynClone {
+pub trait Algorithm<U, E>: DynClone {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -642,11 +741,11 @@ pub trait Algorithm<T: Scalar, U, E>: DynClone {
     /// information.
     fn initialize(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        x0: &[T],
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        x0: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -658,10 +757,10 @@ pub trait Algorithm<T: Scalar, U, E>: DynClone {
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
     /// Developers should also update the internal [`Status`] of the algorithm here if converged.
@@ -672,10 +771,10 @@ pub trait Algorithm<T: Scalar, U, E>: DynClone {
     /// information.
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<bool, E>;
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
@@ -687,55 +786,46 @@ pub trait Algorithm<T: Scalar, U, E>: DynClone {
     #[allow(unused_variables)]
     fn postprocessing(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        bounds: Option<&Vec<Bound<T>>>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
-        status: &mut Status<T>,
+        status: &mut Status,
     ) -> Result<(), E> {
         Ok(())
     }
 }
-dyn_clone::clone_trait_object!(<T, U, E> Algorithm<T, U, E> where T: Scalar);
+dyn_clone::clone_trait_object!(<U, E> Algorithm<U, E>);
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`]'s [`Status`] during a minimization.
-pub trait Observer<T: Scalar, U> {
+pub trait Observer<U> {
     /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
     /// `false`, the [`Minimizer::minimize`] method will terminate.
-    fn callback(&mut self, step: usize, status: &mut Status<T>, user_data: &mut U) -> bool;
+    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
 }
 
 /// The main struct used for running [`Algorithm`]s on [`Function`]s.
-pub struct Minimizer<T, U, E>
-where
-    T: Scalar,
-{
+pub struct Minimizer<U, E> {
     /// The [`Status`] of the [`Minimizer`], usually read after minimization.
-    pub status: Status<T>,
-    algorithm: Box<dyn Algorithm<T, U, E>>,
-    bounds: Option<Vec<Bound<T>>>,
+    pub status: Status,
+    algorithm: Box<dyn Algorithm<U, E>>,
+    bounds: Option<Vec<Bound>>,
     max_steps: usize,
-    observers: Vec<Box<dyn Observer<T, U>>>,
+    observers: Vec<Box<dyn Observer<U>>>,
     dimension: usize,
 }
 
-impl<T, U, E> Display for Minimizer<T, U, E>
-where
-    T: Scalar + Display + Float + UpperExp,
-{
+impl<U, E> Display for Minimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.status)
     }
 }
 
-impl<T, U, E> Minimizer<T, U, E>
-where
-    T: Float + Scalar + Default + Display,
-{
+impl<U, E> Minimizer<U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new<A: Algorithm<T, U, E> + 'static>(algorithm: &A, dimension: usize) -> Self {
+    pub fn new<A: Algorithm<U, E> + 'static>(algorithm: &A, dimension: usize) -> Self {
         Self {
             status: Status::default(),
             algorithm: Box::new(dyn_clone::clone(algorithm)),
@@ -747,7 +837,7 @@ where
     }
     /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new_from_box(algorithm: Box<dyn Algorithm<T, U, E>>, dimension: usize) -> Self {
+    pub fn new_from_box(algorithm: Box<dyn Algorithm<U, E>>, dimension: usize) -> Self {
         Self {
             status: Status::default(),
             algorithm,
@@ -765,7 +855,7 @@ where
         self.status = new_status;
     }
     /// Set the [`Algorithm`] used by the [`Minimizer`].
-    pub fn with_algorithm<A: Algorithm<T, U, E> + 'static>(mut self, algorithm: &A) -> Self {
+    pub fn with_algorithm<A: Algorithm<U, E> + 'static>(mut self, algorithm: &A) -> Self {
         self.algorithm = Box::new(dyn_clone::clone(algorithm));
         self
     }
@@ -775,14 +865,14 @@ where
         self
     }
     /// Sets the current list of [`Observer`]s of the [`Minimizer`].
-    pub fn with_observers(mut self, observers: Vec<Box<dyn Observer<T, U>>>) -> Self {
+    pub fn with_observers(mut self, observers: Vec<Box<dyn Observer<U>>>) -> Self {
         self.observers = observers;
         self
     }
     /// Adds a single [`Observer`] to the [`Minimizer`].
     pub fn with_observer<O>(mut self, observer: O) -> Self
     where
-        O: Observer<T, U> + 'static,
+        O: Observer<U> + 'static,
     {
         self.observers.push(Box::new(observer));
         self
@@ -796,7 +886,7 @@ where
     ///
     /// This function will panic if the number of bounds is not equal to the number of free
     /// parameters.
-    pub fn with_bounds(mut self, bounds: Option<Vec<(T, T)>>) -> Self {
+    pub fn with_bounds(mut self, bounds: Option<Vec<(Float, Float)>>) -> Self {
         if let Some(bounds) = bounds {
             assert!(bounds.len() == self.dimension);
             self.bounds = Some(bounds.into_iter().map(Bound::from).collect());
@@ -807,7 +897,7 @@ where
         self
     }
     /// Sets the [`Bound`] of the parameter at the given index.
-    pub fn with_bound(mut self, index: usize, bound: Option<(T, T)>) -> Self {
+    pub fn with_bound(mut self, index: usize, bound: Option<(Float, Float)>) -> Self {
         if let Some(bounds) = &mut self.bounds {
             if let Some(bound) = bound {
                 bounds[index] = Bound::from(bound);
@@ -831,8 +921,7 @@ where
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
     /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
-    /// call to all given [`Observer`]s' callback functions, which will use the [`Status`] received
-    /// from that step's call to [`Algorithm::get_status`]. Finally, regardless of convergence,
+    /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. If the algorithm did not converge in the given
     /// step limit, the [`Status::message`] will be set to `"MAX EVALS"` at termination.
     ///
@@ -848,8 +937,8 @@ where
     /// [`Minimizer`].
     pub fn minimize(
         &mut self,
-        func: &dyn Function<T, U, E>,
-        x0: &[T],
+        func: &dyn Function<U, E>,
+        x0: &[Float],
         user_data: &mut U,
     ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
@@ -859,7 +948,7 @@ where
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
                 assert!(
-                    bound_i.contains(x_i),
+                    bound_i.contains(*x_i),
                     "Parameter #{} = {} is outside of the given bound: {}",
                     i,
                     x_i,
@@ -919,9 +1008,9 @@ mod tests {
     #[test]
     #[allow(unused_variables)]
     fn test_minimizer_constructors() {
-        let algo: LBFGSB<f64, (), Infallible> = LBFGSB::default();
+        let algo: LBFGSB<(), Infallible> = LBFGSB::default();
         let minimizer = Minimizer::new(&algo, 5);
-        let algo_boxed: Box<dyn Algorithm<f64, (), Infallible>> = Box::new(algo);
+        let algo_boxed: Box<dyn Algorithm<(), Infallible>> = Box::new(algo);
         let minimizer_from_box = Minimizer::new_from_box(algo_boxed, 5);
     }
 }
