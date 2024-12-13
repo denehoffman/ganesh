@@ -36,6 +36,7 @@
 - [Quick Start](#quick-start)
 - [Bounds](#bounds)
 - [Future Plans](#future-plans)
+- [Citations](#citations)
 
 # Key Features
 * Simple but powerful trait-oriented library which tries to follow the Unix philosophy of "do one thing and do it well".
@@ -124,6 +125,38 @@ As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should
 
 # Future Plans
 
-* Eventually, I would like to implement MCMC algorithms and some more modern gradient-free optimization techniques.
+* Eventually, I would like to implement more modern gradient-free optimization techniques.
 * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
-* A test suite
+* There should be more tests (as usual).
+
+
+# Citations
+While this project does not currently have an associated paper, most of the algorithms it implements do, and they should be cited appropriately. Citations are also generally available in the documentation.
+
+### ESS MCMC Sampler
+```text
+@article{karamanis2020ensemble,
+  title = {Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions},
+  author = {Karamanis, Minas and Beutler, Florian},
+  journal = {arXiv preprint arXiv: 2002.06212},
+  year = {2020}
+}
+```
+
+### AIES MCMC Sampler
+```text
+@article{Goodman2010,
+  title = {Ensemble samplers with affine invariance},
+  volume = {5},
+  ISSN = {1559-3940},
+  url = {http://dx.doi.org/10.2140/camcos.2010.5.65},
+  DOI = {10.2140/camcos.2010.5.65},
+  number = {1},
+  journal = {Communications in Applied Mathematics and Computational Science},
+  publisher = {Mathematical Sciences Publishers},
+  author = {Goodman,  Jonathan and Weare,  Jonathan},
+  year = {2010},
+  month = jan,
+  pages = {65–80}
+}
+```

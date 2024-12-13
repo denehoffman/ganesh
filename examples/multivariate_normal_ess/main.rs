@@ -5,7 +5,7 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::algorithms::mcmc::ess::{ESStep, ESS};
+use ganesh::algorithms::mcmc::ess::{ESSMove, ESS};
 use ganesh::algorithms::mcmc::Sampler;
 use ganesh::{Float, Function, SampleFloat};
 use nalgebra::{DMatrix, DVector};
@@ -44,20 +44,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
     // and Gaussian steps the other 10%
-    let a = ESS::new(&[(ESStep::Gaussian, 0.1), (ESStep::Differential, 0.9)], rng);
+    let a = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 
-    // Create a new Sampler and set it up to run 1000 steps per walker
-    let mut s = Sampler::new(&a, x0, 5).with_max_steps(1000);
+    // Create a new Sampler
+    let mut s = Sampler::new(&a, x0);
 
-    // Run the MCMC
-    s.sample(&problem, &mut cov_inv)?;
+    // Run 1000 steps of the MCMC algorithm
+    s.sample(&problem, &mut cov_inv, 1000)?;
 
-    // Get the resulting samples, discarding the first 200 (burn-in)
-    let flat_chain = s.get_flat_chain(Some(200), None);
+    // Get the resulting samples (no burn-in)
+    let chains = s.get_chains(None, None);
 
     // Export the results to a Python .pkl file to visualize via matplotlib
     let mut map = HashMap::new();
-    map.insert("flat chain", flat_chain);
+    map.insert("chains", chains);
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);
     serde_pickle::to_writer(&mut writer, &map, Default::default())?;
     Ok(())

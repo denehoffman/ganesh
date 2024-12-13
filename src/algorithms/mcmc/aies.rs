@@ -8,12 +8,28 @@ use crate::{algorithms::Point, Bound, Float, Function, RandChoice, SampleFloat};
 
 use super::{Ensemble, MCMCAlgorithm};
 
+/// A move used by the the [`AIES`] algorithm
+///
+/// See Goodman & Weare[^1] for move implementation algorithms
+///
+/// [^1]: Goodman, J., & Weare, J. (2010). Ensemble samplers with affine invariance. In Communications in Applied Mathematics and Computational Science (Vol. 5, Issue 1, pp. 65–80). Mathematical Sciences Publishers. <https://doi.org/10.2140/camcos.2010.5.65>
 #[derive(Copy, Clone)]
-pub enum AIStep {
-    Stretch { a: Float },
+pub enum AIESMove {
+    /// The stretch step described in Equation (7) of Goodman & Weare
+    Stretch {
+        /// The scaling parameter (higher values encourage exploration) (default: 2.0)
+        a: Float,
+    },
+    /// The walk move described in Equation (11) of Goodman & Weare
     Walk,
 }
-impl AIStep {
+impl AIESMove {
+    const fn stretch(weight: Float) -> WeightedAIESMove {
+        (Self::Stretch { a: 2.0 }, weight)
+    }
+    const fn walk(weight: Float) -> WeightedAIESMove {
+        (Self::Walk, weight)
+    }
     fn step<U, E>(
         &self,
         func: &dyn Function<U, E>,
@@ -57,7 +73,8 @@ impl AIStep {
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
                     let n = x_l.read().x.len();
-                    let r = z.ln() * ((n - 1) as Float) + proposal.fx - x_k.read().fx;
+                    let r = z.ln().mul_add((n - 1) as Float, proposal.get_fx_checked())
+                        - x_k.read().get_fx_checked();
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -83,7 +100,7 @@ impl AIStep {
                     // where W ~ Norm(μ=0, σ=Cₛ)
                     proposal.evaluate(func, user_data)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
-                    let r = proposal.fx - x_k.read().fx;
+                    let r = proposal.get_fx_checked() - x_k.read().get_fx_checked();
                     (proposal, r)
                 }
             };
@@ -98,20 +115,26 @@ impl AIStep {
     }
 }
 
-/// The Affine Invariant MCMC Ensemble Sampler
+/// The Affine Invariant Ensemble Sampler
 ///
-/// <http://msp.berkeley.edu/camcos/2010/5-1/p04.xhtml>
+/// This sampler follows the AIES algorithm defined in Goodman & Weare[^1].
+///
+/// [^1]: Goodman, J., & Weare, J. (2010). Ensemble samplers with affine invariance. In Communications in Applied Mathematics and Computational Science (Vol. 5, Issue 1, pp. 65–80). Mathematical Sciences Publishers. <https://doi.org/10.2140/camcos.2010.5.65>
 #[derive(Clone)]
 pub struct AIES {
     rng: Rng,
-    step_types: Vec<(AIStep, Float)>,
+    moves: Vec<WeightedAIESMove>,
 }
 
+/// A [`AIESMove`] coupled with a weight
+pub type WeightedAIESMove = (AIESMove, Float);
+
 impl AIES {
-    pub fn new(step_types: &[(AIStep, Float)], rng: Rng) -> Self {
+    /// Create a new Affine Invariant Ensemble Sampler from a list of weighted [`AIESMove`]s
+    pub fn new<T: AsRef<[WeightedAIESMove]>>(moves: T, rng: Rng) -> Self {
         Self {
             rng,
-            step_types: step_types.to_vec(),
+            moves: moves.as_ref().to_vec(),
         }
     }
 }
@@ -138,9 +161,9 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(&self.step_types.iter().map(|s| s.1).collect::<Vec<Float>>())
+            .choice_weighted(&self.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
-        let step_type = self.step_types[step_type_index].0;
+        let step_type = self.moves[step_type_index].0;
         step_type.step(func, bounds, user_data, ensemble, &mut self.rng)?;
         Ok(())
     }

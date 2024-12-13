@@ -2,19 +2,35 @@
 use std::sync::Arc;
 
 use fastrand::Rng;
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DVector;
 use parking_lot::RwLock;
 
 use crate::{algorithms::Point, Bound, Float, Function, RandChoice, SampleFloat};
 
 use super::{Ensemble, MCMCAlgorithm};
 
+/// A move used by the [`ESS`] algorithm
+///
+/// See Karamanis & Beutler[^1] for step implementation algorithms
+///
+/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
 #[derive(Copy, Clone)]
-pub enum ESStep {
+pub enum ESSMove {
+    /// The Differential move described in Algorithm 2 of Karamanis & Beutler
     Differential,
+    /// The Gaussian move described in Algorithm 3 of Karamanis & Beutler
     Gaussian,
 }
-impl ESStep {
+impl ESSMove {
+    /// Create a new [`ESSMove::Differential`] with a usage weight
+    pub const fn differential(weight: Float) -> WeightedESSMove {
+        (Self::Differential, weight)
+    }
+    /// Create a new [`ESSMove::Gaussian`] with a usage weight
+    pub const fn gaussian(weight: Float) -> WeightedESSMove {
+        (Self::Gaussian, weight)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn step<U, E>(
         &self,
         step: usize,
@@ -47,20 +63,22 @@ impl ESStep {
                     // Cₛ = 1/|S|   ⅀ (Xₗ - X̅ₛ)(Xₗ - X̅ₛ)†
                     //            Xₗ∈S
                     // sample ηₖ/(2μ) ∝ Norm(0, Cₛ)
+                    //
+                    // We can do this faster by selecting Zₗ ~ Norm(μ=0, σ=1) and
+                    //
+                    // W = ⅀ Zₗ(Xₗ - X̅ₛ)
+                    //   Xₗ∈S
                     let x_s = ensemble.mean_compliment(i);
                     let n_s = ensemble.len();
-                    let c_s = ensemble
+                    ensemble
                         .iter_compliment(i)
-                        .map(|x_l| (&x_l.read().x - &x_s) * (&x_l.read().x - &x_s).transpose())
-                        .sum::<DMatrix<Float>>()
-                        .unscale(n_s as Float);
-                    let l = c_s.cholesky().expect("Error in Cholesky Decomposition").l();
-                    let u = DVector::from_fn(x_s.len(), |_, _| rng.normal(0.0, 1.0));
-                    (l * u).scale(2.0 * *mu)
+                        .map(|x_l| (&x_l.read().x - &x_s).scale(rng.normal(0.0, 1.0)))
+                        .sum::<DVector<Float>>()
+                        .scale(2.0 * *mu)
                 }
             };
             // Y ~ U(0, f(Xₖ(t)))
-            let y = x_k.read().fx + rng.float().ln();
+            let y = x_k.read().get_fx_checked() + rng.float().ln();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
@@ -71,7 +89,7 @@ impl ESStep {
             let mut p_r = Point::from(&x_k.read().x + eta.scale(r));
             p_r.evaluate(func, user_data)?;
             // while Y < f(L) do
-            while y < p_l.fx && n_expand < max_steps {
+            while y < p_l.get_fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k.read().x + eta.scale(l));
@@ -80,7 +98,7 @@ impl ESStep {
                 n_expand += 1;
             }
             // while Y < f(R) do
-            while y < p_r.fx && n_expand < max_steps {
+            while y < p_r.get_fx_checked() && n_expand < max_steps {
                 // R <- R + 1
                 r += 1.0;
                 p_r.set_position(&x_k.read().x + eta.scale(r));
@@ -95,7 +113,7 @@ impl ESStep {
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k.read().x + eta.scale(xprime));
                 p_yprime.evaluate(func, user_data)?;
-                if y < p_yprime.fx || n_contract >= max_steps {
+                if y < p_yprime.get_fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
                 }
@@ -123,23 +141,29 @@ impl ESStep {
     }
 }
 
-/// The Affine Invariant MCMC Ensemble Sampler
+/// The Ensemble Slice Sampler
 ///
-/// <http://msp.berkeley.edu/camcos/2010/5-1/p04.xhtml>
+/// This sampler follows Algorithm 5 in Karamanis & Beutler.[^1].
+///
+/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
 #[derive(Clone)]
 pub struct ESS {
     rng: Rng,
-    step_types: Vec<(ESStep, Float)>,
+    moves: Vec<WeightedESSMove>,
     n_adaptive: usize,
     max_steps: usize,
     mu: Float,
 }
 
+/// A [`ESSMove`] coupled with a weight
+pub type WeightedESSMove = (ESSMove, Float);
+
 impl ESS {
-    pub fn new(step_types: &[(ESStep, Float)], rng: Rng) -> Self {
+    /// Create a new Ensemble Slice Sampler from a list of weighted [`ESSMove`]s
+    pub fn new<T: AsRef<[WeightedESSMove]>>(moves: T, rng: Rng) -> Self {
         Self {
             rng,
-            step_types: step_types.to_vec(),
+            moves: moves.as_ref().to_vec(),
             n_adaptive: 0,
             max_steps: 10000,
             mu: 1.0,
@@ -169,9 +193,9 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(&self.step_types.iter().map(|s| s.1).collect::<Vec<Float>>())
+            .choice_weighted(&self.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
-        let step_type = self.step_types[step_type_index].0;
+        let step_type = self.moves[step_type_index].0;
         step_type.step(
             i_step,
             self.n_adaptive,

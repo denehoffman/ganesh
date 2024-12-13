@@ -42,7 +42,8 @@ impl Point {
     }
     /// Convert the [`Point`] into a [`Vec`]-`Float` tuple.
     pub fn into_vec_val(self) -> (Vec<Float>, Float) {
-        (self.x.data.into(), self.fx)
+        let fx = self.get_fx_checked();
+        (self.x.data.into(), fx)
     }
 }
 impl Point {
@@ -85,12 +86,17 @@ impl Point {
     pub fn total_cmp(&self, other: &Self) -> Ordering {
         self.fx.total_cmp(&other.fx)
     }
+    /// Move the point to a new position, resetting the evaluation of the point
     pub fn set_position(&mut self, x: DVector<Float>) {
         self.x = x;
         self.fx = Float::NAN;
     }
-
-    pub fn get_fx(&self) -> Float {
+    /// Get the current evaluation of the point, if it has been evaluated
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the point is unevaluated.
+    pub fn get_fx_checked(&self) -> Float {
         assert!(!self.fx.is_nan(), "Point value requested before evaluation");
         self.fx
     }

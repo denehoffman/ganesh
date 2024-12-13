@@ -15,10 +15,12 @@ use crate::{init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound,
 use super::Point;
 
 /// Affine Invariant MCMC Ensemble Sampler
-pub mod aimes;
+pub mod aies;
+pub use aies::{AIESMove, AIES};
 
 /// Ensemble Slice Sampler
 pub mod ess;
+pub use ess::{ESSMove, ESS};
 
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug)]
@@ -27,18 +29,25 @@ pub struct Walker {
 }
 
 impl Walker {
-    /// Create a new [`Walker`] located at `x0` and set the history capacity to `max_steps`
-    ///
-    /// Note that `max_steps` is not fixed, but only using the given number of steps can result in
-    /// fewer memory allocations.
-    pub fn new(x0: DVector<Float>, max_steps: usize) -> Self {
-        let mut history = Vec::with_capacity(max_steps);
-        history.push(Arc::new(RwLock::new(Point::from(x0))));
+    /// Create a new [`Walker`] located at `x0`
+    pub fn new(x0: DVector<Float>) -> Self {
+        let history = vec![Arc::new(RwLock::new(Point::from(x0)))];
         Self { history }
     }
-    /// Reset the history of the [`Walker`]
+    /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
+    pub fn dimension(&self) -> (usize, usize) {
+        let n_steps = self.history.len();
+        let n_variables = self.history[0].read().dimension();
+        (n_steps, n_variables)
+    }
+    /// Reset the history of the [`Walker`] (except for its starting position)
     pub fn reset(&mut self) {
-        self.history = Vec::with_capacity(self.history.capacity());
+        let first = self.history.first();
+        if let Some(first) = first {
+            self.history = vec![first.clone()];
+        } else {
+            self.history = Vec::default();
+        }
     }
     /// Get the most recent (current) [`Walker`]'s position
     ///
@@ -110,13 +119,16 @@ impl Ensemble {
     ///
     /// # See Also
     /// [`Walker::new`]
-    pub fn new(x0: Vec<DVector<Float>>, max_steps: usize) -> Self {
+    pub fn new(x0: Vec<DVector<Float>>) -> Self {
         Self {
-            walkers: x0
-                .into_iter()
-                .map(|pos| Walker::new(pos, max_steps))
-                .collect(),
+            walkers: x0.into_iter().map(Walker::new).collect(),
         }
+    }
+    /// Get the dimension of the Ensemble `(n_walkers, n_steps, n_variables)`
+    pub fn dimension(&self) -> (usize, usize, usize) {
+        let n_walkers = self.walkers.len();
+        let (n_steps, n_variables) = self.walkers[0].dimension();
+        (n_walkers, n_steps, n_variables)
     }
     /// Add a set of positions to the [`Ensemble`], adding each position to the corresponding
     /// [`Walker`] in the given order
@@ -128,7 +140,7 @@ impl Ensemble {
                 walker.push(position);
             });
     }
-    /// Reset all [`Walker`]s in the [`Ensemble`]
+    /// Reset all [`Walker`]s in the [`Ensemble`] (except for their starting position)
     pub fn reset(&mut self) {
         for walker in self.walkers.iter_mut() {
             walker.reset();
@@ -403,10 +415,10 @@ pub trait MCMCAlgorithm<U, E>: DynClone {
 dyn_clone::clone_trait_object!(<U, E> MCMCAlgorithm<U, E>);
 
 /// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
-/// [`MCMCAlgorithm`]'s [`Chains`] during a minimization.
+/// [`MCMCAlgorithm`]'s [`Ensemble`] during sampling.
 pub trait MCMCObserver<U> {
-    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
-    /// `false`, the [`Minimizer::minimize`] method will terminate.
+    /// A function that is called at every step of a sampling [`MCMCAlgorithm`]. If it returns
+    /// `false`, the [`Sampler::sample`] method will terminate.
     fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool;
 }
 
@@ -416,28 +428,19 @@ pub struct Sampler<U, E> {
     pub ensemble: Ensemble,
     mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
     bounds: Option<Vec<Bound>>,
-    max_steps: usize,
     observers: Vec<Box<dyn MCMCObserver<U>>>,
-    dimension: usize,
     sokal_window: Float,
 }
 
 impl<U, E> Sampler<U, E> {
-    const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Sampler`] with the given [`MCMCAlgorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new<M: MCMCAlgorithm<U, E> + 'static>(
-        mcmc: &M,
-        x0: Vec<DVector<Float>>,
-        dimension: usize,
-    ) -> Self {
+    pub fn new<M: MCMCAlgorithm<U, E> + 'static>(mcmc: &M, x0: Vec<DVector<Float>>) -> Self {
         Self {
-            ensemble: Ensemble::new(x0, Self::DEFAULT_MAX_STEPS),
+            ensemble: Ensemble::new(x0),
             mcmc_algorithm: Box::new(dyn_clone::clone(mcmc)),
             bounds: None,
-            max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
-            dimension,
             sokal_window: 7.0,
         }
     }
@@ -446,39 +449,24 @@ impl<U, E> Sampler<U, E> {
     pub fn new_from_box(
         mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
         x0: Vec<DVector<Float>>,
-        dimension: usize,
     ) -> Self {
         Self {
-            ensemble: Ensemble::new(x0, Self::DEFAULT_MAX_STEPS),
+            ensemble: Ensemble::new(x0),
             mcmc_algorithm,
             bounds: None,
-            max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
-            dimension,
             sokal_window: 7.0,
         }
     }
     fn reset(&mut self) {
         self.ensemble.reset();
     }
-    /// Set the [`Algorithm`] used by the [`Minimizer`].
+    /// Set the [`MCMCAlgorithm`] used by the [`Sampler`].
     pub fn with_mcmc_algorithm<M: MCMCAlgorithm<U, E> + 'static>(
         mut self,
         mcmc_algorithm: &M,
     ) -> Self {
         self.mcmc_algorithm = Box::new(dyn_clone::clone(mcmc_algorithm));
-        self
-    }
-    /// Set the maximum number of steps to perform before failure (default: 4000).
-    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
-        let old_max = self.max_steps;
-        self.max_steps = max_steps;
-        if max_steps > old_max {
-            let diff = max_steps - old_max;
-            for walker in self.ensemble.iter_mut() {
-                walker.history.reserve_exact(diff);
-            }
-        }
         self
     }
     /// Sets the current list of [`MCMCObserver`]s of the [`Sampler`].
@@ -505,7 +493,7 @@ impl<U, E> Sampler<U, E> {
     /// parameters.
     pub fn with_bounds(mut self, bounds: Option<Vec<(Float, Float)>>) -> Self {
         if let Some(bounds) = bounds {
-            assert!(bounds.len() == self.dimension);
+            assert!(bounds.len() == self.ensemble.dimension().2);
             self.bounds = Some(bounds.into_iter().map(Bound::from).collect());
         } else {
             self.bounds = None
@@ -521,7 +509,7 @@ impl<U, E> Sampler<U, E> {
                 bounds[index] = Bound::NoBound;
             }
         } else {
-            let mut bounds = vec![Bound::default(); self.dimension];
+            let mut bounds = vec![Bound::default(); self.ensemble.dimension().2];
             if let Some(bound) = bound {
                 bounds[index] = Bound::from(bound);
             } else {
@@ -536,14 +524,19 @@ impl<U, E> Sampler<U, E> {
     /// This method first runs [`MCMCAlgorithm::initialize`], then runs [`MCMCAlgorithm::step`] in a loop,
     /// terminating if [`MCMCAlgorithm::check_for_termination`] returns `true` or if
     /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
-    /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
+    /// call to all given [`MCMCObserver`]s' callback functions. Finally, regardless of convergence,
     /// [`MCMCAlgorithm::postprocessing`] is called.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
     /// information.
-    pub fn sample(&mut self, func: &dyn Function<U, E>, user_data: &mut U) -> Result<(), E> {
+    pub fn sample(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        n_steps: usize,
+    ) -> Result<(), E> {
         init_ctrl_c_handler();
         reset_ctrl_c_handler();
         self.mcmc_algorithm.initialize(
@@ -554,7 +547,7 @@ impl<U, E> Sampler<U, E> {
         )?;
         let mut current_step = 0;
         let mut observer_termination = false;
-        while current_step <= self.max_steps
+        while current_step < n_steps - 1 // the first step is the initial position
             && !observer_termination
             && !self.mcmc_algorithm.check_for_termination(
                 func,
@@ -564,8 +557,9 @@ impl<U, E> Sampler<U, E> {
             )?
             && !is_ctrl_c_pressed()
         {
+            let walker_step = self.ensemble.dimension().1;
             self.mcmc_algorithm.step(
-                current_step,
+                walker_step + 1,
                 func,
                 self.bounds.as_ref(),
                 user_data,
@@ -575,7 +569,7 @@ impl<U, E> Sampler<U, E> {
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
                     observer_termination =
-                        !observer.callback(current_step, &mut self.ensemble, user_data)
+                        !observer.callback(walker_step + 1, &mut self.ensemble, user_data)
                             || observer_termination;
                 }
             }
@@ -595,7 +589,7 @@ impl<U, E> Sampler<U, E> {
     ///
     /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
     /// be discarded from the [`Walker`]'s history.
-    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
+    pub fn get_chains(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
         self.ensemble.get_chain(burn, thin)
     }
     /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened

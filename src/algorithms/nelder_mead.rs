@@ -47,6 +47,7 @@ impl SimplexConstructionMethod {
                 for i in 0..dim {
                     let mut point_i = point_0.clone();
                     point_i.x[i] += *simplex_size;
+                    point_i.fx = Float::NAN;
                     point_i.evaluate_bounded(func, bounds, user_data)?;
                     points.push(point_i);
                 }
@@ -225,16 +226,16 @@ impl NelderMeadFTerminator {
     fn update_convergence(&self, simplex: &Simplex, status: &mut Status) {
         match self {
             Self::Amoeba { tol_f_rel } => {
-                let fh = simplex.worst().fx;
-                let fl = simplex.best().fx;
+                let fh = simplex.worst().get_fx_checked();
+                let fl = simplex.best().get_fx_checked();
                 if 2.0 * (fh - fl) / (Float::abs(fh) + Float::abs(fl)) <= *tol_f_rel {
                     status.set_converged();
                     status.update_message("term_f = AMOEBA");
                 }
             }
             Self::Absolute { tol_f_abs } => {
-                let fh = simplex.worst().fx;
-                let fl = simplex.best().fx;
+                let fh = simplex.worst().get_fx_checked();
+                let fl = simplex.best().get_fx_checked();
                 if fh - fl <= *tol_f_abs {
                     status.set_converged();
                     status.update_message("term_f = ABSOLUTE");
