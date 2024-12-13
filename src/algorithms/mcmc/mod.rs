@@ -283,7 +283,7 @@ impl Ensemble {
     /// Calculate the integrated autocorrelation time for each parameter according to Karamanis et
     /// al.[^Karamanis]
     ///
-    /// `c` is an optional window size (default: 5.0), see Sokal[^Sokal].
+    /// `c` is an optional window size (default: 7.0), see Sokal[^Sokal].
     ///
     /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
     /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
@@ -519,6 +519,11 @@ impl<U, E> Sampler<U, E> {
         }
         self
     }
+    /// Set the Sokal window size for calculating the integrated autocorrelation time (default: 7.0)
+    pub const fn with_sokal_window(mut self, size: Float) -> Self {
+        self.sokal_window = size;
+        self
+    }
     /// Minimize the given [`Function`] starting at the point `x0`.
     ///
     /// This method first runs [`MCMCAlgorithm::initialize`], then runs [`MCMCAlgorithm::step`] in a loop,
@@ -606,7 +611,7 @@ impl<U, E> Sampler<U, E> {
     /// Calculate the integrated autocorrelation time for each parameter according to Karamanis et
     /// al.[^Karamanis]
     ///
-    /// `c` is an optional window size (default: 5.0), see Sokal[^Sokal].
+    /// `c` is an optional window size (default: 7.0), see Sokal[^Sokal].
     ///
     /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
     /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
