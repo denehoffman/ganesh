@@ -105,7 +105,7 @@ cd examples/multivariate_normal_ess
 pip install -r requirements.txt
 just
 ```
-if [`Just`](https://github.com/casey/just) is installed, or
+if [`just`](https://github.com/casey/just) is installed, or
 ```shell
 cd examples/multivariate_normal_ess
 pip install -r requirements.txt
