@@ -9,6 +9,7 @@ use fastrand::Rng;
 use nalgebra::{Complex, ComplexField, DVector};
 use parking_lot::RwLock;
 use rustfft::FftPlanner;
+use serde::{Deserialize, Serialize};
 
 use crate::{init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, Bound, Float, Function};
 
@@ -23,7 +24,7 @@ pub mod ess;
 pub use ess::{ESSMove, ESS};
 
 /// A MCMC walker containing a history of past samples
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
     history: Vec<Arc<RwLock<Point>>>,
 }
@@ -97,7 +98,7 @@ impl Walker {
 }
 
 /// A collection of [`Walker`]s
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ensemble {
     walkers: Vec<Walker>,
 }

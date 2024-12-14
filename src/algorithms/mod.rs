@@ -21,6 +21,7 @@ pub use lbfgsb::LBFGSB;
 pub mod mcmc;
 
 use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
@@ -29,7 +30,7 @@ use std::{
 use crate::{Bound, Float, Function};
 
 /// Describes a point in parameter space that can be used in [`Algorithm`](`crate::Algorithm`)s.
-#[derive(PartialEq, Clone, Default, Debug)]
+#[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Point {
     x: DVector<Float>,
     fx: Float,
