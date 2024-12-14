@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2](https://github.com/denehoffman/ganesh/compare/v0.14.1...v0.14.2) - 2024-12-14
+
+### Added
+
+- add serde to  and members
+
 ## [0.14.1](https://github.com/denehoffman/ganesh/compare/v0.14.0...v0.14.1) - 2024-12-14
 
 ### Fixed
