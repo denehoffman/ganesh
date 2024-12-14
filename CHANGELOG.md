@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.3](https://github.com/denehoffman/ganesh/compare/v0.14.2...v0.14.3) - 2024-12-14
+
+### Fixed
+
+- make  custom constructors public
+
 ## [0.14.2](https://github.com/denehoffman/ganesh/compare/v0.14.1...v0.14.2) - 2024-12-14
 
 ### Added
