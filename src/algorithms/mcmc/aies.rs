@@ -24,10 +24,12 @@ pub enum AIESMove {
     Walk,
 }
 impl AIESMove {
-    const fn stretch(weight: Float) -> WeightedAIESMove {
+    /// Create a new [`AIESMove::Stretch`] with a usage weight and default scaling parameter
+    pub const fn stretch(weight: Float) -> WeightedAIESMove {
         (Self::Stretch { a: 2.0 }, weight)
     }
-    const fn walk(weight: Float) -> WeightedAIESMove {
+    /// Create a new [`AIESMove::Walk`] with a usage weight
+    pub const fn walk(weight: Float) -> WeightedAIESMove {
         (Self::Walk, weight)
     }
     fn step<U, E>(
