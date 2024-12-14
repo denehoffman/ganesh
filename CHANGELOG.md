@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1](https://github.com/denehoffman/ganesh/compare/v0.14.0...v0.14.1) - 2024-12-14
+
+### Fixed
+
+- ensure `f32` feature works by making a few type-agnostic calls
+
 ## [0.14.0](https://github.com/denehoffman/ganesh/compare/v0.13.1...v0.14.0) - 2024-12-13
 
 ### Added
