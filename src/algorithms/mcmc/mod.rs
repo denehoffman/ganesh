@@ -335,12 +335,12 @@ impl Ensemble {
                         *acc += x;
                         Some(*acc)
                     })
-                    .map(|x| 2.0f64.mul_add(x, -1.0))
+                    .map(|x| Float::mul_add(2.0, x, -1.0))
                     .collect();
                 let ind = taus
                     .iter()
                     .enumerate()
-                    .position(|(idx, &tau)| (idx as f64) < c * tau)
+                    .position(|(idx, &tau)| (idx as Float) < c * tau)
                     .unwrap_or(taus.len() - 1);
                 taus[ind]
             }),
