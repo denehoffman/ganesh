@@ -21,8 +21,8 @@ use crate::{
 ///
 /// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
-/// let obs = DebugObserver;
-/// let mut m = Minimizer::new(&nm, 2).with_observer(obs);
+/// let obs = DebugObserver::build();
+/// let mut m = Minimizer::new(&nm, 2).with_observer(&obs);
 /// m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
@@ -30,8 +30,8 @@ use crate::{
 pub struct DebugObserver;
 impl DebugObserver {
     /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
-    pub fn build(self) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(self))
+    pub fn build() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self))
     }
 }
 impl<U: Debug> Observer<U> for DebugObserver {
@@ -59,8 +59,8 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// let mut rng = Rng::new();
 /// let x0 = (0..5).map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0))).collect();
 /// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
-/// let obs = DebugMCMCObserver;
-/// let mut sampler = Sampler::new(&ess, x0).with_observer(obs);
+/// let obs = DebugMCMCObserver::build();
+/// let mut sampler = Sampler::new(&ess, x0).with_observer(&obs);
 /// sampler.sample(&problem, &mut (), 10).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(sampler.ensemble.dimension() == (5, 10, 2));
@@ -68,8 +68,8 @@ impl<U: Debug> Observer<U> for DebugObserver {
 pub struct DebugMCMCObserver;
 impl DebugMCMCObserver {
     /// Finalize the [`MCMCObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
-    pub fn build(self) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(self))
+    pub fn build() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self))
     }
 }
 impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
