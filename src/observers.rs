@@ -1,4 +1,6 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
+
+use parking_lot::RwLock;
 
 use crate::{
     algorithms::mcmc::{Ensemble, MCMCObserver},
@@ -26,6 +28,12 @@ use crate::{
 /// assert!(m.status.converged);
 /// ```
 pub struct DebugObserver;
+impl DebugObserver {
+    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
+    pub fn build(self) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(self))
+    }
+}
 impl<U: Debug> Observer<U> for DebugObserver {
     fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool {
         println!("{step}, {:?}, {:?}", status, user_data);
@@ -58,6 +66,12 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// assert!(sampler.ensemble.dimension() == (5, 10, 2));
 /// ```
 pub struct DebugMCMCObserver;
+impl DebugMCMCObserver {
+    /// Finalize the [`MCMCObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
+    pub fn build(self) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(self))
+    }
+}
 impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
     fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool {
         println!("{step}, {:?}, {:?}", ensemble, user_data);
