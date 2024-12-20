@@ -22,7 +22,7 @@ use crate::{
 /// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
-/// let mut m = Minimizer::new(&nm, 2).with_observer(&obs);
+/// let mut m = Minimizer::new(&nm, 2).with_observer(obs);
 /// m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
@@ -60,7 +60,7 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// let x0 = (0..5).map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0))).collect();
 /// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 /// let obs = DebugMCMCObserver::build();
-/// let mut sampler = Sampler::new(&ess, x0).with_observer(&obs);
+/// let mut sampler = Sampler::new(&ess, x0).with_observer(obs);
 /// sampler.sample(&problem, &mut (), 10).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(sampler.ensemble.dimension() == (5, 10, 2));
@@ -103,7 +103,7 @@ impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
 /// let x0 = (0..5).map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0))).collect();
 /// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 /// let obs = AutocorrelationObserver::default().with_n_check(20).build();
-/// let mut sampler = Sampler::new(&ess, x0).with_observer(&obs);
+/// let mut sampler = Sampler::new(&ess, x0).with_observer(obs);
 /// sampler.sample(&problem, &mut (), 100).unwrap();
 /// // ^ This will print autocorrelation messages for every 20 steps
 /// assert!(sampler.ensemble.dimension() == (5, 100, 2));
