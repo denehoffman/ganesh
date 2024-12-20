@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/denehoffman/ganesh/compare/v0.14.3...v0.15.0) - 2024-12-20
+
+### Added
+
+- Add autocorrelation `MCMCObserver`
+- add `build` methods to observers to make `Arc<RwLock<Self>>`s out of them
+
+### Fixed
+
+- change `build` signature for standalone structs
+- correct autocorrelation calculation
+
+### Other
+
+- add usage doctest for `AutocorrelationObserver`
+- update example with IAT observer and proper burn-in, as well as an IAT plot
+- remove methods to set all observers and change the signature of `with_observer` to accept an `Arc<RwLock<Observer>>`
+- switch `Observer`/`MCMCObserver` callback notation to terminate if true is returned
+
 ## [0.14.3](https://github.com/denehoffman/ganesh/compare/v0.14.2...v0.14.3) - 2024-12-14
 
 ### Fixed
