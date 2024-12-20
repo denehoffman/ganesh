@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1](https://github.com/denehoffman/ganesh/compare/v0.15.0...v0.15.1) - 2024-12-20
+
+### Fixed
+
+- change signature of `with_observer` methods to be more flexible
+
 ## [0.15.0](https://github.com/denehoffman/ganesh/compare/v0.14.3...v0.15.0) - 2024-12-20
 
 ### Added
