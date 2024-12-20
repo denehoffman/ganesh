@@ -800,7 +800,7 @@ dyn_clone::clone_trait_object!(<U, E> Algorithm<U, E>);
 /// [`Algorithm`]'s [`Status`] during a minimization.
 pub trait Observer<U> {
     /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
-    /// `false`, the [`Minimizer::minimize`] method will terminate.
+    /// `true`, the [`Minimizer::minimize`] method will terminate.
     fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
 }
 
@@ -982,7 +982,7 @@ impl<U, E> Minimizer<U, E> {
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
                     observer_termination =
-                        !observer.callback(current_step, &mut self.status, user_data)
+                        observer
                             || observer_termination;
                 }
             }

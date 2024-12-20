@@ -575,7 +575,7 @@ impl<U, E> Sampler<U, E> {
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
                     observer_termination =
-                        !observer.callback(walker_step + 1, &mut self.ensemble, user_data)
+                        observer
                             || observer_termination;
                 }
             }
