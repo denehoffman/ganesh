@@ -429,7 +429,7 @@ pub struct Sampler<U, E> {
     pub ensemble: Ensemble,
     mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
     bounds: Option<Vec<Bound>>,
-    observers: Vec<Box<dyn MCMCObserver<U>>>,
+    observers: Vec<Arc<RwLock<dyn MCMCObserver<U>>>>,
     sokal_window: Float,
 }
 
@@ -470,17 +470,12 @@ impl<U, E> Sampler<U, E> {
         self.mcmc_algorithm = Box::new(dyn_clone::clone(mcmc_algorithm));
         self
     }
-    /// Sets the current list of [`MCMCObserver`]s of the [`Sampler`].
-    pub fn with_observers(mut self, observers: Vec<Box<dyn MCMCObserver<U>>>) -> Self {
-        self.observers = observers;
-        self
-    }
     /// Adds a single [`MCMCObserver`] to the [`Sampler`].
-    pub fn with_observer<O>(mut self, observer: O) -> Self
-    where
-        O: MCMCObserver<U> + 'static,
-    {
-        self.observers.push(Box::new(observer));
+    pub fn with_observer<O: MCMCObserver<U> + 'static>(
+        mut self,
+        observer: &Arc<RwLock<O>>,
+    ) -> Self {
+        self.observers.push(observer.clone());
         self
     }
     /// Sets all [`Bound`]s of the [`Sampler`]. This can be [`None`] for an unbounded problem, or
@@ -576,6 +571,8 @@ impl<U, E> Sampler<U, E> {
                 for observer in self.observers.iter_mut() {
                     observer_termination =
                         observer
+                            .write()
+                            .callback(walker_step + 1, &mut self.ensemble, user_data)
                             || observer_termination;
                 }
             }

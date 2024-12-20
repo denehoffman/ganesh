@@ -179,7 +179,7 @@ use std::{
     fmt::{Debug, Display},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Once,
+        Arc, Once,
     },
 };
 
@@ -188,6 +188,7 @@ use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
 use nalgebra::{DMatrix, DVector};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 /// Module containing minimization algorithms
@@ -811,7 +812,7 @@ pub struct Minimizer<U, E> {
     algorithm: Box<dyn Algorithm<U, E>>,
     bounds: Option<Vec<Bound>>,
     max_steps: usize,
-    observers: Vec<Box<dyn Observer<U>>>,
+    observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
     dimension: usize,
 }
 
@@ -864,17 +865,9 @@ impl<U, E> Minimizer<U, E> {
         self.max_steps = max_steps;
         self
     }
-    /// Sets the current list of [`Observer`]s of the [`Minimizer`].
-    pub fn with_observers(mut self, observers: Vec<Box<dyn Observer<U>>>) -> Self {
-        self.observers = observers;
-        self
-    }
     /// Adds a single [`Observer`] to the [`Minimizer`].
-    pub fn with_observer<O>(mut self, observer: O) -> Self
-    where
-        O: Observer<U> + 'static,
-    {
-        self.observers.push(Box::new(observer));
+    pub fn with_observer<O: Observer<U> + 'static>(mut self, observer: &Arc<RwLock<O>>) -> Self {
+        self.observers.push(observer.clone());
         self
     }
     /// Sets all [`Bound`]s of the [`Minimizer`]. This can be [`None`] for an unbounded problem, or
@@ -983,6 +976,8 @@ impl<U, E> Minimizer<U, E> {
                 for observer in self.observers.iter_mut() {
                     observer_termination =
                         observer
+                            .write()
+                            .callback(current_step, &mut self.status, user_data)
                             || observer_termination;
                 }
             }
