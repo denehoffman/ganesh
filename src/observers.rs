@@ -86,6 +86,28 @@ impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
 /// `n_taus_threshold` and compared to the current step. If the ensemble has passed the required
 /// number of steps and the change in the mean IAT is less than the given `dtau_threshold`, the
 /// observer terminates the sampler (if `terminate` is `true`).
+///
+/// # Usage:
+///
+/// ```rust
+/// use ganesh::Sampler;
+/// use ganesh::traits::*;
+/// use ganesh::mcmc::{ESS, ESSMove};
+/// use ganesh::test_functions::NegativeRosenbrock;
+/// use ganesh::observers::AutocorrelationObserver;
+/// use fastrand::Rng;
+/// use nalgebra::DVector;
+///
+/// let problem = NegativeRosenbrock { n: 2 };
+/// let mut rng = Rng::new();
+/// let x0 = (0..5).map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0))).collect();
+/// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
+/// let obs = AutocorrelationObserver::default().with_n_check(20).build();
+/// let mut sampler = Sampler::new(&ess, x0).with_observer(&obs);
+/// sampler.sample(&problem, &mut (), 100).unwrap();
+/// // ^ This will print autocorrelation messages for every 20 steps
+/// assert!(sampler.ensemble.dimension() == (5, 100, 2));
+/// ```
 pub struct AutocorrelationObserver {
     n_check: usize,
     n_taus_threshold: usize,
