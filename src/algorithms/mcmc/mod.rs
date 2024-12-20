@@ -498,11 +498,8 @@ impl<U, E> Sampler<U, E> {
         self
     }
     /// Adds a single [`MCMCObserver`] to the [`Sampler`].
-    pub fn with_observer<O: MCMCObserver<U> + 'static>(
-        mut self,
-        observer: &Arc<RwLock<O>>,
-    ) -> Self {
-        self.observers.push(observer.clone());
+    pub fn with_observer(mut self, observer: Arc<RwLock<dyn MCMCObserver<U>>>) -> Self {
+        self.observers.push(observer);
         self
     }
     /// Sets all [`Bound`]s of the [`Sampler`]. This can be [`None`] for an unbounded problem, or

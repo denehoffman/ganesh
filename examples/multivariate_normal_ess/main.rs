@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     // Create a new Sampler
-    let mut s = Sampler::new(&a, x0).with_observer(&aco);
+    let mut s = Sampler::new(&a, x0).with_observer(aco.clone());
 
     // Run a maximum of 1000 steps of the MCMC algorithm
     s.sample(&problem, &mut cov_inv, 1000)?;

@@ -866,8 +866,8 @@ impl<U, E> Minimizer<U, E> {
         self
     }
     /// Adds a single [`Observer`] to the [`Minimizer`].
-    pub fn with_observer<O: Observer<U> + 'static>(mut self, observer: &Arc<RwLock<O>>) -> Self {
-        self.observers.push(observer.clone());
+    pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<U>>>) -> Self {
+        self.observers.push(observer);
         self
     }
     /// Sets all [`Bound`]s of the [`Minimizer`]. This can be [`None`] for an unbounded problem, or
