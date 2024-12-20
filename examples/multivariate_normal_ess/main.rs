@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
 use std::io::BufWriter;
@@ -7,6 +6,7 @@ use std::path::Path;
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::{ESSMove, ESS};
 use ganesh::algorithms::mcmc::Sampler;
+use ganesh::observers::AutocorrelationObserver;
 use ganesh::{Float, Function, SampleFloat};
 use nalgebra::{DMatrix, DVector};
 use std::error::Error;
@@ -46,19 +46,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     // and Gaussian steps the other 10%
     let a = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 
-    // Create a new Sampler
-    let mut s = Sampler::new(&a, x0);
+    let aco = AutocorrelationObserver::default()
+        .with_verbose(true)
+        .build();
 
-    // Run 1000 steps of the MCMC algorithm
+    // Create a new Sampler
+    let mut s = Sampler::new(&a, x0).with_observer(&aco);
+
+    // Run a maximum of 1000 steps of the MCMC algorithm
     s.sample(&problem, &mut cov_inv, 1000)?;
 
     // Get the resulting samples (no burn-in)
     let chains = s.get_chains(None, None);
 
+    // Get the integrated autocorrelation times
+    let taus = aco.read().taus.clone();
+
     // Export the results to a Python .pkl file to visualize via matplotlib
-    let mut map = HashMap::new();
-    map.insert("chains", chains);
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);
-    serde_pickle::to_writer(&mut writer, &map, Default::default())?;
+    serde_pickle::to_writer(&mut writer, &(chains, taus), Default::default())?;
     Ok(())
 }
