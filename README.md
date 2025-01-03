@@ -74,7 +74,7 @@ use ganesh::algorithms::NelderMead;
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
     let nm = NelderMead::default();
-    let mut m = Minimizer::new(&nm, 2);
+    let mut m = Minimizer::new(Box::new(nm), 2);
     let x0 = &[2.0, 2.0];
     m.minimize(&problem, x0, &mut ())?;
     println!("{}", m.status);

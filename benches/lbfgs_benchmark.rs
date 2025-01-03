@@ -9,7 +9,7 @@ fn lbfgs_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
             let problem = Rosenbrock { n: *ndim };
             let nm = LBFGS::default();
-            let mut m = Minimizer::new(&nm, *ndim).with_max_steps(10_000_000);
+            let mut m = Minimizer::new(Box::new(nm), *ndim).with_max_steps(10_000_000);
             let x0 = vec![5.0; *ndim];
             b.iter(|| {
                 m.minimize(&problem, &x0, &mut ()).unwrap();
