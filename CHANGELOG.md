@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/denehoffman/ganesh/compare/v0.15.2...v0.16.0) - 2025-01-04
+
+### Other
+
+- remove coverage tests for  feature, since it doesn't work all the time yet
+- remove  from  and  since it requires  and  generics to implement , which is sometimes difficult. Also made  the default  method and removed
+
 ## [0.15.2](https://github.com/denehoffman/ganesh/compare/v0.15.1...v0.15.2) - 2024-12-20
 
 ### Other
