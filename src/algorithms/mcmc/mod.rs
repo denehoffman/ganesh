@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use dyn_clone::DynClone;
 use fastrand::Rng;
 use nalgebra::{Complex, DVector};
 use parking_lot::RwLock;
@@ -384,7 +383,7 @@ pub fn integrated_autocorrelation_times(
 /// This trait is implemented for the MCMC algorithms found in the
 /// [`algorithms::mcmc`](crate::algorithms::mcmc) module, and contains
 /// all the methods needed to be run by a [`Sampler`].
-pub trait MCMCAlgorithm<U, E>: DynClone {
+pub trait MCMCAlgorithm<U, E> {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -443,7 +442,6 @@ pub trait MCMCAlgorithm<U, E>: DynClone {
         Ok(())
     }
 }
-dyn_clone::clone_trait_object!(<U, E> MCMCAlgorithm<U, E>);
 
 /// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
 /// [`MCMCAlgorithm`]'s [`Ensemble`] during sampling.
@@ -463,22 +461,9 @@ pub struct Sampler<U, E> {
 }
 
 impl<U, E> Sampler<U, E> {
-    /// Creates a new [`Sampler`] with the given [`MCMCAlgorithm`] and `dimension` set to the number
-    /// of free parameters in the minimization problem.
-    pub fn new<M: MCMCAlgorithm<U, E> + 'static>(mcmc: &M, x0: Vec<DVector<Float>>) -> Self {
-        Self {
-            ensemble: Ensemble::new(x0),
-            mcmc_algorithm: Box::new(dyn_clone::clone(mcmc)),
-            bounds: None,
-            observers: Vec::default(),
-        }
-    }
     /// Creates a new [`Sampler`] with the given (boxed) [`MCMCAlgorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new_from_box(
-        mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
-        x0: Vec<DVector<Float>>,
-    ) -> Self {
+    pub fn new(mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>, x0: Vec<DVector<Float>>) -> Self {
         Self {
             ensemble: Ensemble::new(x0),
             mcmc_algorithm,
@@ -488,14 +473,6 @@ impl<U, E> Sampler<U, E> {
     }
     fn reset(&mut self) {
         self.ensemble.reset();
-    }
-    /// Set the [`MCMCAlgorithm`] used by the [`Sampler`].
-    pub fn with_mcmc_algorithm<M: MCMCAlgorithm<U, E> + 'static>(
-        mut self,
-        mcmc_algorithm: &M,
-    ) -> Self {
-        self.mcmc_algorithm = Box::new(dyn_clone::clone(mcmc_algorithm));
-        self
     }
     /// Adds a single [`MCMCObserver`] to the [`Sampler`].
     pub fn with_observer(mut self, observer: Arc<RwLock<dyn MCMCObserver<U>>>) -> Self {

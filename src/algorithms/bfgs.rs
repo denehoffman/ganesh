@@ -133,11 +133,7 @@ impl<U, E> BFGS<U, E> {
     }
 }
 
-impl<U, E> Algorithm<U, E> for BFGS<U, E>
-where
-    U: Clone,
-    E: Clone,
-{
+impl<U, E> Algorithm<U, E> for BFGS<U, E> {
     fn initialize(
         &mut self,
         func: &dyn Function<U, E>,
@@ -240,7 +236,7 @@ mod tests {
     #[test]
     fn test_bfgs() -> Result<(), Infallible> {
         let algo = BFGS::default();
-        let mut m = Minimizer::new(&algo, 2).with_max_steps(10000);
+        let mut m = Minimizer::new(Box::new(algo), 2).with_max_steps(10000);
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);

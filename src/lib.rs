@@ -60,7 +60,7 @@
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
-//!     let mut m = Minimizer::new(&nm, 2);
+//!     let mut m = Minimizer::new(Box::new(nm), 2);
 //!     let x0 = &[2.0, 2.0];
 //!     m.minimize(&problem, x0, &mut ())?;
 //!     println!("{}", m.status);
@@ -183,7 +183,6 @@ use std::{
     },
 };
 
-use dyn_clone::DynClone;
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
@@ -733,7 +732,7 @@ impl Display for Status {
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`] module, and contains
 /// all the methods needed to be run by a [`Minimizer`].
-pub trait Algorithm<U, E>: DynClone {
+pub trait Algorithm<U, E> {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -795,7 +794,6 @@ pub trait Algorithm<U, E>: DynClone {
         Ok(())
     }
 }
-dyn_clone::clone_trait_object!(<U, E> Algorithm<U, E>);
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`]'s [`Status`] during a minimization.
@@ -824,21 +822,9 @@ impl<U, E> Display for Minimizer<U, E> {
 
 impl<U, E> Minimizer<U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
-    /// Creates a new [`Minimizer`] with the given [`Algorithm`] and `dimension` set to the number
-    /// of free parameters in the minimization problem.
-    pub fn new<A: Algorithm<U, E> + 'static>(algorithm: &A, dimension: usize) -> Self {
-        Self {
-            status: Status::default(),
-            algorithm: Box::new(dyn_clone::clone(algorithm)),
-            bounds: None,
-            max_steps: Self::DEFAULT_MAX_STEPS,
-            observers: Vec::default(),
-            dimension,
-        }
-    }
     /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new_from_box(algorithm: Box<dyn Algorithm<U, E>>, dimension: usize) -> Self {
+    pub fn new(algorithm: Box<dyn Algorithm<U, E>>, dimension: usize) -> Self {
         Self {
             status: Status::default(),
             algorithm,
@@ -854,11 +840,6 @@ impl<U, E> Minimizer<U, E> {
             ..Default::default()
         };
         self.status = new_status;
-    }
-    /// Set the [`Algorithm`] used by the [`Minimizer`].
-    pub fn with_algorithm<A: Algorithm<U, E> + 'static>(mut self, algorithm: &A) -> Self {
-        self.algorithm = Box::new(dyn_clone::clone(algorithm));
-        self
     }
     /// Set the maximum number of steps to perform before failure (default: 4000).
     pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
@@ -998,14 +979,13 @@ impl<U, E> Minimizer<U, E> {
 mod tests {
     use std::convert::Infallible;
 
-    use crate::{algorithms::LBFGSB, Algorithm, Minimizer};
+    use crate::{algorithms::LBFGSB, Minimizer};
 
     #[test]
     #[allow(unused_variables)]
-    fn test_minimizer_constructors() {
+    fn test_minimizer_constructor() {
+        #[allow(clippy::box_default)]
         let algo: LBFGSB<(), Infallible> = LBFGSB::default();
-        let minimizer = Minimizer::new(&algo, 5);
-        let algo_boxed: Box<dyn Algorithm<(), Infallible>> = Box::new(algo);
-        let minimizer_from_box = Minimizer::new_from_box(algo_boxed, 5);
+        let minimizer = Minimizer::new(Box::new(algo), 5);
     }
 }
