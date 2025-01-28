@@ -48,6 +48,8 @@ pub enum LBFGSBErrorMode {
     /// Computes the exact Hessian matrix via finite differences.
     #[default]
     ExactHessian,
+    /// Skip Hessian computation (use this when error evaluation is not important).
+    Skip,
 }
 
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
@@ -473,6 +475,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
                 let hessian = func.hessian(self.x.as_slice(), user_data)?;
                 status.set_hess(&hessian);
             }
+            LBFGSBErrorMode::Skip => {}
         }
         Ok(())
     }
