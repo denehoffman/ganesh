@@ -19,11 +19,11 @@ use crate::{
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::observers::DebugObserver;
 ///
-/// let problem = Rosenbrock { n: 2 };
+/// let mut problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
 /// let mut m = Minimizer::new(Box::new(nm), 2).with_observer(obs);
-/// m.minimize(&problem, &[2.3, 3.4], &mut ()).unwrap();
+/// m.minimize(&mut problem, &[2.3, 3.4], &mut ()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
 /// ```

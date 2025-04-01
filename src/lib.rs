@@ -58,11 +58,11 @@
 //! #     }
 //! # }
 //! fn main() -> Result<(), Infallible> {
-//!     let problem = Rosenbrock { n: 2 };
+//!     let mut problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
 //!     let mut m = Minimizer::new(Box::new(nm), 2);
 //!     let x0 = &[2.0, 2.0];
-//!     m.minimize(&problem, x0, &mut ())?;
+//!     m.minimize(&mut problem, x0, &mut ())?;
 //!     println!("{}", m.status);
 //!     Ok(())
 //! }
@@ -587,6 +587,28 @@ pub trait Function<U, E> {
     ) -> Result<DMatrix<Float>, E> {
         self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
+
+    /// Tune the function after each minimization step
+    ///
+    /// This method allows for the implementation of adaptive terms at the function level, like
+    /// adaptive LASSO shrinkage, for example.
+    ///
+    /// Here, `x` should always be assumed to be the external, possibly bounded, vector, and `bounds`
+    /// refers to those bounds if not [`None`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any evaluation within the tuning step fails. See
+    /// [`Function::evaluate`] for more information.
+    #[allow(unused_variables)]
+    fn tune(
+        &mut self,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        Ok(())
+    }
 }
 
 /// A status message struct containing all information about a minimization result.
@@ -911,7 +933,7 @@ impl<U, E> Minimizer<U, E> {
     /// [`Minimizer`].
     pub fn minimize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &mut dyn Function<U, E>,
         x0: &[Float],
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -952,6 +974,7 @@ impl<U, E> Minimizer<U, E> {
                 user_data,
                 &mut self.status,
             )?;
+            func.tune(self.status.x.as_slice(), self.bounds.as_ref(), user_data)?;
             current_step += 1;
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
