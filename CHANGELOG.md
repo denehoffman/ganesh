@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/denehoffman/ganesh/compare/v0.17.1...v0.18.0) - 2025-04-01
+
+### Added
+
+- reorganize, make Bounds a part of functions and individual algorithms
+
+### Other
+
+- remove some spaces
+- move Observer traits to `observer` module
+
 ## [0.17.1](https://github.com/denehoffman/ganesh/compare/v0.17.0...v0.17.1) - 2025-04-01
 
 ### Added
