@@ -758,8 +758,6 @@ impl Status {
     pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
         self.parameters = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
-}
-impl Status {
     /// Sets the covariance matrix and updates parameter errors.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
@@ -912,13 +910,11 @@ pub struct Minimizer<U, E> {
     observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
     dimension: usize,
 }
-
 impl<U, E> Display for Minimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.status)
     }
 }
-
 impl<U, E> Minimizer<U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
@@ -1031,7 +1027,6 @@ impl<U, E> Minimizer<U, E> {
 pub struct Walker {
     history: Vec<Arc<RwLock<Point>>>,
 }
-
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
     pub fn new(x0: DVector<Float>) -> Self {
@@ -1093,7 +1088,6 @@ impl Deref for Ensemble {
         &self.walkers
     }
 }
-
 impl DerefMut for Ensemble {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.walkers
