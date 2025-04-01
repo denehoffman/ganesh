@@ -2,7 +2,22 @@ use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
 
-use crate::{Ensemble, Float, MCMCObserver, Observer, Status};
+use crate::{Ensemble, Float, Status};
+
+/// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
+/// [`Algorithm`]'s [`Status`] during a minimization.
+pub trait Observer<U> {
+    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
+    /// `true`, the [`Minimizer::minimize`] method will terminate.
+    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
+}
+/// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
+/// [`MCMCAlgorithm`]'s [`Ensemble`] during sampling.
+pub trait MCMCObserver<U> {
+    /// A function that is called at every step of a sampling [`MCMCAlgorithm`]. If it returns
+    /// `false`, the [`Sampler::sample`] method will terminate.
+    fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool;
+}
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
 /// in an algorithm.

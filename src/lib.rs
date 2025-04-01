@@ -191,6 +191,7 @@ use nalgebra::{Complex, DMatrix, DVector};
 use parking_lot::RwLock;
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
+use traits::{MCMCObserver, Observer};
 
 /// Module containing minimization algorithms
 pub mod algorithms;
@@ -204,9 +205,8 @@ pub mod samplers;
 
 /// Module containing useful traits
 pub mod traits {
-    pub use crate::SampleFloat;
-    pub use crate::{Algorithm, Function, Observer};
-    pub use crate::{MCMCAlgorithm, MCMCObserver};
+    pub use crate::observers::{MCMCObserver, Observer};
+    pub use crate::{Algorithm, Function, MCMCAlgorithm, SampleFloat};
 }
 
 lazy_static! {
@@ -903,14 +903,6 @@ pub trait Algorithm<U, E> {
     }
 }
 
-/// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
-/// [`Algorithm`]'s [`Status`] during a minimization.
-pub trait Observer<U> {
-    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
-    /// `true`, the [`Minimizer::minimize`] method will terminate.
-    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
-}
-
 /// The main struct used for running [`Algorithm`]s on [`Function`]s.
 pub struct Minimizer<U, E> {
     /// The [`Status`] of the [`Minimizer`], usually read after minimization.
@@ -1408,14 +1400,6 @@ pub trait MCMCAlgorithm<U, E> {
     ) -> Result<(), E> {
         Ok(())
     }
-}
-
-/// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
-/// [`MCMCAlgorithm`]'s [`Ensemble`] during sampling.
-pub trait MCMCObserver<U> {
-    /// A function that is called at every step of a sampling [`MCMCAlgorithm`]. If it returns
-    /// `false`, the [`Sampler::sample`] method will terminate.
-    fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool;
 }
 
 /// The main struct used for running [`MCMCAlgorithm`]s on [`Function`]s.
