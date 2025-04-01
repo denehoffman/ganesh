@@ -2,10 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
 
-use crate::{
-    algorithms::mcmc::{Ensemble, MCMCObserver},
-    Float, Observer, Status,
-};
+use crate::{Ensemble, Float, MCMCObserver, Observer, Status};
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
 /// in an algorithm.
@@ -49,7 +46,7 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// ```rust
 /// use ganesh::Sampler;
 /// use ganesh::traits::*;
-/// use ganesh::mcmc::{ESS, ESSMove};
+/// use ganesh::samplers::{ESS, ESSMove};
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use ganesh::observers::DebugMCMCObserver;
 /// use fastrand::Rng;
@@ -92,7 +89,7 @@ impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
 /// ```rust
 /// use ganesh::Sampler;
 /// use ganesh::traits::*;
-/// use ganesh::mcmc::{ESS, ESSMove};
+/// use ganesh::samplers::{ESS, ESSMove};
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use ganesh::observers::AutocorrelationObserver;
 /// use fastrand::Rng;
