@@ -177,6 +177,7 @@
 
 use std::{
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
@@ -186,9 +187,11 @@ use std::{
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{Complex, DMatrix, DVector};
 use parking_lot::RwLock;
+use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
+use traits::{MCMCObserver, Observer};
 
 /// Module containing minimization algorithms
 pub mod algorithms;
@@ -197,14 +200,13 @@ pub mod observers;
 /// Module containing standard functions for testing algorithms
 pub mod test_functions;
 
-pub use algorithms::mcmc;
-pub use algorithms::mcmc::Sampler;
+/// Module containing MCMC sampling algorithms
+pub mod samplers;
 
 /// Module containing useful traits
 pub mod traits {
-    pub use crate::mcmc::{MCMCAlgorithm, MCMCObserver};
-    pub use crate::SampleFloat;
-    pub use crate::{Algorithm, Function, Observer};
+    pub use crate::observers::{MCMCObserver, Observer};
+    pub use crate::{Algorithm, Function, MCMCAlgorithm, SampleFloat};
 }
 
 lazy_static! {
@@ -294,6 +296,106 @@ impl RandChoice for Rng {
     }
 }
 
+/// Describes a point in parameter space that can be used in [`Algorithm`](`crate::Algorithm`)s.
+#[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
+pub struct Point {
+    x: DVector<Float>,
+    fx: Float,
+}
+impl Point {
+    /// Get the dimension of the underlying space.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn dimension(&self) -> usize {
+        self.x.len()
+    }
+    /// Convert the [`Point`] into a [`Vec`]-`Float` tuple.
+    pub fn into_vec_val(self) -> (Vec<Float>, Float) {
+        let fx = self.get_fx_checked();
+        (self.x.data.into(), fx)
+    }
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn evaluate<U, E>(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        if self.fx.is_nan() {
+            self.fx = func.evaluate(self.x.as_slice(), user_data)?;
+        }
+        Ok(())
+    }
+    /// Compare two points by their `fx` value.
+    pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.fx.total_cmp(&other.fx)
+    }
+    /// Move the point to a new position, resetting the evaluation of the point
+    pub fn set_position(&mut self, x: DVector<Float>) {
+        self.x = x;
+        self.fx = Float::NAN;
+    }
+    /// Get the current evaluation of the point, if it has been evaluated
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the point is unevaluated.
+    pub fn get_fx_checked(&self) -> Float {
+        assert!(!self.fx.is_nan(), "Point value requested before evaluation");
+        self.fx
+    }
+}
+
+impl Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "fx: {}", self.fx)?;
+        writeln!(f, "{}", self.x)
+    }
+}
+
+impl From<DVector<Float>> for Point {
+    fn from(value: DVector<Float>) -> Self {
+        Self {
+            x: value,
+            fx: Float::NAN,
+        }
+    }
+}
+impl From<Vec<Float>> for Point {
+    fn from(value: Vec<Float>) -> Self {
+        Self {
+            x: DVector::from_vec(value),
+            fx: Float::NAN,
+        }
+    }
+}
+impl<'a> From<&'a Point> for &'a Vec<Float> {
+    fn from(value: &'a Point) -> Self {
+        value.x.data.as_vec()
+    }
+}
+impl From<&[Float]> for Point {
+    fn from(value: &[Float]) -> Self {
+        Self {
+            x: DVector::from_column_slice(value),
+            fx: Float::NAN,
+        }
+    }
+}
+impl<'a> From<&'a Point> for &'a [Float] {
+    fn from(value: &'a Point) -> Self {
+        value.x.data.as_slice()
+    }
+}
+impl PartialOrd for Point {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.fx.partial_cmp(&other.fx)
+    }
+}
+
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
@@ -324,6 +426,17 @@ impl From<(Float, Float)> for Bound {
             (true, false) => Self::LowerBound(value.0),
             (false, true) => Self::UpperBound(value.1),
             (false, false) => Self::NoBound,
+        }
+    }
+}
+impl From<(Option<Float>, Option<Float>)> for Bound {
+    fn from(value: (Option<Float>, Option<Float>)) -> Self {
+        assert!(value.0 < value.1);
+        match (value.0, value.1) {
+            (Some(lb), Some(ub)) => Self::LowerAndUpperBound(lb, ub),
+            (Some(lb), None) => Self::LowerBound(lb),
+            (None, Some(ub)) => Self::UpperBound(ub),
+            (None, None) => Self::NoBound,
         }
     }
 }
@@ -464,6 +577,10 @@ impl Bound {
 /// finite-difference method to evaluate derivatives. If an exact gradient is known, it can be used
 /// to speed up gradient-dependent algorithms.
 pub trait Function<U, E> {
+    /// Get the bounds on the parameters of the function, if any.
+    fn bounds(&self) -> Option<&Vec<Bound>> {
+        None
+    }
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -472,22 +589,6 @@ pub trait Function<U, E> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
 
-    /// The evaluation of the function at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
-    fn evaluate_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Vec<Bound>>,
-        user_data: &mut U,
-    ) -> Result<Float, E> {
-        self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
-    }
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -515,22 +616,6 @@ pub trait Function<U, E> {
             grad[i] = (f_plus - f_minus) / (2.0 * h[i]);
         }
         Ok(grad)
-    }
-    /// The evaluation of the gradient at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn gradient_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Vec<Bound>>,
-        user_data: &mut U,
-    ) -> Result<DVector<Float>, E> {
-        self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
@@ -571,43 +656,48 @@ pub trait Function<U, E> {
         }
         Ok(res)
     }
-    /// The evaluation of the hessian at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn hessian_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Vec<Bound>>,
-        user_data: &mut U,
-    ) -> Result<DMatrix<Float>, E> {
-        self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
+}
+
+/// A wrapper for adding bounds to a function.
+pub struct BoundedFunction<U, E> {
+    func: Box<dyn Function<U, E>>,
+    bounds: Vec<Bound>,
+}
+impl<U, E> BoundedFunction<U, E> {
+    /// Construct a new [`Function`] with explicit parameter bounds.
+    pub fn new<F: Function<U, E> + 'static, I: IntoIterator<Item = B>, B: Into<Bound>>(
+        func: F,
+        bounds: I,
+    ) -> Self {
+        Self {
+            func: Box::new(func),
+            bounds: bounds.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+impl<U, E> Function<U, E> for BoundedFunction<U, E> {
+    fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E> {
+        self.func.evaluate(
+            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
+            user_data,
+        )
     }
 
-    /// Tune the function after each minimization step
-    ///
-    /// This method allows for the implementation of adaptive terms at the function level, like
-    /// adaptive LASSO shrinkage, for example.
-    ///
-    /// Here, `x` should always be assumed to be the external, possibly bounded, vector, and `bounds`
-    /// refers to those bounds if not [`None`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if any evaluation within the tuning step fails. See
-    /// [`Function::evaluate`] for more information.
-    #[allow(unused_variables)]
-    fn tune(
-        &mut self,
-        x: &[Float],
-        bounds: Option<&Vec<Bound>>,
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        Ok(())
+    fn gradient(&self, x: &[Float], user_data: &mut U) -> Result<DVector<Float>, E> {
+        self.func.gradient(
+            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
+            user_data,
+        )
+    }
+
+    fn hessian(&self, x: &[Float], user_data: &mut U) -> Result<DMatrix<Float>, E> {
+        self.func.hessian(
+            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
+            user_data,
+        )
+    }
+    fn bounds(&self) -> Option<&Vec<Bound>> {
+        Some(self.bounds.as_ref())
     }
 }
 
@@ -668,8 +758,6 @@ impl Status {
     pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
         self.parameters = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
-}
-impl Status {
     /// Sets the covariance matrix and updates parameter errors.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
@@ -765,7 +853,6 @@ pub trait Algorithm<U, E> {
         &mut self,
         func: &dyn Function<U, E>,
         x0: &[Float],
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E>;
@@ -780,7 +867,6 @@ pub trait Algorithm<U, E> {
         &mut self,
         i_step: usize,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E>;
@@ -794,7 +880,6 @@ pub trait Algorithm<U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<bool, E>;
@@ -809,7 +894,6 @@ pub trait Algorithm<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -817,31 +901,20 @@ pub trait Algorithm<U, E> {
     }
 }
 
-/// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
-/// [`Algorithm`]'s [`Status`] during a minimization.
-pub trait Observer<U> {
-    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
-    /// `true`, the [`Minimizer::minimize`] method will terminate.
-    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
-}
-
 /// The main struct used for running [`Algorithm`]s on [`Function`]s.
 pub struct Minimizer<U, E> {
     /// The [`Status`] of the [`Minimizer`], usually read after minimization.
     pub status: Status,
     algorithm: Box<dyn Algorithm<U, E>>,
-    bounds: Option<Vec<Bound>>,
     max_steps: usize,
     observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
     dimension: usize,
 }
-
 impl<U, E> Display for Minimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.status)
     }
 }
-
 impl<U, E> Minimizer<U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
@@ -850,7 +923,6 @@ impl<U, E> Minimizer<U, E> {
         Self {
             status: Status::default(),
             algorithm,
-            bounds: None,
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
             dimension,
@@ -871,45 +943,6 @@ impl<U, E> Minimizer<U, E> {
     /// Adds a single [`Observer`] to the [`Minimizer`].
     pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<U>>>) -> Self {
         self.observers.push(observer);
-        self
-    }
-    /// Sets all [`Bound`]s of the [`Minimizer`]. This can be [`None`] for an unbounded problem, or
-    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
-    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
-    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the number of bounds is not equal to the number of free
-    /// parameters.
-    pub fn with_bounds(mut self, bounds: Option<Vec<(Float, Float)>>) -> Self {
-        if let Some(bounds) = bounds {
-            assert!(bounds.len() == self.dimension);
-            self.bounds = Some(bounds.into_iter().map(Bound::from).collect());
-        } else {
-            self.bounds = None
-        }
-        self.status.bounds.clone_from(&self.bounds);
-        self
-    }
-    /// Sets the [`Bound`] of the parameter at the given index.
-    pub fn with_bound(mut self, index: usize, bound: Option<(Float, Float)>) -> Self {
-        if let Some(bounds) = &mut self.bounds {
-            if let Some(bound) = bound {
-                bounds[index] = Bound::from(bound);
-            } else {
-                bounds[index] = Bound::NoBound;
-            }
-        } else {
-            let mut bounds = vec![Bound::default(); self.dimension];
-            if let Some(bound) = bound {
-                bounds[index] = Bound::from(bound);
-            } else {
-                bounds[index] = Bound::NoBound;
-            }
-            self.bounds = Some(bounds);
-        }
-        self.status.bounds.clone_from(&self.bounds);
         self
     }
     /// Minimize the given [`Function`] starting at the point `x0`.
@@ -933,7 +966,7 @@ impl<U, E> Minimizer<U, E> {
     /// [`Minimizer`].
     pub fn minimize(
         &mut self,
-        func: &mut dyn Function<U, E>,
+        func: &dyn Function<U, E>,
         x0: &[Float],
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -941,7 +974,7 @@ impl<U, E> Minimizer<U, E> {
         init_ctrl_c_handler();
         reset_ctrl_c_handler();
         self.reset_status();
-        if let Some(bounds) = &self.bounds {
+        if let Some(bounds) = func.bounds() {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
                 assert!(
                     bound_i.contains(*x_i),
@@ -954,27 +987,18 @@ impl<U, E> Minimizer<U, E> {
         }
         self.status.x0 = DVector::from_column_slice(x0);
         self.algorithm
-            .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
+            .initialize(func, x0, user_data, &mut self.status)?;
         let mut current_step = 0;
         let mut observer_termination = false;
         while current_step <= self.max_steps
             && !observer_termination
-            && !self.algorithm.check_for_termination(
-                func,
-                self.bounds.as_ref(),
-                user_data,
-                &mut self.status,
-            )?
+            && !self
+                .algorithm
+                .check_for_termination(func, user_data, &mut self.status)?
             && !is_ctrl_c_pressed()
         {
-            self.algorithm.step(
-                current_step,
-                func,
-                self.bounds.as_ref(),
-                user_data,
-                &mut self.status,
-            )?;
-            func.tune(self.status.x.as_slice(), self.bounds.as_ref(), user_data)?;
+            self.algorithm
+                .step(current_step, func, user_data, &mut self.status)?;
             current_step += 1;
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
@@ -987,7 +1011,7 @@ impl<U, E> Minimizer<U, E> {
             }
         }
         self.algorithm
-            .postprocessing(func, self.bounds.as_ref(), user_data, &mut self.status)?;
+            .postprocessing(func, user_data, &mut self.status)?;
         if current_step > self.max_steps && !self.status.converged {
             self.status.update_message("MAX EVALS");
         }
@@ -995,6 +1019,503 @@ impl<U, E> Minimizer<U, E> {
             self.status.update_message("Ctrl-C Pressed");
         }
         Ok(())
+    }
+}
+
+/// A MCMC walker containing a history of past samples
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Walker {
+    history: Vec<Arc<RwLock<Point>>>,
+}
+impl Walker {
+    /// Create a new [`Walker`] located at `x0`
+    pub fn new(x0: DVector<Float>) -> Self {
+        let history = vec![Arc::new(RwLock::new(Point::from(x0)))];
+        Self { history }
+    }
+    /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
+    pub fn dimension(&self) -> (usize, usize) {
+        let n_steps = self.history.len();
+        let n_variables = self.history[0].read().dimension();
+        (n_steps, n_variables)
+    }
+    /// Reset the history of the [`Walker`] (except for its starting position)
+    pub fn reset(&mut self) {
+        let first = self.history.first();
+        if let Some(first) = first {
+            self.history = vec![first.clone()];
+        } else {
+            self.history = Vec::default();
+        }
+    }
+    /// Get the most recent (current) [`Walker`]'s position
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the walker has no history.
+    pub fn get_latest(&self) -> Arc<RwLock<Point>> {
+        assert!(!self.history.is_empty());
+        self.history[self.history.len() - 1].clone()
+    }
+    /// Evaluate the most recent position of the [`Walker`]
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    pub fn evaluate_latest<U, E>(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        self.get_latest().write().evaluate(func, user_data)
+    }
+    /// Add a new position to the [`Walker`]'s history
+    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
+        self.history.push(position)
+    }
+}
+
+/// A collection of [`Walker`]s
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Ensemble {
+    walkers: Vec<Walker>,
+}
+impl Deref for Ensemble {
+    type Target = Vec<Walker>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.walkers
+    }
+}
+impl DerefMut for Ensemble {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.walkers
+    }
+}
+impl Ensemble {
+    /// Create a new [`Ensemble`] from a set of starting positions `x0` and `max_steps`
+    ///
+    /// # See Also
+    /// [`Walker::new`]
+    pub fn new(x0: Vec<DVector<Float>>) -> Self {
+        Self {
+            walkers: x0.into_iter().map(Walker::new).collect(),
+        }
+    }
+    /// Get the dimension of the Ensemble `(n_walkers, n_steps, n_variables)`
+    pub fn dimension(&self) -> (usize, usize, usize) {
+        let n_walkers = self.walkers.len();
+        let (n_steps, n_variables) = self.walkers[0].dimension();
+        (n_walkers, n_steps, n_variables)
+    }
+    /// Add a set of positions to the [`Ensemble`], adding each position to the corresponding
+    /// [`Walker`] in the given order
+    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point>>>) {
+        self.walkers
+            .iter_mut()
+            .zip(positions)
+            .for_each(|(walker, position)| {
+                walker.push(position);
+            });
+    }
+    /// Reset all [`Walker`]s in the [`Ensemble`] (except for their starting position)
+    pub fn reset(&mut self) {
+        for walker in self.walkers.iter_mut() {
+            walker.reset();
+        }
+    }
+    /// Evaluate the most recent position of all [`Walker`]s in the [`Ensemble`]
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    pub fn evaluate_latest<U, E>(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        for walker in self.walkers.iter_mut() {
+            walker.evaluate_latest(func, user_data)?;
+        }
+        Ok(())
+    }
+    /// Randomly draw a [`Walker`] from the [`Ensemble`] other than the one at the provided `index`
+    pub fn get_compliment_walker(&self, index: usize, rng: &mut Rng) -> Walker {
+        let n_tot = self.walkers.len();
+        let r = rng.usize(0..n_tot - 1);
+        let j = if r >= index { r + 1 } else { r };
+        self.walkers[j].clone()
+    }
+    /// Randomly draw `n` [`Walker`]s from the [`Ensemble`] other than the one at the provided `index`
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if you try to draw more [`Walker`]s than are in the [`Ensemble`]
+    /// (aside from the excluded one at the provided `index`).
+    pub fn get_compliment_walkers(&self, index: usize, n: usize, rng: &mut Rng) -> Vec<Walker> {
+        assert!(n < self.walkers.len());
+        let mut indices: Vec<usize> = (0..self.walkers.len()).filter(|&i| i != index).collect();
+        rng.shuffle(&mut indices);
+        indices[..n]
+            .iter()
+            .map(|&j| self.walkers[j].clone())
+            .collect()
+    }
+    /// Get the average position of all [`Walker`]s
+    pub fn mean(&self) -> DVector<Float> {
+        self.walkers
+            .iter()
+            .map(|walker| walker.get_latest().read().x.clone())
+            .sum()
+    }
+    /// Get the average position of all [`Walker`]s except for the one at the provided `index`
+    pub fn mean_compliment(&self, index: usize) -> DVector<Float> {
+        self.walkers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, walker)| {
+                if i != index {
+                    Some(walker.get_latest().read().x.clone())
+                } else {
+                    None
+                }
+            })
+            .sum::<DVector<Float>>()
+            .unscale(self.walkers.len() as Float)
+    }
+    /// Iterate through all the [`Walker`]s other than the one at the provided `index`
+    pub fn iter_compliment(&self, index: usize) -> impl Iterator<Item = Arc<RwLock<Point>>> + '_ {
+        self.walkers
+            .iter()
+            .enumerate()
+            .filter_map(move |(i, walker)| {
+                if i != index {
+                    Some(walker.get_latest())
+                } else {
+                    None
+                }
+            })
+    }
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
+        let burn = burn.unwrap_or(0);
+        let thin = thin.unwrap_or(1);
+        self.walkers
+            .iter()
+            .map(|walker| {
+                walker
+                    .history
+                    .iter()
+                    .skip(burn)
+                    .enumerate()
+                    .filter_map(|(i, position)| {
+                        if i % thin == 0 {
+                            Some(position.read().x.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
+        let chain = self.get_chain(burn, thin);
+        chain.into_iter().flatten().collect()
+    }
+
+    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
+    /// Beutler[^Karamanis]
+    ///
+    /// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    ///
+    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
+    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
+    pub fn get_integrated_autocorrelation_times(
+        &self,
+        c: Option<Float>,
+        burn: Option<usize>,
+        thin: Option<usize>,
+    ) -> DVector<Float> {
+        let samples = self.get_chain(burn, thin);
+        integrated_autocorrelation_times(samples, c)
+    }
+}
+
+/// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
+/// Beutler[^Karamanis]
+///
+/// `samples` should have the shape `(n_walkers, n_steps, n_parameters)`.
+///
+/// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
+///
+/// This is a standalone function that can be used to bypass the [`Ensemble`] struct and calculate
+/// IATs for custom inputs.
+///
+/// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
+/// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
+pub fn integrated_autocorrelation_times(
+    samples: Vec<Vec<DVector<Float>>>,
+    c: Option<Float>,
+) -> DVector<Float> {
+    let c = c.unwrap_or(7.0);
+    let n_parameters = samples[0][0].len();
+    let samples: Vec<DVector<Float>> = samples.into_iter().flatten().collect();
+    let mut n = 1usize;
+    while n < samples.len() {
+        n <<= 1;
+    }
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(2 * n);
+    let ifft = planner.plan_fft_inverse(2 * n);
+    DVector::from_iterator(
+        n_parameters,
+        (0..n_parameters).map(|i_parameter| {
+            let x: Vec<Float> = samples.iter().map(|sample| sample[i_parameter]).collect();
+            let mean = x.iter().sum::<Float>() / x.len() as Float;
+            let mut input: Vec<Complex<Float>> =
+                x.iter().map(|&val| Complex::new(val - mean, 0.0)).collect();
+            input.resize(2 * n, Complex::new(0.0, 0.0));
+
+            fft.process(&mut input);
+
+            for val in input.iter_mut() {
+                *val *= val.conj();
+            }
+
+            ifft.process(&mut input);
+
+            let mut acf: Vec<Float> = input
+                .iter()
+                .take(x.len())
+                .map(|c| c.re / (4.0 * n as Float))
+                .collect();
+
+            if !acf.is_empty() && acf[0] != 0.0 {
+                let norm_factor = acf[0];
+                acf.iter_mut().for_each(|v| *v /= norm_factor);
+            }
+
+            let taus: Vec<Float> = acf
+                .iter()
+                .scan(0.0, |acc, &x| {
+                    *acc += x;
+                    Some(*acc)
+                })
+                .map(|x| Float::mul_add(2.0, x, -1.0))
+                .collect();
+            let ind = taus
+                .iter()
+                .enumerate()
+                .position(|(idx, &tau)| (idx as Float) >= c * tau)
+                .unwrap_or(taus.len() - 1);
+            taus[ind]
+        }),
+    )
+}
+
+/// A trait representing an MCMC algorithm.
+///
+/// This trait is implemented for the MCMC algorithms found in the
+/// [`algorithms::mcmc`](crate::algorithms::mcmc) module, and contains
+/// all the methods needed to be run by a [`Sampler`].
+pub trait MCMCAlgorithm<U, E> {
+    /// Any setup work done before the main steps of the algorithm should be done here.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn initialize(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        ensemble: &mut Ensemble,
+    ) -> Result<(), E>;
+    /// The main "step" of an algorithm, which is repeated until termination conditions are met or
+    /// the max number of steps have been taken.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn step(
+        &mut self,
+        i_step: usize,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        ensemble: &mut Ensemble,
+    ) -> Result<(), E>;
+    /// Runs any termination/convergence checks and returns true if the algorithm has converged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn check_for_termination(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        ensemble: &mut Ensemble,
+    ) -> Result<bool, E>;
+    /// Runs any steps needed by the [`MCMCAlgorithm`] after termination.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    #[allow(unused_variables)]
+    fn postprocessing(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        ensemble: &mut Ensemble,
+    ) -> Result<(), E> {
+        Ok(())
+    }
+}
+
+/// The main struct used for running [`MCMCAlgorithm`]s on [`Function`]s.
+pub struct Sampler<U, E> {
+    /// The chains of walker positions created during sampling
+    pub ensemble: Ensemble,
+    mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
+    observers: Vec<Arc<RwLock<dyn MCMCObserver<U>>>>,
+}
+
+impl<U, E> Sampler<U, E> {
+    /// Creates a new [`Sampler`] with the given (boxed) [`MCMCAlgorithm`] and `dimension` set to the number
+    /// of free parameters in the minimization problem.
+    pub fn new(mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>, x0: Vec<DVector<Float>>) -> Self {
+        Self {
+            ensemble: Ensemble::new(x0),
+            mcmc_algorithm,
+            observers: Vec::default(),
+        }
+    }
+    /// Reset the ensemble (except for its starting position)
+    pub fn reset(&mut self) {
+        self.ensemble.reset();
+    }
+    /// Adds a single [`MCMCObserver`] to the [`Sampler`].
+    pub fn with_observer(mut self, observer: Arc<RwLock<dyn MCMCObserver<U>>>) -> Self {
+        self.observers.push(observer);
+        self
+    }
+    /// Minimize the given [`Function`] starting at the point `x0`.
+    ///
+    /// This method first runs [`MCMCAlgorithm::initialize`], then runs [`MCMCAlgorithm::step`] in a loop,
+    /// terminating if [`MCMCAlgorithm::check_for_termination`] returns `true` or if
+    /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
+    /// call to all given [`MCMCObserver`]s' callback functions. Finally, regardless of convergence,
+    /// [`MCMCAlgorithm::postprocessing`] is called.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    pub fn sample(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        n_steps: usize,
+    ) -> Result<(), E> {
+        init_ctrl_c_handler();
+        reset_ctrl_c_handler();
+        self.mcmc_algorithm
+            .initialize(func, user_data, &mut self.ensemble)?;
+        let mut current_step = 0;
+        let mut observer_termination = false;
+        while current_step < n_steps - 1 // the first step is the initial position
+            && !observer_termination
+            && !self.mcmc_algorithm.check_for_termination(
+                func,
+                user_data,
+                &mut self.ensemble,
+            )?
+            && !is_ctrl_c_pressed()
+        {
+            let walker_step = self.ensemble.dimension().1;
+            self.mcmc_algorithm
+                .step(walker_step + 1, func, user_data, &mut self.ensemble)?;
+            current_step += 1;
+            if !self.observers.is_empty() {
+                for observer in self.observers.iter_mut() {
+                    observer_termination =
+                        observer
+                            .write()
+                            .callback(walker_step + 1, &mut self.ensemble, user_data)
+                            || observer_termination;
+                }
+            }
+        }
+        self.mcmc_algorithm
+            .postprocessing(func, user_data, &mut self.ensemble)?;
+        Ok(())
+    }
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_chains(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
+        self.ensemble.get_chain(burn, thin)
+    }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
+        self.ensemble.get_flat_chain(burn, thin)
+    }
+
+    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
+    /// Beutler[^Karamanis]
+    ///
+    /// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    ///
+    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
+    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
+    pub fn get_integrated_autocorrelation_times(
+        &self,
+        c: Option<Float>,
+        burn: Option<usize>,
+        thin: Option<usize>,
+    ) -> DVector<Float> {
+        self.ensemble
+            .get_integrated_autocorrelation_times(c, burn, thin)
     }
 }
 

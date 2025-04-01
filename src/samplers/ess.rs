@@ -5,9 +5,9 @@ use fastrand::Rng;
 use nalgebra::DVector;
 use parking_lot::RwLock;
 
-use crate::{algorithms::Point, Bound, Float, Function, RandChoice, SampleFloat};
+use crate::{Float, Function, Point, RandChoice, SampleFloat};
 
-use super::{Ensemble, MCMCAlgorithm};
+use crate::{Ensemble, MCMCAlgorithm};
 
 /// A move used by the [`ESS`] algorithm
 ///
@@ -38,7 +38,6 @@ impl ESSMove {
         max_steps: usize,
         mu: &mut Float,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
         rng: &mut Rng,
@@ -190,7 +189,6 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
     fn initialize(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -201,7 +199,6 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
         &mut self,
         i_step: usize,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -216,7 +213,6 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
             self.max_steps,
             &mut self.mu,
             func,
-            bounds,
             user_data,
             ensemble,
             &mut self.rng,
@@ -227,7 +223,6 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
     fn check_for_termination(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         chains: &mut Ensemble,
     ) -> Result<bool, E> {

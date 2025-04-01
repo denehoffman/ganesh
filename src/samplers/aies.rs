@@ -4,9 +4,9 @@ use fastrand::Rng;
 use nalgebra::DVector;
 use parking_lot::RwLock;
 
-use crate::{algorithms::Point, Bound, Float, Function, RandChoice, SampleFloat};
+use crate::{Float, Function, Point, RandChoice, SampleFloat};
 
-use super::{Ensemble, MCMCAlgorithm};
+use crate::{Ensemble, MCMCAlgorithm};
 
 /// A move used by the the [`AIES`] algorithm
 ///
@@ -35,7 +35,6 @@ impl AIESMove {
     fn step<U, E>(
         &self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
         rng: &mut Rng,
@@ -145,7 +144,6 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
     fn initialize(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -157,7 +155,6 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
         &mut self,
         i_step: usize,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -166,14 +163,13 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
             .choice_weighted(&self.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
         let step_type = self.moves[step_type_index].0;
-        step_type.step(func, bounds, user_data, ensemble, &mut self.rng)?;
+        step_type.step(func, user_data, ensemble, &mut self.rng)?;
         Ok(())
     }
 
     fn check_for_termination(
         &mut self,
         func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         chains: &mut Ensemble,
     ) -> Result<bool, E> {

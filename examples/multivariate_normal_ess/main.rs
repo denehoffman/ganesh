@@ -4,9 +4,9 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::algorithms::mcmc::ess::{ESSMove, ESS};
-use ganesh::algorithms::mcmc::Sampler;
 use ganesh::observers::AutocorrelationObserver;
+use ganesh::samplers::ess::{ESSMove, ESS};
+use ganesh::Sampler;
 use ganesh::{Float, Function, SampleFloat};
 use nalgebra::{DMatrix, DVector};
 use std::error::Error;
