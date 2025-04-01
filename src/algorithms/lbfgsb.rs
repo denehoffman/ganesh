@@ -495,23 +495,23 @@ mod tests {
     fn test_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
         let mut m = Minimizer::new(Box::new(algo), 2);
-        let problem = Rosenbrock { n: 2 };
-        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        let mut problem = Rosenbrock { n: 2 };
+        m.minimize(&mut problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        m.minimize(&mut problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        m.minimize(&mut problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -522,23 +522,23 @@ mod tests {
         let algo = LBFGSB::default();
         let mut m =
             Minimizer::new(Box::new(algo), 2).with_bounds(Some(vec![(-4.0, 4.0), (-4.0, 4.0)]));
-        let problem = Rosenbrock { n: 2 };
-        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        let mut problem = Rosenbrock { n: 2 };
+        m.minimize(&mut problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        m.minimize(&mut problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        m.minimize(&mut problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

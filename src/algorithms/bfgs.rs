@@ -237,23 +237,23 @@ mod tests {
     fn test_bfgs() -> Result<(), Infallible> {
         let algo = BFGS::default();
         let mut m = Minimizer::new(Box::new(algo), 2).with_max_steps(10000);
-        let problem = Rosenbrock { n: 2 };
-        m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
+        let mut problem = Rosenbrock { n: 2 };
+        m.minimize(&mut problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.minimize(&problem, &[2.0, 2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(&problem, &[2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.minimize(&problem, &[-2.0, -2.0], &mut ())?;
+        m.minimize(&mut problem, &[-2.0, -2.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.minimize(&problem, &[0.0, 0.0], &mut ())?;
+        m.minimize(&mut problem, &[0.0, 0.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.minimize(&problem, &[1.0, 1.0], &mut ())?;
+        m.minimize(&mut problem, &[1.0, 1.0], &mut ())?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())
