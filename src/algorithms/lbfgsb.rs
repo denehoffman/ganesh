@@ -64,7 +64,6 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSB<U, E> {
     x: DVector<Float>,
     g: DVector<Float>,
-    bounds: Option<Vec<Bound>>,
     l: DVector<Float>,
     u: DVector<Float>,
     m_mat: DMatrix<Float>,
@@ -85,11 +84,6 @@ pub struct LBFGSB<U, E> {
 }
 
 impl<U, E> LBFGSB<U, E> {
-    /// Set bounds on the parameters.
-    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
-        self.bounds = Some(bounds.into_iter().map(Into::into).collect());
-        self
-    }
     /// Set the termination condition concerning the function values.
     pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator) -> Self {
         self.terminator_f = term;
@@ -158,7 +152,6 @@ impl<U, E> Default for LBFGSB<U, E> {
         Self {
             x: Default::default(),
             g: Default::default(),
-            bounds: None,
             l: Default::default(),
             u: Default::default(),
             m_mat: Default::default(),
@@ -388,6 +381,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
         &mut self,
         func: &dyn Function<U, E>,
         x0: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -395,7 +389,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
         self.theta = 1.0;
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &self.bounds {
+        if let Some(bounds_vec) = bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
                     Bound::NoBound => {}
@@ -542,8 +536,8 @@ mod tests {
 
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
-        let algo = LBFGSB::default().with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]);
-        let mut m = Minimizer::new(Box::new(algo), 2);
+        let algo = LBFGSB::default();
+        let mut m = Minimizer::new(Box::new(algo), 2).with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]);
         let problem = Rosenbrock { n: 2 };
         m.minimize(&problem, &[-2.0, 2.0], &mut ())?;
         assert!(m.status.converged);
