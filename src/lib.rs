@@ -329,6 +329,25 @@ impl Point {
         }
         Ok(())
     }
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    /// This function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn evaluate_bounded<U, E>(
+        &mut self,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        if self.fx.is_nan() {
+            self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        }
+        Ok(())
+    }
     /// Compare two points by their `fx` value.
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.fx.total_cmp(&other.fx)
@@ -577,10 +596,6 @@ impl Bound {
 /// finite-difference method to evaluate derivatives. If an exact gradient is known, it can be used
 /// to speed up gradient-dependent algorithms.
 pub trait Function<U, E> {
-    /// Get the bounds on the parameters of the function, if any.
-    fn bounds(&self) -> Option<&Vec<Bound>> {
-        None
-    }
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -588,7 +603,22 @@ pub trait Function<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
-
+    /// The evaluation of the function at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    fn evaluate_bounded(
+        &self,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
+        user_data: &mut U,
+    ) -> Result<Float, E> {
+        self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
+    }
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -616,6 +646,22 @@ pub trait Function<U, E> {
             grad[i] = (f_plus - f_minus) / (2.0 * h[i]);
         }
         Ok(grad)
+    }
+    /// The evaluation of the gradient at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn gradient_bounded(
+        &self,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
+        user_data: &mut U,
+    ) -> Result<DVector<Float>, E> {
+        self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
@@ -656,48 +702,21 @@ pub trait Function<U, E> {
         }
         Ok(res)
     }
-}
-
-/// A wrapper for adding bounds to a function.
-pub struct BoundedFunction<U, E> {
-    func: Box<dyn Function<U, E>>,
-    bounds: Vec<Bound>,
-}
-impl<U, E> BoundedFunction<U, E> {
-    /// Construct a new [`Function`] with explicit parameter bounds.
-    pub fn new<F: Function<U, E> + 'static, I: IntoIterator<Item = B>, B: Into<Bound>>(
-        func: F,
-        bounds: I,
-    ) -> Self {
-        Self {
-            func: Box::new(func),
-            bounds: bounds.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-impl<U, E> Function<U, E> for BoundedFunction<U, E> {
-    fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E> {
-        self.func.evaluate(
-            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
-            user_data,
-        )
-    }
-
-    fn gradient(&self, x: &[Float], user_data: &mut U) -> Result<DVector<Float>, E> {
-        self.func.gradient(
-            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
-            user_data,
-        )
-    }
-
-    fn hessian(&self, x: &[Float], user_data: &mut U) -> Result<DMatrix<Float>, E> {
-        self.func.hessian(
-            Bound::to_bounded(x, Some(&self.bounds)).as_slice(),
-            user_data,
-        )
-    }
-    fn bounds(&self) -> Option<&Vec<Bound>> {
-        Some(self.bounds.as_ref())
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data. This
+    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
+    /// to bound `x` when evaluating the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    fn hessian_bounded(
+        &self,
+        x: &[Float],
+        bounds: Option<&Vec<Bound>>,
+        user_data: &mut U,
+    ) -> Result<DMatrix<Float>, E> {
+        self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 }
 
@@ -853,6 +872,7 @@ pub trait Algorithm<U, E> {
         &mut self,
         func: &dyn Function<U, E>,
         x0: &[Float],
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E>;
@@ -909,6 +929,7 @@ pub struct Minimizer<U, E> {
     max_steps: usize,
     observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
     dimension: usize,
+    bounds: Option<Vec<Bound>>,
 }
 impl<U, E> Display for Minimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -926,6 +947,7 @@ impl<U, E> Minimizer<U, E> {
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),
             dimension,
+            bounds: None,
         }
     }
     fn reset_status(&mut self) {
@@ -935,6 +957,22 @@ impl<U, E> Minimizer<U, E> {
         };
         self.status = new_status;
     }
+    /// Sets all [`Bound`]s of the [`Minimizer`]. This can be [`None`] for an unbounded problem, or
+    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
+    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
+    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the number of bounds is not equal to the number of free
+    /// parameters.
+    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
+        let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
+        assert!(bounds.len() == self.dimension);
+        self.bounds = Some(bounds);
+        self
+    }
+
     /// Set the maximum number of steps to perform before failure (default: 4000).
     pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
         self.max_steps = max_steps;
@@ -974,7 +1012,7 @@ impl<U, E> Minimizer<U, E> {
         init_ctrl_c_handler();
         reset_ctrl_c_handler();
         self.reset_status();
-        if let Some(bounds) = func.bounds() {
+        if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
                 assert!(
                     bound_i.contains(*x_i),
@@ -987,7 +1025,7 @@ impl<U, E> Minimizer<U, E> {
         }
         self.status.x0 = DVector::from_column_slice(x0);
         self.algorithm
-            .initialize(func, x0, user_data, &mut self.status)?;
+            .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
         let mut current_step = 0;
         let mut observer_termination = false;
         while current_step <= self.max_steps
