@@ -17,10 +17,13 @@ nalgebra = { version = "0.33.0", features = ["serde-serialize"] }
 ctrlc = "3.4.5"
 lazy_static = "1.5.0"
 dyn-clone = "1.0.17"
+kmeans = "1.1.0"
 serde = { version = "1.0.214", features = ["derive", "rc"] }
 serde-pickle = "1.2.0"
+spec_math = "0.1.6"
 fastrand = "2.2.0"
 fastrand-contrib = "0.1.0"
+logsumexp = "0.1.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 rustfft = "6.2.0"
 

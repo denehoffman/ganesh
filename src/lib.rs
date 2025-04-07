@@ -144,6 +144,21 @@
 //! }
 //! ```
 //!
+//! ### scikit-learn (used in constructing a Bayesian Mixture Model in the Global ESS step)
+//! ```text
+//! @article{scikit-learn,
+//!   title={Scikit-learn: Machine Learning in {P}ython},
+//!   author={Pedregosa, F. and Varoquaux, G. and Gramfort, A. and Michel, V.
+//!           and Thirion, B. and Grisel, O. and Blondel, M. and Prettenhofer, P.
+//!           and Weiss, R. and Dubourg, V. and Vanderplas, J. and Passos, A. and
+//!           Cournapeau, D. and Brucher, M. and Perrot, M. and Duchesnay, E.},
+//!   journal={Journal of Machine Learning Research},
+//!   volume={12},
+//!   pages={2825--2830},
+//!   year={2011}
+//! }
+//! ```
+//!
 //! ### AIES MCMC Sampler
 //! ```text
 //! @article{Goodman2010,
@@ -187,7 +202,7 @@ use std::{
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
-use nalgebra::{Complex, DMatrix, DVector};
+use nalgebra::{Cholesky, Complex, DMatrix, DVector, RowDVector};
 use parking_lot::RwLock;
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
@@ -239,6 +254,14 @@ pub type Float = f64;
 #[cfg(feature = "f32")]
 pub type Float = f32;
 
+/// The mathematical constant $`\pi`$.
+#[cfg(not(feature = "f32"))]
+pub const PI: Float = std::f64::consts::PI;
+
+/// The mathematical constant $`\pi`$.
+#[cfg(feature = "f32")]
+pub const PI: Float = std::f32::consts::PI;
+
 /// A helper trait to get feature-gated floating-point random values
 pub trait SampleFloat {
     /// Get a random value in a range
@@ -247,6 +270,14 @@ pub trait SampleFloat {
     fn float(&mut self) -> Float;
     /// Get a random Normal value
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
+    /// Get a random value from a multivariate Normal distribution
+    #[allow(clippy::expect_used)]
+    fn mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> DVector<Float> {
+        let cholesky = Cholesky::new(cov.clone()).expect("Covariance matrix not positive definite");
+        let a = cholesky.l();
+        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
+        mu + a * z
+    }
 }
 impl SampleFloat for Rng {
     #[cfg(not(feature = "f32"))]
@@ -1275,6 +1306,17 @@ impl Ensemble {
     pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
         let chain = self.get_chain(burn, thin);
         chain.into_iter().flatten().collect()
+    }
+
+    /// Returns a matrix with the latest position of each walker in the ensemble with dimensions
+    /// `(n_walkers, n_variables)`
+    pub fn get_latest_position_matrix(&self) -> DMatrix<Float> {
+        let position: Vec<RowDVector<Float>> = self
+            .walkers
+            .iter()
+            .map(|walker| walker.get_latest().read().x.clone().transpose())
+            .collect::<Vec<RowDVector<Float>>>();
+        DMatrix::from_rows(position.as_slice())
     }
 
     /// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
