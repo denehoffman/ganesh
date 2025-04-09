@@ -4,10 +4,10 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use super::{
-    generate_random_vector, BoundaryMethod, SwarmAlgorithm, SwarmPositionInitializer,
-    SwarmVelocityInitializer, Topology, UpdateMethod,
+    BoundaryMethod, SwarmAlgorithm, SwarmPositionInitializer, SwarmVelocityInitializer, Topology,
+    UpdateMethod,
 };
-use crate::{Bound, Float, Function, Swarm};
+use crate::{generate_random_vector, Bound, Float, Function, Swarm};
 
 /// Particle Swarm Optimizer
 ///

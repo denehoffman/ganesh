@@ -9,8 +9,8 @@ pub use pso::PSO;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    init_ctrl_c_handler, is_ctrl_c_pressed, observers::SwarmObserver, reset_ctrl_c_handler, Bound,
-    Float, Function, Point, SampleFloat,
+    generate_random_vector_in_limits, init_ctrl_c_handler, is_ctrl_c_pressed,
+    observers::SwarmObserver, reset_ctrl_c_handler, Bound, Float, Function, Point, SampleFloat,
 };
 
 /// A particle with a position, velocity, and best known position
@@ -91,17 +91,6 @@ impl Particle {
         }
     }
 }
-fn generate_random_vector(dimension: usize, lb: Float, ub: Float, rng: &mut Rng) -> DVector<Float> {
-    DVector::from_vec((0..dimension).map(|_| rng.range(lb, ub)).collect())
-}
-fn generate_random_vector_in_limits(limits: &[(Float, Float)], rng: &mut Rng) -> DVector<Float> {
-    DVector::from_vec(
-        (0..limits.len())
-            .map(|i| rng.range(limits[i].0, limits[i].1))
-            .collect(),
-    )
-}
-
 /// A swarm of particles used in particle swarm optimization and similar methods.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Swarm {

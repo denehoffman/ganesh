@@ -816,6 +816,25 @@ pub trait Function<U, E> {
     }
 }
 
+pub(crate) fn generate_random_vector(
+    dimension: usize,
+    lb: Float,
+    ub: Float,
+    rng: &mut Rng,
+) -> DVector<Float> {
+    DVector::from_vec((0..dimension).map(|_| rng.range(lb, ub)).collect())
+}
+pub(crate) fn generate_random_vector_in_limits(
+    limits: &[(Float, Float)],
+    rng: &mut Rng,
+) -> DVector<Float> {
+    DVector::from_vec(
+        (0..limits.len())
+            .map(|i| rng.range(limits[i].0, limits[i].1))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;
