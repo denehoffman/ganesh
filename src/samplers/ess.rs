@@ -6,9 +6,9 @@ use kmeans::{EuclideanDistance, KMeans, KMeansConfig};
 use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
-use crate::{Float, Function, Point, RandChoice, SampleFloat, PI};
+use crate::{Ensemble, Float, Function, Point, RandChoice, SampleFloat, PI};
 
-use crate::{Ensemble, MCMCAlgorithm};
+use super::MCMCAlgorithm;
 
 /// A move used by the [`ESS`] algorithm
 ///

@@ -4,9 +4,9 @@ use fastrand::Rng;
 use nalgebra::DVector;
 use parking_lot::RwLock;
 
-use crate::{Float, Function, Point, RandChoice, SampleFloat};
+use crate::{Ensemble, Float, Function, Point, RandChoice, SampleFloat};
 
-use crate::{Ensemble, MCMCAlgorithm};
+use super::MCMCAlgorithm;
 
 /// A move used by the the [`AIES`] algorithm
 ///

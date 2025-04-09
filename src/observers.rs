@@ -1,22 +1,30 @@
 use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
-use crate::{Ensemble, Float, Status};
+use crate::{swarms::Particle, Ensemble, Float, Point, Status, Swarm};
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
-/// [`Algorithm`]'s [`Status`] during a minimization.
+/// [`Algorithm`](`crate::traits::Algorithm`)'s [`Status`] during a minimization.
 pub trait Observer<U> {
-    /// A function that is called at every step of a minimization [`Algorithm`]. If it returns
-    /// `true`, the [`Minimizer::minimize`] method will terminate.
+    /// A function that is called at every step of a minimization [`Algorithm`](`crate::traits::Algorithm`). If it returns
+    /// `true`, the [`Minimizer::minimize`](`crate::Minimizer::minimize`) method will terminate.
     fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool;
 }
 /// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
-/// [`MCMCAlgorithm`]'s [`Ensemble`] during sampling.
+/// [`MCMCAlgorithm`](`crate::traits::MCMCAlgorithm`)'s [`Ensemble`] during sampling.
 pub trait MCMCObserver<U> {
-    /// A function that is called at every step of a sampling [`MCMCAlgorithm`]. If it returns
-    /// `false`, the [`Sampler::sample`] method will terminate.
+    /// A function that is called at every step of a sampling [`MCMCAlgorithm`](`crate::traits::MCMCAlgorithm`). If it returns
+    /// `false`, the [`Sampler::sample`](`crate::Sampler::sample`) method will terminate.
     fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool;
+}
+/// A trait which holds a [`callback`](`SwarmObserver::callback`) function that can be used to check an
+/// [`SwarmAlgorithm`](`crate::traits::SwarmAlgorithm`)'s [`Swarm`] during sampling.
+pub trait SwarmObserver<U> {
+    /// A function that is called at every step of a minimization [`SwarmAlgorithm`](`crate::traits::SwarmAlgorithm`). If it returns
+    /// `false`, the [`SwarmMinimizer::minimize`](`crate::SwarmMinimizer::minimize`) method will terminate.
+    fn callback(&mut self, step: usize, swarm: &mut Swarm, user_data: &mut U) -> bool;
 }
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
@@ -221,6 +229,44 @@ impl<U> MCMCObserver<U> for AutocorrelationObserver {
             self.taus.push(tau);
             return converged && self.terminate;
         }
+        false
+    }
+}
+
+/// A debugging [`SwarmObserver`] which prints the swarm's best position at each step.
+pub struct DebugSwarmObserver;
+impl<U: Debug> SwarmObserver<U> for DebugSwarmObserver {
+    fn callback(&mut self, step: usize, swarm: &mut Swarm, user_data: &mut U) -> bool {
+        println!("{step}, {}, {:?}", swarm.get_best(), user_data);
+        false
+    }
+}
+impl DebugSwarmObserver {
+    /// Finalize the [`SwarmObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
+    pub fn build() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self))
+    }
+}
+
+/// A [`SwarmObserver`] which stores the swarm particles' history as well as the
+/// history of global best positions.
+#[derive(Serialize, Deserialize, Default)]
+pub struct TrackingSwarmObserver {
+    history: Vec<Vec<Particle>>,
+    best_history: Vec<Point>,
+}
+
+impl TrackingSwarmObserver {
+    /// Finalize the [`SwarmObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
+    pub fn build() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self::default()))
+    }
+}
+
+impl<U> SwarmObserver<U> for TrackingSwarmObserver {
+    fn callback(&mut self, _step: usize, swarm: &mut Swarm, _user_data: &mut U) -> bool {
+        self.history.push(swarm.get_particles());
+        self.best_history.push(swarm.get_best());
         false
     }
 }

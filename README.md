@@ -55,7 +55,7 @@ This crate provides some common test functions in the `test_functions` module. C
 
 ```rust
 use std::convert::Infallible;
-use ganesh::prelude::*;
+use ganesh::Function;
 
 pub struct Rosenbrock {
     pub n: usize,
@@ -72,7 +72,7 @@ impl Function<f64, (), Infallible> for Rosenbrock {
 To minimize this function, we could consider using the Nelder-Mead algorithm:
 
 ```rust
-use ganesh::prelude::*;
+use ganesh::Minimizer;
 use ganesh::algorithms::NelderMead;
 
 fn main() -> Result<(), Infallible> {
