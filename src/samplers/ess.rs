@@ -2,11 +2,12 @@
 use std::sync::Arc;
 
 use fastrand::Rng;
-use kmeans::{EuclideanDistance, KMeans, KMeansConfig};
 use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
-use crate::{Ensemble, Float, Function, Point, RandChoice, SampleFloat, PI};
+use crate::{
+    generate_random_vector_in_limits, Ensemble, Float, Function, Point, RandChoice, SampleFloat, PI,
+};
 
 use super::MCMCAlgorithm;
 
@@ -107,7 +108,8 @@ impl ESSMove {
                     rescale_cov,
                     n_components,
                 } => {
-                    let dpgm = dpgm_result.get_or_insert_with(|| dpgm(*n_components, ensemble));
+                    let dpgm =
+                        dpgm_result.get_or_insert_with(|| dpgm(*n_components, ensemble, rng));
                     let labels = &dpgm.labels;
                     let means = &dpgm.means;
                     let covariances = &dpgm.covariances;
@@ -288,27 +290,48 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
 // # Returns
 //
 // labels: Vec<usize> (n_walkers,)
-fn kmeans(n_clusters: usize, data: &DMatrix<Float>) -> Vec<usize> {
+#[allow(clippy::unwrap_used)]
+fn kmeans(n_clusters: usize, data: &DMatrix<Float>, rng: &mut Rng) -> Vec<usize> {
     let n_walkers = data.nrows();
     let n_parameters = data.ncols();
-    let flat_data = DVector::from_iterator(
-        n_walkers * n_parameters,
-        (0..n_walkers).flat_map(|i| (0..n_parameters).map(move |j| data[(i, j)])),
-    );
-    let kmeans: KMeans<_, 8, _> = KMeans::new(
-        flat_data.data.as_vec().to_vec(),
-        n_walkers,
-        n_parameters,
-        EuclideanDistance,
-    );
-    kmeans
-        .kmeans_lloyd(
-            n_clusters,
-            100,
-            KMeans::init_kmeanplusplus,
-            &KMeansConfig::default(),
-        )
-        .assignments
+    let limits = data
+        .column_iter()
+        .map(|col| (col.min(), col.max()))
+        .collect::<Vec<_>>();
+    let mut centroids: Vec<DVector<Float>> = (0..n_clusters)
+        .map(|_| generate_random_vector_in_limits(&limits, rng))
+        .collect();
+    let mut labels = vec![0; n_walkers];
+    for _ in 0..50 {
+        for (i, walker) in data.row_iter().enumerate() {
+            labels[i] = centroids
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    (walker.transpose() - *a)
+                        .norm_squared()
+                        .partial_cmp(&(walker.transpose() - *b).norm_squared())
+                        .unwrap()
+                })
+                .map(|(j, _)| j)
+                .unwrap();
+        }
+        for (j, centroid) in centroids.iter_mut().enumerate() {
+            let mut sum = DVector::zeros(n_parameters);
+            let mut count = 0;
+            for (l, w) in labels.iter().zip(data.row_iter()) {
+                if *l == j {
+                    sum += w.transpose();
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                sum /= count as Float;
+            }
+            *centroid = sum;
+        }
+    }
+    labels
 }
 
 // Computes the covariance matrix of a given matrix
@@ -653,7 +676,7 @@ struct DPGMResult {
 // # Returns
 //
 // DPGMResult
-fn dpgm(n_components: usize, ensemble: &Ensemble) -> DPGMResult {
+fn dpgm(n_components: usize, ensemble: &Ensemble, rng: &mut Rng) -> DPGMResult {
     let (n_walkers, _, n_parameters) = ensemble.dimension();
     let data = ensemble.get_latest_position_matrix();
     let weight_concentration_prior = 1.0 / n_components as Float;
@@ -663,7 +686,7 @@ fn dpgm(n_components: usize, ensemble: &Ensemble) -> DPGMResult {
     let covariance_prior = cov(&data.transpose());
 
     let mut resp: DMatrix<Float> = DMatrix::zeros(n_walkers, n_components);
-    let labels = kmeans(n_components, &data);
+    let labels = kmeans(n_components, &data, rng);
     for (i, &cluster_id) in labels.iter().enumerate() {
         resp[(i, cluster_id)] = 1.0;
     }
