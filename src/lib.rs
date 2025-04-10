@@ -340,6 +340,14 @@ pub struct Point {
     fx: Float,
 }
 impl Point {
+    /// Getter method for the point's position
+    pub const fn get_x(&self) -> &DVector<Float> {
+        &self.x
+    }
+    /// Getter method for the point's evaluation
+    pub const fn get_fx(&self) -> Float {
+        self.fx
+    }
     /// Get the dimension of the underlying space.
     #[allow(clippy::len_without_is_empty)]
     pub fn dimension(&self) -> usize {
