@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// A particle with a position, velocity, and best known position
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Particle {
     /// The position of the particle (in unbounded space)
     pub position: Point,
