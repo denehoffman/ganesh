@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1](https://github.com/denehoffman/ganesh/compare/v0.20.0...v0.20.1) - 2025-04-10
+
+### Added
+
+- add Default impl for Particle
+
+### Fixed
+
+- update some pub visibility on Point and remove a python file committed by mistake
+
 ## [0.20.0](https://github.com/denehoffman/ganesh/compare/v0.19.0...v0.20.0) - 2025-04-10
 
 ### Added
