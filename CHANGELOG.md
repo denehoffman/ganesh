@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/denehoffman/ganesh/compare/v0.19.0...v0.20.0) - 2025-04-10
+
+### Added
+
+- finalize PSO implementation and overhaul organization
+- add Global step to ESS
+
+### Fixed
+
+- remove `kmeans` dependency and implement the algorithm by hand
+- move vector generating utilities to root module
+
 ## [0.19.0](https://github.com/denehoffman/ganesh/compare/v0.18.0...v0.19.0) - 2025-04-02
 
 ### Other
