@@ -2,7 +2,8 @@ use std::fmt::Debug;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::{Algorithm, Bound, Float, Function, Point, Status};
+use super::Algorithm;
+use crate::{Bound, Float, Function, Point, Status};
 
 /// Gives a method for constructing a simplex.
 #[derive(Debug, Clone)]

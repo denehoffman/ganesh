@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::{Algorithm, Bound, Float, Function, Status};
+use super::Algorithm;
+use crate::{Bound, Float, Function, Status};
 
 use super::line_search::{LineSearch, StrongWolfeLineSearch};
 

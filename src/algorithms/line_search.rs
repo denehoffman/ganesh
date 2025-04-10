@@ -6,7 +6,7 @@ use crate::{Float, Function, Status};
 /// A trait which defines the methods for a line search algorithm.
 ///
 /// Line searches are one-dimensional minimizers typically used to determine optimal step sizes for
-/// [`Algorithm`](`crate::Algorithm`)s which only provide a direction for the next optimal step.
+/// [`Algorithm`](`crate::traits::Algorithm`)s which only provide a direction for the next optimal step.
 pub trait LineSearch<U, E>: DynClone {
     /// The search method takes the current position of the minimizer, `x`, the search direction
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the

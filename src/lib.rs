@@ -144,6 +144,21 @@
 //! }
 //! ```
 //!
+//! ### scikit-learn (used in constructing a Bayesian Mixture Model in the Global ESS step)
+//! ```text
+//! @article{scikit-learn,
+//!   title={Scikit-learn: Machine Learning in {P}ython},
+//!   author={Pedregosa, F. and Varoquaux, G. and Gramfort, A. and Michel, V.
+//!           and Thirion, B. and Grisel, O. and Blondel, M. and Prettenhofer, P.
+//!           and Weiss, R. and Dubourg, V. and Vanderplas, J. and Passos, A. and
+//!           Cournapeau, D. and Brucher, M. and Perrot, M. and Duchesnay, E.},
+//!   journal={Journal of Machine Learning Research},
+//!   volume={12},
+//!   pages={2825--2830},
+//!   year={2011}
+//! }
+//! ```
+//!
 //! ### AIES MCMC Sampler
 //! ```text
 //! @article{Goodman2010,
@@ -177,36 +192,42 @@
 
 use std::{
     fmt::{Debug, Display},
-    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once,
+        Once,
     },
 };
 
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use lazy_static::lazy_static;
-use nalgebra::{Complex, DMatrix, DVector};
-use parking_lot::RwLock;
-use rustfft::FftPlanner;
+use nalgebra::{Cholesky, DMatrix, DVector};
 use serde::{Deserialize, Serialize};
-use traits::{MCMCObserver, Observer};
 
 /// Module containing minimization algorithms
 pub mod algorithms;
-/// Module containing [`Observer`]s
+pub use algorithms::{Minimizer, Status};
+
+/// Module containing MCMC sampling algorithms
+pub mod samplers;
+pub use samplers::{Ensemble, Sampler};
+
+/// Module containing swarm algorithms
+pub mod swarms;
+pub use swarms::{Swarm, SwarmMinimizer};
+
+/// Module containing various kinds of observers
 pub mod observers;
 /// Module containing standard functions for testing algorithms
 pub mod test_functions;
 
-/// Module containing MCMC sampling algorithms
-pub mod samplers;
-
 /// Module containing useful traits
 pub mod traits {
+    pub use crate::algorithms::Algorithm;
     pub use crate::observers::{MCMCObserver, Observer};
-    pub use crate::{Algorithm, Function, MCMCAlgorithm, SampleFloat};
+    pub use crate::samplers::MCMCAlgorithm;
+    pub use crate::swarms::SwarmAlgorithm;
+    pub use crate::{Function, SampleFloat};
 }
 
 lazy_static! {
@@ -239,6 +260,14 @@ pub type Float = f64;
 #[cfg(feature = "f32")]
 pub type Float = f32;
 
+/// The mathematical constant $`\pi`$.
+#[cfg(not(feature = "f32"))]
+pub const PI: Float = std::f64::consts::PI;
+
+/// The mathematical constant $`\pi`$.
+#[cfg(feature = "f32")]
+pub const PI: Float = std::f32::consts::PI;
+
 /// A helper trait to get feature-gated floating-point random values
 pub trait SampleFloat {
     /// Get a random value in a range
@@ -247,6 +276,14 @@ pub trait SampleFloat {
     fn float(&mut self) -> Float;
     /// Get a random Normal value
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
+    /// Get a random value from a multivariate Normal distribution
+    #[allow(clippy::expect_used)]
+    fn mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> DVector<Float> {
+        let cholesky = Cholesky::new(cov.clone()).expect("Covariance matrix not positive definite");
+        let a = cholesky.l();
+        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
+        mu + a * z
+    }
 }
 impl SampleFloat for Rng {
     #[cfg(not(feature = "f32"))]
@@ -296,7 +333,7 @@ impl RandChoice for Rng {
     }
 }
 
-/// Describes a point in parameter space that can be used in [`Algorithm`](`crate::Algorithm`)s.
+/// Describes a point in parameter space that can be used in [`Algorithm`](`crate::traits::Algorithm`)s.
 #[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Point {
     x: DVector<Float>,
@@ -366,6 +403,13 @@ impl Point {
         assert!(!self.fx.is_nan(), "Point value requested before evaluation");
         self.fx
     }
+    /// Converts the point's `x` from an unbounded space to a bounded one.
+    pub fn to_bounded(&self, bounds: Option<&Vec<Bound>>) -> Self {
+        Self {
+            x: Bound::to_bounded(self.x.as_slice(), bounds),
+            fx: self.fx,
+        }
+    }
 }
 
 impl Display for Point {
@@ -418,8 +462,8 @@ impl PartialOrd for Point {
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
-/// bounded [`Algorithm`]s directly, or by unbounded [`Algorithm`]s using parameter space
-/// transformations (experimental).
+/// bounded algorithms directly, or by some unbounded algorithms using parameter space
+/// transformations.
 #[derive(Default, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Bound {
     #[default]
@@ -478,6 +522,58 @@ impl Bound {
             Self::UpperBound(ub) => value <= *ub,
             Self::LowerAndUpperBound(lb, ub) => value >= *lb && value <= *ub,
         }
+    }
+    /// Checks whether the given [`DVector`] is compatible with the list of bounds in each
+    /// coordinate.
+    pub fn contains_vec(bounds: &[Self], vec: &DVector<Float>) -> bool {
+        for (bound, value) in bounds.iter().zip(vec) {
+            if !bound.contains(*value) {
+                return false;
+            }
+        }
+        true
+    }
+    /// Checks whether the given `value` is compatible with the bound and returns `0.0` if it is,
+    /// and the distance to the bound otherwise signed by whether the bound is a lower (`-`) or
+    /// upper (`+`) bound.
+    pub fn bound_excess(&self, value: Float) -> Float {
+        match self {
+            Self::NoBound => 0.0,
+            Self::LowerBound(lb) => {
+                if value >= *lb {
+                    0.0
+                } else {
+                    value - lb
+                }
+            }
+            Self::UpperBound(ub) => {
+                if value <= *ub {
+                    0.0
+                } else {
+                    value - ub
+                }
+            }
+            Self::LowerAndUpperBound(lb, ub) => {
+                if value < *lb {
+                    value - lb
+                } else if value > *ub {
+                    value - ub
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+    /// Checks whether each of the given [`DVector`]'s coordinates are compatible with the bounds
+    /// and returns a [`DVector`] containing the result of [`Bound::bound_excess`] at each
+    /// coordinate.
+    pub fn bounds_excess(bounds: &[Self], vec: &DVector<Float>) -> DVector<Float> {
+        bounds
+            .iter()
+            .zip(vec)
+            .map(|(b, v)| b.bound_excess(*v))
+            .collect::<Vec<Float>>()
+            .into()
     }
     /// Returns the lower bound or `-inf` if there is none.
     pub const fn lower(&self) -> Float {
@@ -720,848 +816,30 @@ pub trait Function<U, E> {
     }
 }
 
-/// A status message struct containing all information about a minimization result.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Status {
-    /// A [`String`] message that can be set by minimization [`Algorithm`]s.
-    pub message: String,
-    /// The current position of the minimization.
-    pub x: DVector<Float>,
-    /// The initial position of the minimization.
-    pub x0: DVector<Float>,
-    /// The bounds used for the minimization.
-    pub bounds: Option<Vec<Bound>>,
-    /// The current value of the minimization problem function at [`Status::x`].
-    pub fx: Float,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`]s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
-    /// The number of gradient evaluations (approximately, this is left up to individual
-    /// [`Algorithm`]s to correctly compute and may not be exact).
-    pub n_g_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
-    /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
-    pub hess: Option<DMatrix<Float>>,
-    /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
-    pub cov: Option<DMatrix<Float>>,
-    /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
-    pub err: Option<DVector<Float>>,
-    /// Optional parameter names
-    pub parameters: Option<Vec<String>>,
-}
-
-impl Status {
-    /// Updates the [`Status::message`] field.
-    pub fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
-    }
-    /// Updates the [`Status::x`] and [`Status::fx`] fields.
-    pub fn update_position(&mut self, pos: (DVector<Float>, Float)) {
-        self.x = pos.0;
-        self.fx = pos.1;
-    }
-    /// Sets [`Status::converged`] to be `true`.
-    pub fn set_converged(&mut self) {
-        self.converged = true;
-    }
-    /// Increments [`Status::n_f_evals`] by `1`.
-    pub fn inc_n_f_evals(&mut self) {
-        self.n_f_evals += 1;
-    }
-    /// Increments [`Status::n_g_evals`] by `1`.
-    pub fn inc_n_g_evals(&mut self) {
-        self.n_g_evals += 1;
-    }
-    /// Sets parameter names.
-    pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
-        self.parameters = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
-    }
-    /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
-        if let Some(cov_mat) = &covariance {
-            self.err = Some(cov_mat.diagonal().map(Float::sqrt));
-        }
-        self.cov = covariance;
-    }
-    /// Sets the Hessian matrix, computes the covariance matrix, and updates parameter errors.
-    pub fn set_hess(&mut self, hessian: &DMatrix<Float>) {
-        self.hess = Some(hessian.clone());
-        let mut covariance = hessian.clone().try_inverse();
-        if covariance.is_none() {
-            covariance = hessian
-                .clone()
-                .pseudo_inverse(Float::cbrt(Float::EPSILON))
-                .ok();
-        }
-        if let Some(cov_mat) = &covariance {
-            self.err = Some(cov_mat.diagonal().map(Float::sqrt));
-        }
-        self.cov = covariance;
-    }
-}
-impl Display for Status {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = format!(
-            "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
-│{:^94}│",
-            "FIT RESULTS",
-        );
-        let status = format!(
-            "╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
-│ Status: {}                    │ fval: {:+12.3E} │ #fcn: {:>5} │ #grad: {:>5} │",
-            if self.converged {
-                "Converged      "
-            } else {
-                "Invalid Minimum"
-            },
-            self.fx,
-            self.n_f_evals,
-            self.n_f_evals,
-        );
-        let message = format!(
-            "├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
-│ Message: {:<83} │",
-            self.message,
-        );
-        let header = "├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
-│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
-├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤"
-            .to_string();
-        let mut res_list: Vec<String> = vec![];
-        let errs = self
-            .err
-            .clone()
-            .unwrap_or_else(|| DVector::from_element(self.x.len(), Float::NAN));
-        let bounds = self
-            .bounds
-            .clone()
-            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()]);
-        for i in 0..self.x.len() {
-            let row =
-                format!(
-                "│ {:>5} ║ {:>+12.3E} │ {:>+12.3E} ║ {:>+12.3E} │ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
-                i,
-                self.x[i],
-                errs[i],
-                self.x0[i],
-                bounds[i].lower(),
-                bounds[i].upper(),
-                if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
-            );
-            res_list.push(row);
-        }
-        let bottom = "└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘".to_string();
-        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
-        write!(f, "{}", out)
-    }
-}
-
-/// A trait representing a minimization algorithm.
-///
-/// This trait is implemented for the algorithms found in the [`algorithms`] module, and contains
-/// all the methods needed to be run by a [`Minimizer`].
-pub trait Algorithm<U, E> {
-    /// Any setup work done before the main steps of the algorithm should be done here.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn initialize(
-        &mut self,
-        func: &dyn Function<U, E>,
-        x0: &[Float],
-        bounds: Option<&Vec<Bound>>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<(), E>;
-    /// The main "step" of an algorithm, which is repeated until termination conditions are met or
-    /// the max number of steps have been taken.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn step(
-        &mut self,
-        i_step: usize,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<(), E>;
-    /// Runs any termination/convergence checks and returns true if the algorithm has converged.
-    /// Developers should also update the internal [`Status`] of the algorithm here if converged.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn check_for_termination(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<bool, E>;
-    /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
-    /// regardless of whether the [`Algorithm`] converged.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    #[allow(unused_variables)]
-    fn postprocessing(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<(), E> {
-        Ok(())
-    }
-}
-
-/// The main struct used for running [`Algorithm`]s on [`Function`]s.
-pub struct Minimizer<U, E> {
-    /// The [`Status`] of the [`Minimizer`], usually read after minimization.
-    pub status: Status,
-    algorithm: Box<dyn Algorithm<U, E>>,
-    max_steps: usize,
-    observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
+pub(crate) fn generate_random_vector(
     dimension: usize,
-    bounds: Option<Vec<Bound>>,
-}
-impl<U, E> Display for Minimizer<U, E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.status)
-    }
-}
-impl<U, E> Minimizer<U, E> {
-    const DEFAULT_MAX_STEPS: usize = 4000;
-    /// Creates a new [`Minimizer`] with the given (boxed) [`Algorithm`] and `dimension` set to the number
-    /// of free parameters in the minimization problem.
-    pub fn new(algorithm: Box<dyn Algorithm<U, E>>, dimension: usize) -> Self {
-        Self {
-            status: Status::default(),
-            algorithm,
-            max_steps: Self::DEFAULT_MAX_STEPS,
-            observers: Vec::default(),
-            dimension,
-            bounds: None,
-        }
-    }
-    fn reset_status(&mut self) {
-        let new_status = Status {
-            bounds: self.status.bounds.clone(),
-            ..Default::default()
-        };
-        self.status = new_status;
-    }
-    /// Sets all [`Bound`]s of the [`Minimizer`]. This can be [`None`] for an unbounded problem, or
-    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
-    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
-    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the number of bounds is not equal to the number of free
-    /// parameters.
-    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
-        let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
-        assert!(bounds.len() == self.dimension);
-        self.bounds = Some(bounds);
-        self
-    }
-
-    /// Set the maximum number of steps to perform before failure (default: 4000).
-    pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
-        self.max_steps = max_steps;
-        self
-    }
-    /// Adds a single [`Observer`] to the [`Minimizer`].
-    pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<U>>>) -> Self {
-        self.observers.push(observer);
-        self
-    }
-    /// Minimize the given [`Function`] starting at the point `x0`.
-    ///
-    /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
-    /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
-    /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
-    /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
-    /// [`Algorithm::postprocessing`] is called. If the algorithm did not converge in the given
-    /// step limit, the [`Status::message`] will be set to `"MAX EVALS"` at termination.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the length of `x0` is not equal to the dimension of the problem
-    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
-    /// [`Minimizer`].
-    pub fn minimize(
-        &mut self,
-        func: &dyn Function<U, E>,
-        x0: &[Float],
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        assert!(x0.len() == self.dimension);
-        init_ctrl_c_handler();
-        reset_ctrl_c_handler();
-        self.reset_status();
-        if let Some(bounds) = &self.bounds {
-            for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
-                assert!(
-                    bound_i.contains(*x_i),
-                    "Parameter #{} = {} is outside of the given bound: {}",
-                    i,
-                    x_i,
-                    bound_i
-                )
-            }
-        }
-        self.status.x0 = DVector::from_column_slice(x0);
-        self.algorithm
-            .initialize(func, x0, self.bounds.as_ref(), user_data, &mut self.status)?;
-        let mut current_step = 0;
-        let mut observer_termination = false;
-        while current_step <= self.max_steps
-            && !observer_termination
-            && !self
-                .algorithm
-                .check_for_termination(func, user_data, &mut self.status)?
-            && !is_ctrl_c_pressed()
-        {
-            self.algorithm
-                .step(current_step, func, user_data, &mut self.status)?;
-            current_step += 1;
-            if !self.observers.is_empty() {
-                for observer in self.observers.iter_mut() {
-                    observer_termination =
-                        observer
-                            .write()
-                            .callback(current_step, &mut self.status, user_data)
-                            || observer_termination;
-                }
-            }
-        }
-        self.algorithm
-            .postprocessing(func, user_data, &mut self.status)?;
-        if current_step > self.max_steps && !self.status.converged {
-            self.status.update_message("MAX EVALS");
-        }
-        if is_ctrl_c_pressed() {
-            self.status.update_message("Ctrl-C Pressed");
-        }
-        Ok(())
-    }
-}
-
-/// A MCMC walker containing a history of past samples
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Walker {
-    history: Vec<Arc<RwLock<Point>>>,
-}
-impl Walker {
-    /// Create a new [`Walker`] located at `x0`
-    pub fn new(x0: DVector<Float>) -> Self {
-        let history = vec![Arc::new(RwLock::new(Point::from(x0)))];
-        Self { history }
-    }
-    /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
-    pub fn dimension(&self) -> (usize, usize) {
-        let n_steps = self.history.len();
-        let n_variables = self.history[0].read().dimension();
-        (n_steps, n_variables)
-    }
-    /// Reset the history of the [`Walker`] (except for its starting position)
-    pub fn reset(&mut self) {
-        let first = self.history.first();
-        if let Some(first) = first {
-            self.history = vec![first.clone()];
-        } else {
-            self.history = Vec::default();
-        }
-    }
-    /// Get the most recent (current) [`Walker`]'s position
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> Arc<RwLock<Point>> {
-        assert!(!self.history.is_empty());
-        self.history[self.history.len() - 1].clone()
-    }
-    /// Evaluate the most recent position of the [`Walker`]
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    pub fn evaluate_latest<U, E>(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        self.get_latest().write().evaluate(func, user_data)
-    }
-    /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
-        self.history.push(position)
-    }
-}
-
-/// A collection of [`Walker`]s
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Ensemble {
-    walkers: Vec<Walker>,
-}
-impl Deref for Ensemble {
-    type Target = Vec<Walker>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.walkers
-    }
-}
-impl DerefMut for Ensemble {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.walkers
-    }
-}
-impl Ensemble {
-    /// Create a new [`Ensemble`] from a set of starting positions `x0` and `max_steps`
-    ///
-    /// # See Also
-    /// [`Walker::new`]
-    pub fn new(x0: Vec<DVector<Float>>) -> Self {
-        Self {
-            walkers: x0.into_iter().map(Walker::new).collect(),
-        }
-    }
-    /// Get the dimension of the Ensemble `(n_walkers, n_steps, n_variables)`
-    pub fn dimension(&self) -> (usize, usize, usize) {
-        let n_walkers = self.walkers.len();
-        let (n_steps, n_variables) = self.walkers[0].dimension();
-        (n_walkers, n_steps, n_variables)
-    }
-    /// Add a set of positions to the [`Ensemble`], adding each position to the corresponding
-    /// [`Walker`] in the given order
-    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point>>>) {
-        self.walkers
-            .iter_mut()
-            .zip(positions)
-            .for_each(|(walker, position)| {
-                walker.push(position);
-            });
-    }
-    /// Reset all [`Walker`]s in the [`Ensemble`] (except for their starting position)
-    pub fn reset(&mut self) {
-        for walker in self.walkers.iter_mut() {
-            walker.reset();
-        }
-    }
-    /// Evaluate the most recent position of all [`Walker`]s in the [`Ensemble`]
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    pub fn evaluate_latest<U, E>(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        for walker in self.walkers.iter_mut() {
-            walker.evaluate_latest(func, user_data)?;
-        }
-        Ok(())
-    }
-    /// Randomly draw a [`Walker`] from the [`Ensemble`] other than the one at the provided `index`
-    pub fn get_compliment_walker(&self, index: usize, rng: &mut Rng) -> Walker {
-        let n_tot = self.walkers.len();
-        let r = rng.usize(0..n_tot - 1);
-        let j = if r >= index { r + 1 } else { r };
-        self.walkers[j].clone()
-    }
-    /// Randomly draw `n` [`Walker`]s from the [`Ensemble`] other than the one at the provided `index`
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if you try to draw more [`Walker`]s than are in the [`Ensemble`]
-    /// (aside from the excluded one at the provided `index`).
-    pub fn get_compliment_walkers(&self, index: usize, n: usize, rng: &mut Rng) -> Vec<Walker> {
-        assert!(n < self.walkers.len());
-        let mut indices: Vec<usize> = (0..self.walkers.len()).filter(|&i| i != index).collect();
-        rng.shuffle(&mut indices);
-        indices[..n]
-            .iter()
-            .map(|&j| self.walkers[j].clone())
-            .collect()
-    }
-    /// Get the average position of all [`Walker`]s
-    pub fn mean(&self) -> DVector<Float> {
-        self.walkers
-            .iter()
-            .map(|walker| walker.get_latest().read().x.clone())
-            .sum()
-    }
-    /// Get the average position of all [`Walker`]s except for the one at the provided `index`
-    pub fn mean_compliment(&self, index: usize) -> DVector<Float> {
-        self.walkers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, walker)| {
-                if i != index {
-                    Some(walker.get_latest().read().x.clone())
-                } else {
-                    None
-                }
-            })
-            .sum::<DVector<Float>>()
-            .unscale(self.walkers.len() as Float)
-    }
-    /// Iterate through all the [`Walker`]s other than the one at the provided `index`
-    pub fn iter_compliment(&self, index: usize) -> impl Iterator<Item = Arc<RwLock<Point>>> + '_ {
-        self.walkers
-            .iter()
-            .enumerate()
-            .filter_map(move |(i, walker)| {
-                if i != index {
-                    Some(walker.get_latest())
-                } else {
-                    None
-                }
-            })
-    }
-    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
-        let burn = burn.unwrap_or(0);
-        let thin = thin.unwrap_or(1);
-        self.walkers
-            .iter()
-            .map(|walker| {
-                walker
-                    .history
-                    .iter()
-                    .skip(burn)
-                    .enumerate()
-                    .filter_map(|(i, position)| {
-                        if i % thin == 0 {
-                            Some(position.read().x.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
-        let chain = self.get_chain(burn, thin);
-        chain.into_iter().flatten().collect()
-    }
-
-    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
-    /// Beutler[^Karamanis]
-    ///
-    /// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    ///
-    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
-    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
-    pub fn get_integrated_autocorrelation_times(
-        &self,
-        c: Option<Float>,
-        burn: Option<usize>,
-        thin: Option<usize>,
-    ) -> DVector<Float> {
-        let samples = self.get_chain(burn, thin);
-        integrated_autocorrelation_times(samples, c)
-    }
-}
-
-/// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
-/// Beutler[^Karamanis]
-///
-/// `samples` should have the shape `(n_walkers, n_steps, n_parameters)`.
-///
-/// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
-///
-/// This is a standalone function that can be used to bypass the [`Ensemble`] struct and calculate
-/// IATs for custom inputs.
-///
-/// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
-/// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
-pub fn integrated_autocorrelation_times(
-    samples: Vec<Vec<DVector<Float>>>,
-    c: Option<Float>,
+    lb: Float,
+    ub: Float,
+    rng: &mut Rng,
 ) -> DVector<Float> {
-    let c = c.unwrap_or(7.0);
-    let n_parameters = samples[0][0].len();
-    let samples: Vec<DVector<Float>> = samples.into_iter().flatten().collect();
-    let mut n = 1usize;
-    while n < samples.len() {
-        n <<= 1;
-    }
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(2 * n);
-    let ifft = planner.plan_fft_inverse(2 * n);
-    DVector::from_iterator(
-        n_parameters,
-        (0..n_parameters).map(|i_parameter| {
-            let x: Vec<Float> = samples.iter().map(|sample| sample[i_parameter]).collect();
-            let mean = x.iter().sum::<Float>() / x.len() as Float;
-            let mut input: Vec<Complex<Float>> =
-                x.iter().map(|&val| Complex::new(val - mean, 0.0)).collect();
-            input.resize(2 * n, Complex::new(0.0, 0.0));
-
-            fft.process(&mut input);
-
-            for val in input.iter_mut() {
-                *val *= val.conj();
-            }
-
-            ifft.process(&mut input);
-
-            let mut acf: Vec<Float> = input
-                .iter()
-                .take(x.len())
-                .map(|c| c.re / (4.0 * n as Float))
-                .collect();
-
-            if !acf.is_empty() && acf[0] != 0.0 {
-                let norm_factor = acf[0];
-                acf.iter_mut().for_each(|v| *v /= norm_factor);
-            }
-
-            let taus: Vec<Float> = acf
-                .iter()
-                .scan(0.0, |acc, &x| {
-                    *acc += x;
-                    Some(*acc)
-                })
-                .map(|x| Float::mul_add(2.0, x, -1.0))
-                .collect();
-            let ind = taus
-                .iter()
-                .enumerate()
-                .position(|(idx, &tau)| (idx as Float) >= c * tau)
-                .unwrap_or(taus.len() - 1);
-            taus[ind]
-        }),
+    DVector::from_vec((0..dimension).map(|_| rng.range(lb, ub)).collect())
+}
+pub(crate) fn generate_random_vector_in_limits(
+    limits: &[(Float, Float)],
+    rng: &mut Rng,
+) -> DVector<Float> {
+    DVector::from_vec(
+        (0..limits.len())
+            .map(|i| rng.range(limits[i].0, limits[i].1))
+            .collect(),
     )
-}
-
-/// A trait representing an MCMC algorithm.
-///
-/// This trait is implemented for the MCMC algorithms found in the
-/// [`algorithms::mcmc`](crate::algorithms::mcmc) module, and contains
-/// all the methods needed to be run by a [`Sampler`].
-pub trait MCMCAlgorithm<U, E> {
-    /// Any setup work done before the main steps of the algorithm should be done here.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn initialize(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        ensemble: &mut Ensemble,
-    ) -> Result<(), E>;
-    /// The main "step" of an algorithm, which is repeated until termination conditions are met or
-    /// the max number of steps have been taken.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn step(
-        &mut self,
-        i_step: usize,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        ensemble: &mut Ensemble,
-    ) -> Result<(), E>;
-    /// Runs any termination/convergence checks and returns true if the algorithm has converged.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    fn check_for_termination(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        ensemble: &mut Ensemble,
-    ) -> Result<bool, E>;
-    /// Runs any steps needed by the [`MCMCAlgorithm`] after termination.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    #[allow(unused_variables)]
-    fn postprocessing(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        ensemble: &mut Ensemble,
-    ) -> Result<(), E> {
-        Ok(())
-    }
-}
-
-/// The main struct used for running [`MCMCAlgorithm`]s on [`Function`]s.
-pub struct Sampler<U, E> {
-    /// The chains of walker positions created during sampling
-    pub ensemble: Ensemble,
-    mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>,
-    observers: Vec<Arc<RwLock<dyn MCMCObserver<U>>>>,
-}
-
-impl<U, E> Sampler<U, E> {
-    /// Creates a new [`Sampler`] with the given (boxed) [`MCMCAlgorithm`] and `dimension` set to the number
-    /// of free parameters in the minimization problem.
-    pub fn new(mcmc_algorithm: Box<dyn MCMCAlgorithm<U, E>>, x0: Vec<DVector<Float>>) -> Self {
-        Self {
-            ensemble: Ensemble::new(x0),
-            mcmc_algorithm,
-            observers: Vec::default(),
-        }
-    }
-    /// Reset the ensemble (except for its starting position)
-    pub fn reset(&mut self) {
-        self.ensemble.reset();
-    }
-    /// Adds a single [`MCMCObserver`] to the [`Sampler`].
-    pub fn with_observer(mut self, observer: Arc<RwLock<dyn MCMCObserver<U>>>) -> Self {
-        self.observers.push(observer);
-        self
-    }
-    /// Minimize the given [`Function`] starting at the point `x0`.
-    ///
-    /// This method first runs [`MCMCAlgorithm::initialize`], then runs [`MCMCAlgorithm::step`] in a loop,
-    /// terminating if [`MCMCAlgorithm::check_for_termination`] returns `true` or if
-    /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
-    /// call to all given [`MCMCObserver`]s' callback functions. Finally, regardless of convergence,
-    /// [`MCMCAlgorithm::postprocessing`] is called.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    pub fn sample(
-        &mut self,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        n_steps: usize,
-    ) -> Result<(), E> {
-        init_ctrl_c_handler();
-        reset_ctrl_c_handler();
-        self.mcmc_algorithm
-            .initialize(func, user_data, &mut self.ensemble)?;
-        let mut current_step = 0;
-        let mut observer_termination = false;
-        while current_step < n_steps - 1 // the first step is the initial position
-            && !observer_termination
-            && !self.mcmc_algorithm.check_for_termination(
-                func,
-                user_data,
-                &mut self.ensemble,
-            )?
-            && !is_ctrl_c_pressed()
-        {
-            let walker_step = self.ensemble.dimension().1;
-            self.mcmc_algorithm
-                .step(walker_step + 1, func, user_data, &mut self.ensemble)?;
-            current_step += 1;
-            if !self.observers.is_empty() {
-                for observer in self.observers.iter_mut() {
-                    observer_termination =
-                        observer
-                            .write()
-                            .callback(walker_step + 1, &mut self.ensemble, user_data)
-                            || observer_termination;
-                }
-            }
-        }
-        self.mcmc_algorithm
-            .postprocessing(func, user_data, &mut self.ensemble)?;
-        Ok(())
-    }
-    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    pub fn get_chains(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
-        self.ensemble.get_chain(burn, thin)
-    }
-    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
-        self.ensemble.get_flat_chain(burn, thin)
-    }
-
-    /// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
-    /// Beutler[^Karamanis]
-    ///
-    /// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
-    ///
-    /// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
-    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
-    pub fn get_integrated_autocorrelation_times(
-        &self,
-        c: Option<Float>,
-        burn: Option<usize>,
-        thin: Option<usize>,
-    ) -> DVector<Float> {
-        self.ensemble
-            .get_integrated_autocorrelation_times(c, burn, thin)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;
 
-    use crate::{algorithms::LBFGSB, Minimizer};
+    use crate::algorithms::{Minimizer, LBFGSB};
 
     #[test]
     #[allow(unused_variables)]
