@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["optimization", "minimization"]
 categories = ["science", "mathematics"]
 rust-version = "1.69.0"
-exclude = ["multimodal_ess/*.svg", "multimodal_ess/*.png", "pso/*.gif", "*.pkl"]
+exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 
 [dependencies]
 nalgebra = { version = "0.33.0", features = ["serde-serialize"] }

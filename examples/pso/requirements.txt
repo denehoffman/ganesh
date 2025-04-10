@@ -1,0 +1,4 @@
+matplotlib==3.9.3
+numpy==2.2.0
+matplotloom==0.7.1
+joblib==1.4.2
