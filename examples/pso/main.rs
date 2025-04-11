@@ -6,7 +6,7 @@ use std::path::Path;
 use fastrand::Rng;
 use ganesh::observers::TrackingSwarmObserver;
 use ganesh::swarms::{SwarmPositionInitializer, PSO};
-use ganesh::{Float, Function};
+use ganesh::{Float, Function, Swarm};
 use ganesh::{SwarmMinimizer, PI};
 use std::error::Error;
 
@@ -27,21 +27,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rng = Rng::new();
     rng.seed(0);
 
-    let pso = PSO::new::<(), Infallible>(
-        SwarmPositionInitializer::RandomInLimits {
-            n_particles: 50,
-            limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-        },
-        rng,
-    )
-    .with_c1(0.1)
-    .with_c2(0.1)
-    .with_omega(0.8);
+    // Construct a new swarm
+    let swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+        n_particles: 50,
+        limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
+    });
 
+    // Create a particle swarm optimizer algorithm and set some hyperparameters
+    let pso = PSO::new(rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
+
+    // Create a tracker to record swarm history
     let tracker = TrackingSwarmObserver::build();
 
     // Create a new Sampler
-    let mut s = SwarmMinimizer::new(Box::new(pso))
+    let mut s = SwarmMinimizer::new(Box::new(pso), swarm)
         .with_observer(tracker.clone())
         .with_max_steps(200);
 

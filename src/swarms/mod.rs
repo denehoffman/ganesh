@@ -92,7 +92,7 @@ impl Particle {
     }
 }
 /// A swarm of particles used in particle swarm optimization and similar methods.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Swarm {
     /// The dimension of the parameter space
     pub dimension: usize,
@@ -106,8 +106,9 @@ pub struct Swarm {
     pub message: String,
     /// The bounds placed on the minimization space
     pub bounds: Option<Vec<Bound>>,
-    /// The method used to handle boundary conditions
-    pub boundary_method: BoundaryMethod,
+    boundary_method: BoundaryMethod,
+    position_initializer: SwarmPositionInitializer,
+    velocity_initializer: SwarmVelocityInitializer,
 }
 
 impl Display for Swarm {
@@ -296,53 +297,86 @@ impl SwarmVelocityInitializer {
 }
 
 impl Swarm {
-    fn new<U, E>(
+    /// Construct a new [`Swarm`] from a [`SwarmPositionInitializer`].
+    pub fn new(position_initializer: SwarmPositionInitializer) -> Self {
+        Self {
+            dimension: 0,
+            particles: Vec::default(),
+            gbest: Point::default(),
+            converged: false,
+            message: "Uninitialized".to_string(),
+            bounds: None,
+            boundary_method: BoundaryMethod::default(),
+            position_initializer,
+            velocity_initializer: SwarmVelocityInitializer::default(),
+        }
+    }
+    /// Set the [`Swarm`]'s [`SwarmVelocityInitializer`].
+    pub fn with_velocity_initializer(
+        mut self,
+        velocity_initializer: SwarmVelocityInitializer,
+    ) -> Self {
+        self.velocity_initializer = velocity_initializer;
+        self
+    }
+    /// Set the [`BoundaryMethod`] for the [`Swarm`].
+    pub const fn with_boundary_method(mut self, boundary_method: BoundaryMethod) -> Self {
+        self.boundary_method = boundary_method;
+        self
+    }
+    /// Initialize the swarm with a given function, bounds, and random number generator.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// information.
+    pub fn initialize<U, E>(
+        &mut self,
         func: &dyn Function<U, E>,
         user_data: &mut U,
         bounds: Option<&Vec<Bound>>,
-        position_initializer: SwarmPositionInitializer,
-        velocity_initializer: SwarmVelocityInitializer,
-        boundary_method: BoundaryMethod,
         rng: &mut Rng,
-    ) -> Result<Self, E> {
-        let mut particle_positions = position_initializer.get_positions(rng);
-        let mut particle_velocities = velocity_initializer.get_velocities(
+    ) -> Result<(), E> {
+        self.bounds = bounds.cloned();
+        let mut particle_positions = self.position_initializer.get_positions(rng);
+        let mut particle_velocities = self.velocity_initializer.get_velocities(
             particle_positions.len(),
             particle_positions[0].x.len(),
             rng,
         );
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
-        if matches!(boundary_method, BoundaryMethod::Transform) {
-            particle_positions
-                .iter_mut()
-                .for_each(|point| *point = Bound::to_unbounded(point.x.as_slice(), bounds).into());
-            particle_velocities
-                .iter_mut()
-                .for_each(|velocity| *velocity = Bound::to_unbounded(velocity.as_slice(), bounds));
+        if matches!(self.boundary_method, BoundaryMethod::Transform) {
+            particle_positions.iter_mut().for_each(|point| {
+                *point = Bound::to_unbounded(point.x.as_slice(), self.bounds.as_ref()).into()
+            });
+            particle_velocities.iter_mut().for_each(|velocity| {
+                *velocity = Bound::to_unbounded(velocity.as_slice(), self.bounds.as_ref())
+            });
         }
-        let mut particles = particle_positions
+        self.particles = particle_positions
             .into_iter()
             .zip(particle_velocities.into_iter())
             .map(|(position, velocity)| {
-                Particle::new(position, velocity, func, user_data, bounds, boundary_method)
+                Particle::new(
+                    position,
+                    velocity,
+                    func,
+                    user_data,
+                    self.bounds.as_ref(),
+                    self.boundary_method,
+                )
             })
             .collect::<Result<Vec<Particle>, E>>()?;
-        let mut gbest = particles[0].best.clone();
-        for particle in &mut particles {
-            if particle.best.total_cmp(&gbest) == Ordering::Less {
-                gbest = particle.best.clone();
+        self.gbest = self.particles[0].best.clone();
+        for particle in &mut self.particles {
+            if particle.best.total_cmp(&self.gbest) == Ordering::Less {
+                self.gbest = particle.best.clone();
             }
         }
-        Ok(Self {
-            dimension: particles[0].best.x.len(),
-            particles,
-            gbest,
-            converged: false,
-            message: Default::default(),
-            bounds: bounds.cloned(),
-            boundary_method,
-        })
+        self.dimension = self.particles[0].best.x.len();
+        self.update_message("Initialized");
+        Ok(())
     }
 }
 
@@ -459,9 +493,9 @@ impl<U, E> SwarmMinimizer<U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`SwarmMinimizer`] with the given (boxed) [`SwarmAlgorithm`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new(algorithm: Box<dyn SwarmAlgorithm<U, E>>) -> Self {
+    pub fn new(algorithm: Box<dyn SwarmAlgorithm<U, E>>, swarm: Swarm) -> Self {
         Self {
-            swarm: Swarm::default(),
+            swarm,
             algorithm,
             max_steps: Self::DEFAULT_MAX_STEPS,
             observers: Vec::default(),

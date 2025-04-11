@@ -3,10 +3,7 @@ use std::cmp::Ordering;
 use fastrand::Rng;
 use nalgebra::DVector;
 
-use super::{
-    BoundaryMethod, SwarmAlgorithm, SwarmPositionInitializer, SwarmVelocityInitializer, Topology,
-    UpdateMethod,
-};
+use super::{SwarmAlgorithm, Topology, UpdateMethod};
 use crate::{generate_random_vector, Bound, Float, Function, Swarm};
 
 /// Particle Swarm Optimizer
@@ -37,26 +34,20 @@ pub struct PSO {
     c1: Float,
     c2: Float,
     rng: Rng,
-    position_initializer: SwarmPositionInitializer,
-    velocity_initializer: SwarmVelocityInitializer,
     topology: Topology,
-    boundary_method: BoundaryMethod,
     update_method: UpdateMethod,
 }
 
 impl PSO {
     /// Construct a new particle swarm optimizer with `n_particles` particles working in an
     /// `n_dimensions` dimensional space.
-    pub fn new<U, E>(position_initializer: SwarmPositionInitializer, rng: Rng) -> Self {
+    pub fn new(rng: Rng) -> Self {
         Self {
             omega: 0.8,
             c1: 0.1,
             c2: 0.1,
             rng,
-            position_initializer,
-            velocity_initializer: SwarmVelocityInitializer::default(),
             topology: Topology::default(),
-            boundary_method: BoundaryMethod::default(),
             update_method: UpdateMethod::default(),
         }
     }
@@ -93,19 +84,9 @@ impl PSO {
         self.c2 = value;
         self
     }
-    /// Sets the method used to initialize the velocity of the swarm's particles (default = [`SwarmVelocityInitializer::Zero`]).
-    pub fn with_velocity_initializer(mut self, value: SwarmVelocityInitializer) -> Self {
-        self.velocity_initializer = value;
-        self
-    }
     /// Sets the topology used by the swarm (default = [`Topology::Global`]).
     pub const fn with_topology(mut self, value: Topology) -> Self {
         self.topology = value;
-        self
-    }
-    /// Sets the method used to handle bounds if supplied (default = [`BoundaryMethod::Inf`]).
-    pub const fn with_boundary_method(mut self, value: BoundaryMethod) -> Self {
-        self.boundary_method = value;
         self
     }
     /// Sets the update method used by the swarm (default = [`UpdateMethod::Synchronous`]).
@@ -169,7 +150,7 @@ impl PSO {
                 func,
                 user_data,
                 swarm.bounds.as_ref(),
-                self.boundary_method,
+                swarm.boundary_method,
             )?;
         }
         Ok(())
@@ -199,7 +180,7 @@ impl PSO {
                 func,
                 user_data,
                 swarm.bounds.as_ref(),
-                self.boundary_method,
+                swarm.boundary_method,
             )?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
@@ -220,15 +201,7 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
-        *swarm = Swarm::new(
-            func,
-            user_data,
-            bounds,
-            self.position_initializer.clone(),
-            self.velocity_initializer.clone(),
-            self.boundary_method,
-            &mut self.rng,
-        )?;
+        swarm.initialize(func, user_data, bounds, &mut self.rng)?;
         Ok(())
     }
 
