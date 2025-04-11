@@ -252,8 +252,10 @@ impl DebugSwarmObserver {
 /// history of global best positions.
 #[derive(Serialize, Deserialize, Default)]
 pub struct TrackingSwarmObserver {
-    history: Vec<Vec<Particle>>,
-    best_history: Vec<Point>,
+    /// The history of the swarm particles
+    pub history: Vec<Vec<Particle>>,
+    /// The history of the best position in the swarm
+    pub best_history: Vec<Point>,
 }
 
 impl TrackingSwarmObserver {
