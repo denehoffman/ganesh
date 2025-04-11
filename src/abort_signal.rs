@@ -26,7 +26,8 @@ static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
 /// A signal that is triggered when the user presses `Ctrl-C`.
 /// <div class="warning">This signal takes over the `Ctrl-C` handler for the whole process and can interfere with
 /// other libraries that use `Ctrl-C` (e.g. `tokio`).</div>
-pub struct CtrlCAbortSignal {}
+#[derive(Default)]
+pub struct CtrlCAbortSignal;
 impl CtrlCAbortSignal {
     /// Create a new `CtrlCAbortSignal` and register a ctrl-c handler.
     pub fn new() -> Self {
@@ -62,12 +63,13 @@ impl AbortSignal for CtrlCAbortSignal {
 }
 
 /// A signal that is never triggered.
+#[derive(Default)]
 pub struct NopAbortSignal;
 
 impl NopAbortSignal {
     /// Create a new `NopAbortSignal`.
-    pub fn new() -> Self {
-        Self {}
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -82,13 +84,14 @@ impl AbortSignal for NopAbortSignal {
 }
 
 /// A signal that is triggered by setting an atomic boolean.
+#[derive(Default)]
 pub struct AtomicAbortSignal {
     abort: AtomicBool,
 }
 
 impl AtomicAbortSignal {
     /// Create a new `AtomicAbortSignal`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             abort: AtomicBool::new(false),
         }
