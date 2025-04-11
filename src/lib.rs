@@ -43,8 +43,9 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::{Function, Float, Minimizer};
+//! use ganesh::{Function, Float, Minimizer, NopAbortSignal};
 //! use ganesh::algorithms::NelderMead;
+//! use ganesh::traits::*;
 //! # use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
@@ -62,7 +63,7 @@
 //!     let nm = NelderMead::default();
 //!     let mut m = Minimizer::new(Box::new(nm), 2);
 //!     let x0 = &[2.0, 2.0];
-//!     m.minimize(&mut problem, x0, &mut ())?;
+//!     m.minimize(&mut problem, x0, &mut (), NopAbortSignal::new().boxed())?;
 //!     println!("{}", m.status);
 //!     Ok(())
 //! }

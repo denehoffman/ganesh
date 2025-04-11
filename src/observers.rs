@@ -33,7 +33,7 @@ pub trait SwarmObserver<U> {
 /// # Usage:
 ///
 /// ```rust
-/// use ganesh::Minimizer;
+/// use ganesh::{Minimizer, NopAbortSignal};
 /// use ganesh::traits::*;
 /// use ganesh::algorithms::NelderMead;
 /// use ganesh::test_functions::Rosenbrock;
@@ -43,7 +43,7 @@ pub trait SwarmObserver<U> {
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
 /// let mut m = Minimizer::new(Box::new(nm), 2).with_observer(obs);
-/// m.minimize(&mut problem, &[2.3, 3.4], &mut ()).unwrap();
+/// m.minimize(&mut problem, &[2.3, 3.4], &mut (), NopAbortSignal::new().boxed()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
 /// ```
@@ -67,7 +67,7 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// # Usage:
 ///
 /// ```rust
-/// use ganesh::Sampler;
+/// use ganesh::{Sampler, NopAbortSignal};
 /// use ganesh::traits::*;
 /// use ganesh::samplers::{ESS, ESSMove};
 /// use ganesh::test_functions::NegativeRosenbrock;
@@ -81,7 +81,7 @@ impl<U: Debug> Observer<U> for DebugObserver {
 /// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 /// let obs = DebugMCMCObserver::build();
 /// let mut sampler = Sampler::new(Box::new(ess), x0).with_observer(obs);
-/// sampler.sample(&problem, &mut (), 10).unwrap();
+/// sampler.sample(&problem, &mut (), 10, NopAbortSignal::new().boxed()).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(sampler.ensemble.dimension() == (5, 10, 2));
 /// ```
@@ -110,7 +110,7 @@ impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
 /// # Usage:
 ///
 /// ```rust
-/// use ganesh::Sampler;
+/// use ganesh::{Sampler, NopAbortSignal};
 /// use ganesh::traits::*;
 /// use ganesh::samplers::{ESS, ESSMove};
 /// use ganesh::test_functions::NegativeRosenbrock;
@@ -124,7 +124,7 @@ impl<U: Debug> MCMCObserver<U> for DebugMCMCObserver {
 /// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 /// let obs = AutocorrelationObserver::default().with_n_check(20).build();
 /// let mut sampler = Sampler::new(Box::new(ess), x0).with_observer(obs);
-/// sampler.sample(&problem, &mut (), 100).unwrap();
+/// sampler.sample(&problem, &mut (), 100, NopAbortSignal::new().boxed()).unwrap();
 /// // ^ This will print autocorrelation messages for every 20 steps
 /// assert!(sampler.ensemble.dimension() == (5, 100, 2));
 /// ```
