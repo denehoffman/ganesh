@@ -43,8 +43,9 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::{Function, Float, Minimizer};
+//! use ganesh::{Function, Float, Minimizer, NopAbortSignal};
 //! use ganesh::algorithms::NelderMead;
+//! use ganesh::traits::*;
 //! # use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
@@ -62,7 +63,7 @@
 //!     let nm = NelderMead::default();
 //!     let mut m = Minimizer::new(Box::new(nm), 2);
 //!     let x0 = &[2.0, 2.0];
-//!     m.minimize(&mut problem, x0, &mut ())?;
+//!     m.minimize(&mut problem, x0, &mut (), NopAbortSignal::new().boxed())?;
 //!     println!("{}", m.status);
 //!     Ok(())
 //! }
@@ -190,17 +191,10 @@
     missing_docs
 )]
 
-use std::{
-    fmt::{Debug, Display},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Once,
-    },
-};
+use std::fmt::{Debug, Display};
 
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
-use lazy_static::lazy_static;
 use nalgebra::{Cholesky, DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
@@ -221,35 +215,18 @@ pub mod observers;
 /// Module containing standard functions for testing algorithms
 pub mod test_functions;
 
+/// Module containing a trait for aborting algorithms
+pub mod abort_signal;
+pub use abort_signal::NopAbortSignal;
+
 /// Module containing useful traits
 pub mod traits {
+    pub use crate::abort_signal::AbortSignal;
     pub use crate::algorithms::Algorithm;
     pub use crate::observers::{MCMCObserver, Observer};
     pub use crate::samplers::MCMCAlgorithm;
     pub use crate::swarms::SwarmAlgorithm;
     pub use crate::{Function, SampleFloat};
-}
-
-lazy_static! {
-    pub(crate) static ref CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
-}
-
-static INIT: Once = Once::new();
-
-pub(crate) fn init_ctrl_c_handler() {
-    INIT.call_once(|| {
-        #[allow(clippy::expect_used)]
-        ctrlc::set_handler(move || CTRL_C_PRESSED.store(true, Ordering::SeqCst))
-            .expect("Error setting Ctrl-C handler");
-    });
-}
-
-pub(crate) fn reset_ctrl_c_handler() {
-    CTRL_C_PRESSED.store(false, Ordering::SeqCst)
-}
-
-pub(crate) fn is_ctrl_c_pressed() -> bool {
-    CTRL_C_PRESSED.load(Ordering::SeqCst)
 }
 
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).

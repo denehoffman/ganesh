@@ -4,8 +4,10 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
+use ganesh::abort_signal::CtrlCAbortSignal;
 use ganesh::observers::TrackingSwarmObserver;
 use ganesh::swarms::{SwarmPositionInitializer, PSO};
+use ganesh::traits::AbortSignal;
 use ganesh::{Float, Function, Swarm};
 use ganesh::{SwarmMinimizer, PI};
 use std::error::Error;
@@ -45,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_max_steps(200);
 
     // Run the particle swarm optimizer
-    s.minimize(&problem, &mut ())?;
+    s.minimize(&problem, &mut (), CtrlCAbortSignal::new().boxed())?;
 
     println!("{}", s.swarm);
 

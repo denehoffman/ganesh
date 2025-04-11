@@ -1,6 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use ganesh::abort_signal::CtrlCAbortSignal;
 use ganesh::algorithms::LBFGSB;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
+use ganesh::traits::AbortSignal;
 use ganesh::Minimizer;
 
 fn lbfgsb_benchmark(c: &mut Criterion) {
@@ -12,7 +14,8 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
             let mut m = Minimizer::new(Box::new(nm), *ndim).with_max_steps(10_000_000);
             let x0 = vec![5.0; *ndim];
             b.iter(|| {
-                m.minimize(&problem, &x0, &mut ()).unwrap();
+                m.minimize(&problem, &x0, &mut (), CtrlCAbortSignal::new().boxed())
+                    .unwrap();
                 black_box(&m.status);
             });
         });

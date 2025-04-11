@@ -278,7 +278,6 @@ dependencies = [
  "dyn-clone",
  "fastrand",
  "fastrand-contrib",
- "lazy_static",
  "logsumexp",
  "nalgebra",
  "parking_lot",

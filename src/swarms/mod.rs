@@ -9,8 +9,8 @@ pub use pso::PSO;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    generate_random_vector_in_limits, init_ctrl_c_handler, is_ctrl_c_pressed,
-    observers::SwarmObserver, reset_ctrl_c_handler, Bound, Float, Function, Point, SampleFloat,
+    generate_random_vector_in_limits, observers::SwarmObserver, traits::AbortSignal, Bound, Float,
+    Function, Point, SampleFloat,
 };
 
 /// A particle with a position, velocity, and best known position
@@ -554,9 +554,12 @@ impl<U, E> SwarmMinimizer<U, E> {
     /// This method will panic if the length of `x0` is not equal to the dimension of the problem
     /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
     /// [`SwarmMinimizer`].
-    pub fn minimize(&mut self, func: &dyn Function<U, E>, user_data: &mut U) -> Result<(), E> {
-        init_ctrl_c_handler();
-        reset_ctrl_c_handler();
+    pub fn minimize(
+        &mut self,
+        func: &dyn Function<U, E>,
+        user_data: &mut U,
+        abort_signal: Box<dyn AbortSignal>,
+    ) -> Result<(), E> {
         // self.reset_status();
         self.algorithm
             .initialize(func, self.bounds.as_ref(), user_data, &mut self.swarm)?;
@@ -567,7 +570,7 @@ impl<U, E> SwarmMinimizer<U, E> {
             && !self
                 .algorithm
                 .check_for_termination(func, user_data, &mut self.swarm)?
-            && !is_ctrl_c_pressed()
+            && !abort_signal.is_aborted()
         {
             self.algorithm
                 .step(current_step, func, user_data, &mut self.swarm)?;
@@ -587,8 +590,8 @@ impl<U, E> SwarmMinimizer<U, E> {
         if current_step > self.max_steps && !self.swarm.converged {
             self.swarm.update_message("MAX EVALS");
         }
-        if is_ctrl_c_pressed() {
-            self.swarm.update_message("Ctrl-C Pressed");
+        if abort_signal.is_aborted() {
+            self.swarm.update_message("Abort signal received");
         }
         Ok(())
     }

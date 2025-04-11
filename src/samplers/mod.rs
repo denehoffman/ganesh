@@ -18,8 +18,8 @@ use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, traits::MCMCObserver, Float,
-    Function, Point,
+    traits::{AbortSignal, MCMCObserver},
+    Float, Function, Point,
 };
 
 /// A MCMC walker containing a history of past samples
@@ -451,9 +451,8 @@ impl<U, E> Sampler<U, E> {
         func: &dyn Function<U, E>,
         user_data: &mut U,
         n_steps: usize,
+        abort_signal: Box<dyn AbortSignal>,
     ) -> Result<(), E> {
-        init_ctrl_c_handler();
-        reset_ctrl_c_handler();
         self.mcmc_algorithm
             .initialize(func, user_data, &mut self.ensemble)?;
         let mut current_step = 0;
@@ -465,7 +464,7 @@ impl<U, E> Sampler<U, E> {
                 user_data,
                 &mut self.ensemble,
             )?
-            && !is_ctrl_c_pressed()
+            && !abort_signal.is_aborted()
         {
             let walker_step = self.ensemble.dimension().1;
             self.mcmc_algorithm
