@@ -16,8 +16,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    init_ctrl_c_handler, is_ctrl_c_pressed, reset_ctrl_c_handler, traits::Observer, Bound, Float,
-    Function,
+    traits::{AbortSignal, Observer},
+    Bound, Float, Function,
 };
 
 /// A status message struct containing all information about a minimization result.
@@ -307,10 +307,9 @@ impl<U, E> Minimizer<U, E> {
         func: &dyn Function<U, E>,
         x0: &[Float],
         user_data: &mut U,
+        abort_signal: Box<dyn AbortSignal>,
     ) -> Result<(), E> {
         assert!(x0.len() == self.dimension);
-        init_ctrl_c_handler();
-        reset_ctrl_c_handler();
         self.reset_status();
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x0.iter().zip(bounds).enumerate() {
@@ -333,7 +332,7 @@ impl<U, E> Minimizer<U, E> {
             && !self
                 .algorithm
                 .check_for_termination(func, user_data, &mut self.status)?
-            && !is_ctrl_c_pressed()
+            && !abort_signal.is_aborted()
         {
             self.algorithm
                 .step(current_step, func, user_data, &mut self.status)?;
@@ -353,8 +352,8 @@ impl<U, E> Minimizer<U, E> {
         if current_step > self.max_steps && !self.status.converged {
             self.status.update_message("MAX EVALS");
         }
-        if is_ctrl_c_pressed() {
-            self.status.update_message("Ctrl-C Pressed");
+        if abort_signal.is_aborted() {
+            self.status.update_message("Abort signal received");
         }
         Ok(())
     }

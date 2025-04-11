@@ -16,7 +16,6 @@ exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 [dependencies]
 nalgebra = { version = "0.33.0", features = ["serde-serialize"] }
 ctrlc = "3.4.5"
-lazy_static = "1.5.0"
 dyn-clone = "1.0.17"
 serde = { version = "1.0.214", features = ["derive", "rc"] }
 serde-pickle = "1.2.0"

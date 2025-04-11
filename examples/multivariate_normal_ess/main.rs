@@ -4,8 +4,10 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
+use ganesh::abort_signal::CtrlCAbortSignal;
 use ganesh::observers::AutocorrelationObserver;
 use ganesh::samplers::ess::{ESSMove, ESS};
+use ganesh::traits::AbortSignal;
 use ganesh::Sampler;
 use ganesh::{Float, Function, SampleFloat};
 use nalgebra::{DMatrix, DVector};
@@ -54,7 +56,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
 
     // Run a maximum of 1000 steps of the MCMC algorithm
-    s.sample(&problem, &mut cov_inv, 1000)?;
+    s.sample(
+        &problem,
+        &mut cov_inv,
+        1000,
+        CtrlCAbortSignal::new().boxed(),
+    )?;
 
     // Get the resulting samples (no burn-in)
     let chains = s.get_chains(None, None);
