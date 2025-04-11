@@ -216,6 +216,7 @@ pub mod test_functions;
 
 /// Module containing a trait for aborting algorithms
 pub mod abort_signal;
+pub use abort_signal::NopAbortSignal;
 
 /// Module containing useful traits
 pub mod traits {
