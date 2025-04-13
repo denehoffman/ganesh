@@ -1,7 +1,7 @@
 use dyn_clone::DynClone;
 use nalgebra::DVector;
 
-use crate::{core::Status, Float};
+use crate::{traits::Status, Float};
 
 use super::cost_function::CostFunction;
 
@@ -9,7 +9,7 @@ use super::cost_function::CostFunction;
 ///
 /// Line searches are one-dimensional minimizers typically used to determine optimal step sizes for
 /// [`Algorithm`](`crate::traits::Algorithm`)s which only provide a direction for the next optimal step.
-pub trait LineSearch<U, E>: DynClone {
+pub trait LineSearch<S: Status, U, E>: DynClone {
     /// The search method takes the current position of the minimizer, `x`, the search direction
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
     /// objective function `user_data`, and returns a [`Result`] containing the tuple,
@@ -28,7 +28,7 @@ pub trait LineSearch<U, E>: DynClone {
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut S,
     ) -> Result<(bool, Float, Float, DVector<Float>), E>;
 }
-dyn_clone::clone_trait_object!(<U, E> LineSearch<U, E>);
+dyn_clone::clone_trait_object!(<S:Status, U, E> LineSearch<S, U, E>);

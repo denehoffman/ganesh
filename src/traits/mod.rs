@@ -8,9 +8,12 @@ pub mod linesearch;
 pub mod observer;
 /// Module containing the [`Solver`] trait.
 pub mod solver;
+/// Module containing the [`Status`] trait and its implementations.
+pub mod status;
 
 pub use abort_signal::AbortSignal;
 pub use cost_function::CostFunction;
 pub use linesearch::LineSearch;
-pub use observer::{MCMCObserver, Observer, SwarmObserver};
+pub use observer::Observer;
 pub use solver::Solver;
+pub use status::Status;

@@ -2,12 +2,12 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Status};
+use crate::core::{Bound, GradientStatus};
 
-use crate::traits::{CostFunction, LineSearch, Solver};
+use crate::traits::{CostFunction, LineSearch, Solver, Status};
 use crate::Float;
 
-use super::StrongWolfeLineSearch;
+use crate::solvers::linesearch::StrongWolfeLineSearch;
 
 /// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the change in the
 /// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
@@ -20,7 +20,7 @@ impl LBFGSBFTerminator {
         &self,
         fx_current: Float,
         fx_previous: Float,
-        status: &mut Status,
+        status: &mut GradientStatus,
         eps_abs: Float,
     ) {
         if (fx_previous - fx_current).abs() < eps_abs {
@@ -37,7 +37,12 @@ impl LBFGSBFTerminator {
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
 impl LBFGSBGTerminator {
-    fn update_convergence(&self, gradient: &DVector<Float>, status: &mut Status, eps_abs: Float) {
+    fn update_convergence(
+        &self,
+        gradient: &DVector<Float>,
+        status: &mut GradientStatus,
+        eps_abs: Float,
+    ) {
         if gradient.dot(gradient).sqrt() < eps_abs {
             status.set_converged();
             status.update_message("GRADIENT CONVERGED");
@@ -78,7 +83,7 @@ pub struct LBFGSB<U, E> {
     eps_f_abs: Float,
     eps_g_abs: Float,
     tol_g_abs: Float,
-    line_search: Box<dyn LineSearch<U, E>>,
+    line_search: Box<dyn LineSearch<GradientStatus, U, E>>,
     m: usize,
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
@@ -132,7 +137,10 @@ impl<U, E> LBFGSB<U, E> {
     /// search which satisfies the strong Wolfe conditions, [`StrongWolfeLineSearch`]. Note that in
     /// general, this should only use [`LineSearch`] algorithms which satisfy the Wolfe conditions.
     /// Using the Armijo condition alone will lead to slower convergence.
-    pub fn with_line_search<LS: LineSearch<U, E> + 'static>(mut self, line_search: LS) -> Self {
+    pub fn with_line_search<LS: LineSearch<GradientStatus, U, E> + 'static>(
+        mut self,
+        line_search: LS,
+    ) -> Self {
         self.line_search = Box::new(line_search);
         self
     }
@@ -379,18 +387,21 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
-impl<U, E> Solver<U, E> for LBFGSB<U, E> {
+impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
-        self.l = DVector::from_element(status.x0.len(), Float::NEG_INFINITY);
-        self.u = DVector::from_element(status.x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &status.bounds {
+        let config = status.config();
+        let x0 = config.x0.as_ref();
+        let bounds = config.bounds.as_ref();
+        self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
+        self.u = DVector::from_element(x0.len(), Float::INFINITY);
+        if let Some(bounds_vec) = &bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
                     Bound::NoBound => {}
@@ -403,13 +414,13 @@ impl<U, E> Solver<U, E> for LBFGSB<U, E> {
                 }
             }
         }
-        self.x = DVector::from_fn(status.x0.len(), |i, _| {
-            if status.x0[i] < self.l[i] {
+        self.x = DVector::from_fn(x0.len(), |i, _| {
+            if x0[i] < self.l[i] {
                 self.l[i]
-            } else if status.x0[i] > self.u[i] {
+            } else if x0[i] > self.u[i] {
                 self.u[i]
             } else {
-                status.x0[i]
+                x0[i]
             }
         });
         self.g = func.gradient(self.x.as_slice(), user_data)?;
@@ -426,7 +437,7 @@ impl<U, E> Solver<U, E> for LBFGSB<U, E> {
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
@@ -467,7 +478,7 @@ impl<U, E> Solver<U, E> for LBFGSB<U, E> {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<bool, E> {
         let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
@@ -486,7 +497,7 @@ impl<U, E> Solver<U, E> for LBFGSB<U, E> {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSBErrorMode::ExactHessian => {
@@ -506,7 +517,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Problem},
+        core::{CtrlCAbortSignal, Minimizer},
         test_functions::Rosenbrock,
         traits::AbortSignal,
         Float,
@@ -515,10 +526,18 @@ mod tests {
     use super::LBFGSB;
 
     #[test]
+    #[allow(unused_variables)]
+    fn test_problem_constructor() {
+        #[allow(clippy::box_default)]
+        let algo: LBFGSB<(), Infallible> = LBFGSB::default();
+        let problem = Minimizer::new(Box::new(algo), 2);
+    }
+
+    #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
         let mut m =
-            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
+            Minimizer::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
         m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
@@ -544,7 +563,7 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
-        let mut m = Problem::new(Box::new(algo), 2)
+        let mut m = Minimizer::new(Box::new(algo), 2)
             .with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
             .with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };

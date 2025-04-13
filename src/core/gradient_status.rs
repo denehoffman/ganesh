@@ -3,13 +3,13 @@ use std::fmt::Display;
 use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
-use crate::Float;
+use crate::{traits::Status, Float};
 
-use super::Bound;
+use super::{Bound, Config};
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Status {
+pub struct GradientStatus {
     /// A [`String`] message that can be set by minimization [`Algorithm`]s.
     pub message: String,
     /// The current position of the minimization.
@@ -30,20 +30,50 @@ pub struct Status {
     pub cov: Option<DMatrix<Float>>,
     /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
     pub err: Option<DVector<Float>>,
-
-    /// The dimension of the minimization problem.
-    pub dimension: usize,
-    /// The initial position of the minimization.
-    pub x0: DVector<Float>,
-    /// The bounds used for the minimization.
-    pub bounds: Option<Vec<Bound>>,
-    /// Optional parameter names
-    pub parameter_names: Option<Vec<String>>,
-    /// Max steps for the minimization
-    pub max_steps: usize,
+    /// The
+    config: Config,
 }
 
-impl Display for Status {
+impl Status for GradientStatus {
+    fn reset(&mut self) {
+        self.message = String::new();
+        self.x = DVector::zeros(self.config.dimension);
+        self.fx = Float::default();
+        self.n_f_evals = 0;
+        self.n_g_evals = 0;
+        self.converged = false;
+        self.hess = None;
+        self.cov = None;
+        self.err = None;
+    }
+    fn config(&self) -> &Config {
+        &self.config
+    }
+    fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
+    fn with_config(mut self, config: Config) -> Self {
+        self.config = config;
+        self
+    }
+    fn x(&self) -> &DVector<Float> {
+        &self.x
+    }
+    fn fx(&self) -> Float {
+        self.fx
+    }
+    fn converged(&self) -> bool {
+        self.converged
+    }
+    fn message(&self) -> &str {
+        &self.message
+    }
+    fn update_message(&mut self, message: &str) {
+        self.message = message.to_string();
+    }
+}
+
+impl Display for GradientStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let title = format!(
           "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
@@ -77,6 +107,7 @@ impl Display for Status {
             .clone()
             .unwrap_or_else(|| DVector::from_element(self.x.len(), Float::NAN));
         let bounds = self
+            .config
             .bounds
             .clone()
             .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()]);
@@ -86,7 +117,7 @@ impl Display for Status {
               i,
               self.x[i],
               errs[i],
-              self.x0[i],
+              self.config.x0[i],
               bounds[i].lower(),
               bounds[i].upper(),
               if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
@@ -99,7 +130,7 @@ impl Display for Status {
     }
 }
 
-impl Status {
+impl GradientStatus {
     /// Updates the [`Status::message`] field.
     pub fn update_message(&mut self, message: &str) {
         self.message = message.to_string();
@@ -123,7 +154,8 @@ impl Status {
     }
     /// Sets parameter names.
     pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
-        self.parameter_names = Some(names.iter().map(|name| name.as_ref().to_string()).collect());
+        self.config.parameter_names =
+            Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
     /// Sets the covariance matrix and updates parameter errors.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {

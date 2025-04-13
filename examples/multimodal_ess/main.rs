@@ -4,12 +4,13 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::abort_signal::CtrlCAbortSignal;
-use ganesh::observers::AutocorrelationObserver;
+use ganesh::core::CtrlCAbortSignal;
 use ganesh::samplers::ess::{ESSMove, ESS};
-use ganesh::traits::AbortSignal;
-use ganesh::Sampler;
-use ganesh::{Float, Function, SampleFloat};
+use ganesh::samplers::Sampler;
+use ganesh::traits::observer::AutocorrelationObserver;
+use ganesh::traits::{AbortSignal, CostFunction};
+use ganesh::utils::SampleFloat;
+use ganesh::Float;
 use nalgebra::DVector;
 use std::error::Error;
 
@@ -17,7 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Function (Himmelblau's test function)
-    impl Function<(), Infallible> for Problem {
+    impl CostFunction<(), Infallible> for Problem {
         fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }

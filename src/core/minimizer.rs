@@ -4,53 +4,53 @@ use nalgebra::DVector;
 use parking_lot::RwLock;
 
 use crate::{
-    traits::{AbortSignal, CostFunction, Observer, Solver},
+    traits::{AbortSignal, CostFunction, Observer, Solver, Status},
     Float,
 };
 
-use super::{Bound, NopAbortSignal, Status};
+use super::{Bound, Config, NopAbortSignal};
 
 /// The main struct used for running [`Solver`]s on [`Function`]s.
-pub struct Problem<U: Default, E> {
+pub struct Minimizer<S: Status, U: Default, E> {
     /// The [`Status`] of the [`Problem`], usually read after minimization.
-    pub status: Status,
-    solver: Box<dyn Solver<U, E>>,
-    observers: Vec<Arc<RwLock<dyn Observer<U>>>>,
+    pub status: S,
+    solver: Box<dyn Solver<S, U, E>>,
+    observers: Vec<Arc<RwLock<dyn Observer<S, U>>>>,
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
 }
-impl<U: Default, E> Display for Problem<U, E> {
+impl<S: Status, U: Default, E> Display for Minimizer<S, U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.status)
     }
 }
-impl<U: Default, E> Problem<U, E> {
+impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Problem`] with the given (boxed) [`Solver`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
-    pub fn new(solver: Box<dyn Solver<U, E>>, dimension: usize) -> Self {
+    pub fn new(solver: Box<dyn Solver<S, U, E>>, dimension: usize) -> Self {
         Self {
-            status: Status {
+            status: S::default().with_config(Config {
                 max_steps: Self::DEFAULT_MAX_STEPS,
                 dimension,
                 ..Default::default()
-            },
+            }),
             solver,
             observers: Vec::default(),
             abort_signal: NopAbortSignal.boxed(),
             user_data: Default::default(),
         }
     }
-    fn reset_status(&mut self) {
-        let new_status = Status {
-            bounds: self.status.bounds.clone(),
-            max_steps: self.status.max_steps,
-            x0: self.status.x0.clone(),
-            parameter_names: self.status.parameter_names.clone(),
-            dimension: self.status.dimension,
-            ..Default::default()
-        };
-        self.status = new_status;
+    pub fn reset_status(&mut self) {
+        self.status.reset();
+    }
+
+    pub fn on_status<F>(mut self, mut f: F) -> Self
+    where
+        F: FnMut(S) -> S,
+    {
+        self.status = f(self.status);
+        self
     }
     /// Sets all [`Bound`]s of the [`Problem`]. This can be [`None`] for an unbounded problem, or
     /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
@@ -63,15 +63,15 @@ impl<U: Default, E> Problem<U, E> {
     /// parameters.
     pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
         let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
-        assert!(bounds.len() == self.status.dimension);
-        self.status.bounds = Some(bounds);
+        assert!(bounds.len() == self.status.config().dimension);
+        self.status.config_mut().bounds = Some(bounds);
         self
     }
 
     pub fn with_parameter_names<I: IntoIterator<Item = String>>(mut self, names: I) -> Self {
         let names = names.into_iter().collect::<Vec<String>>();
-        assert!(names.len() == self.status.dimension);
-        self.status.parameter_names = Some(names);
+        assert!(names.len() == self.status.config().dimension);
+        self.status.config_mut().parameter_names = Some(names);
         self
     }
 
@@ -80,15 +80,15 @@ impl<U: Default, E> Problem<U, E> {
         self
     }
 
-    pub fn with_user_data<S: Into<U>>(mut self, data: S) -> Self {
+    pub fn with_user_data<T: Into<U>>(mut self, data: T) -> Self {
         self.user_data = data.into();
         self
     }
 
     pub fn with_initial_guess<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
-        assert!(x0.len() == self.status.dimension);
-        self.status.x0 = DVector::from_column_slice(&x0);
+        assert!(x0.len() == self.status.config().dimension);
+        self.status.config_mut().x0 = DVector::from_column_slice(&x0);
         self
     }
 
@@ -97,30 +97,30 @@ impl<U: Default, E> Problem<U, E> {
         bounds: I,
     ) -> &mut Self {
         let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
-        assert!(bounds.len() == self.status.dimension);
-        self.status.bounds = Some(bounds);
+        assert!(bounds.len() == self.status.config().dimension);
+        self.status.config_mut().bounds = Some(bounds);
         self
     }
 
     pub fn update_initial_guess<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
-        assert!(x0.len() == self.status.dimension);
-        self.status.x0 = DVector::from_column_slice(&x0);
+        assert!(x0.len() == self.status.config().dimension);
+        self.status.config_mut().x0 = DVector::from_column_slice(&x0);
         self
     }
 
-    pub fn update_user_data<S: Into<U>>(&mut self, data: S) -> &mut Self {
+    pub fn update_user_data<T: Into<U>>(&mut self, data: T) -> &mut Self {
         self.user_data = data.into();
         self
     }
 
     /// Set the maximum number of steps to perform before failure (default: 4000).
-    pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
-        self.status.max_steps = max_steps;
+    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
+        self.status.config_mut().max_steps = max_steps;
         self
     }
     /// Adds a single [`Observer`] to the [`Minimizer`].
-    pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<U>>>) -> Self {
+    pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> Self {
         self.observers.push(observer);
         self
     }
@@ -146,8 +146,8 @@ impl<U: Default, E> Problem<U, E> {
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.reset_status();
         self.abort_signal.reset();
-        if let Some(bounds) = &self.status.bounds {
-            for (i, (x_i, bound_i)) in self.status.x0.iter().zip(bounds).enumerate() {
+        if let Some(bounds) = &self.status.config().bounds {
+            for (i, (x_i, bound_i)) in self.status.config().x0.iter().zip(bounds).enumerate() {
                 assert!(
                     bound_i.contains(*x_i),
                     "Parameter #{} = {} is outside of the given bound: {}",
@@ -161,7 +161,7 @@ impl<U: Default, E> Problem<U, E> {
             .initialize(func, &mut self.user_data, &mut self.status)?;
         let mut current_step = 0;
         let mut observer_termination = false;
-        while current_step <= self.status.max_steps
+        while current_step <= self.status.config().max_steps
             && !observer_termination
             && !self
                 .solver
@@ -183,7 +183,7 @@ impl<U: Default, E> Problem<U, E> {
         }
         self.solver
             .postprocessing(func, &mut self.user_data, &mut self.status)?;
-        if current_step > self.status.max_steps && !self.status.converged {
+        if current_step > self.status.config().max_steps && !self.status.converged() {
             self.status.update_message("MAX EVALS");
         }
         if self.abort_signal.is_aborted() {

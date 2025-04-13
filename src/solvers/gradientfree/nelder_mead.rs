@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use nalgebra::{DMatrix, DVector};
 
 use crate::{
-    core::{Bound, Point, Status},
-    traits::{CostFunction, Solver},
+    core::{Bound, GradientStatus, Point},
+    traits::{CostFunction, Solver, Status},
     Float,
 };
 
@@ -221,7 +221,7 @@ impl NelderMeadFTerminator {
     fn update_convergence(
         &self,
         simplex: &Simplex,
-        status: &mut Status,
+        status: &mut GradientStatus,
         eps_rel: Float,
         eps_abs: Float,
     ) {
@@ -307,7 +307,7 @@ impl NelderMeadXTerminator {
     fn update_convergence(
         &self,
         simplex: &Simplex,
-        status: &mut Status,
+        status: &mut GradientStatus,
         eps_rel: Float,
         eps_abs: Float,
     ) {
@@ -410,7 +410,6 @@ impl NelderMeadXTerminator {
 ///    \vec{x}^* + \sigma (\vec{x}_i - \vec{x}^*)`$ and go to **Step 1**.
 #[derive(Debug, Clone)]
 pub struct NelderMead {
-    bounds: Option<Vec<Bound>>,
     alpha: Float,
     beta: Float,
     gamma: Float,
@@ -436,7 +435,6 @@ impl NelderMead {
     /// [`NelderMead::default()`].
     pub fn new() -> Self {
         Self {
-            bounds: None,
             alpha: 1.0,
             beta: 2.0,
             gamma: 0.5,
@@ -582,20 +580,20 @@ impl NelderMead {
         self
     }
 }
-impl<U, E> Solver<U, E> for NelderMead {
+impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         self.simplex = self.construction_method.generate(
             func,
-            status.x0.as_slice(),
-            status.bounds.as_ref(),
+            status.config().x0.as_slice(),
+            status.config().bounds.as_ref(),
             user_data,
         )?;
-        status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+        status.update_position(self.simplex.best_position(status.config().bounds.as_ref()));
         Ok(())
     }
 
@@ -604,14 +602,14 @@ impl<U, E> Solver<U, E> for NelderMead {
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         let h = self.simplex.worst();
         let s = self.simplex.second_worst();
         let l = self.simplex.best();
         let c = &self.simplex.centroid;
         let mut xr = Point::from(c + (c - &h.x).scale(self.alpha));
-        xr.evaluate_bounded(func, self.bounds.as_ref(), user_data)?;
+        xr.evaluate_bounded(func, status.config().bounds.as_ref(), user_data)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -619,7 +617,7 @@ impl<U, E> Solver<U, E> for NelderMead {
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+            status.update_position(self.simplex.best_position(status.config().bounds.as_ref()));
             status.update_message("REFLECT");
             self.simplex.scale_volume(self.alpha);
             return Ok(());
@@ -629,7 +627,7 @@ impl<U, E> Solver<U, E> for NelderMead {
             // accept the expanded point x_e regardless (greedy expansion), or we should do one
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xe = Point::from(c + (&xr.x - c).scale(self.beta));
-            xe.evaluate_bounded(func, self.bounds.as_ref(), user_data)?;
+            xe.evaluate_bounded(func, status.config().bounds.as_ref(), user_data)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
@@ -644,7 +642,7 @@ impl<U, E> Solver<U, E> for NelderMead {
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+            status.update_position(self.simplex.best_position(status.config().bounds.as_ref()));
             status.update_message("EXPAND");
             self.simplex.scale_volume(self.alpha * self.beta);
             return Ok(());
@@ -666,14 +664,16 @@ impl<U, E> Solver<U, E> for NelderMead {
             if &xr < h {
                 // Try to contract outside if x_r < h
                 let mut xc = Point::from(c + (&xr.x - c).scale(self.gamma));
-                xc.evaluate_bounded(func, self.bounds.as_ref(), user_data)?;
+                xc.evaluate_bounded(func, status.config().bounds.as_ref(), user_data)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+                        status.update_position(
+                            self.simplex.best_position(status.config().bounds.as_ref()),
+                        );
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -687,14 +687,16 @@ impl<U, E> Solver<U, E> for NelderMead {
             } else {
                 // Contract inside if h <= x_r
                 let mut xc = Point::from(c + (&h.x - c).scale(self.gamma));
-                xc.evaluate_bounded(func, self.bounds.as_ref(), user_data)?;
+                xc.evaluate_bounded(func, status.config().bounds.as_ref(), user_data)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+                        status.update_position(
+                            self.simplex.best_position(status.config().bounds.as_ref()),
+                        );
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -710,7 +712,7 @@ impl<U, E> Solver<U, E> for NelderMead {
         let l_clone = l.clone();
         for p in self.simplex.points.iter_mut().skip(1) {
             *p = Point::from(&l_clone.x + (&p.x - &l_clone.x).scale(self.delta));
-            p.evaluate_bounded(func, self.bounds.as_ref(), user_data)?;
+            p.evaluate_bounded(func, status.config().bounds.as_ref(), user_data)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -719,7 +721,7 @@ impl<U, E> Solver<U, E> for NelderMead {
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_centroid();
-        status.update_position(self.simplex.best_position(self.bounds.as_ref()));
+        status.update_position(self.simplex.best_position(status.config().bounds.as_ref()));
         status.update_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(self.delta, self.simplex.dimension as i32));
@@ -730,7 +732,7 @@ impl<U, E> Solver<U, E> for NelderMead {
         &mut self,
         _func: &dyn CostFunction<U, E>,
         _user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<bool, E> {
         self.terminator_x
             .update_convergence(&self.simplex, status, self.eps_x_rel, self.eps_x_abs);
@@ -749,7 +751,7 @@ impl<U, E> Solver<U, E> for NelderMead {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(), E> {
         if self.compute_parameter_errors {
             let hessian = func.hessian(status.x.as_slice(), user_data)?;
@@ -766,7 +768,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Problem},
+        core::{CtrlCAbortSignal, Minimizer},
         test_functions::Rosenbrock,
         traits::AbortSignal,
         Float,
@@ -778,11 +780,10 @@ mod tests {
     fn test_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default();
         let mut m =
-            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
+            Minimizer::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
         m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
-        println!("{}", m.status);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
         m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
@@ -805,13 +806,12 @@ mod tests {
     #[test]
     fn test_bounded_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default();
-        let mut m = Problem::new(Box::new(algo), 2)
+        let mut m = Minimizer::new(Box::new(algo), 2)
             .with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
             .with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
         m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
-        println!("{}", m.status);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
         m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
@@ -835,7 +835,7 @@ mod tests {
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default().with_adaptive(2);
         let mut m =
-            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
+            Minimizer::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
         m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);

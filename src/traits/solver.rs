@@ -1,12 +1,10 @@
-use crate::core::Status;
-
 use super::CostFunction;
 
 /// A trait representing a minimization algorithm.
 ///
 /// This trait is implemented for the algorithms found in the [`solvers`](super) module, and contains
 /// all the methods needed to be run by a [`Minimizer`].
-pub trait Solver<U, E> {
+pub trait Solver<S, U, E> {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -17,7 +15,7 @@ pub trait Solver<U, E> {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut S,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -31,10 +29,10 @@ pub trait Solver<U, E> {
         i_step: usize,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut S,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
-    /// Developers should also update the internal [`Status`] of the algorithm here if converged.
+    /// Developers should also update the internal [`S`] of the algorithm here if converged.
     ///
     /// # Errors
     ///
@@ -44,7 +42,7 @@ pub trait Solver<U, E> {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut S,
     ) -> Result<bool, E>;
     /// Runs any steps needed by the [`Solver`] after termination or convergence. This will run
     /// regardless of whether the [`Solver`] converged.
@@ -58,7 +56,7 @@ pub trait Solver<U, E> {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut S,
     ) -> Result<(), E> {
         Ok(())
     }

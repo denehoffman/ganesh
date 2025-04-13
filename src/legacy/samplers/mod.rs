@@ -19,9 +19,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::Point,
-    traits::{AbortSignal, CostFunction, MCMCObserver},
+    traits::{AbortSignal, CostFunction},
     Float,
 };
+
+use super::observer::MCMCObserver;
 
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]

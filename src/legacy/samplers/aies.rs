@@ -5,10 +5,13 @@ use nalgebra::DVector;
 use parking_lot::RwLock;
 
 use crate::{
-    core::Point, samplers::Ensemble, traits::CostFunction, Float, RandChoice, SampleFloat,
+    core::Point,
+    traits::CostFunction,
+    utils::{RandChoice, SampleFloat},
+    Float,
 };
 
-use super::MCMCAlgorithm;
+use super::{Ensemble, MCMCAlgorithm};
 
 /// A move used by the the [`AIES`] algorithm
 ///

@@ -1,7 +1,7 @@
 use nalgebra::DVector;
 
 use crate::{
-    core::Status,
+    core::GradientStatus,
     traits::{CostFunction, LineSearch},
     Float,
 };
@@ -81,7 +81,7 @@ impl StrongWolfeLineSearch {
         func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
         func.evaluate(x.as_slice(), user_data)
@@ -91,7 +91,7 @@ impl StrongWolfeLineSearch {
         func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
         func.gradient(x.as_slice(), user_data).map(DVector::from)
@@ -107,7 +107,7 @@ impl StrongWolfeLineSearch {
         p: &DVector<Float>,
         alpha_lo: Float,
         alpha_hi: Float,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
         let mut alpha_lo = alpha_lo;
         let mut alpha_hi = alpha_hi;
@@ -143,7 +143,7 @@ impl StrongWolfeLineSearch {
     }
 }
 
-impl<U, E> LineSearch<U, E> for StrongWolfeLineSearch {
+impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
     fn search(
         &mut self,
         x0: &DVector<Float>,
@@ -151,7 +151,7 @@ impl<U, E> LineSearch<U, E> for StrongWolfeLineSearch {
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
         let f0 = self.f_eval(func, x0, user_data, status)?;
         let g0 = self.g_eval(func, x0, user_data, status)?;

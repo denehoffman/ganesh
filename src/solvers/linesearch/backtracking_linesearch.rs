@@ -1,7 +1,7 @@
 use nalgebra::DVector;
 
 use crate::{
-    core::Status,
+    core::GradientStatus,
     traits::{CostFunction, LineSearch},
     Float,
 };
@@ -21,7 +21,7 @@ impl Default for BacktrackingLineSearch {
     }
 }
 
-impl<U, E> LineSearch<U, E> for BacktrackingLineSearch {
+impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
     fn search(
         &mut self,
         x: &DVector<Float>,
@@ -29,14 +29,14 @@ impl<U, E> LineSearch<U, E> for BacktrackingLineSearch {
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        status: &mut Status,
+        status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
-        let phi = |alpha: Float, ud: &mut U, st: &mut Status| -> Result<Float, E> {
+        let phi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
             func.evaluate((x + p.scale(alpha)).as_slice(), ud)
         };
-        let dphi = |alpha: Float, ud: &mut U, st: &mut Status| -> Result<Float, E> {
+        let dphi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
             Ok(func.gradient((x + p.scale(alpha)).as_slice(), ud)?.dot(p))
         };

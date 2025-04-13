@@ -6,11 +6,13 @@ use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
 use crate::{
-    core::Point, generate_random_vector_in_limits, samplers::Ensemble, traits::CostFunction, Float,
-    RandChoice, SampleFloat, PI,
+    core::Point,
+    traits::CostFunction,
+    utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
+    Float, PI,
 };
 
-use super::MCMCAlgorithm;
+use super::{Ensemble, MCMCAlgorithm};
 
 /// A move used by the [`ESS`] algorithm
 ///

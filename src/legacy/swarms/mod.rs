@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{Bound, Point},
-    generate_random_vector_in_limits,
-    traits::{AbortSignal, CostFunction, SwarmObserver},
-    Float, SampleFloat,
+    traits::{AbortSignal, CostFunction},
+    utils::{generate_random_vector_in_limits, SampleFloat},
+    Float,
 };
+
+use super::observer::SwarmObserver;
 
 /// A particle with a position, velocity, and best known position
 #[derive(Clone, Serialize, Deserialize, Default)]
