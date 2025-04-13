@@ -5,14 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{traits::Status, Float};
 
-use super::{Bound, Config};
+use super::Bound;
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GradientStatus {
+    /// The initial parameters of the minimization.
+    pub x0: DVector<Float>,
     /// A [`String`] message that can be set by minimization [`Algorithm`]s.
     pub message: String,
-    /// The current position of the minimization.
+    /// The current parameters of the minimization.
     pub x: DVector<Float>,
     /// The current value of the minimization problem function at [`Status::x`].
     pub fx: Float,
@@ -30,14 +32,12 @@ pub struct GradientStatus {
     pub cov: Option<DMatrix<Float>>,
     /// Errors on parameters at the end of the fit ([`None`] if not computed yet)
     pub err: Option<DVector<Float>>,
-    /// The
-    config: Config,
 }
 
 impl Status for GradientStatus {
     fn reset(&mut self) {
         self.message = String::new();
-        self.x = DVector::zeros(self.config.dimension);
+        self.x = DVector::zeros(self.x.len());
         self.fx = Float::default();
         self.n_f_evals = 0;
         self.n_g_evals = 0;
@@ -45,22 +45,6 @@ impl Status for GradientStatus {
         self.hess = None;
         self.cov = None;
         self.err = None;
-    }
-    fn config(&self) -> &Config {
-        &self.config
-    }
-    fn config_mut(&mut self) -> &mut Config {
-        &mut self.config
-    }
-    fn with_config(mut self, config: Config) -> Self {
-        self.config = config;
-        self
-    }
-    fn x(&self) -> &DVector<Float> {
-        &self.x
-    }
-    fn fx(&self) -> Float {
-        self.fx
     }
     fn converged(&self) -> bool {
         self.converged
@@ -106,18 +90,15 @@ impl Display for GradientStatus {
             .err
             .clone()
             .unwrap_or_else(|| DVector::from_element(self.x.len(), Float::NAN));
-        let bounds = self
-            .config
-            .bounds
-            .clone()
-            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()]);
+        // TODO: move the summary somewhere else
+        let bounds = vec![Bound::NoBound; self.x.len()];
         for i in 0..self.x.len() {
             let row = format!(
               "│ {:>5} ║ {:>+12.3E} │ {:>+12.3E} ║ {:>+12.3E} │ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
               i,
               self.x[i],
               errs[i],
-              self.config.x0[i],
+              self.x0[i],
               bounds[i].lower(),
               bounds[i].upper(),
               if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
@@ -131,6 +112,12 @@ impl Display for GradientStatus {
 }
 
 impl GradientStatus {
+    /// Sets the initial parameters of the minimization.
+    pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
+        let x0 = x0.into_iter().collect::<Vec<Float>>();
+        self.x0 = DVector::from_column_slice(&x0);
+        self
+    }
     /// Updates the [`Status::message`] field.
     pub fn update_message(&mut self, message: &str) {
         self.message = message.to_string();
@@ -151,11 +138,6 @@ impl GradientStatus {
     /// Increments [`Status::n_g_evals`] by `1`.
     pub fn inc_n_g_evals(&mut self) {
         self.n_g_evals += 1;
-    }
-    /// Sets parameter names.
-    pub fn set_parameter_names<L: AsRef<str>>(&mut self, names: &[L]) {
-        self.config.parameter_names =
-            Some(names.iter().map(|name| name.as_ref().to_string()).collect());
     }
     /// Sets the covariance matrix and updates parameter errors.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {

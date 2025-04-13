@@ -5,9 +5,9 @@ use std::path::Path;
 
 use fastrand::Rng;
 use ganesh::core::CtrlCAbortSignal;
-use ganesh::samplers::ess::{ESSMove, ESS};
-use ganesh::samplers::Sampler;
-use ganesh::traits::observer::AutocorrelationObserver;
+use ganesh::legacy::observer::AutocorrelationObserver;
+use ganesh::legacy::samplers::ess::{ESSMove, ESS};
+use ganesh::legacy::samplers::Sampler;
 use ganesh::traits::{AbortSignal, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;

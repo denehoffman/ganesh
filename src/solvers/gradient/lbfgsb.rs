@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, GradientStatus};
+use crate::core::{Bound, Config, GradientStatus};
 
-use crate::traits::{CostFunction, LineSearch, Solver, Status};
+use crate::traits::{CostFunction, LineSearch, Solver};
 use crate::Float;
 
 use crate::solvers::linesearch::StrongWolfeLineSearch;
@@ -391,13 +391,14 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        config: &Config,
         status: &mut GradientStatus,
+        user_data: &mut U,
     ) -> Result<(), E> {
+        config.assert_parameters(status.x0.as_slice());
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
-        let config = status.config();
-        let x0 = config.x0.as_ref();
+        let x0 = status.x0.as_ref();
         let bounds = config.bounds.as_ref();
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
@@ -436,8 +437,9 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        _config: &Config,
         status: &mut GradientStatus,
+        user_data: &mut U,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
@@ -477,8 +479,9 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        _config: &Config,
         status: &mut GradientStatus,
+        user_data: &mut U,
     ) -> Result<bool, E> {
         let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
@@ -496,8 +499,9 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        _config: &Config,
         status: &mut GradientStatus,
+        user_data: &mut U,
     ) -> Result<(), E> {
         match self.error_mode {
             LBFGSBErrorMode::ExactHessian => {
@@ -539,22 +543,28 @@ mod tests {
         let mut m =
             Minimizer::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([-2.0, 2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([2.0, 2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([2.0, -2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([-2.0, -2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([0.0, 0.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([1.0, 1.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -564,25 +574,31 @@ mod tests {
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
         let mut m = Minimizer::new(Box::new(algo), 2)
-            .with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+            .on_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
             .with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([-2.0, 2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([2.0, 2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([2.0, -2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([-2.0, -2.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([0.0, 0.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
+        m.update_status(|s| s.with_x0([1.0, 1.0]))
+            .minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

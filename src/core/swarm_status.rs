@@ -353,7 +353,6 @@ pub struct SwarmStatus {
     pub message: String,
     /// The swarm
     pub swarm: Swarm,
-    config: Config,
 }
 
 impl Display for SwarmStatus {
@@ -384,11 +383,7 @@ impl Display for SwarmStatus {
 ├───────╫────────────────────────────────────────────╫──────────────┼──────────────┼───────────┤"
               .to_string();
         let mut res_list: Vec<String> = vec![];
-        let bounds = self
-            .config
-            .bounds
-            .clone()
-            .unwrap_or_else(|| vec![Bound::NoBound; self.gbest.x.len()]);
+        let bounds = vec![Bound::NoBound; self.gbest.x.len()];
         for (i, xi) in self.gbest.x.iter().enumerate() {
             let row = format!(
               "│ {:>5} ║ {:>+12.8E}                             ║ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
@@ -409,12 +404,12 @@ impl Display for SwarmStatus {
 impl SwarmStatus {
     /// Get list of the particles in the swarm. If the boundary method is set to
     /// [`BoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
-    pub fn get_particles(&self) -> Vec<SwarmParticle> {
+    pub fn get_particles(&self, bounds: Option<&Vec<Bound>>) -> Vec<SwarmParticle> {
         if matches!(self.swarm.boundary_method, SwarmBoundaryMethod::Transform) {
             self.swarm
                 .particles
                 .iter()
-                .map(|p| p.to_bounded(self.config.bounds.as_ref()))
+                .map(|p| p.to_bounded(bounds))
                 .collect()
         } else {
             self.swarm.particles.clone()
@@ -422,20 +417,16 @@ impl SwarmStatus {
     }
     /// Get the global best position found by the swarm. If the boundary method is set to
     /// [`BoundaryMethod::Transform`], this will return the position in the original bounded space.
-    pub fn get_best(&self, boundary_method: SwarmBoundaryMethod) -> Point {
+    pub fn get_best(
+        &self,
+        bounds: Option<&Vec<Bound>>,
+        boundary_method: SwarmBoundaryMethod,
+    ) -> Point {
         if matches!(boundary_method, SwarmBoundaryMethod::Transform) {
-            self.gbest.to_bounded(self.config.bounds.as_ref())
+            self.gbest.to_bounded(bounds)
         } else {
             self.gbest.clone()
         }
-    }
-
-    /// Wrapper function for separating [`Config`] and [`Swarm`] from the user data.
-    pub fn modify<F, E>(&mut self, mut f: F) -> Result<(), E>
-    where
-        F: FnMut(&Config, &mut Swarm, &mut Point) -> Result<(), E>,
-    {
-        f(&self.config, &mut self.swarm, &mut self.gbest)
     }
 }
 
@@ -445,22 +436,6 @@ impl Status for SwarmStatus {
         self.message = String::new();
         self.gbest = Point::default();
         self.swarm.particles = vec![];
-    }
-    fn config(&self) -> &Config {
-        &self.config
-    }
-    fn config_mut(&mut self) -> &mut Config {
-        &mut self.config
-    }
-    fn with_config(mut self, config: Config) -> Self {
-        self.config = config;
-        self
-    }
-    fn x(&self) -> &DVector<Float> {
-        &self.gbest.x
-    }
-    fn fx(&self) -> Float {
-        self.gbest.fx
     }
     fn converged(&self) -> bool {
         self.converged

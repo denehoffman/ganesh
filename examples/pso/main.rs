@@ -5,8 +5,8 @@ use std::path::Path;
 
 use fastrand::Rng;
 use ganesh::core::CtrlCAbortSignal;
-use ganesh::swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO};
-use ganesh::traits::observer::TrackingSwarmObserver;
+use ganesh::legacy::observer::TrackingSwarmObserver;
+use ganesh::legacy::swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO};
 use ganesh::traits::{AbortSignal, CostFunction};
 use ganesh::Float;
 use ganesh::PI;

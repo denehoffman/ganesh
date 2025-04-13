@@ -1,3 +1,5 @@
+use crate::core::Config;
+
 use super::CostFunction;
 
 /// A trait representing a minimization algorithm.
@@ -14,8 +16,9 @@ pub trait Solver<S, U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        config: &Config,
         status: &mut S,
+        user_data: &mut U,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -28,8 +31,9 @@ pub trait Solver<S, U, E> {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        config: &Config,
         status: &mut S,
+        user_data: &mut U,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
     /// Developers should also update the internal [`S`] of the algorithm here if converged.
@@ -41,8 +45,9 @@ pub trait Solver<S, U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        config: &Config,
         status: &mut S,
+        user_data: &mut U,
     ) -> Result<bool, E>;
     /// Runs any steps needed by the [`Solver`] after termination or convergence. This will run
     /// regardless of whether the [`Solver`] converged.
@@ -55,8 +60,9 @@ pub trait Solver<S, U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        user_data: &mut U,
+        config: &Config,
         status: &mut S,
+        user_data: &mut U,
     ) -> Result<(), E> {
         Ok(())
     }
