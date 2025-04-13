@@ -2,8 +2,11 @@ use std::fmt::Debug;
 
 use nalgebra::{DMatrix, DVector};
 
-use super::Algorithm;
-use crate::{Bound, Float, Function, Point, Status};
+use crate::{
+    core::{Bound, Point, Status},
+    traits::{CostFunction, Solver},
+    Float,
+};
 
 /// Gives a method for constructing a simplex.
 #[derive(Debug, Clone)]
@@ -29,7 +32,7 @@ impl Default for SimplexConstructionMethod {
 impl SimplexConstructionMethod {
     fn generate<U, E>(
         &self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         x0: &[Float],
         bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
@@ -224,16 +227,16 @@ impl NelderMeadFTerminator {
     ) {
         match self {
             Self::Amoeba => {
-                let fh = simplex.worst().get_fx_checked();
-                let fl = simplex.best().get_fx_checked();
+                let fh = simplex.worst().fx_checked();
+                let fl = simplex.best().fx_checked();
                 if 2.0 * (fh - fl) / (Float::abs(fh) + Float::abs(fl)) <= eps_rel {
                     status.set_converged();
                     status.update_message("term_f = AMOEBA");
                 }
             }
             Self::Absolute => {
-                let fh = simplex.worst().get_fx_checked();
-                let fl = simplex.best().get_fx_checked();
+                let fh = simplex.worst().fx_checked();
+                let fl = simplex.best().fx_checked();
                 if fh - fl <= eps_abs {
                     status.set_converged();
                     status.update_message("term_f = ABSOLUTE");
@@ -579,19 +582,19 @@ impl NelderMead {
         self
     }
 }
-impl<U, E> Algorithm<U, E> for NelderMead {
+impl<U, E> Solver<U, E> for NelderMead {
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
-        x0: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
-        self.bounds = bounds.map(|b| b.to_vec());
-        self.simplex =
-            self.construction_method
-                .generate(func, x0, self.bounds.as_ref(), user_data)?;
+        self.simplex = self.construction_method.generate(
+            func,
+            status.x0.as_slice(),
+            status.bounds.as_ref(),
+            user_data,
+        )?;
         status.update_position(self.simplex.best_position(self.bounds.as_ref()));
         Ok(())
     }
@@ -599,7 +602,7 @@ impl<U, E> Algorithm<U, E> for NelderMead {
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -725,7 +728,7 @@ impl<U, E> Algorithm<U, E> for NelderMead {
 
     fn check_for_termination(
         &mut self,
-        _func: &dyn Function<U, E>,
+        _func: &dyn CostFunction<U, E>,
         _user_data: &mut U,
         status: &mut Status,
     ) -> Result<bool, E> {
@@ -744,7 +747,7 @@ impl<U, E> Algorithm<U, E> for NelderMead {
 
     fn postprocessing(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -763,8 +766,10 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        abort_signal::CtrlCAbortSignal, test_functions::Rosenbrock, traits::AbortSignal, Float,
-        Minimizer,
+        core::{CtrlCAbortSignal, Problem},
+        test_functions::Rosenbrock,
+        traits::AbortSignal,
+        Float,
     };
 
     use super::NelderMead;
@@ -772,54 +777,26 @@ mod tests {
     #[test]
     fn test_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default();
-        let mut m = Minimizer::new(Box::new(algo), 2);
+        let mut m =
+            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.minimize(
-            &problem,
-            &[-2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
+        println!("{}", m.status);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
-        m.minimize(
-            &problem,
-            &[2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[-2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[0.0, 0.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[1.0, 1.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -828,54 +805,27 @@ mod tests {
     #[test]
     fn test_bounded_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default();
-        let mut m = Minimizer::new(Box::new(algo), 2).with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]);
+        let mut m = Problem::new(Box::new(algo), 2)
+            .with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+            .with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.minimize(
-            &problem,
-            &[-2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
+        assert!(m.status.converged);
+        println!("{}", m.status);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
+        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
+        assert!(m.status.converged);
+        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
+        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
-        m.minimize(
-            &problem,
-            &[2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[-2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
-        m.minimize(
-            &problem,
-            &[0.0, 0.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
-        m.minimize(
-            &problem,
-            &[1.0, 1.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -884,54 +834,25 @@ mod tests {
     #[test]
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
         let algo = NelderMead::default().with_adaptive(2);
-        let mut m = Minimizer::new(Box::new(algo), 2);
+        let mut m =
+            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.minimize(
-            &problem,
-            &[-2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(1.0 / 5.0));
-        m.minimize(
-            &problem,
-            &[2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[-2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[0.0, 0.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.powf(0.25));
-        m.minimize(
-            &problem,
-            &[1.0, 1.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

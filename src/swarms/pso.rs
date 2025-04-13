@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use fastrand::Rng;
 use nalgebra::DVector;
 
-use super::{SwarmAlgorithm, Topology, UpdateMethod};
-use crate::{generate_random_vector, Bound, Float, Function, Swarm};
+use super::{Swarm, SwarmAlgorithm, Topology, UpdateMethod};
+use crate::{core::Bound, generate_random_vector, traits::CostFunction, Float};
 
 /// Particle Swarm Optimizer
 ///
@@ -109,7 +109,7 @@ impl PSO {
     fn update<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         match self.update_method {
@@ -120,7 +120,7 @@ impl PSO {
     fn update_sync<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for particle in &mut swarm.particles {
@@ -158,7 +158,7 @@ impl PSO {
     fn update_async<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let nbests: Vec<DVector<Float>> = (0..swarm.particles.len())
@@ -196,7 +196,7 @@ impl PSO {
 impl<U, E> SwarmAlgorithm<U, E> for PSO {
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         swarm: &mut Swarm,
@@ -208,7 +208,7 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
@@ -217,7 +217,7 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
 
     fn check_for_termination(
         &mut self,
-        _func: &dyn Function<U, E>,
+        _func: &dyn CostFunction<U, E>,
         _user_data: &mut U,
         _swarm: &mut Swarm,
     ) -> Result<bool, E> {

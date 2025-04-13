@@ -2,14 +2,16 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use super::Algorithm;
-use crate::{Bound, Float, Function, Status};
+use crate::core::{Bound, Status};
 
-use super::line_search::{LineSearch, StrongWolfeLineSearch};
+use crate::traits::{CostFunction, LineSearch, Solver};
+use crate::Float;
+
+use super::StrongWolfeLineSearch;
 
 /// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the change in the
 /// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
-/// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
+/// of the [`Problem`](`crate::core::Problem`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
@@ -30,7 +32,7 @@ impl LBFGSBFTerminator {
 
 /// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
-/// of the [`Minimizer`](`crate::Minimizer`) will be set as converged with the message "GRADIENT
+/// of the [`Problem`](`crate::core::Problem`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
@@ -377,20 +379,18 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
-impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
+impl<U, E> Solver<U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
-        x0: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
-        self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
-        self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = bounds {
+        self.l = DVector::from_element(status.x0.len(), Float::NEG_INFINITY);
+        self.u = DVector::from_element(status.x0.len(), Float::INFINITY);
+        if let Some(bounds_vec) = &status.bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
                     Bound::NoBound => {}
@@ -403,13 +403,13 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
                 }
             }
         }
-        self.x = DVector::from_fn(x0.len(), |i, _| {
-            if x0[i] < self.l[i] {
+        self.x = DVector::from_fn(status.x0.len(), |i, _| {
+            if status.x0[i] < self.l[i] {
                 self.l[i]
-            } else if x0[i] > self.u[i] {
+            } else if status.x0[i] > self.u[i] {
                 self.u[i]
             } else {
-                x0[i]
+                status.x0[i]
             }
         });
         self.g = func.gradient(self.x.as_slice(), user_data)?;
@@ -424,7 +424,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -465,7 +465,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
 
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<bool, E> {
@@ -484,7 +484,7 @@ impl<U, E> Algorithm<U, E> for LBFGSB<U, E> {
 
     fn postprocessing(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(), E> {
@@ -506,8 +506,10 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        abort_signal::CtrlCAbortSignal, test_functions::Rosenbrock, traits::AbortSignal, Float,
-        Minimizer,
+        core::{CtrlCAbortSignal, Problem},
+        test_functions::Rosenbrock,
+        traits::AbortSignal,
+        Float,
     };
 
     use super::LBFGSB;
@@ -515,54 +517,25 @@ mod tests {
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
-        let mut m = Minimizer::new(Box::new(algo), 2);
+        let mut m =
+            Problem::new(Box::new(algo), 2).with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.minimize(
-            &problem,
-            &[-2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[-2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[0.0, 0.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[1.0, 1.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -571,54 +544,26 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let algo = LBFGSB::default();
-        let mut m = Minimizer::new(Box::new(algo), 2).with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]);
+        let mut m = Problem::new(Box::new(algo), 2)
+            .with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+            .with_abort_signal(CtrlCAbortSignal::new().boxed());
         let problem = Rosenbrock { n: 2 };
-        m.minimize(
-            &problem,
-            &[-2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[2.0, 2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, 2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[-2.0, -2.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([-2.0, -2.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[0.0, 0.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([0.0, 0.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.minimize(
-            &problem,
-            &[1.0, 1.0],
-            &mut (),
-            CtrlCAbortSignal::new().boxed(),
-        )?;
+        m.update_initial_guess([1.0, 1.0]).minimize(&problem)?;
         assert!(m.status.converged);
         assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

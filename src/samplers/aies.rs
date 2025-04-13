@@ -4,7 +4,9 @@ use fastrand::Rng;
 use nalgebra::DVector;
 use parking_lot::RwLock;
 
-use crate::{Ensemble, Float, Function, Point, RandChoice, SampleFloat};
+use crate::{
+    core::Point, samplers::Ensemble, traits::CostFunction, Float, RandChoice, SampleFloat,
+};
 
 use super::MCMCAlgorithm;
 
@@ -34,7 +36,7 @@ impl AIESMove {
     }
     fn step<U, E>(
         &self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
         rng: &mut Rng,
@@ -74,8 +76,8 @@ impl AIESMove {
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
                     let n = x_l.read().x.len();
-                    let r = z.ln().mul_add((n - 1) as Float, proposal.get_fx_checked())
-                        - x_k.read().get_fx_checked();
+                    let r = z.ln().mul_add((n - 1) as Float, proposal.fx_checked())
+                        - x_k.read().fx_checked();
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -101,7 +103,7 @@ impl AIESMove {
                     // where W ~ Norm(μ=0, σ=Cₛ)
                     proposal.evaluate(func, user_data)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
-                    let r = proposal.get_fx_checked() - x_k.read().get_fx_checked();
+                    let r = proposal.fx_checked() - x_k.read().fx_checked();
                     (proposal, r)
                 }
             };
@@ -143,7 +145,7 @@ impl AIES {
 impl<U, E> MCMCAlgorithm<U, E> for AIES {
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -154,7 +156,7 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -169,7 +171,7 @@ impl<U, E> MCMCAlgorithm<U, E> for AIES {
 
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         chains: &mut Ensemble,
     ) -> Result<bool, E> {

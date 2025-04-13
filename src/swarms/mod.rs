@@ -9,8 +9,10 @@ pub use pso::PSO;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    generate_random_vector_in_limits, observers::SwarmObserver, traits::AbortSignal, Bound, Float,
-    Function, Point, SampleFloat,
+    core::{Bound, Point},
+    generate_random_vector_in_limits,
+    traits::{AbortSignal, CostFunction, SwarmObserver},
+    Float, SampleFloat,
 };
 
 /// A particle with a position, velocity, and best known position
@@ -28,7 +30,7 @@ impl Particle {
     fn new<U, E>(
         position: Point,
         velocity: DVector<Float>,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         bounds: Option<&Vec<Bound>>,
         boundary_method: BoundaryMethod,
@@ -50,7 +52,7 @@ impl Particle {
     }
     fn update_position<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         bounds: Option<&Vec<Bound>>,
         boundary_method: BoundaryMethod,
@@ -328,11 +330,11 @@ impl Swarm {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn initialize<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         bounds: Option<&Vec<Bound>>,
         rng: &mut Rng,
@@ -421,11 +423,11 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         swarm: &mut Swarm,
@@ -435,12 +437,12 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E>;
@@ -449,11 +451,11 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<bool, E>;
@@ -462,12 +464,12 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     #[allow(unused_variables)]
     fn postprocessing(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
@@ -475,7 +477,7 @@ pub trait SwarmAlgorithm<U, E> {
     }
 }
 
-/// The main struct used for running [`SwarmAlgorithm`]s on [`Function`]s.
+/// The main struct used for running [`SwarmAlgorithm`]s on [`CostFunction`]s.
 pub struct SwarmMinimizer<U, E> {
     /// The [`Swarm`] of the [`SwarmMinimizer`], usually read after minimization.
     pub swarm: Swarm,
@@ -556,7 +558,7 @@ impl<U, E> SwarmMinimizer<U, E> {
     /// [`SwarmMinimizer`].
     pub fn minimize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         abort_signal: Box<dyn AbortSignal>,
     ) -> Result<(), E> {

@@ -1,84 +1,10 @@
-use dyn_clone::DynClone;
 use nalgebra::DVector;
 
-use crate::{Float, Function, Status};
-
-/// A trait which defines the methods for a line search algorithm.
-///
-/// Line searches are one-dimensional minimizers typically used to determine optimal step sizes for
-/// [`Algorithm`](`crate::traits::Algorithm`)s which only provide a direction for the next optimal step.
-pub trait LineSearch<U, E>: DynClone {
-    /// The search method takes the current position of the minimizer, `x`, the search direction
-    /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
-    /// objective function `user_data`, and returns a [`Result`] containing the tuple,
-    /// `(valid, step_size, func(x + step_size * p), grad(x + step_size * p))`. Returns a [`None`]
-    /// [`Result`] if the algorithm fails to find improvement.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
-    /// information.
-    #[allow(clippy::too_many_arguments)]
-    fn search(
-        &mut self,
-        x: &DVector<Float>,
-        p: &DVector<Float>,
-        max_step: Option<Float>,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<(bool, Float, Float, DVector<Float>), E>;
-}
-dyn_clone::clone_trait_object!(<U, E> LineSearch<U, E>);
-
-/// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
-/// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).
-///
-/// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
-#[derive(Clone)]
-pub struct BacktrackingLineSearch {
-    rho: Float,
-    c: Float,
-}
-impl Default for BacktrackingLineSearch {
-    fn default() -> Self {
-        Self { rho: 0.5, c: 1e-4 }
-    }
-}
-
-impl<U, E> LineSearch<U, E> for BacktrackingLineSearch {
-    fn search(
-        &mut self,
-        x: &DVector<Float>,
-        p: &DVector<Float>,
-        max_step: Option<Float>,
-        func: &dyn Function<U, E>,
-        user_data: &mut U,
-        status: &mut Status,
-    ) -> Result<(bool, Float, Float, DVector<Float>), E> {
-        let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
-        let phi = |alpha: Float, ud: &mut U, st: &mut Status| -> Result<Float, E> {
-            st.inc_n_f_evals();
-            func.evaluate((x + p.scale(alpha)).as_slice(), ud)
-        };
-        let dphi = |alpha: Float, ud: &mut U, st: &mut Status| -> Result<Float, E> {
-            st.inc_n_g_evals();
-            Ok(func.gradient((x + p.scale(alpha)).as_slice(), ud)?.dot(p))
-        };
-        let phi_0 = phi(0.0, user_data, status)?;
-        let mut phi_alpha_i = phi(alpha_i, user_data, status)?;
-        let dphi_0 = dphi(0.0, user_data, status)?;
-        loop {
-            let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
-            if armijo {
-                let g_alpha_i = func.gradient((x + p.scale(alpha_i)).as_slice(), user_data)?;
-                return Ok((true, alpha_i, phi_alpha_i, g_alpha_i));
-            }
-            alpha_i *= self.rho;
-            phi_alpha_i = phi(alpha_i, user_data, status)?;
-        }
-    }
-}
+use crate::{
+    core::Status,
+    traits::{CostFunction, LineSearch},
+    Float,
+};
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical
 /// Optimization"[^1] (pages 60-61). This algorithm upholds the strong Wolfe conditions.
@@ -152,7 +78,7 @@ impl StrongWolfeLineSearch {
 impl StrongWolfeLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
         user_data: &mut U,
         status: &mut Status,
@@ -162,7 +88,7 @@ impl StrongWolfeLineSearch {
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
         user_data: &mut U,
         status: &mut Status,
@@ -173,7 +99,7 @@ impl StrongWolfeLineSearch {
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         x0: &DVector<Float>,
         user_data: &mut U,
         f0: Float,
@@ -223,7 +149,7 @@ impl<U, E> LineSearch<U, E> for StrongWolfeLineSearch {
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         status: &mut Status,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {

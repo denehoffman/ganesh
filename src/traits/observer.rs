@@ -3,7 +3,12 @@ use std::{fmt::Debug, sync::Arc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
-use crate::{swarms::Particle, Ensemble, Float, Point, Status, Swarm};
+use crate::{
+    core::{Point, Status},
+    samplers::Ensemble,
+    swarms::{Particle, Swarm},
+    Float,
+};
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
 /// [`Algorithm`](`crate::traits::Algorithm`)'s [`Status`] during a minimization.
@@ -55,8 +60,8 @@ impl DebugObserver {
     }
 }
 impl<U: Debug> Observer<U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &mut Status, user_data: &mut U) -> bool {
-        println!("{step}, {:?}, {:?}", status, user_data);
+    fn callback(&mut self, step: usize, status: &mut Status, _user_data: &mut U) -> bool {
+        println!("{step}, {:?}", status);
         false
     }
 }
