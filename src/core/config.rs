@@ -31,6 +31,12 @@ impl Config {
         self
     }
 
+    /// Sets the names of the parameters. This is only used for printing and debugging purposes.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the number of bounds is not equal to the number of free
+    /// parameters.
     pub fn with_parameter_names<I: IntoIterator<Item = String>>(mut self, names: I) -> Self {
         let names = names.into_iter().collect::<Vec<String>>();
         assert!(names.len() == self.dimension);
