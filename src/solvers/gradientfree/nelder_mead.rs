@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::{
     core::{Bound, Config, GradientStatus, Point},
-    traits::{CostFunction, Solver},
+    traits::{CostFunction, Hessian, Solver},
     Float,
 };
 

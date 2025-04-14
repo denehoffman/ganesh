@@ -2,7 +2,7 @@ use nalgebra::DVector;
 
 use crate::{
     core::GradientStatus,
-    traits::{CostFunction, LineSearch},
+    traits::{CostFunction, Gradient, LineSearch},
     Float,
 };
 

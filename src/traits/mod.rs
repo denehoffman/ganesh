@@ -12,7 +12,7 @@ pub mod solver;
 pub mod status;
 
 pub use abort_signal::AbortSignal;
-pub use cost_function::CostFunction;
+pub use cost_function::{CostFunction, Gradient, Hessian};
 pub use linesearch::LineSearch;
 pub use observer::Observer;
 pub use solver::Solver;

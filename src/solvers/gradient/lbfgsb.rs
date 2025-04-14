@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::core::{Bound, Config, GradientStatus};
 
-use crate::traits::{CostFunction, LineSearch, Solver};
+use crate::traits::{CostFunction, Gradient, Hessian, LineSearch, Solver};
 use crate::Float;
 
 use crate::solvers::linesearch::StrongWolfeLineSearch;
