@@ -1,4 +1,4 @@
-use crate::core::Config;
+use crate::core::{Config, MinimizerResult};
 
 use super::CostFunction;
 
@@ -66,4 +66,14 @@ pub trait Solver<S, U, E> {
     ) -> Result<(), E> {
         Ok(())
     }
+
+    /// Generates a new [`SolverResult`] from the current state of the [`Solver`], which can be displayed or used elsewhere.
+    #[allow(unused_variables)]
+    fn result(
+        &self,
+        func: &dyn CostFunction<U, E>,
+        config: &Config,
+        status: &S,
+        user_data: &U,
+    ) -> Result<MinimizerResult, E>;
 }

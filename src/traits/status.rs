@@ -1,10 +1,8 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 /// A trait which holds the status of a [`Solver`] and has to be implemented for own [`Solver`]s that need
 /// different status information than the ones implemented in this crate.
-pub trait Status: Display + Clone + Default + Serialize + for<'a> Deserialize<'a> {
+pub trait Status: Clone + Default + Serialize + DeserializeOwned {
     /// Resets the status to its default state. This is called at the beginning of every
     /// [`Solver`] run.
     /// Take care that this does not reset the [`Config`] struct or any other information that is

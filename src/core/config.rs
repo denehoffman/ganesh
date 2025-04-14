@@ -2,7 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use super::Bound;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+const DEFAULT_MAX_STEPS: usize = 4000;
+
+/// The configuration struct for the minimization problem. This struct contains information that
+/// every [`Solver`] needs to run, such as the number of free parameters, the bounds for the parameters,
+/// and the maximum number of steps to take before failing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The dimension of the minimization problem.
     pub dimension: usize,
@@ -12,6 +17,17 @@ pub struct Config {
     pub parameter_names: Option<Vec<String>>,
     /// Max steps for the minimization
     pub max_steps: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            dimension: 0,
+            bounds: None,
+            parameter_names: None,
+            max_steps: DEFAULT_MAX_STEPS,
+        }
+    }
 }
 
 impl Config {
@@ -24,7 +40,10 @@ impl Config {
     ///
     /// This function will panic if the number of bounds is not equal to the number of free
     /// parameters.
-    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
+    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(
+        &mut self,
+        bounds: I,
+    ) -> &mut Self {
         let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
         assert!(bounds.len() == self.dimension);
         self.bounds = Some(bounds);
@@ -37,14 +56,14 @@ impl Config {
     ///
     /// This function will panic if the number of bounds is not equal to the number of free
     /// parameters.
-    pub fn with_parameter_names<I: IntoIterator<Item = String>>(mut self, names: I) -> Self {
+    pub fn with_parameter_names<I: IntoIterator<Item = String>>(&mut self, names: I) -> &mut Self {
         let names = names.into_iter().collect::<Vec<String>>();
         assert!(names.len() == self.dimension);
         self.parameter_names = Some(names);
         self
     }
     /// Set the maximum number of steps to perform before failure (default: 4000).
-    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
+    pub fn with_max_steps(&mut self, max_steps: usize) -> &mut Self {
         self.max_steps = max_steps;
         self
     }

@@ -1,13 +1,13 @@
-use std::{fmt::Display, sync::Arc};
+use std::sync::Arc;
 
 use parking_lot::RwLock;
 
 use crate::traits::{AbortSignal, CostFunction, Observer, Solver, Status};
 
-use super::{Config, NopAbortSignal};
+use super::{Config, MinimizerResult, NopAbortSignal};
 
 /// The main struct used for running [`Solver`]s on [`Function`]s.
-pub struct Minimizer<S: Status, U: Default, E> {
+pub struct Minimizer<S, U, E> {
     /// The [`Status`] of the [`Problem`], usually read after minimization.
     pub status: S,
     solver: Box<dyn Solver<S, U, E>>,
@@ -15,14 +15,10 @@ pub struct Minimizer<S: Status, U: Default, E> {
     abort_signal: Box<dyn AbortSignal>,
     config: Config,
     user_data: U,
+    result: Option<MinimizerResult>,
 }
-impl<S: Status, U: Default, E> Display for Minimizer<S, U, E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.status)
-    }
-}
+
 impl<S: Status, U: Default, E> Minimizer<S, U, E> {
-    const DEFAULT_MAX_STEPS: usize = 4000;
     /// Creates a new [`Problem`] with the given (boxed) [`Solver`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
     pub fn new(solver: Box<dyn Solver<S, U, E>>, dimension: usize) -> Self {
@@ -30,69 +26,52 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
             status: S::default(),
             config: Config {
                 dimension,
-                bounds: None,
-                parameter_names: None,
-                max_steps: Self::DEFAULT_MAX_STEPS,
+                ..Default::default()
             },
             solver,
             observers: Vec::default(),
             abort_signal: NopAbortSignal.boxed(),
             user_data: Default::default(),
+            result: None,
         }
     }
-    pub fn reset_status(&mut self) {
-        self.status.reset();
-    }
 
-    pub fn on_config<F>(mut self, mut f: F) -> Self
+    pub fn setup<F>(mut self, mut f: F) -> Self
     where
-        F: FnMut(Config) -> Config,
+        F: FnMut(&mut Self) -> &mut Self,
     {
-        self.config = f(self.config);
+        f(&mut self);
         self
     }
 
-    pub fn on_status<F>(mut self, mut f: F) -> Self
+    pub fn on_config<F>(&mut self, mut f: F) -> &mut Self
     where
-        F: FnMut(S) -> S,
+        F: FnMut(&mut Config) -> &mut Config,
     {
-        self.status = f(self.status);
+        f(&mut self.config);
         self
     }
 
-    pub fn update_config<F>(&mut self, mut f: F) -> &mut Self
+    pub fn on_status<F>(&mut self, mut f: F) -> &mut Self
     where
-        F: FnMut(Config) -> Config,
+        F: FnMut(&mut S) -> &mut S,
     {
-        self.config = f(self.config.clone());
+        f(&mut self.status);
         self
     }
 
-    pub fn update_status<F>(&mut self, mut f: F) -> &mut Self
-    where
-        F: FnMut(S) -> S,
-    {
-        self.status = f(self.status.clone());
-        self
-    }
-
-    pub fn with_abort_signal(mut self, abort_signal: Box<dyn AbortSignal>) -> Self {
+    pub fn with_abort_signal(&mut self, abort_signal: Box<dyn AbortSignal>) -> &mut Self {
         self.abort_signal = abort_signal;
         self
     }
 
-    pub fn with_user_data<T: Into<U>>(mut self, data: T) -> Self {
-        self.user_data = data.into();
-        self
-    }
-
-    pub fn update_user_data<T: Into<U>>(&mut self, data: T) -> &mut Self {
+    pub fn with_user_data<T: Into<U>>(&mut self, data: T) -> &mut Self {
         self.user_data = data.into();
         self
     }
 
     /// Adds a single [`Observer`] to the [`Minimizer`].
-    pub fn with_observer(mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> Self {
+    pub fn add_observer(&mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> &mut Self {
         self.observers.push(observer);
         self
     }
@@ -116,7 +95,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
     /// [`Minimizer`].
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
-        self.reset_status();
+        self.status.reset();
         self.abort_signal.reset();
         self.solver
             .initialize(func, &self.config, &mut self.status, &mut self.user_data)?;
@@ -158,6 +137,14 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         if self.abort_signal.is_aborted() {
             self.status.update_message("Abort signal received");
         }
+        self.result = self
+            .solver
+            .result(func, &self.config, &self.status, &self.user_data)
+            .ok();
         Ok(())
+    }
+
+    pub fn get_result(&self) -> Option<MinimizerResult> {
+        self.result.clone()
     }
 }

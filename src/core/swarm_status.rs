@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::cmp::Ordering;
 
 use fastrand::Rng;
 use nalgebra::DVector;
@@ -293,33 +293,36 @@ impl Swarm {
         Ok(())
     }
     /// Sets the topology used by the swarm (default = [`Topology::Global`]).
-    pub const fn with_topology(mut self, value: SwarmTopology) -> Self {
+    pub const fn with_topology(&mut self, value: SwarmTopology) -> &mut Self {
         self.topology = value;
         self
     }
     /// Sets the update method used by the swarm (default = [`UpdateMethod::Synchronous`]).
-    pub const fn with_update_method(mut self, value: SwarmUpdateMethod) -> Self {
+    pub const fn with_update_method(&mut self, value: SwarmUpdateMethod) -> &mut Self {
         self.update_method = value;
         self
     }
     /// Set the [`PSO`]'s [`SwarmVelocityInitializer`].
     pub fn with_velocity_initializer(
-        mut self,
+        &mut self,
         velocity_initializer: SwarmVelocityInitializer,
-    ) -> Self {
+    ) -> &mut Self {
         self.velocity_initializer = velocity_initializer;
         self
     }
     /// Set the [`PSO`]'s [`SwarmPositionInitializer`].
     pub fn with_position_initializer(
-        mut self,
+        &mut self,
         position_initializer: SwarmPositionInitializer,
-    ) -> Self {
+    ) -> &mut Self {
         self.position_initializer = position_initializer;
         self
     }
     /// Set the [`SwarmBoundaryMethod`] for the [`PSO`].
-    pub const fn with_boundary_method(mut self, boundary_method: SwarmBoundaryMethod) -> Self {
+    pub const fn with_boundary_method(
+        &mut self,
+        boundary_method: SwarmBoundaryMethod,
+    ) -> &mut Self {
         self.boundary_method = boundary_method;
         self
     }
@@ -353,52 +356,6 @@ pub struct SwarmStatus {
     pub message: String,
     /// The swarm
     pub swarm: Swarm,
-}
-
-impl Display for SwarmStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = format!(
-          "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
-│{:^94}│",
-          "SWARM STATUS",
-      );
-        let status = format!(
-          "╞════════════════════════════════════════════════════════════════╤═════════════════════════════╡
-│ Status: {}                                        │ fval: {:+12.3E}          │",
-          if self.converged {
-              "Converged      "
-          } else {
-              "Invalid Minimum"
-          },
-          self.gbest.fx,
-      );
-        let message = format!(
-          "├────────────────────────────────────────────────────────────────┴─────────────────────────────┤
-│ Message: {:<83} │",
-          self.message,
-      );
-        let header =
-          "├───────╥────────────────────────────────────────────╥──────────────┬──────────────┬───────────┤
-│ Par # ║ Value                                      ║       -Bound │       +Bound │ At Limit? │
-├───────╫────────────────────────────────────────────╫──────────────┼──────────────┼───────────┤"
-              .to_string();
-        let mut res_list: Vec<String> = vec![];
-        let bounds = vec![Bound::NoBound; self.gbest.x.len()];
-        for (i, xi) in self.gbest.x.iter().enumerate() {
-            let row = format!(
-              "│ {:>5} ║ {:>+12.8E}                             ║ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
-              i,
-              xi,
-              bounds[i].lower(),
-              bounds[i].upper(),
-              if bounds[i].at_bound(*xi) { "yes" } else { "" }
-          );
-            res_list.push(row);
-        }
-        let bottom = "└───────╨────────────────────────────────────────────╨──────────────┴──────────────┴───────────┘".to_string();
-        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
-        write!(f, "{}", out)
-    }
 }
 
 impl SwarmStatus {

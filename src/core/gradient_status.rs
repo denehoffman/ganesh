@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
@@ -57,73 +55,19 @@ impl Status for GradientStatus {
     }
 }
 
-impl Display for GradientStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = format!(
-          "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
-│{:^94}│",
-          "FIT RESULTS",
-      );
-        let status = format!(
-          "╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
-│ Status: {}                    │ fval: {:+12.3E} │ #fcn: {:>5} │ #grad: {:>5} │",
-          if self.converged {
-              "Converged      "
-          } else {
-              "Invalid Minimum"
-          },
-          self.fx,
-          self.n_f_evals,
-          self.n_g_evals,
-      );
-        let message = format!(
-          "├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
-│ Message: {:<83} │",
-          self.message,
-      );
-        let header = "├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
-│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
-├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤"
-          .to_string();
-        let mut res_list: Vec<String> = vec![];
-        let errs = self
-            .err
-            .clone()
-            .unwrap_or_else(|| DVector::from_element(self.x.len(), Float::NAN));
-        // TODO: move the summary somewhere else
-        let bounds = vec![Bound::NoBound; self.x.len()];
-        for i in 0..self.x.len() {
-            let row = format!(
-              "│ {:>5} ║ {:>+12.3E} │ {:>+12.3E} ║ {:>+12.3E} │ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
-              i,
-              self.x[i],
-              errs[i],
-              self.x0[i],
-              bounds[i].lower(),
-              bounds[i].upper(),
-              if bounds[i].at_bound(self.x[i]) { "yes" } else { "" }
-          );
-            res_list.push(row);
-        }
-        let bottom = "└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘".to_string();
-        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
-        write!(f, "{}", out)
-    }
-}
-
 impl GradientStatus {
     /// Sets the initial parameters of the minimization.
-    pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
+    pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
         self.x0 = DVector::from_column_slice(&x0);
         self
     }
     /// Updates the [`Status::message`] field.
-    pub fn update_message(&mut self, message: &str) {
+    pub fn with_message(&mut self, message: &str) {
         self.message = message.to_string();
     }
     /// Updates the [`Status::x`] and [`Status::fx`] fields.
-    pub fn update_position(&mut self, pos: (DVector<Float>, Float)) {
+    pub fn with_position(&mut self, pos: (DVector<Float>, Float)) {
         self.x = pos.0;
         self.fx = pos.1;
     }
@@ -140,14 +84,14 @@ impl GradientStatus {
         self.n_g_evals += 1;
     }
     /// Sets the covariance matrix and updates parameter errors.
-    pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
+    pub fn with_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
             self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
     }
     /// Sets the Hessian matrix, computes the covariance matrix, and updates parameter errors.
-    pub fn set_hess(&mut self, hessian: &DMatrix<Float>) {
+    pub fn with_hess(&mut self, hessian: &DMatrix<Float>) {
         self.hess = Some(hessian.clone());
         let mut covariance = hessian.clone().try_inverse();
         if covariance.is_none() {
