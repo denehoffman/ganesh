@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use ganesh::core::{CtrlCAbortSignal, Minimizer};
-use ganesh::solvers::gradientfree::NelderMead;
+use ganesh::solvers::gradient_free::NelderMead;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
 use ganesh::traits::AbortSignal;
 
