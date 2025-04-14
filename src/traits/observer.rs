@@ -2,6 +2,8 @@ use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
 
+use crate::core::Bound;
+
 use super::Status;
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
@@ -9,7 +11,13 @@ use super::Status;
 pub trait Observer<S: Status, U> {
     /// A function that is called at every step of a minimization [`Solver`](`crate::traits::Solver`). If it returns
     /// `true`, the [`Minimizer::minimize`](`crate::core::Minimizer::minimize`) method will terminate.
-    fn callback(&mut self, step: usize, status: &mut S, user_data: &mut U) -> bool;
+    fn callback(
+        &mut self,
+        step: usize,
+        bounds: Option<&Vec<Bound>>,
+        status: &mut S,
+        user_data: &mut U,
+    ) -> bool;
 }
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
@@ -40,7 +48,13 @@ impl DebugObserver {
     }
 }
 impl<S: Status + Debug, U: Debug> Observer<S, U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &mut S, _user_data: &mut U) -> bool {
+    fn callback(
+        &mut self,
+        step: usize,
+        _bounds: Option<&Vec<Bound>>,
+        status: &mut S,
+        _user_data: &mut U,
+    ) -> bool {
         println!("{step}, {:?}", status);
         false
     }

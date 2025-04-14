@@ -4,7 +4,7 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use crate::{
-    core::{Config, Summary},
+    core::{Bound, Summary},
     traits::{CostFunction, Solver, Status},
     utils::generate_random_vector,
     Float,
@@ -98,20 +98,20 @@ impl PSO {
     }
     fn update<U, E>(
         &mut self,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let swarm = &status.swarm;
         match swarm.update_method {
-            SwarmUpdateMethod::Synchronous => self.update_sync(config, status, func, user_data),
-            SwarmUpdateMethod::Asynchronous => self.update_async(config, status, func, user_data),
+            SwarmUpdateMethod::Synchronous => self.update_sync(bounds, status, func, user_data),
+            SwarmUpdateMethod::Asynchronous => self.update_async(bounds, status, func, user_data),
         }
     }
     fn update_sync<U, E>(
         &mut self,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -139,18 +139,13 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(self.c2);
-            particle.update_position(
-                func,
-                user_data,
-                config.bounds.as_ref(),
-                status.swarm.boundary_method,
-            )?;
+            particle.update_position(func, user_data, bounds, status.swarm.boundary_method)?;
         }
         Ok(())
     }
     fn update_async<U, E>(
         &mut self,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -160,8 +155,8 @@ impl PSO {
             .collect();
 
         for (i, particle) in status.swarm.particles.iter_mut().enumerate() {
-            let rv1 = generate_random_vector(config.dimension, 0.0, 0.1, &mut self.rng);
-            let rv2 = generate_random_vector(config.dimension, 0.0, 0.1, &mut self.rng);
+            let rv1 = generate_random_vector(status.swarm.dimension, 0.0, 0.1, &mut self.rng);
+            let rv2 = generate_random_vector(status.swarm.dimension, 0.0, 0.1, &mut self.rng);
             particle.velocity = particle.velocity.scale(self.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
@@ -169,12 +164,7 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(self.c2);
-            particle.update_position(
-                func,
-                user_data,
-                config.bounds.as_ref(),
-                status.swarm.boundary_method,
-            )?;
+            particle.update_position(func, user_data, bounds, status.swarm.boundary_method)?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
             }
@@ -190,13 +180,13 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let swarm = &mut status.swarm;
 
-        swarm.initialize(&mut self.rng, &config, func, user_data)?;
+        swarm.initialize(&mut self.rng, bounds, func, user_data)?;
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
@@ -211,17 +201,17 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.update(config, status, func, user_data)
+        self.update(bounds, status, func, user_data)
     }
 
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _config: &Config,
+        _bounds: Option<&Vec<Bound>>,
         _status: &mut SwarmStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -230,7 +220,8 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
+        parameter_names: Option<&Vec<String>>,
         status: &SwarmStatus,
         _user_data: &U,
     ) -> Result<Summary, E> {
@@ -238,13 +229,12 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
             x0: vec![0.0; status.gbest.x.len()],
             x: status.gbest.x.iter().cloned().collect(),
             fx: status.gbest.fx,
-            bounds: config.bounds.clone(),
+            bounds: bounds.cloned(),
             converged: status.converged,
             cost_evals: 0,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: config
-                .parameter_names
+            parameter_names: parameter_names
                 .as_ref()
                 .map(|names| names.iter().cloned().collect()),
             std: vec![0.0; status.gbest.x.len()],
@@ -263,7 +253,7 @@ mod tests {
     use serde::Serialize;
 
     use crate::{
-        core::{CtrlCAbortSignal, Minimizer, Point},
+        core::{Bound, CtrlCAbortSignal, Minimizer, Point},
         solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         traits::{AbortSignal, CostFunction, Observer},
         Float, PI,
@@ -287,8 +277,15 @@ mod tests {
     }
 
     impl<U> Observer<SwarmStatus, U> for TrackingObserver {
-        fn callback(&mut self, _step: usize, status: &mut SwarmStatus, _user_data: &mut U) -> bool {
-            self.history.push(status.swarm.particles.clone());
+        fn callback(
+            &mut self,
+            _step: usize,
+            bounds: Option<&Vec<Bound>>,
+            status: &mut SwarmStatus,
+            _user_data: &mut U,
+        ) -> bool {
+            self.history
+                .push(status.swarm.get_particles(bounds).clone());
             self.best_history.push(status.gbest.clone());
             false
         }
@@ -320,14 +317,16 @@ mod tests {
         let mut s = Minimizer::new(Box::new(pso), 2).setup(|m| {
             m.with_abort_signal(CtrlCAbortSignal::new().boxed())
                 .add_observer(tracker.clone())
-                .on_config(|c| c.with_max_steps(200))
+                .with_max_steps(200)
+                .with_parameter_names(["X".to_string(), "Y".to_string()])
                 .on_status(|status| {
-                    status.swarm.with_position_initializer(
-                        SwarmPositionInitializer::RandomInLimits {
+                    status
+                        .swarm
+                        .with_position_initializer(SwarmPositionInitializer::RandomInLimits {
                             n_particles: 50,
                             limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-                        },
-                    );
+                        })
+                        .with_dimension(2);
                     status
                 })
         });

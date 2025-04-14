@@ -2,9 +2,13 @@
 pub mod pso;
 pub use pso::PSO;
 
-/// [`SwarmStatus`] type for swarm-based optimizers.
-pub mod swarm_status;
-pub use swarm_status::{
-    SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmStatus, SwarmTopology,
+/// [`Swarm`] type for swarm-based optimizers.
+pub mod swarm;
+pub use swarm::{
+    Swarm, SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmTopology,
     SwarmUpdateMethod, SwarmVelocityInitializer,
 };
+
+/// [`SwarmStatus`] type for swarm-based optimizers.
+pub mod swarm_status;
+pub use swarm_status::SwarmStatus;

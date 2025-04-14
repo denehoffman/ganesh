@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Config, Summary};
+use crate::core::{Bound, Summary};
 
 use crate::traits::{CostFunction, Gradient, Hessian, LineSearch, Solver};
 use crate::Float;
@@ -393,15 +393,13 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        config.assert_parameters(status.x0.as_slice());
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         let x0 = status.x0.as_ref();
-        let bounds = config.bounds.as_ref();
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = &bounds {
@@ -439,7 +437,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        _config: &Config,
+        _bounds: Option<&Vec<Bound>>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -481,7 +479,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _config: &Config,
+        _bounds: Option<&Vec<Bound>>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<bool, E> {
@@ -501,7 +499,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _config: &Config,
+        _bounds: Option<&Vec<Bound>>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -518,7 +516,8 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        config: &Config,
+        bounds: Option<&Vec<Bound>>,
+        parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,
     ) -> Result<Summary, E> {
@@ -526,13 +525,12 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
             x0: status.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,
-            bounds: config.bounds.clone(),
+            bounds: bounds.cloned(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
-            parameter_names: config
-                .parameter_names
+            parameter_names: parameter_names
                 .as_ref()
                 .map(|names| names.iter().cloned().collect()),
             std: status
@@ -601,7 +599,7 @@ mod tests {
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
         let mut m = Minimizer::new(Box::new(solver), 2).setup(|m| {
-            m.on_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
+            m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
                 .with_abort_signal(CtrlCAbortSignal::new().boxed())
         });
         let problem = Rosenbrock { n: 2 };
