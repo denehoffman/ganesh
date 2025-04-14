@@ -1,4 +1,8 @@
+/// Various gradient-based optimization algorithms.
 pub mod gradient;
-pub mod gradientfree;
-pub mod linesearch;
+/// Various gradient-free optimization algorithms.
+pub mod gradient_free;
+/// Various line search algorithms.
+pub mod line_search;
+/// Various particle swarm optimization algorithms.
 pub mod particles;

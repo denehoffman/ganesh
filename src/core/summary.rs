@@ -6,7 +6,7 @@ use super::Bound;
 
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MinimizerResult {
+pub struct Summary {
     /// The bounds of the parameters. This is `None` if no bounds were set.
     pub bounds: Option<Vec<Bound>>,
     /// The names of the parameters. This is `None` if no names were set.
@@ -19,7 +19,7 @@ pub struct MinimizerResult {
     pub x: Vec<f64>,
     /// The standard deviations of the parameters at the end of the fit.
     pub std: Vec<f64>,
-    /// The current value of the minimization problem function at [`MinimizerResult::x`].
+    /// The current value of the minimization problem function at [`Summary::x`].
     pub fx: f64,
     /// The number of function evaluations.
     pub cost_evals: usize,
@@ -29,7 +29,7 @@ pub struct MinimizerResult {
     pub converged: bool,
 }
 
-impl Display for MinimizerResult {
+impl Display for Summary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use tabled::{
             builder::Builder,
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_minimization_result() {
         use super::*;
-        let result = MinimizerResult {
+        let result = Summary {
             bounds: None,
             parameter_names: None,
             message: "Success".to_string(),

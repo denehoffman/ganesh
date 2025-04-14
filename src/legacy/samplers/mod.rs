@@ -64,7 +64,7 @@ impl Walker {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
@@ -132,7 +132,7 @@ impl Ensemble {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
@@ -410,7 +410,7 @@ pub trait MCMCAlgorithm<U, E> {
     }
 }
 
-/// The main struct used for running [`MCMCAlgorithm`]s on [`Function`]s.
+/// The main struct used for running [`MCMCAlgorithm`]s on [`CostFunction`]s.
 pub struct Sampler<U, E> {
     /// The chains of walker positions created during sampling
     pub ensemble: Ensemble,

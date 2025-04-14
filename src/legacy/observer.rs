@@ -11,17 +11,17 @@ use super::{
 };
 
 /// A trait which holds a [`callback`](`MCMCObserver::callback`) function that can be used to check an
-/// [`MCMCAlgorithm`](`crate::traits::MCMCAlgorithm`)'s [`Ensemble`] during sampling.
+/// [`MCMCAlgorithm`](`crate::legacy::samplers::MCMCAlgorithm`)'s [`Ensemble`] during sampling.
 pub trait MCMCObserver<U> {
-    /// A function that is called at every step of a sampling [`MCMCAlgorithm`](`crate::traits::MCMCAlgorithm`). If it returns
-    /// `false`, the [`Sampler::sample`](`crate::Sampler::sample`) method will terminate.
+    /// A function that is called at every step of a sampling [`MCMCAlgorithm`](`crate::legacy::samplers::MCMCAlgorithm`). If it returns
+    /// `false`, the [`Sampler::sample`](`crate::legacy::samplers::Sampler::sample`) method will terminate.
     fn callback(&mut self, step: usize, ensemble: &mut Ensemble, user_data: &mut U) -> bool;
 }
 /// A trait which holds a [`callback`](`SwarmObserver::callback`) function that can be used to check an
-/// [`SwarmAlgorithm`](`crate::traits::SwarmAlgorithm`)'s [`Swarm`] during sampling.
+/// [`SwarmAlgorithm`](`crate::legacy::swarms::SwarmAlgorithm`)'s [`Swarm`] during sampling.
 pub trait SwarmObserver<U> {
-    /// A function that is called at every step of a minimization [`SwarmAlgorithm`](`crate::traits::SwarmAlgorithm`). If it returns
-    /// `false`, the [`SwarmMinimizer::minimize`](`crate::SwarmMinimizer::minimize`) method will terminate.
+    /// A function that is called at every step of a minimization [`SwarmAlgorithm`](`crate::legacy::swarms::SwarmAlgorithm`). If it returns
+    /// `false`, the [`SwarmMinimizer::minimize`](`crate::legacy::swarms::SwarmMinimizer::minimize`) method will terminate.
     fn callback(&mut self, step: usize, swarm: &mut Swarm, user_data: &mut U) -> bool;
 }
 

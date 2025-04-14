@@ -22,7 +22,7 @@ use crate::{core::Bound, traits::CostFunction, utils::generate_random_vector, Fl
 /// topology). See [^1] for more information.
 ///
 /// For bounds handling, see [^2]. The only method not given there is the
-/// [`BoundaryMethod::Transform`] option, which uses the typical nonlinear bounds transformation
+/// [`SwarmBoundaryMethod::Transform`](crate::solvers::particles::SwarmBoundaryMethod) option, which uses the typical nonlinear bounds transformation
 /// supplied by this crate.
 ///
 ///

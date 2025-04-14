@@ -3,24 +3,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::{traits::Status, Float};
 
-use super::Bound;
-
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GradientStatus {
     /// The initial parameters of the minimization.
     pub x0: DVector<Float>,
-    /// A [`String`] message that can be set by minimization [`Algorithm`]s.
+    /// A [`String`] message that can be set by [`Solver`](crate::traits::Solver)s.
     pub message: String,
     /// The current parameters of the minimization.
     pub x: DVector<Float>,
-    /// The current value of the minimization problem function at [`Status::x`].
+    /// The current value of the minimization problem function at [`GradientStatus::x`].
     pub fx: Float,
     /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`]s to correctly compute and may not be exact).
+    /// [`Solver`](crate::traits::Solver)s to correctly compute and may not be exact).
     pub n_f_evals: usize,
     /// The number of gradient evaluations (approximately, this is left up to individual
-    /// [`Algorithm`]s to correctly compute and may not be exact).
+    /// [`Solver`](crate::traits::Solver)s to correctly compute and may not be exact).
     pub n_g_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
@@ -56,41 +54,41 @@ impl Status for GradientStatus {
 }
 
 impl GradientStatus {
-    /// Sets the initial parameters of the minimization.
+    /// Updates the [`GradientStatus::x0`] field.
     pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
         self.x0 = DVector::from_column_slice(&x0);
         self
     }
-    /// Updates the [`Status::message`] field.
+    /// Updates the [`GradientStatus::message`] field.
     pub fn with_message(&mut self, message: &str) {
         self.message = message.to_string();
     }
-    /// Updates the [`Status::x`] and [`Status::fx`] fields.
+    /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields.
     pub fn with_position(&mut self, pos: (DVector<Float>, Float)) {
         self.x = pos.0;
         self.fx = pos.1;
     }
-    /// Sets [`Status::converged`] to be `true`.
+    /// Sets [`GradientStatus::converged`] to be `true`.
     pub fn set_converged(&mut self) {
         self.converged = true;
     }
-    /// Increments [`Status::n_f_evals`] by `1`.
+    /// Increments [`GradientStatus::n_f_evals`] by `1`.
     pub fn inc_n_f_evals(&mut self) {
         self.n_f_evals += 1;
     }
-    /// Increments [`Status::n_g_evals`] by `1`.
+    /// Increments [`GradientStatus::n_g_evals`] by `1`.
     pub fn inc_n_g_evals(&mut self) {
         self.n_g_evals += 1;
     }
-    /// Sets the covariance matrix and updates parameter errors.
+    /// Updates the [`GradientStatus::err`] field.
     pub fn with_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
             self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
     }
-    /// Sets the Hessian matrix, computes the covariance matrix, and updates parameter errors.
+    /// Updates the [`GradientStatus::hess`] field and computes [`GradientStatus::cov`] and [`GradientStatus::err`].
     pub fn with_hess(&mut self, hessian: &DMatrix<Float>) {
         self.hess = Some(hessian.clone());
         let mut covariance = hessian.clone().try_inverse();

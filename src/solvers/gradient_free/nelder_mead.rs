@@ -3,10 +3,12 @@ use std::fmt::Debug;
 use nalgebra::{DMatrix, DVector};
 
 use crate::{
-    core::{Bound, Config, GradientStatus, MinimizerResult, Point},
+    core::{Bound, Config, Point, Summary},
     traits::{CostFunction, Solver},
     Float,
 };
+
+use super::GradientFreeStatus;
 
 /// Gives a method for constructing a simplex.
 #[derive(Debug, Clone)]
@@ -221,7 +223,7 @@ impl NelderMeadFTerminator {
     fn update_convergence(
         &self,
         simplex: &Simplex,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         eps_rel: Float,
         eps_abs: Float,
     ) {
@@ -307,7 +309,7 @@ impl NelderMeadXTerminator {
     fn update_convergence(
         &self,
         simplex: &Simplex,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         eps_rel: Float,
         eps_abs: Float,
     ) {
@@ -580,12 +582,12 @@ impl NelderMead {
         self
     }
 }
-impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
+impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
         config: &Config,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.simplex = self.construction_method.generate(
@@ -603,7 +605,7 @@ impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
         config: &Config,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let h = self.simplex.worst();
@@ -730,7 +732,7 @@ impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
         &mut self,
         _func: &dyn CostFunction<U, E>,
         _config: &Config,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
         self.terminator_x
@@ -750,7 +752,7 @@ impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
         &mut self,
         func: &dyn CostFunction<U, E>,
         _config: &Config,
-        status: &mut GradientStatus,
+        status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         if self.compute_parameter_errors {
@@ -760,21 +762,21 @@ impl<U, E> Solver<GradientStatus, U, E> for NelderMead {
         Ok(())
     }
 
-    fn result(
+    fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
         config: &Config,
-        status: &GradientStatus,
+        status: &GradientFreeStatus,
         _user_data: &U,
-    ) -> Result<crate::core::MinimizerResult, E> {
-        let result = MinimizerResult {
+    ) -> Result<crate::core::Summary, E> {
+        let result = Summary {
             x0: status.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,
             bounds: config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
+            gradient_evals: 0,
             message: status.message.clone(),
             parameter_names: config
                 .parameter_names

@@ -1,7 +1,7 @@
 use nalgebra::DVector;
 
 use crate::{
-    core::GradientStatus,
+    solvers::gradient::GradientStatus,
     traits::{CostFunction, LineSearch},
     Float,
 };
@@ -67,7 +67,7 @@ impl StrongWolfeLineSearch {
     }
     /// Use the bounded forms of the function evaluators, transforming the function inputs in a
     /// nonlinear way to convert between external and internal parameters. See
-    /// [`Bound`](`crate::Bound`) for more
+    /// [`Bound`](`crate::core::Bound`) for more
     /// details.
     pub const fn with_bounds_transformation(mut self) -> Self {
         self.use_bounds = true;

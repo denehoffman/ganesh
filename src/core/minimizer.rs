@@ -4,22 +4,23 @@ use parking_lot::RwLock;
 
 use crate::traits::{AbortSignal, CostFunction, Observer, Solver, Status};
 
-use super::{Config, MinimizerResult, NopAbortSignal};
+use super::{Config, NopAbortSignal, Summary};
 
-/// The main struct used for running [`Solver`]s on [`Function`]s.
+/// The main struct used for running [`Solver`]s on [`CostFunction`]s.
 pub struct Minimizer<S, U, E> {
-    /// The [`Status`] of the [`Problem`], usually read after minimization.
+    /// The [`Status`] of the [`Solver`], usually read after minimization.
     pub status: S,
     solver: Box<dyn Solver<S, U, E>>,
     observers: Vec<Arc<RwLock<dyn Observer<S, U>>>>,
     abort_signal: Box<dyn AbortSignal>,
     config: Config,
     user_data: U,
-    result: Option<MinimizerResult>,
+    /// The [`Summary`] of the [`Solver`], usually read after minimization.
+    pub result: Option<Summary>,
 }
 
 impl<S: Status, U: Default, E> Minimizer<S, U, E> {
-    /// Creates a new [`Problem`] with the given (boxed) [`Solver`] and `dimension` set to the number
+    /// Creates a new [`Minimizer`] with the given (boxed) [`Solver`] and `dimension` set to the number
     /// of free parameters in the minimization problem.
     pub fn new(solver: Box<dyn Solver<S, U, E>>, dimension: usize) -> Self {
         Self {
@@ -36,6 +37,17 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         }
     }
 
+    /// Convenience method to use chainable methods to set up the [`Minimizer`].
+    /// Example usage:
+    /// ```rust
+    /// let solver = LBFGSB::default();
+    /// let mut m = Minimizer::new(Box::new(solver), 2)
+    ///   .setup(|m| {
+    ///     m.on_config(|c|
+    ///       c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
+    ///     .with_abort_signal(CtrlCAbortSignal::new().boxed())
+    ///   });
+    /// ```
     pub fn setup<F>(mut self, mut f: F) -> Self
     where
         F: FnMut(&mut Self) -> &mut Self,
@@ -44,6 +56,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
+    /// Edit the [`Config`] of the [`Minimizer`].
     pub fn on_config<F>(&mut self, mut f: F) -> &mut Self
     where
         F: FnMut(&mut Config) -> &mut Config,
@@ -52,6 +65,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
+    /// Edit the [`Status`] of the [`Minimizer`].
     pub fn on_status<F>(&mut self, mut f: F) -> &mut Self
     where
         F: FnMut(&mut S) -> &mut S,
@@ -60,11 +74,13 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
+    /// Set the [`AbortSignal`] of the [`Minimizer`].
     pub fn with_abort_signal(&mut self, abort_signal: Box<dyn AbortSignal>) -> &mut Self {
         self.abort_signal = abort_signal;
         self
     }
 
+    /// Set user data for the [`Minimizer`].
     pub fn with_user_data<T: Into<U>>(&mut self, data: T) -> &mut Self {
         self.user_data = data.into();
         self
@@ -75,24 +91,24 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self.observers.push(observer);
         self
     }
-    /// Minimize the given [`Function`] starting at the point `x0`.
+    /// Minimize the given [`CostFunction`] starting at the point `x0`.
     ///
-    /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
-    /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
+    /// This method first runs [`Solver::initialize`], then runs [`Solver::step`] in a loop,
+    /// terminating if [`Solver::check_for_termination`] returns `true` or if
     /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
     /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
-    /// [`Algorithm::postprocessing`] is called. If the algorithm did not converge in the given
+    /// [`Solver::postprocessing`] is called. Finally [`Solver::summarize`] is called to create a summary of the minimization run. If the algorithm did not converge in the given
     /// step limit, the [`Status::message`] will be set to `"MAX EVALS"` at termination.
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     ///
     /// # Panics
     ///
     /// This method will panic if the length of `x0` is not equal to the dimension of the problem
-    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
+    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`](crate::core::Bound)s given to the
     /// [`Minimizer`].
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();
@@ -139,12 +155,8 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         }
         self.result = self
             .solver
-            .result(func, &self.config, &self.status, &self.user_data)
+            .summarize(func, &self.config, &self.status, &self.user_data)
             .ok();
         Ok(())
-    }
-
-    pub fn get_result(&self) -> Option<MinimizerResult> {
-        self.result.clone()
     }
 }

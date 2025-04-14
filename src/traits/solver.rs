@@ -1,11 +1,11 @@
-use crate::core::{Config, MinimizerResult};
+use crate::core::{Config, Summary};
 
 use super::CostFunction;
 
 /// A trait representing a minimization algorithm.
 ///
 /// This trait is implemented for the algorithms found in the [`solvers`](super) module, and contains
-/// all the methods needed to be run by a [`Minimizer`].
+/// all the methods needed to be run by a [`Minimizer`](crate::core::Minimizer).
 pub trait Solver<S, U, E> {
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -36,7 +36,7 @@ pub trait Solver<S, U, E> {
         user_data: &mut U,
     ) -> Result<(), E>;
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
-    /// Developers should also update the internal [`S`] of the algorithm here if converged.
+    /// Developers should also update the internal [`Status`](crate::traits::Status) of the algorithm here if converged.
     ///
     /// # Errors
     ///
@@ -67,13 +67,13 @@ pub trait Solver<S, U, E> {
         Ok(())
     }
 
-    /// Generates a new [`SolverResult`] from the current state of the [`Solver`], which can be displayed or used elsewhere.
+    /// Generates a new [`Summary`] from the current state of the [`Solver`], which can be displayed or used elsewhere.
     #[allow(unused_variables)]
-    fn result(
+    fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
         config: &Config,
         status: &S,
         user_data: &U,
-    ) -> Result<MinimizerResult, E>;
+    ) -> Result<Summary, E>;
 }

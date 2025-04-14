@@ -2,16 +2,18 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Config, GradientStatus, MinimizerResult};
+use crate::core::{Bound, Config, Summary};
 
 use crate::traits::{CostFunction, LineSearch, Solver};
 use crate::Float;
 
-use crate::solvers::linesearch::StrongWolfeLineSearch;
+use crate::solvers::line_search::StrongWolfeLineSearch;
 
-/// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the change in the
-/// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
-/// of the [`Problem`](`crate::core::Problem`) will be set as converged with the message "GRADIENT
+use super::GradientStatus;
+
+/// A terminator for the [`LBFGSB`] [`Solver`] which causes termination when the change in the
+/// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
+/// of the [`Minimizer`](`crate::core::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
@@ -30,9 +32,9 @@ impl LBFGSBFTerminator {
     }
 }
 
-/// A terminator for the [`LBFGSB`] [`Algorithm`] which causes termination when the magnitude of the
-/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`]
-/// of the [`Problem`](`crate::core::Problem`) will be set as converged with the message "GRADIENT
+/// A terminator for the [`LBFGSB`] [`Solver`] which causes termination when the magnitude of the
+/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
+/// of the [`Minimizer`](`crate::core::Minimizer`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
@@ -50,7 +52,7 @@ impl LBFGSBGTerminator {
     }
 }
 
-/// Error modes for [`LBFGSB`] [`Algorithm`].
+/// Error modes for [`LBFGSB`] [`Solver`].
 #[derive(Default, Clone)]
 pub enum LBFGSBErrorMode {
     /// Computes the exact Hessian matrix via finite differences.
@@ -62,7 +64,7 @@ pub enum LBFGSBErrorMode {
 
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
-/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
+/// This minimization [`Solver`] is a quasi-Newton minimizer which approximates the inverse of
 /// the Hessian matrix using the L-BFGS update step. The BFGS algorithm is described in detail in Chapter
 /// 6 of "Numerical Optimization"[^1] (pages 136-143).
 ///
@@ -513,14 +515,14 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(())
     }
 
-    fn result(
+    fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
         config: &Config,
         status: &GradientStatus,
         _user_data: &U,
-    ) -> Result<crate::core::MinimizerResult, E> {
-        let result = MinimizerResult {
+    ) -> Result<crate::core::Summary, E> {
+        let result = Summary {
             x0: status.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,

@@ -42,7 +42,7 @@ pub trait CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn gradient(&self, x: &[Float], user_data: &mut U) -> Result<DVector<Float>, E> {
         let n = x.len();
@@ -72,7 +72,7 @@ pub trait CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn gradient_bounded(
         &self,
@@ -87,7 +87,7 @@ pub trait CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn hessian(&self, x: &[Float], user_data: &mut U) -> Result<DMatrix<Float>, E> {
         let x = DVector::from_column_slice(x);
@@ -127,7 +127,7 @@ pub trait CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn hessian_bounded(
         &self,

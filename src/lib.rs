@@ -1,4 +1,4 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`Function`] trait on some struct which will take a vector of parameters and return a single-valued [`Result`] ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued [`Result`] ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
 //!
 //! <div class="warning">
 //!
@@ -19,8 +19,6 @@
 //! * Generics to allow for different numeric types to be used in the provided algorithms.
 //! * Algorithms that are simple to use with sensible defaults.
 //! * Traits which make developing future algorithms simple and consistent.
-//! * Pressing `Ctrl-C` during a fit will still output a [`Status`], but the fit message will
-//!   indicate that the fit was ended by the user.
 //!
 //! # Quick Start
 //!
@@ -44,7 +42,7 @@
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
 //! use ganesh::{Function, Float, Minimizer, NopAbortSignal};
-//! use ganesh::algorithms::NelderMead;
+//! use ganesh::solvers::gradient_free::NelderMead;
 //! use ganesh::traits::*;
 //! # use std::convert::Infallible;
 //!
@@ -101,7 +99,7 @@
 //! to run manually.
 //!
 //! # Bounds
-//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`solvers::gradient::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
 //! ```math

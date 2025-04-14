@@ -4,8 +4,8 @@ use super::Bound;
 
 const DEFAULT_MAX_STEPS: usize = 4000;
 
-/// The configuration struct for the minimization problem. This struct contains information that
-/// every [`Solver`] needs to run, such as the number of free parameters, the bounds for the parameters,
+/// The configuration struct for the minimization problem. This struct contains basic information that
+/// every [`Solver`](crate::traits::Solver) should need to run, such as the number of free parameters, the bounds for the parameters,
 /// and the maximum number of steps to take before failing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -31,7 +31,7 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Sets all [`Bound`]s of the [`Problem`]. This can be [`None`] for an unbounded problem, or
+    /// Sets all [`Bound`]s of the [`Config`] used by the [`Solver`](crate::traits::Solver). This can be [`None`] for an unbounded problem, or
     /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
     /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
     /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).

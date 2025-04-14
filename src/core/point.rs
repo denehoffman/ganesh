@@ -7,7 +7,7 @@ use crate::{traits::CostFunction, Float};
 
 use super::Bound;
 
-/// Describes a point in parameter space that can be used in [`Algorithm`](`crate::traits::Algorithm`)s.
+/// Describes a point in parameter space that can be used in [`Solver`](`crate::traits::Solver`)s.
 #[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Point {
     /// the point's position

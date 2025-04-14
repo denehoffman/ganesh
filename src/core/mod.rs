@@ -1,20 +1,19 @@
+/// Basic implementations of [`AbortSignal`](crate::traits::AbortSignal)
 pub mod abort_signal;
+/// [`Bound`] type for binding variables to a range.
 pub mod bound;
+/// [`Config`] type for configuring the minimizer.
 pub mod config;
-pub mod gradient_status;
-pub mod minimization_result;
+/// [`Minimizer`] type for the minimization process.
 pub mod minimizer;
+/// [`Point`] type for defining a point in the parameter space.
 pub mod point;
-pub mod swarm_status;
+/// [`Summary`] type for the result of the minimization.
+pub mod summary;
 
 pub use abort_signal::{AtomicAbortSignal, CtrlCAbortSignal, NopAbortSignal};
 pub use bound::Bound;
 pub use config::Config;
-pub use gradient_status::GradientStatus;
-pub use minimization_result::MinimizerResult;
 pub use minimizer::Minimizer;
 pub use point::Point;
-pub use swarm_status::{
-    SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmStatus, SwarmTopology,
-    SwarmUpdateMethod, SwarmVelocityInitializer,
-};
+pub use summary::Summary;
