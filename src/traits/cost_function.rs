@@ -47,7 +47,7 @@ pub trait Gradient<U, E>: CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn gradient(&self, x: &[Float], user_data: &mut U) -> Result<DVector<Float>, E> {
         let n = x.len();
@@ -77,7 +77,7 @@ pub trait Gradient<U, E>: CostFunction<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn gradient_bounded(
         &self,
@@ -99,7 +99,7 @@ pub trait Hessian<U, E>: Gradient<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn hessian(&self, x: &[Float], user_data: &mut U) -> Result<DMatrix<Float>, E> {
         let x = DVector::from_column_slice(x);
@@ -149,27 +149,6 @@ pub trait Hessian<U, E>: Gradient<U, E> {
     ) -> Result<DMatrix<Float>, E> {
         self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
-
-    /// Computes the covariance matrix and standard deviation of the parameters at the given point
-    /// `x` using the hessian of the function at that point.
-    fn covariance_and_std(
-        &self,
-        x: &[Float],
-        user_data: &mut U,
-    ) -> Result<(DMatrix<Float>, DVector<Float>), E> {
-        let hessian = self.hessian(x, user_data)?;
-        let covariance = hessian
-            .clone()
-            .try_inverse()
-            .or_else(|| hessian.pseudo_inverse(Float::cbrt(Float::EPSILON)).ok());
-        if covariance.is_none() {
-            panic!("Covariance matrix is singular or not invertible");
-        }
-        let covariance = covariance.unwrap();
-
-        let std = covariance.diagonal().map(Float::sqrt);
-        Ok((covariance, std))
-    }
 }
 
 impl<U, E, T: ?Sized + CostFunction<U, E>> Gradient<U, E> for T {}
@@ -218,10 +197,10 @@ mod tests {
 
     #[test]
     fn test_cost_function_covariance_and_std() {
-        let (cov, std) = TestFunction.covariance_and_std(&X, &mut ()).unwrap();
+        use crate::utils::hessian_to_covariance;
+        let hessian = TestFunction.hessian(&X, &mut ()).unwrap();
+        let cov = hessian_to_covariance(&hessian).unwrap();
         assert_relative_eq!(cov[(0, 0)], 0.5, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(cov[(1, 1)], 0.5, epsilon = Float::EPSILON.cbrt());
-        assert_relative_eq!(std[0], 0.7071067811865476, epsilon = Float::EPSILON.cbrt());
-        assert_relative_eq!(std[1], 0.7071067811865476, epsilon = Float::EPSILON.cbrt());
     }
 }

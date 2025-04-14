@@ -4,11 +4,13 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use crate::{
-    core::{Config, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
+    core::{Config, Summary},
     traits::{CostFunction, Solver, Status},
     utils::generate_random_vector,
     Float,
 };
+
+use super::{SwarmStatus, SwarmTopology, SwarmUpdateMethod};
 
 /// Particle Swarm Optimizer
 ///
@@ -26,7 +28,7 @@ use crate::{
 /// topology). See [^1] for more information.
 ///
 /// For bounds handling, see [^2]. The only method not given there is the
-/// [`BoundaryMethod::Transform`] option, which uses the typical nonlinear bounds transformation
+/// [`SwarmBoundaryMethod::Transform`](crate::solvers::particles::SwarmBoundaryMethod) option, which uses the typical nonlinear bounds transformation
 /// supplied by this crate.
 ///
 ///
@@ -73,7 +75,7 @@ impl PSO {
         self
     }
     /// Sets the social weight $`c_2`$ which controls the particle's tendency
-    /// to move towards the global (or neighborhood) best depending on the swarm [`Topology`]
+    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
     /// (default = `0.1`).
     ///
     /// # Panics
@@ -225,6 +227,31 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     ) -> Result<bool, E> {
         Ok(false) // TODO: what does it mean for PSO to terminate?
     }
+    fn summarize(
+        &self,
+        _func: &dyn CostFunction<U, E>,
+        config: &Config,
+        status: &SwarmStatus,
+        _user_data: &U,
+    ) -> Result<Summary, E> {
+        let result = Summary {
+            x0: vec![0.0; status.gbest.x.len()],
+            x: status.gbest.x.iter().cloned().collect(),
+            fx: status.gbest.fx,
+            bounds: config.bounds.clone(),
+            converged: status.converged,
+            cost_evals: 0,
+            gradient_evals: 0,
+            message: status.message.clone(),
+            parameter_names: config
+                .parameter_names
+                .as_ref()
+                .map(|names| names.iter().cloned().collect()),
+            std: vec![0.0; status.gbest.x.len()],
+        };
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -236,11 +263,8 @@ mod tests {
     use serde::Serialize;
 
     use crate::{
-        core::{
-            CtrlCAbortSignal, Minimizer, Point, SwarmParticle, SwarmPositionInitializer,
-            SwarmStatus,
-        },
-        solvers::particles::PSO,
+        core::{CtrlCAbortSignal, Minimizer, Point},
+        solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         traits::{AbortSignal, CostFunction, Observer},
         Float, PI,
     };
@@ -293,24 +317,25 @@ mod tests {
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s = Minimizer::new(Box::new(pso), 2)
-            .on_config(|c| c.with_max_steps(200))
-            .with_abort_signal(CtrlCAbortSignal::new().boxed())
-            .with_observer(tracker.clone())
-            .on_status(|mut status| {
-                status.swarm = status.swarm.with_position_initializer(
-                    SwarmPositionInitializer::RandomInLimits {
-                        n_particles: 50,
-                        limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-                    },
-                );
-                status
-            });
+        let mut s = Minimizer::new(Box::new(pso), 2).setup(|m| {
+            m.with_abort_signal(CtrlCAbortSignal::new().boxed())
+                .add_observer(tracker.clone())
+                .on_config(|c| c.with_max_steps(200))
+                .on_status(|status| {
+                    status.swarm.with_position_initializer(
+                        SwarmPositionInitializer::RandomInLimits {
+                            n_particles: 50,
+                            limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
+                        },
+                    );
+                    status
+                })
+        });
 
         // Run the particle swarm optimizer
         s.minimize(&Function).unwrap();
 
-        println!("{}", s);
+        println!("{}", s.result.unwrap());
 
         // Export the results to a Python .pkl file to visualize via matplotlib
         let mut writer = BufWriter::new(File::create(Path::new("data.pkl")).unwrap());

@@ -1,14 +1,11 @@
-use std::fmt::Display;
+use serde::{de::DeserializeOwned, Serialize};
 
-use serde::{Deserialize, Serialize};
-
-/// A trait which holds the status of a [`Solver`] and has to be implemented for own [`Solver`]s that need
+/// A trait which holds the status of a [`Solver`](crate::traits::Solver) and has to be implemented for own [`Solver`](crate::traits::Solver)s that need
 /// different status information than the ones implemented in this crate.
-pub trait Status: Display + Clone + Default + Serialize + for<'a> Deserialize<'a> {
+pub trait Status: Clone + Default + Serialize + DeserializeOwned {
     /// Resets the status to its default state. This is called at the beginning of every
-    /// [`Solver`] run.
-    /// Take care that this does not reset the [`Config`] struct or any other information that is
-    /// needed to be kept between runs.
+    /// [`Minimizer`](crate::core::Minimizer) run. Only members that are not persistent between runs should be reset.
+    /// For example, the initial parameters of the minimization should not be reset.
     fn reset(&mut self);
     /// Returns the convergence flag of the minimization.
     fn converged(&self) -> bool;

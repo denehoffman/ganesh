@@ -539,7 +539,7 @@ impl<U, E> SwarmMinimizer<U, E> {
         self.observers.push(observer);
         self
     }
-    /// Minimize the given [`Function`] starting at the point `x0`.
+    /// Minimize the given [`CostFunction`] starting at the point `x0`.
     ///
     /// This method first runs [`SwarmAlgorithm::initialize`], then runs [`SwarmAlgorithm::step`] in a loop,
     /// terminating if [`SwarmAlgorithm::check_for_termination`] returns `true` or if
@@ -550,7 +550,7 @@ impl<U, E> SwarmMinimizer<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     ///
     /// # Panics

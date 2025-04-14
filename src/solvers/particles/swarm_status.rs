@@ -1,17 +1,15 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::cmp::Ordering;
 
 use fastrand::Rng;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::Bound,
+    core::{Bound, Config, Point},
     traits::{CostFunction, Status},
     utils::{generate_random_vector_in_limits, SampleFloat},
     Float,
 };
-
-use super::{Config, Point};
 
 /// Methods for handling boundaries in swarm optimizations
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -292,34 +290,37 @@ impl Swarm {
             .collect::<Result<Vec<SwarmParticle>, E>>()?;
         Ok(())
     }
-    /// Sets the topology used by the swarm (default = [`Topology::Global`]).
-    pub const fn with_topology(mut self, value: SwarmTopology) -> Self {
+    /// Sets the topology used by the swarm (default = [`SwarmTopology::Global`]).
+    pub const fn with_topology(&mut self, value: SwarmTopology) -> &mut Self {
         self.topology = value;
         self
     }
-    /// Sets the update method used by the swarm (default = [`UpdateMethod::Synchronous`]).
-    pub const fn with_update_method(mut self, value: SwarmUpdateMethod) -> Self {
+    /// Sets the update method used by the swarm (default = [`SwarmUpdateMethod::Synchronous`]).
+    pub const fn with_update_method(&mut self, value: SwarmUpdateMethod) -> &mut Self {
         self.update_method = value;
         self
     }
-    /// Set the [`PSO`]'s [`SwarmVelocityInitializer`].
+    /// Set the [`PSO`](super::PSO)'s [`SwarmVelocityInitializer`].
     pub fn with_velocity_initializer(
-        mut self,
+        &mut self,
         velocity_initializer: SwarmVelocityInitializer,
-    ) -> Self {
+    ) -> &mut Self {
         self.velocity_initializer = velocity_initializer;
         self
     }
-    /// Set the [`PSO`]'s [`SwarmPositionInitializer`].
+    /// Set the [`PSO`](super::PSO)'s [`SwarmPositionInitializer`].
     pub fn with_position_initializer(
-        mut self,
+        &mut self,
         position_initializer: SwarmPositionInitializer,
-    ) -> Self {
+    ) -> &mut Self {
         self.position_initializer = position_initializer;
         self
     }
-    /// Set the [`SwarmBoundaryMethod`] for the [`PSO`].
-    pub const fn with_boundary_method(mut self, boundary_method: SwarmBoundaryMethod) -> Self {
+    /// Set the [`SwarmBoundaryMethod`] for the [`PSO`](super::PSO).
+    pub const fn with_boundary_method(
+        &mut self,
+        boundary_method: SwarmBoundaryMethod,
+    ) -> &mut Self {
         self.boundary_method = boundary_method;
         self
     }
@@ -355,55 +356,9 @@ pub struct SwarmStatus {
     pub swarm: Swarm,
 }
 
-impl Display for SwarmStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = format!(
-          "╒══════════════════════════════════════════════════════════════════════════════════════════════╕
-│{:^94}│",
-          "SWARM STATUS",
-      );
-        let status = format!(
-          "╞════════════════════════════════════════════════════════════════╤═════════════════════════════╡
-│ Status: {}                                        │ fval: {:+12.3E}          │",
-          if self.converged {
-              "Converged      "
-          } else {
-              "Invalid Minimum"
-          },
-          self.gbest.fx,
-      );
-        let message = format!(
-          "├────────────────────────────────────────────────────────────────┴─────────────────────────────┤
-│ Message: {:<83} │",
-          self.message,
-      );
-        let header =
-          "├───────╥────────────────────────────────────────────╥──────────────┬──────────────┬───────────┤
-│ Par # ║ Value                                      ║       -Bound │       +Bound │ At Limit? │
-├───────╫────────────────────────────────────────────╫──────────────┼──────────────┼───────────┤"
-              .to_string();
-        let mut res_list: Vec<String> = vec![];
-        let bounds = vec![Bound::NoBound; self.gbest.x.len()];
-        for (i, xi) in self.gbest.x.iter().enumerate() {
-            let row = format!(
-              "│ {:>5} ║ {:>+12.8E}                             ║ {:>+12.3E} │ {:>+12.3E} │ {:^9} │",
-              i,
-              xi,
-              bounds[i].lower(),
-              bounds[i].upper(),
-              if bounds[i].at_bound(*xi) { "yes" } else { "" }
-          );
-            res_list.push(row);
-        }
-        let bottom = "└───────╨────────────────────────────────────────────╨──────────────┴──────────────┴───────────┘".to_string();
-        let out = [title, status, message, header, res_list.join("\n"), bottom].join("\n");
-        write!(f, "{}", out)
-    }
-}
-
 impl SwarmStatus {
     /// Get list of the particles in the swarm. If the boundary method is set to
-    /// [`BoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
+    /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
     pub fn get_particles(&self, bounds: Option<&Vec<Bound>>) -> Vec<SwarmParticle> {
         if matches!(self.swarm.boundary_method, SwarmBoundaryMethod::Transform) {
             self.swarm
@@ -416,7 +371,7 @@ impl SwarmStatus {
         }
     }
     /// Get the global best position found by the swarm. If the boundary method is set to
-    /// [`BoundaryMethod::Transform`], this will return the position in the original bounded space.
+    /// [`SwarmBoundaryMethod::Transform`], this will return the position in the original bounded space.
     pub fn get_best(
         &self,
         bounds: Option<&Vec<Bound>>,
