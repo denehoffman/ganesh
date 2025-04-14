@@ -26,6 +26,7 @@ logsumexp = "0.1.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 rustfft = "6.2.0"
 num = "0.4.3"
+tabled = { version = "0.18.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 criterion = { version = "2.10", package = "codspeed-criterion-compat", features = [
