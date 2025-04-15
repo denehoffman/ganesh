@@ -30,6 +30,15 @@ impl SwarmStatus {
             self.gbest.clone()
         }
     }
+
+    /// Convenience method to configure the swarm.
+    pub fn on_swarm<F>(&mut self, f: F) -> &mut Self
+    where
+        F: FnOnce(&mut Swarm) -> &mut Swarm,
+    {
+        f(&mut self.swarm);
+        self
+    }
 }
 
 impl Status for SwarmStatus {

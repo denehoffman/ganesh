@@ -19,19 +19,16 @@ pub struct Minimizer<S, U, E> {
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
 
-    dimension: usize,
     bounds: Option<Vec<Bound>>,
     parameter_names: Option<Vec<String>>,
     max_steps: usize,
 }
 
 impl<S: Status, U: Default, E> Minimizer<S, U, E> {
-    /// Creates a new [`Minimizer`] with the given (boxed) [`Solver`] and `dimension` set to the number
-    /// of free parameters in the minimization problem.
-    pub fn new(solver: Box<dyn Solver<S, U, E>>, dimension: usize) -> Self {
+    /// Creates a new [`Minimizer`] with the given (boxed) [`Solver`].
+    pub fn new(solver: Box<dyn Solver<S, U, E>>) -> Self {
         Self {
             status: S::default(),
-            dimension,
             bounds: None,
             parameter_names: None,
             max_steps: DEFAULT_MAX_STEPS,
@@ -85,7 +82,6 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         bounds: I,
     ) -> &mut Self {
         let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
-        assert!(bounds.len() == self.dimension);
         self.bounds = Some(bounds);
         self
     }
@@ -98,7 +94,6 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     /// parameters.
     pub fn with_parameter_names<I: IntoIterator<Item = String>>(&mut self, names: I) -> &mut Self {
         let names = names.into_iter().collect::<Vec<String>>();
-        assert!(names.len() == self.dimension);
         self.parameter_names = Some(names);
         self
     }

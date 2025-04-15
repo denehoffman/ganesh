@@ -14,8 +14,8 @@ use crate::{
 /// A swarm of particles used in particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Swarm {
-    /// The dimension of the swarm
-    pub dimension: usize,
+    /// The number of particles
+    n_particles: usize,
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
     /// The topology used by the swarm
@@ -49,18 +49,17 @@ impl Swarm {
     pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
+        dimension: usize,
         bounds: Option<&Vec<Bound>>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        let mut particle_positions = self
-            .position_initializer
-            .init_positions(rng, self.dimension);
-        let mut particle_velocities = self.velocity_initializer.init_velocities(
-            particle_positions.len(),
-            self.dimension,
-            rng,
-        );
+        let mut particle_positions =
+            self.position_initializer
+                .init_positions(rng, dimension, self.n_particles);
+        let mut particle_velocities =
+            self.velocity_initializer
+                .init_velocities(rng, dimension, self.n_particles);
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
@@ -87,9 +86,9 @@ impl Swarm {
             .collect::<Result<Vec<SwarmParticle>, E>>()?;
         Ok(())
     }
-    /// Sets the dimension of the swarm (default = 0).
-    pub const fn with_dimension(&mut self, value: usize) -> &mut Self {
-        self.dimension = value;
+    /// Sets the number of particles in the swarm.
+    pub const fn with_n_particles(&mut self, value: usize) -> &mut Self {
+        self.n_particles = value;
         self
     }
     /// Sets the topology used by the swarm (default = [`SwarmTopology::Global`]).
@@ -180,68 +179,46 @@ pub enum SwarmUpdateMethod {
 /// Methods to initialize the positions of particles in a swarm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SwarmPositionInitializer {
-    /// Start all particles at the origin
-    Zero {
-        /// The number of particles
-        n_particles: usize,
-    },
+    /// Start all particles at the origin. Needs the number of dimensions to initialize the particles.
+    Zero,
     /// Random distribution within the given limits for each dimension
-    RandomInLimits {
-        /// The number of particles
-        n_particles: usize,
-        /// Limits for each dimension of parameter space
-        limits: Vec<(Float, Float)>,
-    },
+    RandomInLimits(Vec<(Float, Float)>),
     /// Custom distribution from a given vector of positions
     Custom(Vec<DVector<Float>>),
-    /// Latin Hypercube sampling
-    LatinHypercube {
-        /// The number of particles
-        n_particles: usize,
-        /// Limits for each dimension of parameter space
-        limits: Vec<(Float, Float)>,
-    },
+    /// Latin Hypercube sampling within the given limits for each dimension
+    LatinHypercube(Vec<(Float, Float)>),
 }
 impl Default for SwarmPositionInitializer {
     fn default() -> Self {
-        Self::Zero { n_particles: 0 }
+        Self::Zero
     }
 }
 impl SwarmPositionInitializer {
     /// Initialize the positions of the particles in the swarm
     /// using the given random number generator and dimension.
-    pub fn init_positions(&self, rng: &mut Rng, dimension: usize) -> Vec<Point> {
+    pub fn init_positions(
+        &self,
+        rng: &mut Rng,
+        dimension: usize,
+        n_particles: usize,
+    ) -> Vec<Point> {
         match self {
-            Self::Zero { n_particles } => (0..*n_particles)
+            Self::Zero => (0..n_particles)
                 .map(|_| DVector::zeros(dimension).into())
                 .collect(),
-            Self::RandomInLimits {
-                n_particles,
-                limits,
-            } => (0..*n_particles)
+            Self::RandomInLimits(limits) => (0..n_particles)
                 .map(|_| generate_random_vector_in_limits(limits, rng).into())
                 .collect(),
-            Self::Custom(positions) => {
-                for position in positions {
-                    assert_eq!(
-                        dimension,
-                        position.len(),
-                        "All initial positions must be the same dimension!"
-                    );
-                }
-                positions.iter().map(|p| p.clone().into()).collect()
-            }
-            Self::LatinHypercube {
-                n_particles,
-                limits,
-            } => {
-                let mut lhs_matrix = vec![vec![0.0; dimension]; *n_particles];
+            Self::Custom(positions) => positions.iter().map(|p| p.clone().into()).collect(),
+            Self::LatinHypercube(limits) => {
+                let dimension = limits.len();
+                let mut lhs_matrix = vec![vec![0.0; dimension]; n_particles];
                 for (d, limit) in limits.iter().enumerate().take(dimension) {
-                    let mut bins: Vec<usize> = (0..*n_particles).collect();
+                    let mut bins: Vec<usize> = (0..n_particles).collect();
                     rng.shuffle(&mut bins);
                     for (i, &bin) in bins.iter().enumerate() {
                         let (min, max) = limit;
-                        let bin_size = (max - min) / *n_particles as Float;
+                        let bin_size = (max - min) / n_particles as Float;
                         let lower = min + bin as Float * bin_size;
                         let upper = lower + bin_size;
                         lhs_matrix[i][d] = rng.range(lower, upper);
@@ -267,12 +244,14 @@ impl SwarmVelocityInitializer {
     /// using the given random number generator and dimension.
     pub fn init_velocities(
         &self,
-        n_particles: usize,
-        dim: usize,
         rng: &mut Rng,
+        dimension: usize,
+        n_particles: usize,
     ) -> Vec<DVector<Float>> {
         match self {
-            Self::Zero => (0..n_particles).map(|_| DVector::zeros(dim)).collect(),
+            Self::Zero => (0..n_particles)
+                .map(|_| DVector::zeros(dimension))
+                .collect(),
             Self::RandomInLimits(limits) => (0..n_particles)
                 .map(|_| generate_random_vector_in_limits(limits, rng))
                 .collect(),

@@ -10,9 +10,9 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
             let problem = Rosenbrock { n: *ndim };
             let nm = LBFGSB::default();
-            let mut m = Minimizer::new(Box::new(nm), *ndim).setup(|m| {
+            let mut m = Minimizer::new(Box::new(nm)).setup(|m| {
                 m.with_abort_signal(CtrlCAbortSignal::new().boxed())
-                    .on_config(|c| c.with_max_steps(10_000_000))
+                    .with_max_steps(10_000_000)
                     .on_status(|s| s.with_x0(vec![5.0; *ndim]))
             });
             b.iter(|| {

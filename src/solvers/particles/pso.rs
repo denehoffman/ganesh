@@ -40,18 +40,25 @@ pub struct PSO {
     c1: Float,
     c2: Float,
     rng: Rng,
+    dimension: usize,
 }
 
 impl PSO {
     /// Construct a new particle swarm optimizer with `n_particles` particles working in an
     /// `n_dimensions` dimensional space.
-    pub fn new(rng: Rng) -> Self {
+    pub fn new(dimension: usize, rng: Rng) -> Self {
         Self {
             omega: 0.8,
             c1: 0.1,
             c2: 0.1,
             rng,
+            dimension,
         }
+    }
+    /// Set the dimension of the PSO. This is used to generate random vectors for the particles.
+    pub fn with_dimension(mut self, dimension: usize) -> Self {
+        self.dimension = dimension;
+        self
     }
     /// Sets the inertial weight $`\omega`$ (default = `0.8`).
     ///
@@ -155,8 +162,10 @@ impl PSO {
             .collect();
 
         for (i, particle) in status.swarm.particles.iter_mut().enumerate() {
-            let rv1 = generate_random_vector(status.swarm.dimension, 0.0, 0.1, &mut self.rng);
-            let rv2 = generate_random_vector(status.swarm.dimension, 0.0, 0.1, &mut self.rng);
+            let rv1 =
+                generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
+            let rv2 =
+                generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
             particle.velocity = particle.velocity.scale(self.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
@@ -184,9 +193,9 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        let swarm = &mut status.swarm;
-
-        swarm.initialize(&mut self.rng, bounds, func, user_data)?;
+        status
+            .swarm
+            .initialize(&mut self.rng, self.dimension, bounds, func, user_data)?;
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
@@ -309,25 +318,25 @@ mod tests {
         rng.seed(0);
 
         // Create a particle swarm optimizer algorithm and set some hyperparameters
-        let pso = PSO::new(rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
+        let pso = PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
 
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s = Minimizer::new(Box::new(pso), 2).setup(|m| {
+        let mut s = Minimizer::new(Box::new(pso)).setup(|m| {
             m.with_abort_signal(CtrlCAbortSignal::new().boxed())
                 .add_observer(tracker.clone())
                 .with_max_steps(200)
                 .with_parameter_names(["X".to_string(), "Y".to_string()])
                 .on_status(|status| {
-                    status
-                        .swarm
-                        .with_position_initializer(SwarmPositionInitializer::RandomInLimits {
-                            n_particles: 50,
-                            limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-                        })
-                        .with_dimension(2);
-                    status
+                    status.on_swarm(|swarm| {
+                        swarm.with_n_particles(50).with_position_initializer(
+                            SwarmPositionInitializer::RandomInLimits(vec![
+                                (-20.0, 20.0),
+                                (-20.0, 20.0),
+                            ]),
+                        )
+                    })
                 })
         });
 

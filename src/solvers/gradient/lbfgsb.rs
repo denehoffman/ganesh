@@ -564,13 +564,13 @@ mod tests {
     fn test_problem_constructor() {
         #[allow(clippy::box_default)]
         let solver: LBFGSB<(), Infallible> = LBFGSB::default();
-        let problem = Minimizer::new(Box::new(solver), 2);
+        let problem = Minimizer::new(Box::new(solver));
     }
 
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Minimizer::new(Box::new(solver), 2)
+        let mut m = Minimizer::new(Box::new(solver))
             .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new().boxed()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Minimizer::new(Box::new(solver), 2).setup(|m| {
+        let mut m = Minimizer::new(Box::new(solver)).setup(|m| {
             m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
                 .with_abort_signal(CtrlCAbortSignal::new().boxed())
         });
