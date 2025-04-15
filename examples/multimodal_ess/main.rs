@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
 
     // Run a maximum of 4000 steps of the MCMC algorithm
-    s.sample(&problem, &mut (), 4000, CtrlCAbortSignal::new().boxed())?;
+    s.sample(&problem, &mut (), 4000, CtrlCAbortSignal::new())?;
 
     // Get the resulting samples (no burn-in)
     let chains = s.get_chains(None, None);

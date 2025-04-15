@@ -7,11 +7,4 @@ pub trait AbortSignal {
     fn abort(&self);
     /// Reset the abort signal. Make `is_aborted()` return `false`.
     fn reset(&self);
-    /// Return a boxed version of the signal.
-    fn boxed(self) -> Box<Self>
-    where
-        Self: Sized,
-    {
-        Box::new(self)
-    }
 }

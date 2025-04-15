@@ -264,7 +264,7 @@ mod tests {
     use crate::{
         core::{Bound, CtrlCAbortSignal, Minimizer, Point},
         solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
-        traits::{AbortSignal, CostFunction, Observer},
+        traits::{CostFunction, Observer},
         Float, PI,
     };
 
@@ -317,28 +317,26 @@ mod tests {
         let mut rng = Rng::new();
         rng.seed(0);
 
-        // Create a particle swarm optimizer algorithm and set some hyperparameters
-        let pso = PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
-
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s = Minimizer::new(Box::new(pso)).setup(|m| {
-            m.with_abort_signal(CtrlCAbortSignal::new().boxed())
-                .add_observer(tracker.clone())
-                .with_max_steps(200)
-                .with_parameter_names(["X".to_string(), "Y".to_string()])
-                .on_status(|status| {
-                    status.on_swarm(|swarm| {
-                        swarm.with_n_particles(50).with_position_initializer(
-                            SwarmPositionInitializer::RandomInLimits(vec![
-                                (-20.0, 20.0),
-                                (-20.0, 20.0),
-                            ]),
-                        )
+        let mut s = Minimizer::new(PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8))
+            .setup(|m| {
+                m.with_abort_signal(CtrlCAbortSignal::new())
+                    .add_observer(tracker.clone())
+                    .with_max_steps(200)
+                    .with_parameter_names(["X".to_string(), "Y".to_string()])
+                    .on_status(|status| {
+                        status.on_swarm(|swarm| {
+                            swarm.with_n_particles(50).with_position_initializer(
+                                SwarmPositionInitializer::RandomInLimits(vec![
+                                    (-20.0, 20.0),
+                                    (-20.0, 20.0),
+                                ]),
+                            )
+                        })
                     })
-                })
-        });
+            });
 
         // Run the particle swarm optimizer
         s.minimize(&Function).unwrap();

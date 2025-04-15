@@ -805,9 +805,8 @@ mod tests {
 
     #[test]
     fn test_nelder_mead() -> Result<(), Infallible> {
-        let algo = NelderMead::default();
-        let mut m = Minimizer::new(Box::new(algo))
-            .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new().boxed()));
+        let mut m = Minimizer::new(NelderMead::default())
+            .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
         assert!(m.status.converged);
@@ -833,10 +832,9 @@ mod tests {
 
     #[test]
     fn test_bounded_nelder_mead() -> Result<(), Infallible> {
-        let algo = NelderMead::default();
-        let mut m = Minimizer::new(Box::new(algo)).setup(|m| {
+        let mut m = Minimizer::new(NelderMead::default()).setup(|m| {
             m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
-                .with_abort_signal(CtrlCAbortSignal::new().boxed())
+                .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
@@ -863,9 +861,8 @@ mod tests {
 
     #[test]
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
-        let algo = NelderMead::default().with_adaptive(2);
-        let mut m = Minimizer::new(Box::new(algo))
-            .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new().boxed()));
+        let mut m = Minimizer::new(NelderMead::default().with_adaptive(2))
+            .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
         assert!(m.status.converged);

@@ -26,15 +26,15 @@ pub struct Minimizer<S, U, E> {
 
 impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     /// Creates a new [`Minimizer`] with the given (boxed) [`Solver`].
-    pub fn new(solver: Box<dyn Solver<S, U, E>>) -> Self {
+    pub fn new<T: Solver<S, U, E> + 'static>(solver: T) -> Self {
         Self {
             status: S::default(),
             bounds: None,
             parameter_names: None,
             max_steps: DEFAULT_MAX_STEPS,
-            solver,
+            solver: Box::new(solver),
             observers: Vec::default(),
-            abort_signal: NopAbortSignal.boxed(),
+            abort_signal: Box::new(NopAbortSignal),
             user_data: Default::default(),
             result: None,
         }
@@ -103,8 +103,8 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
     /// Set the [`AbortSignal`] of the [`Minimizer`].
-    pub fn with_abort_signal(&mut self, abort_signal: Box<dyn AbortSignal>) -> &mut Self {
-        self.abort_signal = abort_signal;
+    pub fn with_abort_signal<A: AbortSignal + 'static>(&mut self, abort_signal: A) -> &mut Self {
+        self.abort_signal = Box::new(abort_signal);
         self
     }
 

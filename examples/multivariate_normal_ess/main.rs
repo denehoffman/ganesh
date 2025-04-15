@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &problem,
         &mut cov_inv,
         1000,
-        CtrlCAbortSignal::new().boxed(),
+        Box::new(CtrlCAbortSignal::new()),
     )?;
 
     // Get the resulting samples (no burn-in)

@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_max_steps(200);
 
     // Run the particle swarm optimizer
-    s.minimize(&problem, &mut (), CtrlCAbortSignal::new().boxed())?;
+    s.minimize(&problem, &mut (), Box::new(CtrlCAbortSignal::new()))?;
 
     println!("{}", s.swarm);
 
