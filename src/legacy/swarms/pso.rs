@@ -237,7 +237,7 @@ mod tests {
             observer::TrackingSwarmObserver,
             swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO},
         },
-        traits::{AbortSignal, CostFunction},
+        traits::CostFunction,
         Float, PI,
     };
 

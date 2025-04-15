@@ -8,7 +8,7 @@ use ganesh::core::CtrlCAbortSignal;
 use ganesh::legacy::observer::AutocorrelationObserver;
 use ganesh::legacy::samplers::ess::{ESSMove, ESS};
 use ganesh::legacy::samplers::Sampler;
-use ganesh::traits::{AbortSignal, CostFunction};
+use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};

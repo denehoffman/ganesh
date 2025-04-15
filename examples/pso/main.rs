@@ -7,7 +7,7 @@ use fastrand::Rng;
 use ganesh::core::CtrlCAbortSignal;
 use ganesh::legacy::observer::TrackingSwarmObserver;
 use ganesh::legacy::swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO};
-use ganesh::traits::{AbortSignal, CostFunction};
+use ganesh::traits::CostFunction;
 use ganesh::Float;
 use ganesh::PI;
 use std::error::Error;

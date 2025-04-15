@@ -797,7 +797,6 @@ mod tests {
     use crate::{
         core::{CtrlCAbortSignal, Minimizer},
         test_functions::Rosenbrock,
-        traits::AbortSignal,
         Float,
     };
 

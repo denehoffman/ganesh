@@ -2,7 +2,6 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use ganesh::core::{CtrlCAbortSignal, Minimizer};
 use ganesh::solvers::gradient_free::NelderMead;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
-use ganesh::traits::AbortSignal;
 
 fn nelder_mead_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Nelder Mead");

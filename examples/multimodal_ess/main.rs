@@ -8,7 +8,7 @@ use ganesh::core::CtrlCAbortSignal;
 use ganesh::legacy::observer::AutocorrelationObserver;
 use ganesh::legacy::samplers::ess::{ESSMove, ESS};
 use ganesh::legacy::samplers::Sampler;
-use ganesh::traits::{AbortSignal, CostFunction};
+use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::DVector;
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
 
     // Run a maximum of 4000 steps of the MCMC algorithm
-    s.sample(&problem, &mut (), 4000, CtrlCAbortSignal::new())?;
+    s.sample(&problem, &mut (), 4000, Box::new(CtrlCAbortSignal::new()))?;
 
     // Get the resulting samples (no burn-in)
     let chains = s.get_chains(None, None);
