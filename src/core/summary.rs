@@ -2,13 +2,13 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use super::Bound;
+use super::{Bound, Bounds};
 
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Summary {
     /// The bounds of the parameters. This is `None` if no bounds were set.
-    pub bounds: Option<Vec<Bound>>,
+    pub bounds: Option<Bounds>,
     /// The names of the parameters. This is `None` if no names were set.
     pub parameter_names: Option<Vec<String>>,
     /// A message that can be set by minimization algorithms.
@@ -69,6 +69,7 @@ impl Display for Summary {
         let bounds = self
             .bounds
             .clone()
+            .map(|b| b.into_inner())
             .unwrap_or(vec![Bound::NoBound; self.x.len()])
             .into_iter();
 

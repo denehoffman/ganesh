@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{traits::CostFunction, Float};
 
-use super::Bound;
+use super::{Bound, Bounds};
 
 /// Describes a point in parameter space that can be used in [`Solver`](`crate::traits::Solver`)s.
 #[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
@@ -53,7 +53,7 @@ impl Point {
     pub fn evaluate_bounded<UD, E>(
         &mut self,
         func: &dyn CostFunction<UD, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut UD,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
@@ -80,7 +80,7 @@ impl Point {
         self.fx
     }
     /// Converts the point's `x` from an unbounded space to a bounded one.
-    pub fn to_bounded(&self, bounds: Option<&Vec<Bound>>) -> Self {
+    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
         Self {
             x: Bound::to_bounded(self.x.as_slice(), bounds),
             fx: self.fx,
@@ -90,8 +90,7 @@ impl Point {
 
 impl Display for Point {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "fx: {}", self.fx)?;
-        writeln!(f, "{}", self.x)
+        writeln!(f, "x: {:?}, f(x): {}", self.x.as_slice(), self.fx)
     }
 }
 

@@ -4,7 +4,7 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use crate::{
-    core::{Bound, Summary},
+    core::{Bounds, Summary},
     traits::{CostFunction, Solver, Status},
     utils::generate_random_vector,
     Float,
@@ -105,7 +105,7 @@ impl PSO {
     }
     fn update<U, E>(
         &mut self,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -118,7 +118,7 @@ impl PSO {
     }
     fn update_sync<U, E>(
         &mut self,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -152,7 +152,7 @@ impl PSO {
     }
     fn update_async<U, E>(
         &mut self,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -189,7 +189,7 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -210,7 +210,7 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -220,7 +220,7 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         _status: &mut SwarmStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -229,7 +229,7 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &SwarmStatus,
         _user_data: &U,
@@ -262,7 +262,7 @@ mod tests {
     use serde::Serialize;
 
     use crate::{
-        core::{Bound, CtrlCAbortSignal, Minimizer, Point},
+        core::{Bounds, CtrlCAbortSignal, Minimizer, Point},
         solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         traits::{CostFunction, Observer},
         Float, PI,
@@ -289,7 +289,7 @@ mod tests {
         fn callback(
             &mut self,
             _step: usize,
-            bounds: Option<&Vec<Bound>>,
+            bounds: Option<&Bounds>,
             status: &mut SwarmStatus,
             _user_data: &mut U,
         ) -> bool {

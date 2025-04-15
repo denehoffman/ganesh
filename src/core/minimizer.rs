@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 
 use crate::traits::{AbortSignal, CostFunction, Observer, Solver, Status};
 
-use super::{Bound, NopAbortSignal, Summary};
+use super::{Bound, Bounds, NopAbortSignal, Summary};
 
 const DEFAULT_MAX_STEPS: usize = 4000;
 /// The main struct used for running [`Solver`]s on [`CostFunction`]s.
@@ -19,7 +19,7 @@ pub struct Minimizer<S, U, E> {
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
 
-    bounds: Option<Vec<Bound>>,
+    bounds: Option<Bounds>,
     parameter_names: Option<Vec<String>>,
     max_steps: usize,
 }
@@ -81,7 +81,11 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         &mut self,
         bounds: I,
     ) -> &mut Self {
-        let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
+        let bounds = bounds
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .into();
         self.bounds = Some(bounds);
         self
     }
@@ -123,7 +127,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     /// Check parameters against the bounds
     pub fn assert_parameters(&self, x: &[f64]) {
         if let Some(bounds) = &self.bounds {
-            for (i, (x_i, bound_i)) in x.iter().zip(bounds).enumerate() {
+            for (i, (x_i, bound_i)) in x.iter().zip(bounds.iter()).enumerate() {
                 assert!(
                     bound_i.contains(*x_i),
                     "Parameter #{} = {} is outside of the given bound: {}",

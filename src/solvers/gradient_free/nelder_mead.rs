@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use nalgebra::{DMatrix, DVector};
 
 use crate::{
-    core::{Bound, Point, Summary},
+    core::{Bound, Bounds, Point, Summary},
     traits::{CostFunction, Hessian, Solver},
     Float,
 };
@@ -36,7 +36,7 @@ impl SimplexConstructionMethod {
         &self,
         func: &dyn CostFunction<U, E>,
         x0: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
     ) -> Result<Simplex, E> {
         match self {
@@ -130,7 +130,7 @@ impl Simplex {
             initial_volume: volume,
         }
     }
-    fn best_position(&self, bounds: Option<&Vec<Bound>>) -> (DVector<Float>, Float) {
+    fn best_position(&self, bounds: Option<&Bounds>) -> (DVector<Float>, Float) {
         let (y, fx) = self.best().clone().into_vec_val();
         (Bound::to_bounded(&y, bounds), fx)
     }
@@ -586,7 +586,7 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -601,7 +601,7 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -728,7 +728,7 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut GradientFreeStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -748,7 +748,7 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut GradientFreeStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -762,7 +762,7 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &GradientFreeStatus,
         _user_data: &U,

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Summary};
+use crate::core::{Bound, Bounds, Summary};
 
 use crate::traits::{CostFunction, Gradient, Hessian, LineSearch, Solver};
 use crate::Float;
@@ -393,7 +393,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -437,7 +437,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -479,7 +479,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<bool, E> {
@@ -499,7 +499,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -516,7 +516,7 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,

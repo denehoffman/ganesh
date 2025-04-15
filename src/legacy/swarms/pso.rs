@@ -4,7 +4,7 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use super::{Swarm, SwarmAlgorithm, Topology, UpdateMethod};
-use crate::{core::Bound, traits::CostFunction, utils::generate_random_vector, Float};
+use crate::{core::Bounds, traits::CostFunction, utils::generate_random_vector, Float};
 
 /// Particle Swarm Optimizer
 ///
@@ -197,7 +197,7 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {

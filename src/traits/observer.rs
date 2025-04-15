@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
 
-use crate::core::Bound;
+use crate::core::Bounds;
 
 use super::Status;
 
@@ -14,7 +14,7 @@ pub trait Observer<S: Status, U> {
     fn callback(
         &mut self,
         step: usize,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> bool;
@@ -51,7 +51,7 @@ impl<S: Status + Debug, U: Debug> Observer<S, U> for DebugObserver {
     fn callback(
         &mut self,
         step: usize,
-        _bounds: Option<&Vec<Bound>>,
+        _bounds: Option<&Bounds>,
         status: &mut S,
         _user_data: &mut U,
     ) -> bool {

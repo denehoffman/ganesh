@@ -1,4 +1,4 @@
-use crate::core::{Bound, Summary};
+use crate::core::{Bounds, Summary};
 
 use super::CostFunction;
 
@@ -16,7 +16,7 @@ pub trait Solver<S, U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -31,7 +31,7 @@ pub trait Solver<S, U, E> {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -45,7 +45,7 @@ pub trait Solver<S, U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<bool, E>;
@@ -60,7 +60,7 @@ pub trait Solver<S, U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -72,7 +72,7 @@ pub trait Solver<S, U, E> {
     fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &S,
         user_data: &U,

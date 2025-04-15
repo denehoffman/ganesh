@@ -9,7 +9,7 @@ pub use pso::PSO;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{Bound, Point},
+    core::{Bound, Bounds, Point},
     traits::{AbortSignal, CostFunction},
     utils::{generate_random_vector_in_limits, SampleFloat},
     Float,
@@ -34,7 +34,7 @@ impl Particle {
         velocity: DVector<Float>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: BoundaryMethod,
     ) -> Result<Self, E> {
         let mut position = position;
@@ -56,7 +56,7 @@ impl Particle {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: BoundaryMethod,
     ) -> Result<(), E> {
         let new_position = self.position.x.clone() + self.velocity.clone();
@@ -87,7 +87,7 @@ impl Particle {
     }
     /// Convert the particle's coordinates from the unbounded space to the bounded space using a
     /// nonlinear transformation.
-    pub fn to_bounded(&self, bounds: Option<&Vec<Bound>>) -> Self {
+    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
         Self {
             position: self.position.to_bounded(bounds),
             velocity: Bound::to_bounded(self.velocity.as_slice(), bounds),
@@ -109,7 +109,7 @@ pub struct Swarm {
     /// A message containing information about the condition of the swarm or convergence
     pub message: String,
     /// The bounds placed on the minimization space
-    pub bounds: Option<Vec<Bound>>,
+    pub bounds: Option<Bounds>,
     boundary_method: BoundaryMethod,
     position_initializer: SwarmPositionInitializer,
     velocity_initializer: SwarmVelocityInitializer,
@@ -146,6 +146,7 @@ impl Display for Swarm {
         let bounds = self
             .bounds
             .clone()
+            .map(|b| b.into_inner())
             .unwrap_or_else(|| vec![Bound::NoBound; self.gbest.x.len()]);
         for (i, xi) in self.gbest.x.iter().enumerate() {
             let row = format!(
@@ -338,7 +339,7 @@ impl Swarm {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         rng: &mut Rng,
     ) -> Result<(), E> {
         self.bounds = bounds.cloned();
@@ -430,7 +431,7 @@ pub trait SwarmAlgorithm<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E>;
@@ -486,7 +487,7 @@ pub struct SwarmMinimizer<U, E> {
     algorithm: Box<dyn SwarmAlgorithm<U, E>>,
     max_steps: usize,
     observers: Vec<Arc<RwLock<dyn SwarmObserver<U>>>>,
-    bounds: Option<Vec<Bound>>,
+    bounds: Option<Bounds>,
 }
 impl<U, E> Display for SwarmMinimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -523,7 +524,11 @@ impl<U, E> SwarmMinimizer<U, E> {
     /// This function will panic if the number of bounds is not equal to the number of free
     /// parameters.
     pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
-        let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
+        let bounds: Bounds = bounds
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .into();
         assert!(bounds.len() == self.swarm.dimension);
         self.bounds = Some(bounds);
         self

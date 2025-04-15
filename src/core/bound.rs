@@ -1,11 +1,14 @@
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use nalgebra::DVector;
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Float;
+use crate::{utils::SampleFloat, Float};
 
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
@@ -167,14 +170,14 @@ impl Bound {
     /// ```math
     /// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
     /// ```
-    pub fn to_bounded(values: &[Float], bounds: Option<&Vec<Self>>) -> DVector<Float> {
+    pub fn to_bounded(values: &[Float], bounds: Option<&Bounds>) -> DVector<Float> {
         bounds
             .map_or_else(
                 || values.to_vec(),
                 |bounds| {
                     values
                         .iter()
-                        .zip(bounds)
+                        .zip(bounds.iter())
                         .map(|(val, bound)| bound._to_bounded(*val))
                         .collect()
                 },
@@ -203,14 +206,14 @@ impl Bound {
     /// ```math
     /// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
     /// ```
-    pub fn to_unbounded(values: &[Float], bounds: Option<&Vec<Self>>) -> DVector<Float> {
+    pub fn to_unbounded(values: &[Float], bounds: Option<&Bounds>) -> DVector<Float> {
         bounds
             .map_or_else(
                 || values.to_vec(),
                 |bounds| {
                     values
                         .iter()
-                        .zip(bounds)
+                        .zip(bounds.iter())
                         .map(|(val, bound)| bound._to_unbounded(*val))
                         .collect()
                 },
@@ -224,5 +227,44 @@ impl Bound {
             Self::LowerAndUpperBound(lb, ub) => Float::asin(2.0 * (val - lb) / (ub - lb) - 1.0),
             Self::NoBound => val,
         }
+    }
+}
+
+/// A struct that contains a list of [`Bound`]s.
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct Bounds(Vec<Bound>);
+
+impl Bounds {
+    /// Creates a random vector of values in the bounds.
+    pub fn random_vector(&self, rng: &mut Rng) -> DVector<Float> {
+        self.iter()
+            .map(|b| rng.range(b.lower(), b.upper()))
+            .collect::<Vec<Float>>()
+            .into()
+    }
+
+    /// Returns the inner Vector of bounds.
+    pub fn into_inner(self) -> Vec<Bound> {
+        self.0
+    }
+}
+
+impl From<Vec<Bound>> for Bounds {
+    fn from(value: Vec<Bound>) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for Bounds {
+    type Target = Vec<Bound>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Bounds {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }

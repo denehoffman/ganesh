@@ -1,6 +1,9 @@
 use nalgebra::{DMatrix, DVector};
 
-use crate::{core::Bound, Float};
+use crate::{
+    core::{Bound, Bounds},
+    Float,
+};
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
@@ -30,7 +33,7 @@ pub trait CostFunction<U, E> {
     fn evaluate_bounded(
         &self,
         x: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
     ) -> Result<Float, E> {
         self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
@@ -82,7 +85,7 @@ pub trait Gradient<U, E>: CostFunction<U, E> {
     fn gradient_bounded(
         &self,
         x: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
     ) -> Result<DVector<Float>, E> {
         self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
@@ -144,7 +147,7 @@ pub trait Hessian<U, E>: Gradient<U, E> {
     fn hessian_bounded(
         &self,
         x: &[Float],
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
     ) -> Result<DMatrix<Float>, E> {
         self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)

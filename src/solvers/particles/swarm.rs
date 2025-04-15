@@ -5,7 +5,7 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{Bound, Point},
+    core::{Bound, Bounds, Point},
     traits::CostFunction,
     utils::{generate_random_vector_in_limits, SampleFloat},
     Float,
@@ -33,7 +33,7 @@ pub struct Swarm {
 impl Swarm {
     /// Get list of the particles in the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
-    pub fn get_particles(&self, bounds: Option<&Vec<Bound>>) -> Vec<SwarmParticle> {
+    pub fn get_particles(&self, bounds: Option<&Bounds>) -> Vec<SwarmParticle> {
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
             self.particles
                 .iter()
@@ -50,7 +50,7 @@ impl Swarm {
         &mut self,
         rng: &mut Rng,
         dimension: usize,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -277,7 +277,7 @@ impl SwarmParticle {
         velocity: DVector<Float>,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
     ) -> Result<Self, E> {
         let mut position = position;
@@ -301,7 +301,7 @@ impl SwarmParticle {
         &mut self,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
     ) -> Result<(), E> {
         let new_position = self.position.x.clone() + self.velocity.clone();
@@ -332,7 +332,7 @@ impl SwarmParticle {
     }
     /// Convert the particle's coordinates from the unbounded space to the bounded space using a
     /// nonlinear transformation.
-    pub fn to_bounded(&self, bounds: Option<&Vec<Bound>>) -> Self {
+    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
         Self {
             position: self.position.to_bounded(bounds),
             velocity: Bound::to_bounded(self.velocity.as_slice(), bounds),
