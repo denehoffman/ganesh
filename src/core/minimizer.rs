@@ -68,7 +68,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
-    /// Sets all [`Bound`]s of the [`Config`] used by the [`Solver`](crate::traits::Solver). This can be [`None`] for an unbounded problem, or
+    /// Sets all [`Bound`]s used by the [`Solver`]. This can be [`None`] for an unbounded problem, or
     /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
     /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
     /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
@@ -156,7 +156,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     /// # Panics
     ///
     /// This method will panic if the length of `x0` is not equal to the dimension of the problem
-    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`](crate::core::Bound)s given to the
+    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
     /// [`Minimizer`].
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();

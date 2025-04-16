@@ -43,7 +43,7 @@ impl Swarm {
             self.particles.clone()
         }
     }
-    /// Create particles in the swarm using the given random number generator and [`Config`].
+    /// Create particles in the swarm using the given random number generator, dimension, bounds, and cost function.
     /// The method uses the configured [`SwarmPositionInitializer`] and [`SwarmVelocityInitializer`] to create the particles.
     /// The [`CostFunction`] and user data are needed to evaluate the value at the particle's position.
     pub fn initialize<U, E>(

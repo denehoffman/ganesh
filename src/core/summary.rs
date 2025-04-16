@@ -73,13 +73,13 @@ impl Display for Summary {
             .unwrap_or(vec![Bound::NoBound; self.x.len()])
             .into_iter();
 
-        builder.push_record(["Parameter", "", "", "Initial", "Bound", "", "At Limit?"]);
+        builder.push_record(["Parameter", "", "", "", "Bound", "", "At Limit?"]);
 
-        builder.push_record(["", "=", "σ", "", "-", "+", ""]);
-        for ((((v0, v), e), b), n) in self
-            .x0
+        builder.push_record(["", "=", "σ", "0", "-", "+", ""]);
+        for ((((v, v0), e), b), n) in self
+            .x
             .iter()
-            .zip(&self.x)
+            .zip(&self.x0)
             .zip(&self.std)
             .zip(bounds)
             .zip(names)
@@ -121,7 +121,7 @@ impl Display for Summary {
             .modify((3, 0), Color::BOLD)
             .modify((3, 1), Span::column(6))
             .modify(Row::from(4), Color::BOLD)
-            .modify((4, 0), Span::column(3))
+            .modify((4, 0), Span::column(4))
             .modify((4, 4), Span::column(2))
             .modify(Row::from(5), Color::BOLD)
             .with(BorderSpanCorrection);

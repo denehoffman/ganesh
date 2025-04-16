@@ -6,5 +6,8 @@ pub use nelder_mead::NelderMead;
 pub mod gradient_free_status;
 pub use gradient_free_status::GradientFreeStatus;
 
+/// [`SimulatedAnnealing`] type for simulated annealing minimizers.
 pub mod simulated_annealing;
-pub use simulated_annealing::SimulatedAnnealing;
+pub use simulated_annealing::{
+    SimulatedAnnealing, SimulatedAnnealingGenerator, SimulatedAnnealingStatus,
+};

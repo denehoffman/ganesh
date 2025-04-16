@@ -15,6 +15,12 @@ use crate::{
 /// errors that might be returned during function execution.
 ///
 pub trait CostFunction<U, E> {
+    /*
+    TODO: introduce a `type Parameter` and imlement the bound methods exclusively for `&[Float]` or `DVectorView`.
+    The reason is that some algorithms, like `SimulatedAnnealing`, do not have a vector space as a parameter space
+    but parameters are rather a set of something different, like a ordered list, a tree, a graph or a list of indices.
+    */
+
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors

@@ -35,6 +35,17 @@ pub trait Solver<S, U, E> {
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
+
+    /*
+    TODO: replace this with a terminator trait. There should be some basic traits:
+    - max iterations terminator, which just checks if the max iterations have been reached
+    - convergence terminator, which checks if the cost function has converged
+    - gradient terminator, which checks if the gradient has converged or is small enough
+    - time terminator, which checks if the time has been reached
+    The minimizer should hold a vector of terminators and check them after each step.
+    A lambda function with the correct parameters should implement the trait by default.
+    */
+
     /// Runs any termination/convergence checks and returns true if the algorithm has converged.
     /// Developers should also update the internal [`Status`](crate::traits::Status) of the algorithm here if converged.
     ///
