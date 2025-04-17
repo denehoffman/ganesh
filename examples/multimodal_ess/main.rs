@@ -4,12 +4,13 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::abort_signal::CtrlCAbortSignal;
-use ganesh::observers::AutocorrelationObserver;
-use ganesh::samplers::ess::{ESSMove, ESS};
-use ganesh::traits::AbortSignal;
-use ganesh::Sampler;
-use ganesh::{Float, Function, SampleFloat};
+use ganesh::core::CtrlCAbortSignal;
+use ganesh::legacy::observer::AutocorrelationObserver;
+use ganesh::legacy::samplers::ess::{ESSMove, ESS};
+use ganesh::legacy::samplers::Sampler;
+use ganesh::traits::CostFunction;
+use ganesh::utils::SampleFloat;
+use ganesh::Float;
 use nalgebra::DVector;
 use std::error::Error;
 
@@ -17,7 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Function (Himmelblau's test function)
-    impl Function<(), Infallible> for Problem {
+    impl CostFunction<(), Infallible> for Problem {
         fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }
@@ -58,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
 
     // Run a maximum of 4000 steps of the MCMC algorithm
-    s.sample(&problem, &mut (), 4000, CtrlCAbortSignal::new().boxed())?;
+    s.sample(&problem, &mut (), 4000, Box::new(CtrlCAbortSignal::new()))?;
 
     // Get the resulting samples (no burn-in)
     let chains = s.get_chains(None, None);

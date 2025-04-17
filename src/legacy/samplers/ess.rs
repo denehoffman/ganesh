@@ -6,10 +6,13 @@ use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
 use crate::{
-    generate_random_vector_in_limits, Ensemble, Float, Function, Point, RandChoice, SampleFloat, PI,
+    core::Point,
+    traits::CostFunction,
+    utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
+    Float, PI,
 };
 
-use super::MCMCAlgorithm;
+use super::{Ensemble, MCMCAlgorithm};
 
 /// A move used by the [`ESS`] algorithm
 ///
@@ -64,7 +67,7 @@ impl ESSMove {
         n_adaptive: usize,
         max_steps: usize,
         mu: &mut Float,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
         rng: &mut Rng,
@@ -129,7 +132,7 @@ impl ESSMove {
                 }
             };
             // Y ~ U(0, f(Xₖ(t)))
-            let y = x_k.read().get_fx_checked() + rng.float().ln();
+            let y = x_k.read().fx_checked() + rng.float().ln();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
@@ -140,7 +143,7 @@ impl ESSMove {
             let mut p_r = Point::from(&x_k.read().x + eta.scale(r));
             p_r.evaluate(func, user_data)?;
             // while Y < f(L) do
-            while y < p_l.get_fx_checked() && n_expand < max_steps {
+            while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k.read().x + eta.scale(l));
@@ -149,7 +152,7 @@ impl ESSMove {
                 n_expand += 1;
             }
             // while Y < f(R) do
-            while y < p_r.get_fx_checked() && n_expand < max_steps {
+            while y < p_r.fx_checked() && n_expand < max_steps {
                 // R <- R + 1
                 r += 1.0;
                 p_r.set_position(&x_k.read().x + eta.scale(r));
@@ -164,7 +167,7 @@ impl ESSMove {
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k.read().x + eta.scale(xprime));
                 p_yprime.evaluate(func, user_data)?;
-                if y < p_yprime.get_fx_checked() || n_contract >= max_steps {
+                if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
                 }
@@ -240,7 +243,7 @@ impl ESS {
 impl<U, E> MCMCAlgorithm<U, E> for ESS {
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -250,7 +253,7 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -274,7 +277,7 @@ impl<U, E> MCMCAlgorithm<U, E> for ESS {
 
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         chains: &mut Ensemble,
     ) -> Result<bool, E> {

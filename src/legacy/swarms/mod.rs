@@ -9,9 +9,13 @@ pub use pso::PSO;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    generate_random_vector_in_limits, observers::SwarmObserver, traits::AbortSignal, Bound, Float,
-    Function, Point, SampleFloat,
+    core::{Bound, Bounds, Point},
+    traits::{AbortSignal, CostFunction},
+    utils::{generate_random_vector_in_limits, SampleFloat},
+    Float,
 };
+
+use super::observer::SwarmObserver;
 
 /// A particle with a position, velocity, and best known position
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -28,9 +32,9 @@ impl Particle {
     fn new<U, E>(
         position: Point,
         velocity: DVector<Float>,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: BoundaryMethod,
     ) -> Result<Self, E> {
         let mut position = position;
@@ -50,9 +54,9 @@ impl Particle {
     }
     fn update_position<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         boundary_method: BoundaryMethod,
     ) -> Result<(), E> {
         let new_position = self.position.x.clone() + self.velocity.clone();
@@ -83,7 +87,7 @@ impl Particle {
     }
     /// Convert the particle's coordinates from the unbounded space to the bounded space using a
     /// nonlinear transformation.
-    pub fn to_bounded(&self, bounds: Option<&Vec<Bound>>) -> Self {
+    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
         Self {
             position: self.position.to_bounded(bounds),
             velocity: Bound::to_bounded(self.velocity.as_slice(), bounds),
@@ -105,7 +109,7 @@ pub struct Swarm {
     /// A message containing information about the condition of the swarm or convergence
     pub message: String,
     /// The bounds placed on the minimization space
-    pub bounds: Option<Vec<Bound>>,
+    pub bounds: Option<Bounds>,
     boundary_method: BoundaryMethod,
     position_initializer: SwarmPositionInitializer,
     velocity_initializer: SwarmVelocityInitializer,
@@ -142,6 +146,7 @@ impl Display for Swarm {
         let bounds = self
             .bounds
             .clone()
+            .map(|b| b.into_inner())
             .unwrap_or_else(|| vec![Bound::NoBound; self.gbest.x.len()]);
         for (i, xi) in self.gbest.x.iter().enumerate() {
             let row = format!(
@@ -328,13 +333,13 @@ impl Swarm {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn initialize<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
-        bounds: Option<&Vec<Bound>>,
+        bounds: Option<&Bounds>,
         rng: &mut Rng,
     ) -> Result<(), E> {
         self.bounds = bounds.cloned();
@@ -421,12 +426,12 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
-        bounds: Option<&Vec<Bound>>,
+        func: &dyn CostFunction<U, E>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E>;
@@ -435,12 +440,12 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E>;
@@ -449,11 +454,11 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<bool, E>;
@@ -462,12 +467,12 @@ pub trait SwarmAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     #[allow(unused_variables)]
     fn postprocessing(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
@@ -475,14 +480,14 @@ pub trait SwarmAlgorithm<U, E> {
     }
 }
 
-/// The main struct used for running [`SwarmAlgorithm`]s on [`Function`]s.
+/// The main struct used for running [`SwarmAlgorithm`]s on [`CostFunction`]s.
 pub struct SwarmMinimizer<U, E> {
     /// The [`Swarm`] of the [`SwarmMinimizer`], usually read after minimization.
     pub swarm: Swarm,
     algorithm: Box<dyn SwarmAlgorithm<U, E>>,
     max_steps: usize,
     observers: Vec<Arc<RwLock<dyn SwarmObserver<U>>>>,
-    bounds: Option<Vec<Bound>>,
+    bounds: Option<Bounds>,
 }
 impl<U, E> Display for SwarmMinimizer<U, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -519,7 +524,11 @@ impl<U, E> SwarmMinimizer<U, E> {
     /// This function will panic if the number of bounds is not equal to the number of free
     /// parameters.
     pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
-        let bounds = bounds.into_iter().map(Into::into).collect::<Vec<Bound>>();
+        let bounds: Bounds = bounds
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .into();
         assert!(bounds.len() == self.swarm.dimension);
         self.bounds = Some(bounds);
         self
@@ -535,7 +544,7 @@ impl<U, E> SwarmMinimizer<U, E> {
         self.observers.push(observer);
         self
     }
-    /// Minimize the given [`Function`] starting at the point `x0`.
+    /// Minimize the given [`CostFunction`] starting at the point `x0`.
     ///
     /// This method first runs [`SwarmAlgorithm::initialize`], then runs [`SwarmAlgorithm::step`] in a loop,
     /// terminating if [`SwarmAlgorithm::check_for_termination`] returns `true` or if
@@ -546,7 +555,7 @@ impl<U, E> SwarmMinimizer<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     ///
     /// # Panics
@@ -556,7 +565,7 @@ impl<U, E> SwarmMinimizer<U, E> {
     /// [`SwarmMinimizer`].
     pub fn minimize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         abort_signal: Box<dyn AbortSignal>,
     ) -> Result<(), E> {

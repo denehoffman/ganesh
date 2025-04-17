@@ -18,9 +18,12 @@ use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    traits::{AbortSignal, MCMCObserver},
-    Float, Function, Point,
+    core::Point,
+    traits::{AbortSignal, CostFunction},
+    Float,
 };
+
+use super::observer::MCMCObserver;
 
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -61,11 +64,11 @@ impl Walker {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.get_latest().write().evaluate(func, user_data)
@@ -129,11 +132,11 @@ impl Ensemble {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
@@ -356,11 +359,11 @@ pub trait MCMCAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn initialize(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E>;
@@ -369,12 +372,12 @@ pub trait MCMCAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn step(
         &mut self,
         i_step: usize,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E>;
@@ -382,11 +385,11 @@ pub trait MCMCAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn check_for_termination(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<bool, E>;
@@ -394,12 +397,12 @@ pub trait MCMCAlgorithm<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     #[allow(unused_variables)]
     fn postprocessing(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         ensemble: &mut Ensemble,
     ) -> Result<(), E> {
@@ -407,7 +410,7 @@ pub trait MCMCAlgorithm<U, E> {
     }
 }
 
-/// The main struct used for running [`MCMCAlgorithm`]s on [`Function`]s.
+/// The main struct used for running [`MCMCAlgorithm`]s on [`CostFunction`]s.
 pub struct Sampler<U, E> {
     /// The chains of walker positions created during sampling
     pub ensemble: Ensemble,
@@ -434,7 +437,7 @@ impl<U, E> Sampler<U, E> {
         self.observers.push(observer);
         self
     }
-    /// Minimize the given [`Function`] starting at the point `x0`.
+    /// Minimize the given [`CostFunction`] starting at the point `x0`.
     ///
     /// This method first runs [`MCMCAlgorithm::initialize`], then runs [`MCMCAlgorithm::step`] in a loop,
     /// terminating if [`MCMCAlgorithm::check_for_termination`] returns `true` or if
@@ -444,11 +447,11 @@ impl<U, E> Sampler<U, E> {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`Function::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn sample(
         &mut self,
-        func: &dyn Function<U, E>,
+        func: &dyn CostFunction<U, E>,
         user_data: &mut U,
         n_steps: usize,
         abort_signal: Box<dyn AbortSignal>,

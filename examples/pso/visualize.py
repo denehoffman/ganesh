@@ -12,7 +12,8 @@ def func(x, y):
     return 10 + x**2 - 10 * np.cos(2 * np.pi * x) + y**2 - 10 * np.cos(2 * np.pi * y)
 
 
-def plot_frame(istep, loom):
+def plot_frame(istep, nsteps, loom):
+    print(f"Plotting frame {istep} / {nsteps}")
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.imshow(Z, extent=(-10, 10, -10, 10), origin="lower", cmap="viridis", alpha=0.5)
     ax.contour(X, Y, Z, 10, colors="black", alpha=0.4)
@@ -24,28 +25,48 @@ def plot_frame(istep, loom):
         alpha=0.5,
     )
     ax.scatter(
-        [history[istep][iparticle]["position"]["x"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["position"]["x"][0][1] for iparticle in range(nparticles)],
+        [
+            history[istep][iparticle]["position"]["x"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["position"]["x"][0][1]
+            for iparticle in range(nparticles)
+        ],
         marker="o",
         color="blue",
         alpha=0.5,
     )
     ax.scatter(
-        [history[istep][iparticle]["best"]["x"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["best"]["x"][0][1] for iparticle in range(nparticles)],
+        [
+            history[istep][iparticle]["best"]["x"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["best"]["x"][0][1]
+            for iparticle in range(nparticles)
+        ],
         marker="o",
         color="green",
         alpha=0.5,
     )
     ax.quiver(
-        [history[istep][iparticle]["position"]["x"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["position"]["x"][0][1] for iparticle in range(nparticles)],
         [
-            history[istep][iparticle]["best"]["x"][0][0] - history[istep][iparticle]["position"]["x"][0][0]
+            history[istep][iparticle]["position"]["x"][0][0]
             for iparticle in range(nparticles)
         ],
         [
-            history[istep][iparticle]["best"]["x"][0][1] - history[istep][iparticle]["position"]["x"][0][1]
+            history[istep][iparticle]["position"]["x"][0][1]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["best"]["x"][0][0]
+            - history[istep][iparticle]["position"]["x"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["best"]["x"][0][1]
+            - history[istep][iparticle]["position"]["x"][0][1]
             for iparticle in range(nparticles)
         ],
         color="green",
@@ -63,14 +84,22 @@ def plot_frame(istep, loom):
         alpha=0.5,
     )
     ax.quiver(
-        [history[istep][iparticle]["position"]["x"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["position"]["x"][0][1] for iparticle in range(nparticles)],
         [
-            best_history[istep]["x"][0][0] - history[istep][iparticle]["position"]["x"][0][0]
+            history[istep][iparticle]["position"]["x"][0][0]
             for iparticle in range(nparticles)
         ],
         [
-            best_history[istep]["x"][0][1] - history[istep][iparticle]["position"]["x"][0][1]
+            history[istep][iparticle]["position"]["x"][0][1]
+            for iparticle in range(nparticles)
+        ],
+        [
+            best_history[istep]["x"][0][0]
+            - history[istep][iparticle]["position"]["x"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            best_history[istep]["x"][0][1]
+            - history[istep][iparticle]["position"]["x"][0][1]
             for iparticle in range(nparticles)
         ],
         color="red",
@@ -81,10 +110,22 @@ def plot_frame(istep, loom):
         scale=1,
     )
     ax.quiver(
-        [history[istep][iparticle]["position"]["x"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["position"]["x"][0][1] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["velocity"][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]["velocity"][0][1] for iparticle in range(nparticles)],
+        [
+            history[istep][iparticle]["position"]["x"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["position"]["x"][0][1]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["velocity"][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]["velocity"][0][1]
+            for iparticle in range(nparticles)
+        ],
         color="blue",
         units="dots",
         width=1,
@@ -108,4 +149,4 @@ if __name__ == "__main__":
     X, Y = np.meshgrid(g, g)
     Z = func(X, Y)
     with Loom("pso.gif", fps=30, parallel=True, overwrite=True) as loom:
-        Parallel(n_jobs=-1)(delayed(plot_frame)(i, loom) for i in range(nsteps))
+        Parallel(n_jobs=-1)(delayed(plot_frame)(i, nsteps, loom) for i in range(nsteps))
