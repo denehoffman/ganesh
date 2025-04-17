@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/denehoffman/ganesh/compare/v0.22.0...v0.23.0) - 2025-04-17
+
+### Other
+
+- enhance documentation and improve clarity in various modules
+- replace Vec<Bound> with Bounds in multiple modules for improved type safety and consistency
+- remove unnecessary AbortSignal trait imports across multiple files
+- remove unnecessary boxing of CtrlCAbortSignal in Minimizer setup
+- simplify Minimizer initialization by removing dimension parameter
+- Refactor particle swarm optimization module
+- Merge branches 'unified-v1' and 'unified-v1' of github.com:estriv/ganesh into unified-v1
+- enhance trait imports to include Gradient and Hessian across multiple files
+- doc
+- move config into minimizer and provide it in solver function calls
+- refactor
+- refactor
+
 ## [0.22.0](https://github.com/denehoffman/ganesh/compare/v0.21.1...v0.22.0) - 2025-04-11
 
 ### Added
