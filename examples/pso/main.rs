@@ -4,19 +4,19 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::core::CtrlCAbortSignal;
-use ganesh::legacy::observer::TrackingSwarmObserver;
-use ganesh::legacy::swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO};
-use ganesh::traits::CostFunction;
-use ganesh::Float;
-use ganesh::PI;
+use ganesh::abort_signal::CtrlCAbortSignal;
+use ganesh::observers::TrackingSwarmObserver;
+use ganesh::swarms::{SwarmPositionInitializer, PSO};
+use ganesh::traits::AbortSignal;
+use ganesh::{Float, Function, Swarm};
+use ganesh::{SwarmMinimizer, PI};
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Rastrigin function
-    impl CostFunction<(), Infallible> for Problem {
+    impl Function<(), Infallible> for Problem {
         fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(10.0
                 + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_max_steps(200);
 
     // Run the particle swarm optimizer
-    s.minimize(&problem, &mut (), Box::new(CtrlCAbortSignal::new()))?;
+    s.minimize(&problem, &mut (), CtrlCAbortSignal::new().boxed())?;
 
     println!("{}", s.swarm);
 

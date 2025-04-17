@@ -4,13 +4,12 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::core::CtrlCAbortSignal;
-use ganesh::legacy::observer::AutocorrelationObserver;
-use ganesh::legacy::samplers::ess::{ESSMove, ESS};
-use ganesh::legacy::samplers::Sampler;
-use ganesh::traits::CostFunction;
-use ganesh::utils::SampleFloat;
-use ganesh::Float;
+use ganesh::abort_signal::CtrlCAbortSignal;
+use ganesh::observers::AutocorrelationObserver;
+use ganesh::samplers::ess::{ESSMove, ESS};
+use ganesh::traits::AbortSignal;
+use ganesh::Sampler;
+use ganesh::{Float, Function, SampleFloat};
 use nalgebra::{DMatrix, DVector};
 use std::error::Error;
 
@@ -19,7 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Function (user_data is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
-    impl CostFunction<DMatrix<Float>, Infallible> for Problem {
+    impl Function<DMatrix<Float>, Infallible> for Problem {
         fn evaluate(
             &self,
             x: &[Float],
@@ -61,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &problem,
         &mut cov_inv,
         1000,
-        Box::new(CtrlCAbortSignal::new()),
+        CtrlCAbortSignal::new().boxed(),
     )?;
 
     // Get the resulting samples (no burn-in)

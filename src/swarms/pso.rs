@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use fastrand::Rng;
 use nalgebra::DVector;
 
-use super::{Swarm, SwarmAlgorithm, Topology, UpdateMethod};
-use crate::{core::Bounds, traits::CostFunction, utils::generate_random_vector, Float};
+use super::{SwarmAlgorithm, Topology, UpdateMethod};
+use crate::{generate_random_vector, Bound, Float, Function, Swarm};
 
 /// Particle Swarm Optimizer
 ///
@@ -22,7 +22,7 @@ use crate::{core::Bounds, traits::CostFunction, utils::generate_random_vector, F
 /// topology). See [^1] for more information.
 ///
 /// For bounds handling, see [^2]. The only method not given there is the
-/// [`SwarmBoundaryMethod::Transform`](crate::solvers::particles::SwarmBoundaryMethod) option, which uses the typical nonlinear bounds transformation
+/// [`BoundaryMethod::Transform`] option, which uses the typical nonlinear bounds transformation
 /// supplied by this crate.
 ///
 ///
@@ -109,7 +109,7 @@ impl PSO {
     fn update<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Function<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         match self.update_method {
@@ -120,7 +120,7 @@ impl PSO {
     fn update_sync<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Function<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for particle in &mut swarm.particles {
@@ -158,7 +158,7 @@ impl PSO {
     fn update_async<U, E>(
         &mut self,
         swarm: &mut Swarm,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Function<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let nbests: Vec<DVector<Float>> = (0..swarm.particles.len())
@@ -196,8 +196,8 @@ impl PSO {
 impl<U, E> SwarmAlgorithm<U, E> for PSO {
     fn initialize(
         &mut self,
-        func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
+        func: &dyn Function<U, E>,
+        bounds: Option<&Vec<Bound>>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
@@ -208,7 +208,7 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Function<U, E>,
         user_data: &mut U,
         swarm: &mut Swarm,
     ) -> Result<(), E> {
@@ -217,69 +217,10 @@ impl<U, E> SwarmAlgorithm<U, E> for PSO {
 
     fn check_for_termination(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &dyn Function<U, E>,
         _user_data: &mut U,
         _swarm: &mut Swarm,
     ) -> Result<bool, E> {
         Ok(false) // TODO: what does it mean for PSO to terminate?
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::convert::Infallible;
-
-    use fastrand::Rng;
-
-    use crate::{
-        core::CtrlCAbortSignal,
-        legacy::{
-            observer::TrackingSwarmObserver,
-            swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO},
-        },
-        traits::CostFunction,
-        Float, PI,
-    };
-
-    #[test]
-    fn test_pso() {
-        // Define the function to sample (a multimodal distribution)
-        struct Problem;
-        // Implement Rastrigin function
-        impl CostFunction<(), Infallible> for Problem {
-            fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
-                Ok(10.0
-                    + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
-                    + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))
-            }
-        }
-        let problem = Problem;
-
-        // Create and seed a random number generator
-        let mut rng = Rng::new();
-        rng.seed(0);
-
-        // Construct a new swarm
-        let swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
-            n_particles: 50,
-            limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-        });
-
-        // Create a particle swarm optimizer algorithm and set some hyperparameters
-        let pso = PSO::new(rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
-
-        // Create a tracker to record swarm history
-        let tracker = TrackingSwarmObserver::build();
-
-        // Create a new Sampler
-        let mut s = SwarmMinimizer::new(Box::new(pso), swarm)
-            .with_observer(tracker.clone())
-            .with_max_steps(200);
-
-        // Run the particle swarm optimizer
-        s.minimize(&problem, &mut (), Box::new(CtrlCAbortSignal::new()))
-            .expect("Failed to minimize");
-
-        println!("{}", s.swarm);
     }
 }
