@@ -4,5 +4,7 @@ pub mod gradient;
 pub mod gradient_free;
 /// Various line search algorithms.
 pub mod line_search;
+/// Various Markov-Chain Monte Carlo algorithms.
+pub mod mcmc;
 /// Various particle swarm optimization algorithms.
 pub mod particles;
