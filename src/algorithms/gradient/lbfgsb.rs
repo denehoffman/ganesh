@@ -7,7 +7,7 @@ use crate::core::{Bound, Bounds, Summary};
 use crate::traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch};
 use crate::Float;
 
-use crate::solvers::line_search::StrongWolfeLineSearch;
+use crate::algorithms::line_search::StrongWolfeLineSearch;
 
 use super::GradientStatus;
 

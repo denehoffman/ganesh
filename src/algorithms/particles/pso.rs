@@ -260,8 +260,8 @@ mod tests {
     use serde::Serialize;
 
     use crate::{
+        algorithms::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         core::{Bounds, CtrlCAbortSignal, Engine, Point},
-        solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         traits::{CostFunction, Observer},
         Float, PI,
     };

@@ -1,7 +1,7 @@
 use nalgebra::DVector;
 
 use crate::{
-    solvers::gradient::GradientStatus,
+    algorithms::gradient::GradientStatus,
     traits::{CostFunction, Gradient, LineSearch},
     Float,
 };

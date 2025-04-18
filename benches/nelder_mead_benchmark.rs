@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use ganesh::algorithms::gradient_free::NelderMead;
 use ganesh::core::{CtrlCAbortSignal, Engine};
-use ganesh::solvers::gradient_free::NelderMead;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
 
 fn nelder_mead_benchmark(c: &mut Criterion) {

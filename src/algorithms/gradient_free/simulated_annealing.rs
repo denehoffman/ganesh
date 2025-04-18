@@ -205,8 +205,8 @@ mod tests {
     use nalgebra::DVector;
 
     use crate::{
+        algorithms::gradient_free::SimulatedAnnealing,
         core::{Bound, Bounds, CtrlCAbortSignal, Engine},
-        solvers::gradient_free::SimulatedAnnealing,
         test_functions::Rosenbrock,
         traits::{CostFunction, Gradient},
         Float,

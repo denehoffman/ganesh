@@ -199,7 +199,7 @@ pub mod traits;
 pub mod legacy;
 
 /// Module containing various minimization algorithms
-pub mod solvers;
+pub mod algorithms;
 
 /// Module containing standard functions for testing algorithms
 pub mod test_functions;

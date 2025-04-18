@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use ganesh::algorithms::gradient::LBFGSB;
 use ganesh::core::{CtrlCAbortSignal, Engine};
-use ganesh::solvers::gradient::LBFGSB;
 use ganesh::test_functions::rosenbrock::Rosenbrock;
 
 fn lbfgsb_benchmark(c: &mut Criterion) {
