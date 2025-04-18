@@ -176,11 +176,11 @@ mod tests {
 
     struct TestFunction;
     impl CostFunction<(), Infallible> for TestFunction {
-        fn evaluate(&self, x: &[f64], _: &mut ()) -> Result<f64, Infallible> {
+        fn evaluate(&self, x: &[Float], _: &mut ()) -> Result<Float, Infallible> {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
-    static X: [f64; 2] = [1.0, 2.0];
+    static X: [Float; 2] = [1.0, 2.0];
 
     #[test]
     fn test_cost_function() {

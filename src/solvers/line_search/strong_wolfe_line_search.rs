@@ -94,7 +94,7 @@ impl StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(x.as_slice(), user_data).map(DVector::from)
+        func.gradient(x.as_slice(), user_data)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(

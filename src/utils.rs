@@ -25,13 +25,12 @@ pub(crate) fn generate_random_vector_in_limits(
 
 /// Computes the covariance matrix using a given hessian matrix.
 pub fn hessian_to_covariance(hessian: &DMatrix<Float>) -> Option<DMatrix<Float>> {
-    let covariance = hessian.clone().try_inverse().or_else(|| {
+    hessian.clone().try_inverse().or_else(|| {
         hessian
             .clone()
             .pseudo_inverse(Float::cbrt(Float::EPSILON))
             .ok()
-    });
-    covariance
+    })
 }
 
 /// A helper trait to provide a weighted random choice method

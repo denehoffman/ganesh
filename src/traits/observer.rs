@@ -7,10 +7,10 @@ use crate::core::Bounds;
 use super::Status;
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
-/// [`Solver`](`crate::traits::Solver`)'s [`Status`] during a minimization.
+/// [`Algorithm`](`crate::traits::Algorithm`)'s [`Status`] during a minimization.
 pub trait Observer<S: Status, U> {
-    /// A function that is called at every step of a minimization [`Solver`](`crate::traits::Solver`). If it returns
-    /// `true`, the [`Minimizer::minimize`](`crate::core::Minimizer::minimize`) method will terminate.
+    /// A function that is called at every step of a minimization [`Algorithm`](`crate::traits::Algorithm`). If it returns
+    /// `true`, the [`Minimizer::minimize`](`crate::core::Engine::minimize`) method will terminate.
     fn callback(
         &mut self,
         step: usize,

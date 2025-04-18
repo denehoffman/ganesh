@@ -273,7 +273,7 @@ mod tests {
 
         // Create a new Sampler
         let mut s = SwarmMinimizer::new(Box::new(pso), swarm)
-            .with_observer(tracker.clone())
+            .with_observer(tracker)
             .with_max_steps(200);
 
         // Run the particle swarm optimizer

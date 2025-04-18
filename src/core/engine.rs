@@ -2,19 +2,22 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::traits::{AbortSignal, CostFunction, Observer, Solver, Status};
+use crate::{
+    traits::{AbortSignal, Algorithm, CostFunction, Observer, Status},
+    Float,
+};
 
 use super::{Bound, Bounds, NopAbortSignal, Summary};
 
 const DEFAULT_MAX_STEPS: usize = 4000;
-/// The main struct used for running [`Solver`]s on [`CostFunction`]s.
-pub struct Minimizer<S, U, E> {
-    /// The [`Status`] of the [`Solver`], usually read after minimization.
+/// The main struct used for running [`Algorithm`]s on [`CostFunction`]s.
+pub struct Engine<S, U, E> {
+    /// The [`Status`] of the [`Algorithm`], usually read after minimization.
     pub status: S,
-    /// The [`Summary`] of the [`Solver`], usually read after minimization.
+    /// The [`Summary`] of the [`Algorithm`], usually read after minimization.
     pub result: Option<Summary>,
 
-    solver: Box<dyn Solver<S, U, E>>,
+    solver: Box<dyn Algorithm<S, U, E>>,
     observers: Vec<Arc<RwLock<dyn Observer<S, U>>>>,
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
@@ -24,9 +27,9 @@ pub struct Minimizer<S, U, E> {
     max_steps: usize,
 }
 
-impl<S: Status, U: Default, E> Minimizer<S, U, E> {
-    /// Creates a new [`Minimizer`] with the given (boxed) [`Solver`].
-    pub fn new<T: Solver<S, U, E> + 'static>(solver: T) -> Self {
+impl<S: Status, U: Default, E> Engine<S, U, E> {
+    /// Creates a new [`Engine`] with the given (boxed) [`Algorithm`].
+    pub fn new<T: Algorithm<S, U, E> + 'static>(solver: T) -> Self {
         Self {
             status: S::default(),
             bounds: None,
@@ -40,7 +43,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         }
     }
 
-    /// Convenience method to use chainable methods to set up the [`Minimizer`].
+    /// Convenience method to use chainable methods to set up the [`Engine`].
     /// Example usage:
     /// ```rust
     /// let solver = LBFGSB::default();
@@ -59,7 +62,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
-    /// Edit the [`Status`] of the [`Minimizer`].
+    /// Edit the [`Status`] of the [`Engine`].
     pub fn on_status<F>(&mut self, mut f: F) -> &mut Self
     where
         F: FnMut(&mut S) -> &mut S,
@@ -68,7 +71,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self
     }
 
-    /// Sets all [`Bound`]s used by the [`Solver`]. This can be [`None`] for an unbounded problem, or
+    /// Sets all [`Bound`]s used by the [`Algorithm`]. This can be [`None`] for an unbounded problem, or
     /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
     /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
     /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
@@ -106,26 +109,30 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
         self.max_steps = max_steps;
         self
     }
-    /// Set the [`AbortSignal`] of the [`Minimizer`].
+    /// Set the [`AbortSignal`] of the [`Engine`].
     pub fn with_abort_signal<A: AbortSignal + 'static>(&mut self, abort_signal: A) -> &mut Self {
         self.abort_signal = Box::new(abort_signal);
         self
     }
 
-    /// Set user data for the [`Minimizer`].
+    /// Set user data for the [`Engine`].
     pub fn with_user_data<T: Into<U>>(&mut self, data: T) -> &mut Self {
         self.user_data = data.into();
         self
     }
 
-    /// Adds a single [`Observer`] to the [`Minimizer`].
+    /// Adds a single [`Observer`] to the [`Engine`].
     pub fn add_observer(&mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> &mut Self {
         self.observers.push(observer);
         self
     }
 
     /// Check parameters against the bounds
-    pub fn assert_parameters(&self, x: &[f64]) {
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if any parameter is outside of its given bound.
+    pub fn assert_parameters(&self, x: &[Float]) {
         if let Some(bounds) = &self.bounds {
             for (i, (x_i, bound_i)) in x.iter().zip(bounds.iter()).enumerate() {
                 assert!(
@@ -141,11 +148,11 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
 
     /// Minimize the given [`CostFunction`] starting at the point `x0`.
     ///
-    /// This method first runs [`Solver::initialize`], then runs [`Solver::step`] in a loop,
-    /// terminating if [`Solver::check_for_termination`] returns `true` or if
+    /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
+    /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
     /// the maximum number of allowed steps is exceeded. Each step will be followed by a sequential
     /// call to all given [`Observer`]s' callback functions. Finally, regardless of convergence,
-    /// [`Solver::postprocessing`] is called. Finally [`Solver::summarize`] is called to create a summary of the minimization run. If the algorithm did not converge in the given
+    /// [`Algorithm::postprocessing`] is called. Finally [`Algorithm::summarize`] is called to create a summary of the minimization run. If the algorithm did not converge in the given
     /// step limit, the [`Status::message`] will be set to `"MAX EVALS"` at termination.
     ///
     /// # Errors
@@ -157,7 +164,7 @@ impl<S: Status, U: Default, E> Minimizer<S, U, E> {
     ///
     /// This method will panic if the length of `x0` is not equal to the dimension of the problem
     /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
-    /// [`Minimizer`].
+    /// [`Engine`].
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();
         self.abort_signal.reset();

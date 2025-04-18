@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::{
     core::{Bound, Bounds, Point, Summary},
-    traits::{CostFunction, Hessian, Solver},
+    traits::{Algorithm, CostFunction, Hessian},
     Float,
 };
 
@@ -400,7 +400,7 @@ impl NelderMeadXTerminator {
 ///    better, $`\vec{x}_r`$ or $`\vec{x}_e`$, if greedy minimization is used, otherwise choose
 ///    $`\vec{x}_e`$ if greedy expansion is used and go to **Step 1**.
 /// 6. **Contraction**: Here, $`\vec{x}_r`$ is either the worst or second worst point. If it's
-///     second-worst, go to **Step 7**. If it's the worst, go to **Step 8**.
+///    second-worst, go to **Step 7**. If it's the worst, go to **Step 8**.
 /// 7. Compute the "outside" contracted point $`\vec{x}_c + \rho_o (\vec{x}_r - \vec{x}_o)`$.
 ///    If $`f(\vec{x}_c) < f(\vec{x}_r)`$ (if the contraction improved the point),
 ///    replace $`\vec{x}^\dagger`$ with $`\vec{x}_c`$ and go to **Step 1**. Else, go to **Step 9**.
@@ -582,7 +582,7 @@ impl NelderMead {
         self
     }
 }
-impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
+impl<U, E> Algorithm<GradientFreeStatus, U, E> for NelderMead {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -776,12 +776,12 @@ impl<U, E> Solver<GradientFreeStatus, U, E> for NelderMead {
             cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: parameter_names.map(|names| names.iter().cloned().collect()),
+            parameter_names: parameter_names.map(|names| names.to_vec()),
             std: status
                 .err
                 .as_ref()
                 .map(|e| e.iter().cloned().collect())
-                .unwrap_or(vec![0.0; status.x.len()]),
+                .unwrap_or_else(|| vec![0.0; status.x.len()]),
         };
 
         Ok(result)
@@ -795,7 +795,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Minimizer},
+        core::{CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
         Float,
     };
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn test_nelder_mead() -> Result<(), Infallible> {
-        let mut m = Minimizer::new(NelderMead::default())
+        let mut m = Engine::new(NelderMead::default())
             .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
@@ -831,7 +831,7 @@ mod tests {
 
     #[test]
     fn test_bounded_nelder_mead() -> Result<(), Infallible> {
-        let mut m = Minimizer::new(NelderMead::default()).setup(|m| {
+        let mut m = Engine::new(NelderMead::default()).setup(|m| {
             m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
@@ -860,7 +860,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
-        let mut m = Minimizer::new(NelderMead::default().with_adaptive(2))
+        let mut m = Engine::new(NelderMead::default().with_adaptive(2))
             .setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;

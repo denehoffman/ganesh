@@ -46,6 +46,11 @@ impl Swarm {
     /// Create particles in the swarm using the given random number generator, dimension, bounds, and cost function.
     /// The method uses the configured [`SwarmPositionInitializer`] and [`SwarmVelocityInitializer`] to create the particles.
     /// The [`CostFunction`] and user data are needed to evaluate the value at the particle's position.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
     pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
@@ -126,6 +131,10 @@ impl Swarm {
         self
     }
     /// Get index of the particle with the maximum value in a circular window around the given index.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the window size is zero.
     pub fn index_of_max_in_circular_window(
         &self,
         center_index: usize,
@@ -272,6 +281,11 @@ pub struct SwarmParticle {
 impl SwarmParticle {
     /// Create a new particle with the given position, velocity, and cost function
     /// using the given random number generator and dimension.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
     pub fn new<U, E>(
         position: Point,
         velocity: DVector<Float>,
@@ -297,6 +311,11 @@ impl SwarmParticle {
         self.best.total_cmp(&other.best)
     }
     /// Update the particle's position and velocity using the given cost function and user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
     pub fn update_position<U, E>(
         &mut self,
         func: &dyn CostFunction<U, E>,

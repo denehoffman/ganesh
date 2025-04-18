@@ -8,14 +8,14 @@ use crate::{traits::Status, Float};
 pub struct GradientFreeStatus {
     /// The initial parameters of the minimization.
     pub x0: DVector<Float>,
-    /// A [`String`] message that can be set by [`Solver`](crate::traits::Solver)s.
+    /// A [`String`] message that can be set by [`Algorithm`](crate::traits::Algorithm)s.
     pub message: String,
     /// The current parameters of the minimization.
     pub x: DVector<Float>,
     /// The current value of the minimization problem function at [`GradientFreeStatus::x`].
     pub fx: Float,
     /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Solver`](crate::traits::Solver)s to correctly compute and may not be exact).
+    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
     pub n_f_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,

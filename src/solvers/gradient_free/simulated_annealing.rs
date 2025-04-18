@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{bound::Bounds, Point, Summary},
-    traits::{CostFunction, Solver, Status},
+    traits::{Algorithm, CostFunction, Status},
+    utils::SampleFloat,
     Float,
 };
 
@@ -25,11 +26,11 @@ where
     G: SimulatedAnnealingGenerator<U, E>,
 {
     /// The initial temperature for the simulated annealing algorithm.
-    pub initial_temperature: f64,
+    pub initial_temperature: Float,
     /// The cooling rate for the simulated annealing algorithm.
-    pub cooling_rate: f64,
+    pub cooling_rate: Float,
     /// The minimum temperature for the simulated annealing algorithm.
-    pub min_temperature: f64,
+    pub min_temperature: Float,
     /// The generator for generating new points in the simulated annealing algorithm.
     pub generator: G,
     rng: fastrand::Rng,
@@ -41,7 +42,7 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SimulatedAnnealingStatus {
     /// The current temperature of the simulated annealing algorithm.
-    pub temperature: f64,
+    pub temperature: Float,
     /// The best point in the simulated annealing algorithm.
     pub best: Point,
     /// The current point in the simulated annealing algorithm.
@@ -81,9 +82,9 @@ where
 {
     /// Creates a new instance of the simulated annealing algorithm.
     pub fn new(
-        initial_temperature: f64,
-        cooling_rate: f64,
-        min_temperature: f64,
+        initial_temperature: Float,
+        cooling_rate: Float,
+        min_temperature: Float,
         generator: G,
     ) -> Self {
         Self {
@@ -98,7 +99,7 @@ where
     }
 }
 
-impl<G, U, E> Solver<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<G, U, E>
+impl<G, U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<G, U, E>
 where
     G: SimulatedAnnealingGenerator<U, E>,
 {
@@ -140,8 +141,6 @@ where
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        let acceptance_probability;
-
         let x = self.generator.generate(func, bounds, status, user_data);
         let fx = func.evaluate(x.as_slice(), user_data)?;
         status.cost_evals += 1;
@@ -150,14 +149,14 @@ where
         status.temperature *= self.cooling_rate;
         status.iteration += 1;
 
-        if status.current.fx < status.best.fx {
-            acceptance_probability = 1.0;
+        let acceptance_probability = if status.current.fx < status.best.fx {
+            1.0
         } else {
             let d_fx = status.current.fx - status.best.fx;
-            acceptance_probability = (-d_fx / status.temperature).exp();
-        }
+            (-d_fx / status.temperature).exp()
+        };
 
-        if acceptance_probability > self.rng.f64() {
+        if acceptance_probability > self.rng.float() {
             status.best = status.current.clone();
         }
         Ok(())
@@ -190,9 +189,7 @@ where
             cost_evals: status.cost_evals,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: parameter_names
-                .as_ref()
-                .map(|names| names.iter().cloned().collect()),
+            parameter_names: parameter_names.as_ref().map(|names| names.to_vec()),
             std: vec![0.0; status.best.x.len()],
         };
 
@@ -208,7 +205,7 @@ mod tests {
     use nalgebra::DVector;
 
     use crate::{
-        core::{Bound, Bounds, CtrlCAbortSignal, Minimizer},
+        core::{Bound, Bounds, CtrlCAbortSignal, Engine},
         solvers::gradient_free::SimulatedAnnealing,
         test_functions::Rosenbrock,
         traits::{CostFunction, Gradient},
@@ -238,7 +235,7 @@ mod tests {
     #[test]
     fn test_simulated_annealing() {
         let solver = SimulatedAnnealing::new(1.0, 0.999, 1e-3, AnnealingGenerator);
-        let mut m = Minimizer::new(solver).setup(|m| {
+        let mut m = Engine::new(solver).setup(|m| {
             m.with_abort_signal(CtrlCAbortSignal::new())
                 .with_bounds([(-5.0, 5.0), (-5.0, 5.0)])
                 .with_max_steps(5_000)

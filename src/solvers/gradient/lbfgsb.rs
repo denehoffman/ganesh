@@ -4,16 +4,18 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::core::{Bound, Bounds, Summary};
 
-use crate::traits::{CostFunction, Gradient, Hessian, LineSearch, Solver};
+use crate::traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch};
 use crate::Float;
 
 use crate::solvers::line_search::StrongWolfeLineSearch;
 
 use super::GradientStatus;
 
-/// A terminator for the [`LBFGSB`] [`Solver`] which causes termination when the change in the
-/// function evaluation becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// of the [`Minimizer`](`crate::core::Minimizer`) will be set as converged with the message "GRADIENT
+/// A terminator for the [`LBFGSB`] [`Algorithm`]
+///
+/// This causes termination when the change in the function evaluation becomes smaller
+/// than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
+/// of the [`Engine`](`crate::core::Engine`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
@@ -32,9 +34,11 @@ impl LBFGSBFTerminator {
     }
 }
 
-/// A terminator for the [`LBFGSB`] [`Solver`] which causes termination when the magnitude of the
+/// A terminator for the [`LBFGSB`] [`Algorithm`]
+///
+/// This causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// of the [`Minimizer`](`crate::core::Minimizer`) will be set as converged with the message "GRADIENT
+/// of the [`Engine`](`crate::core::Engine`) will be set as converged with the message "GRADIENT
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
@@ -52,7 +56,7 @@ impl LBFGSBGTerminator {
     }
 }
 
-/// Error modes for [`LBFGSB`] [`Solver`].
+/// Error modes for [`LBFGSB`] [`Algorithm`].
 #[derive(Default, Clone)]
 pub enum LBFGSBErrorMode {
     /// Computes the exact Hessian matrix via finite differences.
@@ -64,7 +68,7 @@ pub enum LBFGSBErrorMode {
 
 /// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
-/// This minimization [`Solver`] is a quasi-Newton minimizer which approximates the inverse of
+/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
 /// the Hessian matrix using the L-BFGS update step. The BFGS algorithm is described in detail in Chapter
 /// 6 of "Numerical Optimization"[^1] (pages 136-143).
 ///
@@ -389,7 +393,7 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
-impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
+impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -530,14 +534,12 @@ impl<U, E> Solver<GradientStatus, U, E> for LBFGSB<U, E> {
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
-            parameter_names: parameter_names
-                .as_ref()
-                .map(|names| names.iter().cloned().collect()),
+            parameter_names: parameter_names.as_ref().map(|names| names.to_vec()),
             std: status
                 .err
                 .as_ref()
                 .map(|e| e.iter().cloned().collect())
-                .unwrap_or(vec![0.0; status.x.len()]),
+                .unwrap_or_else(|| vec![0.0; status.x.len()]),
         };
 
         Ok(result)
@@ -551,7 +553,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Minimizer},
+        core::{CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
         Float,
     };
@@ -563,13 +565,13 @@ mod tests {
     fn test_problem_constructor() {
         #[allow(clippy::box_default)]
         let solver: LBFGSB<(), Infallible> = LBFGSB::default();
-        let problem = Minimizer::new(solver);
+        let problem = Engine::new(solver);
     }
 
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Minimizer::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
         m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
         assert!(m.status.converged);
@@ -596,7 +598,7 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Minimizer::new(solver).setup(|m| {
+        let mut m = Engine::new(solver).setup(|m| {
             m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
                 .with_abort_signal(CtrlCAbortSignal::new())
         });

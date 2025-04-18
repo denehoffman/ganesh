@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+use crate::Float;
+
 use super::{Bound, Bounds};
 
 /// A struct that holds the results of a minimization run.
@@ -14,13 +16,13 @@ pub struct Summary {
     /// A message that can be set by minimization algorithms.
     pub message: String,
     /// The initial parameters of the minimization.
-    pub x0: Vec<f64>,
+    pub x0: Vec<Float>,
     /// The current parameters of the minimization.
-    pub x: Vec<f64>,
+    pub x: Vec<Float>,
     /// The standard deviations of the parameters at the end of the fit.
-    pub std: Vec<f64>,
+    pub std: Vec<Float>,
     /// The current value of the minimization problem function at [`Summary::x`].
-    pub fx: f64,
+    pub fx: Float,
     /// The number of function evaluations.
     pub cost_evals: usize,
     /// The number of gradient evaluations.
@@ -43,9 +45,11 @@ impl Display for Summary {
         builder.push_record(["FIT RESULTS"]);
         builder.push_record(["Status", "f(x)", "", "#f(x)", "", "#∇f(x)", ""]);
         builder.push_record([
-            self.converged
-                .then_some("Converged")
-                .unwrap_or("Invalid Minimum"),
+            if self.converged {
+                "Converged"
+            } else {
+                "Invalid Minimum"
+            },
             &format!("{:.5}", self.fx),
             "",
             &format!("{:.5}", self.cost_evals),
@@ -58,19 +62,19 @@ impl Display for Summary {
         let names = self
             .parameter_names
             .clone()
-            .unwrap_or(
+            .unwrap_or_else(|| {
                 vec![""; self.x.len()]
                     .into_iter()
                     .enumerate()
                     .map(|(i, _)| format!("x_{}", i))
-                    .collect::<Vec<_>>(),
-            )
+                    .collect::<Vec<_>>()
+            })
             .into_iter();
         let bounds = self
             .bounds
             .clone()
             .map(|b| b.into_inner())
-            .unwrap_or(vec![Bound::NoBound; self.x.len()])
+            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()])
             .into_iter();
 
         builder.push_record(["Parameter", "", "", "", "Bound", "", "At Limit?"]);
@@ -91,7 +95,7 @@ impl Display for Summary {
                 &format!("{:.5}", v0),
                 &format!("{:.5}", b.lower()),
                 &format!("{:.5}", b.upper()),
-                b.at_bound(*v).then_some("Yes").unwrap_or("No"),
+                &(if b.at_bound(*v) { "Yes" } else { "No" }.to_string()),
             ]);
         }
         let mut table = builder.build();

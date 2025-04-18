@@ -5,7 +5,7 @@ use nalgebra::DVector;
 
 use crate::{
     core::{Bounds, Summary},
-    traits::{CostFunction, Solver, Status},
+    traits::{Algorithm, CostFunction, Status},
     utils::generate_random_vector,
     Float,
 };
@@ -46,7 +46,7 @@ pub struct PSO {
 impl PSO {
     /// Construct a new particle swarm optimizer with `n_particles` particles working in an
     /// `n_dimensions` dimensional space.
-    pub fn new(dimension: usize, rng: Rng) -> Self {
+    pub const fn new(dimension: usize, rng: Rng) -> Self {
         Self {
             omega: 0.8,
             c1: 0.1,
@@ -56,7 +56,7 @@ impl PSO {
         }
     }
     /// Set the dimension of the PSO. This is used to generate random vectors for the particles.
-    pub fn with_dimension(mut self, dimension: usize) -> Self {
+    pub const fn with_dimension(mut self, dimension: usize) -> Self {
         self.dimension = dimension;
         self
     }
@@ -185,7 +185,7 @@ impl PSO {
     }
 }
 
-impl<U, E> Solver<SwarmStatus, U, E> for PSO {
+impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -243,9 +243,7 @@ impl<U, E> Solver<SwarmStatus, U, E> for PSO {
             cost_evals: 0,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: parameter_names
-                .as_ref()
-                .map(|names| names.iter().cloned().collect()),
+            parameter_names: parameter_names.as_ref().map(|names| names.to_vec()),
             std: vec![0.0; status.gbest.x.len()],
         };
 
@@ -262,7 +260,7 @@ mod tests {
     use serde::Serialize;
 
     use crate::{
-        core::{Bounds, CtrlCAbortSignal, Minimizer, Point},
+        core::{Bounds, CtrlCAbortSignal, Engine, Point},
         solvers::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         traits::{CostFunction, Observer},
         Float, PI,
@@ -293,8 +291,7 @@ mod tests {
             status: &mut SwarmStatus,
             _user_data: &mut U,
         ) -> bool {
-            self.history
-                .push(status.swarm.get_particles(bounds).clone());
+            self.history.push(status.swarm.get_particles(bounds));
             self.best_history.push(status.gbest.clone());
             false
         }
@@ -320,8 +317,8 @@ mod tests {
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s = Minimizer::new(PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8))
-            .setup(|m| {
+        let mut s =
+            Engine::new(PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8)).setup(|m| {
                 m.with_abort_signal(CtrlCAbortSignal::new())
                     .add_observer(tracker.clone())
                     .with_max_steps(200)
