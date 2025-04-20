@@ -21,6 +21,7 @@ use super::{integrated_autocorrelation_times, Walker};
 pub struct EnsembleStatus {
     /// A list of each [`Walker`] in the ensemble
     pub walkers: Vec<Walker>,
+    message: String,
 }
 impl Deref for EnsembleStatus {
     type Target = Vec<Walker>;
@@ -42,6 +43,7 @@ impl EnsembleStatus {
     pub fn new(x0: Vec<DVector<Float>>) -> Self {
         Self {
             walkers: x0.into_iter().map(Walker::new).collect(),
+            message: "Uninitialized".into(),
         }
     }
     /// Get the dimension of the [`EnsembleStatus`] `(n_walkers, n_steps, n_variables)`
@@ -221,8 +223,10 @@ impl Status for EnsembleStatus {
     }
 
     fn message(&self) -> &str {
-        "TODO"
+        &self.message
     }
 
-    fn update_message(&mut self, message: &str) {}
+    fn update_message(&mut self, message: &str) {
+        self.message = message.to_string();
+    }
 }
