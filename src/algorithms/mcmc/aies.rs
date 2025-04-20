@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 
 use crate::{
     core::Point,
-    traits::{Algorithm, CostFunction},
+    traits::{Algorithm, CostFunction, Status},
     utils::{RandChoice, SampleFloat},
     Float,
 };
@@ -45,6 +45,14 @@ impl AIESMove {
         rng: &mut Rng,
     ) -> Result<(), E> {
         let mut positions = Vec::with_capacity(ensemble.len());
+        match self {
+            Self::Stretch { a } => {
+                ensemble.update_message(&format!("Stretch Move (a = {})", &a));
+            }
+            Self::Walk => {
+                ensemble.update_message("Walk Move");
+            }
+        }
         for (i, walker) in ensemble.iter().enumerate() {
             let x_k = walker.get_latest();
             let (proposal, r) = match self {

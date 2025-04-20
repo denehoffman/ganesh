@@ -7,7 +7,7 @@ use parking_lot::RwLock;
 
 use crate::{
     core::{Bounds, Point, Summary},
-    traits::{Algorithm, CostFunction},
+    traits::{Algorithm, CostFunction, Status},
     utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
     Float, PI,
 };
@@ -73,6 +73,24 @@ impl ESSMove {
         rng: &mut Rng,
     ) -> Result<(), E> {
         let mut positions = Vec::with_capacity(ensemble.len());
+        match self {
+            Self::Differential => {
+                ensemble.update_message("Differential Move");
+            }
+            Self::Gaussian => {
+                ensemble.update_message("Gaussian Move");
+            }
+            Self::Global {
+                scale,
+                rescale_cov,
+                n_components,
+            } => {
+                ensemble.update_message(&format!(
+                    "Gloabl Move (scale = {}, rescale_cov = {}, n_components = {})",
+                    scale, rescale_cov, n_components
+                ));
+            }
+        }
         let mut n_expand = 0;
         let mut n_contract = 0;
         let n = ensemble.walkers[0].get_latest().read().x.len();
