@@ -211,7 +211,7 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
             &mut self.status,
             &mut self.user_data,
         )?;
-        if current_step > self.max_steps && !self.status.converged() {
+        if !observer_termination && current_step > self.max_steps && !self.status.converged() {
             self.status.update_message("MAX EVALS");
         }
         if self.abort_signal.is_aborted() {
