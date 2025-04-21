@@ -242,8 +242,8 @@ mod tests {
                 .with_max_steps(5_000)
         });
         let problem = Rosenbrock { n: 2 };
-        m.minimize(&problem).unwrap();
-        println!("{}", m.result.unwrap());
+        m.process(&problem).unwrap();
+        println!("{}", m.result);
         assert_relative_eq!(m.status.best.fx, 0.0, epsilon = 0.5);
     }
 }

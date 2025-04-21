@@ -4,10 +4,9 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::core::CtrlCAbortSignal;
-use ganesh::legacy::observer::AutocorrelationObserver;
-use ganesh::legacy::samplers::ess::{ESSMove, ESS};
-use ganesh::legacy::samplers::Sampler;
+use ganesh::algorithms::mcmc::ESS;
+use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
+use ganesh::core::Engine;
 use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
@@ -36,13 +35,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     rng.seed(0);
 
     // Define the initial state of the (100) walkers (normally distributed in 5 dimensions)
-    let x0 = (0..100)
+    let x0: Vec<DVector<Float>> = (0..100)
         .map(|_| DVector::from_fn(5, |_, _| rng.normal(0.0, 4.0)))
         .collect();
 
     // Generate a random (inverse) covariance matrix (scaling on off-diagonals makes for
     // nicer-looking results)
-    let mut cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
+    let cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
@@ -54,18 +53,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     // Create a new Sampler
-    let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
+    let mut m = Engine::new(a).setup(|m| {
+        m.with_observer(aco.clone())
+            .on_status(|s| s.with_walkers(x0.clone()))
+            .with_user_data(cov_inv.clone())
+    });
 
     // Run a maximum of 1000 steps of the MCMC algorithm
-    s.sample(
-        &problem,
-        &mut cov_inv,
-        1000,
-        Box::new(CtrlCAbortSignal::new()),
-    )?;
+    m.process(&problem)?;
 
     // Get the resulting samples (no burn-in)
-    let chains = s.get_chains(None, None);
+    let chains = m.result.chain;
 
     // Get the integrated autocorrelation times
     let taus = aco.read().taus.clone();

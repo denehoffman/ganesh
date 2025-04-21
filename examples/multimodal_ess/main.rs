@@ -4,10 +4,8 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
-use ganesh::core::CtrlCAbortSignal;
-use ganesh::legacy::observer::AutocorrelationObserver;
-use ganesh::legacy::samplers::ess::{ESSMove, ESS};
-use ganesh::legacy::samplers::Sampler;
+use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
+use ganesh::core::Engine;
 use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
@@ -30,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     rng.seed(0);
 
     // Define the initial state of the (100) walkers (normally distributed in 2 dimensions)
-    let x0 = (0..100)
+    let x0: Vec<DVector<Float>> = (0..100)
         .map(|_| DVector::from_fn(2, |_, _| rng.normal(0.0, 7.0)))
         .collect();
 
@@ -56,13 +54,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     // Create a new Sampler
-    let mut s = Sampler::new(Box::new(a), x0).with_observer(aco.clone());
+    let mut m = Engine::new(a).setup(|m| {
+        m.with_observer(aco.clone())
+            .on_status(|s| s.with_walkers(x0.clone()))
+            .with_max_steps(8000)
+    });
 
-    // Run a maximum of 4000 steps of the MCMC algorithm
-    s.sample(&problem, &mut (), 4000, Box::new(CtrlCAbortSignal::new()))?;
+    // Run a maximum of 8000 steps of the MCMC algorithm
+    m.process(&problem)?;
 
     // Get the resulting samples (no burn-in)
-    let chains = s.get_chains(None, None);
+    let chains = m.result.chain;
 
     // Get the integrated autocorrelation times
     let taus = aco.read().taus.clone();

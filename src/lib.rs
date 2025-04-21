@@ -25,13 +25,14 @@
 //! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the Rosenbrock function:
 //!
 //! ```rust
+//! use ganesh::traits::*;
+//! use ganesh::{core::Engine, Float};
 //! use std::convert::Infallible;
-//! use ganesh::{Function, Float};
 //!
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl Function<(), Infallible> for Rosenbrock {
+//! impl CostFunction<(), Infallible> for Rosenbrock {
 //!     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
 //!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -41,15 +42,15 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::{Function, Float, Minimizer, NopAbortSignal};
-//! use ganesh::solvers::gradient_free::NelderMead;
+//! use ganesh::algorithms::gradient_free::NelderMead;
 //! use ganesh::traits::*;
-//! # use std::convert::Infallible;
+//! use ganesh::{core::Engine, Float};
+//! use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
 //! #     pub n: usize,
 //! # }
-//! # impl Function<(), Infallible> for Rosenbrock {
+//! # impl CostFunction<(), Infallible> for Rosenbrock {
 //! #     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
 //! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -57,30 +58,38 @@
 //! #     }
 //! # }
 //! fn main() -> Result<(), Infallible> {
-//!     let mut problem = Rosenbrock { n: 2 };
+//!     let problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
-//!     let mut m = Minimizer::new(Box::new(nm), 2);
-//!     let x0 = &[2.0, 2.0];
-//!     m.minimize(&mut problem, x0, &mut (), NopAbortSignal::new().boxed())?;
-//!     println!("{}", m.status);
+//!     let mut m = Engine::new(nm);
+//!     m.on_status(|s| s.with_x0([2.0, 2.0]));
+//!     m.process(&problem)?;
+//!     println!("{}", m.result);
 //!     Ok(())
 //! }
 //! ```
 //!
 //! This should output
 //! ```shell
-//!╒══════════════════════════════════════════════════════════════════════════════════════════════╕
-//!│                                         FIT RESULTS                                          │
-//!╞════════════════════════════════════════════╤════════════════════╤═════════════╤══════════════╡
-//!│ Status: Converged                          │ fval:   +2.281E-16 │ #fcn:    76 │ #grad:    76 │
-//!├────────────────────────────────────────────┴────────────────────┴─────────────┴──────────────┤
-//!│ Message: term_f = STDDEV                                                                     │
-//!├───────╥──────────────┬──────────────╥──────────────┬──────────────┬──────────────┬───────────┤
-//!│ Par # ║        Value │  Uncertainty ║      Initial │       -Bound │       +Bound │ At Limit? │
-//!├───────╫──────────────┼──────────────╫──────────────┼──────────────┼──────────────┼───────────┤
-//!│     0 ║     +1.001E0 │    +8.461E-1 ║     +2.000E0 │         -inf │         +inf │           │
-//!│     1 ║     +1.003E0 │     +1.695E0 ║     +2.000E0 │         -inf │         +inf │           │
-//!└───────╨──────────────┴──────────────╨──────────────┴──────────────┴──────────────┴───────────┘
+//! ╭──────────────────────────────────────────────────────────────────╮
+//! │                                                                  │
+//! │                           FIT RESULTS                            │
+//! │                                                                  │
+//! ├───────────┬───────────────────┬────────────────┬─────────────────┤
+//! │ Status    │ f(x)              │ #f(x)          │ #∇f(x)          │
+//! ├───────────┼───────────────────┼────────────────┼─────────────────┤
+//! │ Converged │ 0.00023           │ 76             │ 0               │
+//! ├───────────┼───────────────────┴────────────────┴─────────────────┤
+//! │           │                                                      │
+//! │ Message   │ term_f = STDDEV                                      │
+//! │           │                                                      │
+//! ├───────────┴─────────────────────────────┬────────────┬───────────┤
+//! │ Parameter                               │ Bound      │ At Limit? │
+//! ├───────────┬─────────┬─────────┬─────────┼──────┬─────┼───────────┤
+//! │           │ =       │ σ       │ 0       │ -    │ +   │           │
+//! ├───────────┼─────────┼─────────┼─────────┼──────┼─────┼───────────┤
+//! │ x_0       │ 1.00081 │ 0.84615 │ 2.00000 │ -inf │ inf │ No        │
+//! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
+//! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
 //! # MCMC
 //! Markov Chain Monte Carlo samplers can be found in the `mcmc` module, and an example can be found in `/examples/multivariate_normal_ess`:

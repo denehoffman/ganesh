@@ -26,17 +26,17 @@ pub trait Observer<S: Status, U> {
 /// # Usage:
 ///
 /// ```rust
-/// use ganesh::{Minimizer, NopAbortSignal};
+/// use ganesh::core::Engine;
 /// use ganesh::traits::*;
-/// use ganesh::solvers::gradient_free::NelderMead;
+/// use ganesh::algorithms::gradient_free::NelderMead;
 /// use ganesh::test_functions::Rosenbrock;
-/// use ganesh::observers::DebugObserver;
+/// use ganesh::traits::observer::DebugObserver;
 ///
-/// let mut problem = Rosenbrock { n: 2 };
+/// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
-/// let mut m = Minimizer::new(Box::new(nm), 2).setup(|m| m.with_observer(obs).on_status(|s| s.with_x0([2.3, 3.4])));
-/// m.minimize(&mut problem).unwrap();
+/// let mut m = Engine::new(nm).setup(|m| m.with_observer(obs.clone()).on_status(|s| s.with_x0([2.3, 3.4])));
+/// m.process(&problem).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
 /// ```

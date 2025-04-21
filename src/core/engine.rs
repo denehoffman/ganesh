@@ -46,12 +46,15 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     /// Convenience method to use chainable methods to set up the [`Engine`].
     /// Example usage:
     /// ```rust
-    /// let solver = LBFGSB::default();
-    /// let mut m = Minimizer::new(Box::new(solver), 2)
+    /// # use ganesh::algorithms::gradient::LBFGSB;
+    /// # use ganesh::core::CtrlCAbortSignal;
+    /// # use ganesh::core::Engine;
+    /// # use std::convert::Infallible;
+    /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
+    /// let mut m = Engine::new(solver)
     ///   .setup(|m| {
-    ///     m.on_config(|c|
-    ///       c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
-    ///     .with_abort_signal(CtrlCAbortSignal::new().boxed())
+    ///     m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+    ///      .with_abort_signal(CtrlCAbortSignal::new())
     ///   });
     /// ```
     pub fn setup<F>(mut self, mut f: F) -> Self

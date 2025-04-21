@@ -321,7 +321,7 @@ mod tests {
         let mut s =
             Engine::new(PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8)).setup(|m| {
                 m.with_abort_signal(CtrlCAbortSignal::new())
-                    .add_observer(tracker.clone())
+                    .with_observer(tracker.clone())
                     .with_max_steps(200)
                     .with_parameter_names(["X".to_string(), "Y".to_string()])
                     .on_status(|status| {
@@ -337,9 +337,9 @@ mod tests {
             });
 
         // Run the particle swarm optimizer
-        s.minimize(&Function).unwrap();
+        s.process(&Function).unwrap();
 
-        println!("{}", s.result.unwrap());
+        println!("{}", s.result);
 
         // Export the results to a Python .pkl file to visualize via matplotlib
         let mut writer = BufWriter::new(File::create(Path::new("data.pkl")).unwrap());

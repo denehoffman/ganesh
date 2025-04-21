@@ -14,7 +14,7 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
                     .on_status(|s| s.with_x0(vec![5.0; *ndim]))
             });
             b.iter(|| {
-                m.minimize(&problem).unwrap();
+                m.process(&problem).unwrap();
                 black_box(&m.status);
             });
         });
