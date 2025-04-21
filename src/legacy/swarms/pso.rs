@@ -231,15 +231,7 @@ mod tests {
 
     use fastrand::Rng;
 
-    use crate::{
-        core::CtrlCAbortSignal,
-        legacy::{
-            observer::TrackingSwarmObserver,
-            swarms::{Swarm, SwarmMinimizer, SwarmPositionInitializer, PSO},
-        },
-        traits::CostFunction,
-        Float, PI,
-    };
+    use crate::{core::CtrlCAbortSignal, traits::CostFunction, Float, PI};
 
     #[test]
     fn test_pso() {
@@ -259,27 +251,30 @@ mod tests {
         let mut rng = Rng::new();
         rng.seed(0);
 
-        // Construct a new swarm
-        let swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
-            n_particles: 50,
-            limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-        });
-
         // Create a particle swarm optimizer algorithm and set some hyperparameters
-        let pso = PSO::new(rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
+        let pso = PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
 
         // Create a tracker to record swarm history
         let tracker = TrackingSwarmObserver::build();
 
         // Create a new Sampler
-        let mut s = SwarmMinimizer::new(Box::new(pso), swarm)
-            .with_observer(tracker)
-            .with_max_steps(200);
+        let mut m = Engine::new(pso).setup(|m| {
+            m.with_observer(tracker.clone())
+                .with_max_steps(200)
+                .on_status(|s| {
+                    s.on_swarm(|swarm| {
+                        swarm
+                            .with_position_initializer(SwarmPositionInitializer::RandomInLimits(
+                                vec![(-20.0, 20.0), (-20.0, 20.0)],
+                            ))
+                            .with_n_particles(50)
+                    })
+                })
+        });
 
         // Run the particle swarm optimizer
-        s.minimize(&problem, &mut (), Box::new(CtrlCAbortSignal::new()))
-            .expect("Failed to minimize");
+        m.process(&problem).expect("Failed to minimize");
 
-        println!("{}", s.swarm);
+        println!("{}", m.result);
     }
 }

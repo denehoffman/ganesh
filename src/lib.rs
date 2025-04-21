@@ -195,9 +195,6 @@ pub mod core;
 /// Module containing all traits
 pub mod traits;
 
-/// Module containing legacy implementations
-pub mod legacy;
-
 /// Module containing various minimization algorithms
 pub mod algorithms;
 
