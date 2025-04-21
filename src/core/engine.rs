@@ -122,7 +122,7 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     }
 
     /// Adds a single [`Observer`] to the [`Engine`].
-    pub fn add_observer(&mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> &mut Self {
+    pub fn with_observer(&mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> &mut Self {
         self.observers.push(observer);
         self
     }
@@ -146,7 +146,7 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
         }
     }
 
-    /// Minimize the given [`CostFunction`] starting at the point `x0`.
+    /// Process the given [`CostFunction`] using the [`Engine::algorithm`].
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if [`Algorithm::check_for_termination`] returns `true` or if
@@ -159,13 +159,7 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the length of `x0` is not equal to the dimension of the problem
-    /// (number of free parameters) or if any values of `x0` are outside the [`Bound`]s given to the
-    /// [`Engine`].
-    pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
+    pub fn process(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();
         self.abort_signal.reset();
         self.algorithm.initialize(
