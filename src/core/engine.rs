@@ -7,17 +7,17 @@ use crate::{
     Float,
 };
 
-use super::{Bound, Bounds, NopAbortSignal, Summary};
+use super::{Bound, Bounds, NopAbortSignal};
 
 const DEFAULT_MAX_STEPS: usize = 4000;
 /// The main struct used for running [`Algorithm`]s on [`CostFunction`]s.
-pub struct Engine<S, U, E> {
+pub struct Engine<S, U, E, Summary> {
     /// The [`Status`] of the [`Algorithm`], usually read after minimization.
     pub status: S,
-    /// The [`Summary`] of the [`Algorithm`], usually read after minimization.
-    pub result: Option<Summary>,
+    /// The [`Algorithm::Summary`], usually read after minimization.
+    pub result: Summary,
 
-    solver: Box<dyn Algorithm<S, U, E>>,
+    algorithm: Box<dyn Algorithm<S, U, E, Summary = Summary>>,
     observers: Vec<Arc<RwLock<dyn Observer<S, U>>>>,
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
@@ -27,19 +27,19 @@ pub struct Engine<S, U, E> {
     max_steps: usize,
 }
 
-impl<S: Status, U: Default, E> Engine<S, U, E> {
-    /// Creates a new [`Engine`] with the given (boxed) [`Algorithm`].
-    pub fn new<T: Algorithm<S, U, E> + 'static>(solver: T) -> Self {
+impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
+    /// Creates a new [`Engine`] with the given [`Algorithm`].
+    pub fn new<T: Algorithm<S, U, E, Summary = Summary> + 'static>(solver: T) -> Self {
         Self {
             status: S::default(),
             bounds: None,
             parameter_names: None,
             max_steps: DEFAULT_MAX_STEPS,
-            solver: Box::new(solver),
+            algorithm: Box::new(solver),
             observers: Vec::default(),
             abort_signal: Box::new(NopAbortSignal),
             user_data: Default::default(),
-            result: None,
+            result: Default::default(),
         }
     }
 
@@ -168,7 +168,7 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
     pub fn minimize(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();
         self.abort_signal.reset();
-        self.solver.initialize(
+        self.algorithm.initialize(
             func,
             self.bounds.as_ref(),
             &mut self.status,
@@ -178,7 +178,7 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
         let mut observer_termination = false;
         while current_step <= self.max_steps
             && !observer_termination
-            && !self.solver.check_for_termination(
+            && !self.algorithm.check_for_termination(
                 func,
                 self.bounds.as_ref(),
                 &mut self.status,
@@ -186,7 +186,7 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
             )?
             && !self.abort_signal.is_aborted()
         {
-            self.solver.step(
+            self.algorithm.step(
                 current_step,
                 func,
                 self.bounds.as_ref(),
@@ -205,7 +205,7 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
                 }
             }
         }
-        self.solver.postprocessing(
+        self.algorithm.postprocessing(
             func,
             self.bounds.as_ref(),
             &mut self.status,
@@ -217,16 +217,13 @@ impl<S: Status, U: Default, E> Engine<S, U, E> {
         if self.abort_signal.is_aborted() {
             self.status.update_message("Abort signal received");
         }
-        self.result = self
-            .solver
-            .summarize(
-                func,
-                self.bounds.as_ref(),
-                self.parameter_names.as_ref(),
-                &self.status,
-                &self.user_data,
-            )
-            .ok();
+        self.result = self.algorithm.summarize(
+            func,
+            self.bounds.as_ref(),
+            self.parameter_names.as_ref(),
+            &self.status,
+            &self.user_data,
+        )?;
         Ok(())
     }
 }

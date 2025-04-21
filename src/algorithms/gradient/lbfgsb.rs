@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Bounds, Summary};
+use crate::core::{Bound, Bounds, MinimizationSummary};
 
 use crate::traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch};
 use crate::Float;
@@ -394,6 +394,7 @@ impl<U, E> LBFGSB<U, E> {
 }
 
 impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
+    type Summary = MinimizationSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -524,8 +525,8 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,
-    ) -> Result<Summary, E> {
-        let result = Summary {
+    ) -> Result<Self::Summary, E> {
+        let result = MinimizationSummary {
             x0: status.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,
@@ -573,25 +574,24 @@ mod tests {
         let solver = LBFGSB::default();
         let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, 2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, -2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([-2.0, -2.0]))
-            .minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([1.0, 1.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
     }
 
@@ -603,25 +603,24 @@ mod tests {
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, 2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, -2.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([-2.0, -2.0]))
-            .minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([1.0, 1.0])).minimize(&problem)?;
-        assert!(m.status.converged);
-        assert_relative_eq!(m.status.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        assert!(m.result.converged);
+        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
     }
 }

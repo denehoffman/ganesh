@@ -2,7 +2,7 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{bound::Bounds, Point, Summary},
+    core::{bound::Bounds, MinimizationSummary, Point},
     traits::{Algorithm, CostFunction, Status},
     utils::SampleFloat,
     Float,
@@ -103,6 +103,7 @@ impl<G, U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<G
 where
     G: SimulatedAnnealingGenerator<U, E>,
 {
+    type Summary = MinimizationSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -179,8 +180,8 @@ where
         parameter_names: Option<&Vec<String>>,
         status: &SimulatedAnnealingStatus,
         _user_data: &U,
-    ) -> Result<Summary, E> {
-        let result = Summary {
+    ) -> Result<Self::Summary, E> {
+        let result = MinimizationSummary {
             x0: vec![Float::NAN; status.best.x.nrows()],
             x: status.best.x.iter().cloned().collect(),
             fx: status.best.fx,

@@ -6,7 +6,7 @@ use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
 use crate::{
-    core::{Bounds, Point, Summary},
+    core::{Bounds, MCMCSummary, Point},
     traits::{Algorithm, CostFunction, Status},
     utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
     Float, PI,
@@ -259,6 +259,7 @@ impl ESS {
 }
 
 impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
+    type Summary = MCMCSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -311,8 +312,17 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
         parameter_names: Option<&Vec<String>>,
         status: &EnsembleStatus,
         user_data: &U,
-    ) -> Result<Summary, E> {
-        todo!()
+    ) -> Result<Self::Summary, E> {
+        Ok(MCMCSummary {
+            bounds: bounds.cloned(),
+            parameter_names: parameter_names.cloned(),
+            message: status.message().to_string(),
+            chain: status.get_chain(None, None),
+            cost_evals: status.n_f_evals,
+            gradient_evals: status.n_g_evals,
+            converged: status.converged(),
+            dimension: status.dimension(),
+        })
     }
 }
 

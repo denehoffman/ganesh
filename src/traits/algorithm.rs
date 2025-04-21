@@ -1,4 +1,4 @@
-use crate::core::{Bounds, Summary};
+use crate::core::Bounds;
 
 use super::CostFunction;
 
@@ -7,6 +7,8 @@ use super::CostFunction;
 /// This trait is implemented for the algorithms found in the [`solvers`](super) module, and contains
 /// all the methods needed to be run by a [`Engine`](crate::core::Engine).
 pub trait Algorithm<S, U, E> {
+    /// A type which holds a summary of the algorithm's ending state.
+    type Summary;
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -78,11 +80,11 @@ pub trait Algorithm<S, U, E> {
         Ok(())
     }
 
-    /// Generates a new [`Summary`] from the current state of the [`Algorithm`], which can be displayed or used elsewhere.
+    /// Generates a new [`Algorithm::Summary`] from the current state of the [`Algorithm`], which can be displayed or used elsewhere.
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if any internal evaluation fails while creating the [`Summary`].
+    /// Returns an `Err(E)` if any internal evaluation fails while creating the [`Algorithm::Summary`].
     /// See [`CostFunction::evaluate`] for more information.
     #[allow(unused_variables)]
     fn summarize(
@@ -92,5 +94,5 @@ pub trait Algorithm<S, U, E> {
         parameter_names: Option<&Vec<String>>,
         status: &S,
         user_data: &U,
-    ) -> Result<Summary, E>;
+    ) -> Result<Self::Summary, E>;
 }

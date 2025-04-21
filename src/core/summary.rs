@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::Float;
@@ -7,8 +8,8 @@ use crate::Float;
 use super::{Bound, Bounds};
 
 /// A struct that holds the results of a minimization run.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Summary {
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MinimizationSummary {
     /// The bounds of the parameters. This is `None` if no bounds were set.
     pub bounds: Option<Bounds>,
     /// The names of the parameters. This is `None` if no names were set.
@@ -21,7 +22,7 @@ pub struct Summary {
     pub x: Vec<Float>,
     /// The standard deviations of the parameters at the end of the fit.
     pub std: Vec<Float>,
-    /// The current value of the minimization problem function at [`Summary::x`].
+    /// The current value of the minimization problem function at [`MinimizationSummary::x`].
     pub fx: Float,
     /// The number of function evaluations.
     pub cost_evals: usize,
@@ -31,7 +32,7 @@ pub struct Summary {
     pub converged: bool,
 }
 
-impl Display for Summary {
+impl Display for MinimizationSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use tabled::{
             builder::Builder,
@@ -135,12 +136,34 @@ impl Display for Summary {
     }
 }
 
+/// A struct that holds the results of an MCMC sampling.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MCMCSummary {
+    /// The bounds of the parameters. This is `None` if no bounds were set.
+    pub bounds: Option<Bounds>,
+    /// The names of the parameters. This is `None` if no names were set.
+    pub parameter_names: Option<Vec<String>>,
+    /// A message that can be set by minimization algorithms.
+    pub message: String,
+    /// The chain of positions sampled by each walker with dimension `(n_walkers, n_steps,
+    /// n_variables)`.
+    pub chain: Vec<Vec<DVector<Float>>>,
+    /// The number of function evaluations.
+    pub cost_evals: usize,
+    /// The number of gradient evaluations.
+    pub gradient_evals: usize,
+    /// Flag that says whether or not the sampler is in a converged state.
+    pub converged: bool,
+    /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
+    pub dimension: (usize, usize, usize),
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_minimization_result() {
         use super::*;
-        let result = Summary {
+        let result = MinimizationSummary {
             bounds: None,
             parameter_names: None,
             message: "Success".to_string(),

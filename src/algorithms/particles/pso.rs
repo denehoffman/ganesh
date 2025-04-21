@@ -4,7 +4,7 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use crate::{
-    core::{Bounds, Summary},
+    core::{Bounds, MinimizationSummary},
     traits::{Algorithm, CostFunction, Status},
     utils::generate_random_vector,
     Float,
@@ -186,6 +186,7 @@ impl PSO {
 }
 
 impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
+    type Summary = MinimizationSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -233,8 +234,8 @@ impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
         parameter_names: Option<&Vec<String>>,
         status: &SwarmStatus,
         _user_data: &U,
-    ) -> Result<Summary, E> {
-        let result = Summary {
+    ) -> Result<Self::Summary, E> {
+        let result = MinimizationSummary {
             x0: vec![0.0; status.gbest.x.len()],
             x: status.gbest.x.iter().cloned().collect(),
             fx: status.gbest.fx,

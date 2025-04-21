@@ -5,7 +5,7 @@ use nalgebra::DVector;
 use parking_lot::RwLock;
 
 use crate::{
-    core::Point,
+    core::{Bounds, MCMCSummary, Point},
     traits::{Algorithm, CostFunction, Status},
     utils::{RandChoice, SampleFloat},
     Float,
@@ -154,10 +154,11 @@ impl AIES {
 }
 
 impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
+    type Summary = MCMCSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&crate::core::Bounds>,
+        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -168,7 +169,7 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&crate::core::Bounds>,
+        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -183,7 +184,7 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&crate::core::Bounds>,
+        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<bool, E> {
@@ -193,11 +194,20 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
     fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&crate::core::Bounds>,
+        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &EnsembleStatus,
         user_data: &U,
-    ) -> Result<crate::core::Summary, E> {
-        todo!()
+    ) -> Result<Self::Summary, E> {
+        Ok(MCMCSummary {
+            bounds: bounds.cloned(),
+            parameter_names: parameter_names.cloned(),
+            message: status.message().to_string(),
+            chain: status.get_chain(None, None),
+            cost_evals: status.n_f_evals,
+            gradient_evals: status.n_g_evals,
+            converged: status.converged(),
+            dimension: status.dimension(),
+        })
     }
 }
