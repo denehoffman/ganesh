@@ -21,7 +21,14 @@ use super::{integrated_autocorrelation_times, Walker};
 pub struct EnsembleStatus {
     /// A list of each [`Walker`] in the ensemble
     pub walkers: Vec<Walker>,
-    message: String,
+    /// A message indicating the state of the sampler
+    pub message: String,
+    /// The number of function evaluations (approximately, this is left up to individual
+    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
+    pub n_f_evals: usize,
+    /// The number of gradient evaluations (approximately, this is left up to individual
+    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
+    pub n_g_evals: usize,
 }
 impl Deref for EnsembleStatus {
     type Target = Vec<Walker>;
