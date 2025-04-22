@@ -83,6 +83,7 @@ pub struct LBFGSB<U, E> {
     m_mat: DMatrix<Float>,
     w_mat: DMatrix<Float>,
     theta: Float,
+    f: Float,
     f_previous: Float,
     terminator_f: LBFGSBFTerminator,
     terminator_g: LBFGSBGTerminator,
@@ -174,6 +175,7 @@ impl<U, E> Default for LBFGSB<U, E> {
             m_mat: Default::default(),
             w_mat: Default::default(),
             theta: 1.0,
+            f: Float::INFINITY,
             f_previous: Float::INFINITY,
             terminator_f: LBFGSBFTerminator,
             terminator_g: LBFGSBGTerminator,
@@ -431,7 +433,8 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         });
         self.g = func.gradient(self.x.as_slice(), user_data)?;
         status.inc_n_g_evals();
-        status.with_position((self.x.clone(), func.evaluate(self.x.as_slice(), user_data)?));
+        self.f = func.evaluate(self.x.as_slice(), user_data)?;
+        status.with_position((self.x.clone(), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
@@ -469,6 +472,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
             }
             self.x += dx;
             self.g = grad_kp1_vec;
+            self.f = f_kp1;
             status.with_position((self.x.clone(), f_kp1));
         } else {
             // reboot
@@ -483,15 +487,14 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
 
     fn check_for_termination(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        _func: &dyn CostFunction<U, E>,
         _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        _user_data: &mut U,
     ) -> Result<bool, E> {
-        let f_current = func.evaluate(self.x.as_slice(), user_data)?;
         self.terminator_f
-            .update_convergence(f_current, self.f_previous, status, self.eps_f_abs);
-        self.f_previous = f_current;
+            .update_convergence(self.f, self.f_previous, status, self.eps_f_abs);
+        self.f_previous = self.f;
         self.terminator_g
             .update_convergence(&self.g, status, self.eps_g_abs);
         if self.get_inf_norm_projected_gradient() < self.tol_g_abs {
