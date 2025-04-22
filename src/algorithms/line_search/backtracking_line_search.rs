@@ -2,6 +2,7 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::gradient::GradientStatus,
+    core::Bounds,
     traits::{CostFunction, Gradient, LineSearch},
     Float,
 };
@@ -28,17 +29,20 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         p: &DVector<Float>,
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
         let phi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
-            func.evaluate((x + p.scale(alpha)).as_slice(), ud)
+            func.evaluate_bounded((x + p.scale(alpha)).as_slice(), bounds, ud)
         };
         let dphi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
-            Ok(func.gradient((x + p.scale(alpha)).as_slice(), ud)?.dot(p))
+            Ok(func
+                .gradient_bounded((x + p.scale(alpha)).as_slice(), bounds, ud)?
+                .dot(p))
         };
         let phi_0 = phi(0.0, user_data, status)?;
         let mut phi_alpha_i = phi(alpha_i, user_data, status)?;
@@ -46,7 +50,8 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         loop {
             let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
-                let g_alpha_i = func.gradient((x + p.scale(alpha_i)).as_slice(), user_data)?;
+                let g_alpha_i =
+                    func.gradient_bounded((x + p.scale(alpha_i)).as_slice(), bounds, user_data)?;
                 return Ok((true, alpha_i, phi_alpha_i, g_alpha_i));
             }
             alpha_i *= self.rho;

@@ -453,7 +453,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         let max_step = self.compute_max_step(&d);
         let (valid, alpha, f_kp1, g_kp1) =
             self.line_search
-                .search(&self.x, &d, Some(max_step), func, user_data, status)?;
+                .search(&self.x, &d, Some(max_step), func, None, user_data, status)?;
         if valid {
             let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;

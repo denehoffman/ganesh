@@ -2,6 +2,7 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::gradient::GradientStatus,
+    core::Bounds,
     traits::{CostFunction, Gradient, LineSearch},
     Float,
 };
@@ -16,7 +17,6 @@ pub struct StrongWolfeLineSearch {
     max_zoom: usize,
     c1: Float,
     c2: Float,
-    use_bounds: bool,
 }
 
 impl Default for StrongWolfeLineSearch {
@@ -26,7 +26,6 @@ impl Default for StrongWolfeLineSearch {
             max_zoom: 100,
             c1: 1e-4,
             c2: 0.9,
-            use_bounds: false,
         }
     }
 }
@@ -65,14 +64,6 @@ impl StrongWolfeLineSearch {
         self.c2 = c2;
         self
     }
-    /// Use the bounded forms of the function evaluators, transforming the function inputs in a
-    /// nonlinear way to convert between external and internal parameters. See
-    /// [`Bound`](`crate::core::Bound`) for more
-    /// details.
-    pub const fn with_bounds_transformation(mut self) -> Self {
-        self.use_bounds = true;
-        self
-    }
 }
 
 impl StrongWolfeLineSearch {
@@ -80,27 +71,30 @@ impl StrongWolfeLineSearch {
         &self,
         func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate(x.as_slice(), user_data)
+        func.evaluate_bounded(x.as_slice(), bounds, user_data)
     }
     fn g_eval<U, E>(
         &self,
         func: &dyn CostFunction<U, E>,
         x: &DVector<Float>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(x.as_slice(), user_data)
+        func.gradient_bounded(x.as_slice(), bounds, user_data)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
         func: &dyn CostFunction<U, E>,
         x0: &DVector<Float>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         f0: Float,
         g0: &DVector<Float>,
@@ -116,14 +110,14 @@ impl StrongWolfeLineSearch {
         loop {
             let alpha_i = (alpha_lo + alpha_hi) / 2.0;
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(func, &x, user_data, status)?;
+            let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
             let x_lo = x0 + p.scale(alpha_lo);
-            let f_lo = self.f_eval(func, &x_lo, user_data, status)?;
+            let f_lo = self.f_eval(func, &x_lo, bounds, user_data, status)?;
             let valid = if (f_i > (self.c1 * alpha_i).mul_add(dphi0, f0)) || (f_i >= f_lo) {
                 alpha_hi = alpha_i;
                 false
             } else {
-                let g_i = self.g_eval(func, &x, user_data, status)?;
+                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
                 let dphi = g_i.dot(p);
                 if Float::abs(dphi) <= -self.c2 * dphi0 {
                     return Ok((true, alpha_i, f_i, g_i));
@@ -136,7 +130,7 @@ impl StrongWolfeLineSearch {
             };
             i += 1;
             if i > self.max_zoom {
-                let g_i = self.g_eval(func, &x, user_data, status)?;
+                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
                 return Ok((valid, alpha_i, f_i, g_i));
             }
         }
@@ -150,11 +144,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         p: &DVector<Float>,
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
-        let f0 = self.f_eval(func, x0, user_data, status)?;
-        let g0 = self.g_eval(func, x0, user_data, status)?;
+        let f0 = self.f_eval(func, x0, bounds, user_data, status)?;
+        let g0 = self.g_eval(func, x0, bounds, user_data, status)?;
         let alpha_max = max_step.map_or(1.0, |alpha_max| alpha_max);
         let mut alpha_im1 = 0.0;
         let mut alpha_i = 1.0;
@@ -163,17 +158,21 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         let mut i = 0;
         loop {
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(func, &x, user_data, status)?;
+            let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
             if (f_i > self.c1.mul_add(dphi0, f0)) || (i > 1 && f_i >= f_im1) {
-                return self.zoom(func, x0, user_data, f0, &g0, p, alpha_im1, alpha_i, status);
+                return self.zoom(
+                    func, x0, bounds, user_data, f0, &g0, p, alpha_im1, alpha_i, status,
+                );
             }
-            let g_i = self.g_eval(func, &x, user_data, status)?;
+            let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
             let dphi = g_i.dot(p);
             if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
                 return Ok((true, alpha_i, f_i, g_i));
             }
             if dphi >= 0.0 {
-                return self.zoom(func, x0, user_data, f0, &g0, p, alpha_i, alpha_im1, status);
+                return self.zoom(
+                    func, x0, bounds, user_data, f0, &g0, p, alpha_i, alpha_im1, status,
+                );
             }
             alpha_im1 = alpha_i;
             f_im1 = f_i;

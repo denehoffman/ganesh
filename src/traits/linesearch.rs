@@ -1,7 +1,7 @@
 use dyn_clone::DynClone;
 use nalgebra::DVector;
 
-use crate::{traits::Status, Float};
+use crate::{core::Bounds, traits::Status, Float};
 
 use super::cost_function::CostFunction;
 
@@ -14,7 +14,8 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
     /// objective function `user_data`, and returns a [`Result`] containing the tuple,
     /// `(valid, step_size, func(x + step_size * p), grad(x + step_size * p))`. Returns a [`None`]
-    /// [`Result`] if the algorithm fails to find improvement.
+    /// [`Result`] if the algorithm fails to find improvement. Passing `bounds` usually implies a
+    /// bounds transform is intented.
     ///
     /// # Errors
     ///
@@ -27,6 +28,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
         p: &DVector<Float>,
         max_step: Option<Float>,
         func: &dyn CostFunction<U, E>,
+        bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut S,
     ) -> Result<(bool, Float, Float, DVector<Float>), E>;
