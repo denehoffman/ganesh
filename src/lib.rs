@@ -213,8 +213,11 @@ pub mod test_functions;
 /// Module containing various utilities
 pub mod utils;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 /// Re-export the `nalgebra` crate
 pub use nalgebra;
+use parking_lot::Once;
 
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(not(feature = "f32"))]
@@ -231,3 +234,69 @@ pub const PI: Float = std::f64::consts::PI;
 /// The mathematical constant $`\pi`$.
 #[cfg(feature = "f32")]
 pub const PI: Float = std::f32::consts::PI;
+
+static WARNINGS_ENABLED: AtomicBool = AtomicBool::new(true);
+static WARNINGS_SET_BY_ENV: AtomicBool = AtomicBool::new(false);
+static WARNINGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+static INIT: Once = Once::new();
+
+fn init_env_override() {
+    INIT.call_once(|| {
+        if let Ok(val) = std::env::var("GANESH_WARNINGS") {
+            if val == "0" {
+                WARNINGS_SET_BY_ENV.store(true, Ordering::Relaxed);
+                WARNINGS_ENABLED.store(false, Ordering::Relaxed);
+            }
+            if val == "1" {
+                WARNINGS_SET_BY_ENV.store(true, Ordering::Relaxed);
+                WARNINGS_ENABLED.store(true, Ordering::Relaxed);
+            }
+        }
+    });
+}
+
+fn try_set_warnings_override(value: bool) {
+    init_env_override();
+    if WARNINGS_SET_BY_ENV.load(Ordering::Relaxed) {
+        return;
+    }
+    let already_set = WARNINGS_OVERRIDE.swap(true, Ordering::Relaxed);
+    if !already_set {
+        WARNINGS_ENABLED.store(value, Ordering::Relaxed);
+    }
+}
+
+/// A method which can force-enable warnings which may be disabled by dependencies.
+///
+/// This method will still not enable warnings if the environment variable `GANESH_WARNINGS=0`.
+pub fn enable_warnings() {
+    try_set_warnings_override(true);
+}
+
+/// A method which can force-disable warnings which may be enabled by dependencies.
+///
+/// This method will still not disable warnings if the environment variable `GANESH_WARNINGS=1`.
+pub fn disable_warnings() {
+    try_set_warnings_override(false);
+}
+
+/// Returns `true` if warnings are enabled.
+///
+/// Warnings are enabled by default and can be disabled either by setting the environment variable
+/// `GANESH_WARNINGS=0` or by calling [`disable_warnings`] first. The first call of
+/// [`enable_warnings`] will ensure warnings are enabled, overriding any subsequent calls to
+/// [`disable_warnings`]. Setting `GANESH_WARNINGS=1` will force-enable warnings regardless of any
+/// calls to [`disable_warnings`]. In all cases, the environment variable takes precedence.
+pub fn should_warn() -> bool {
+    init_env_override();
+    WARNINGS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Conditionally warns the user (warns by default).
+///
+/// See [`should_warn`] for details on how to conditionally enable and disable warnings.
+pub fn maybe_warn(msg: &str) {
+    if should_warn() {
+        eprintln!("Warning: {msg}");
+    }
+}

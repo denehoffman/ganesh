@@ -3,6 +3,7 @@ use nalgebra::DVector;
 use crate::{
     algorithms::line_search::StrongWolfeLineSearch,
     core::{Bound, Bounds, MinimizationSummary},
+    maybe_warn,
     traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch},
     Float,
 };
@@ -182,6 +183,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        if bounds.is_some() {
+            maybe_warn("The Conjugate Gradient method has experimental support for bounded parameters, but it may be unstable and fail to converge!");
+        }
         self.x = Bound::to_bounded(status.x0.as_slice(), bounds);
         self.dx = -func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         status.inc_n_g_evals();
