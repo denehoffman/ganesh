@@ -95,4 +95,7 @@ pub trait Algorithm<S, U, E> {
         status: &S,
         user_data: &U,
     ) -> Result<Self::Summary, E>;
+
+    /// Reset the algorithm to its initial state.
+    fn reset(&mut self) {}
 }

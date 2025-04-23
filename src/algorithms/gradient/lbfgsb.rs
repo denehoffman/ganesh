@@ -548,6 +548,19 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
 
         Ok(result)
     }
+    fn reset(&mut self) {
+        self.x = Default::default();
+        self.g = Default::default();
+        self.l = Default::default();
+        self.u = Default::default();
+        self.m_mat = Default::default();
+        self.w_mat = Default::default();
+        self.theta = 1.0;
+        self.f = Float::INFINITY;
+        self.f_previous = Float::INFINITY;
+        self.y_store = VecDeque::default();
+        self.s_store = VecDeque::default();
+    }
 }
 
 #[cfg(test)]

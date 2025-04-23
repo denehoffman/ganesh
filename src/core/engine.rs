@@ -165,6 +165,7 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     pub fn process(&mut self, func: &dyn CostFunction<U, E>) -> Result<(), E> {
         self.status.reset();
         self.abort_signal.reset();
+        self.algorithm.reset();
         self.algorithm.initialize(
             func,
             self.bounds.as_ref(),
