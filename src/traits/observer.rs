@@ -55,7 +55,7 @@ impl<S: Status + Debug, U: Debug> Observer<S, U> for DebugObserver {
         status: &mut S,
         _user_data: &mut U,
     ) -> bool {
-        println!("{step}, {:?}", status);
+        println!("Step: {}\n{:#?}", step, status);
         false
     }
 }
