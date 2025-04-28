@@ -14,13 +14,12 @@
 //! - [Future Plans](#future-plans)
 //! - [Citations](#citations)
 //!
-//! # Key Features
-//! * Simple but powerful trait-oriented library which tries to follow the Unix philosophy of "do one thing and do it well".
-//! * Generics to allow for different numeric types to be used in the provided algorithms.
+//! ## Key Features
 //! * Algorithms that are simple to use with sensible defaults.
 //! * Traits which make developing future algorithms simple and consistent.
+//! * A simple interface that lets new users get started quickly.
 //!
-//! # Quick Start
+//! ## Quick Start
 //!
 //! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the Rosenbrock function:
 //!
@@ -91,7 +90,7 @@
 //! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
 //! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
-//! # MCMC
+//! ## MCMC
 //! Markov Chain Monte Carlo samplers can be found in the `mcmc` module, and an example can be found in `/examples/multivariate_normal_ess`:
 //! ```shell
 //! cd examples/multivariate_normal_ess
@@ -107,7 +106,7 @@
 //! ```
 //! to run manually.
 //!
-//! # Bounds
+//! ## Bounds
 //! All minimizers in `ganesh` have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::gradient::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
@@ -133,13 +132,13 @@
 //! ```
 //! As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should be used with caution. They turn linear problems into nonlinear ones, which can mess with error propagation and even fit convergence, not to mention increase function complexity. Methods which output covariance matrices need to be adjusted if bounded, and `MINUIT` recommends fitting a second time near a minimum without bounds to ensure proper error propagation.
 //!
-//! # Future Plans
+//! ## Future Plans
 //!
 //! * Eventually, I would like to implement some more modern gradient-free optimization techniques.
 //! * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
-//! * There should be more tests (as usual).
+//! * There should be more tests and documentation (as usual).
 //!
-//! # Citations
+//! ## Citations
 //! While this project does not currently have an associated paper, most of the algorithms it implements do, and they should be cited appropriately. Citations are also generally available in the documentation.
 //!
 //! ### ESS MCMC Sampler
