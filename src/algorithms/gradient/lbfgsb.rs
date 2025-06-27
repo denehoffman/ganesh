@@ -66,13 +66,13 @@ pub enum LBFGSBErrorMode {
     Skip,
 }
 
-/// The L-BFGS (Limited memory Broyden-Fletcher-Goldfarb-Shanno) algorithm.
+/// The L-BFGS-B (Limited memory, bounded Broyden-Fletcher-Goldfarb-Shanno) algorithm.
 ///
 /// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
-/// the Hessian matrix using the L-BFGS update step. The BFGS algorithm is described in detail in Chapter
-/// 6 of "Numerical Optimization"[^1] (pages 136-143).
+/// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
+/// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
 ///
-/// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
+/// [^1] [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
 pub struct LBFGSB<U, E> {
@@ -151,7 +151,7 @@ impl<U, E> LBFGSB<U, E> {
         self.line_search = Box::new(line_search);
         self
     }
-    /// Set the number of stored L-BFGS updator steps. A larger value might improve performance
+    /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
     pub const fn with_memory_limit(mut self, limit: usize) -> Self {
         self.m = limit;
