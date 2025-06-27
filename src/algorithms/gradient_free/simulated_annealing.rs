@@ -13,10 +13,10 @@ pub trait SimulatedAnnealingGenerator<U, E> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
-        _status: &mut SimulatedAnnealingStatus,
-        _user_data: &mut U,
+        func: &dyn CostFunction<U, E>,
+        bounds: Option<&Bounds>,
+        status: &mut SimulatedAnnealingStatus,
+        user_data: &mut U,
     ) -> DVector<Float>;
 }
 
@@ -104,6 +104,8 @@ where
     G: SimulatedAnnealingGenerator<U, E>,
 {
     type Summary = MinimizationSummary;
+
+    #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -111,7 +113,7 @@ where
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        status.current.x = DVector::zeros(bounds.unwrap().len());
+        status.current.x = DVector::zeros(bounds.expect("The simulated annealing algorithm requires bounds to be explicitly specified, even if all parameters are unbounded!").len());
         let x0 = self.generator.generate(func, bounds, status, user_data);
         let fx0 = func.evaluate(x0.as_slice(), user_data)?;
         status.temperature = self.initial_temperature;
