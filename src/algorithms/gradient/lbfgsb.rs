@@ -196,11 +196,13 @@ impl<U, E> LBFGSB<U, E> {
     /// For Equation 6.1
     fn get_inf_norm_projected_gradient(&self) -> Float {
         let x_minus_g = &self.x - &self.g;
-        (0..x_minus_g.len())
-            .map(|i| {
-                if self.x[i] - self.g[i] < self.l[i] {
+        x_minus_g
+            .iter()
+            .enumerate()
+            .map(|(i, &x_minus_g_i)| {
+                if x_minus_g_i < self.l[i] {
                     Float::abs(self.l[i] - self.x[i])
-                } else if self.x[i] - self.g[i] > self.u[i] {
+                } else if x_minus_g_i > self.u[i] {
                     Float::abs(self.u[i] - self.x[i])
                 } else {
                     Float::abs(self.g[i])
