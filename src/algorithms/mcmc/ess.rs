@@ -625,6 +625,7 @@ fn log_gaussian_prob(
 //
 // log_prob_norm: Float
 // log_resp: (n_walkers, n_components)
+#[allow(clippy::unnecessary_cast)]
 fn e_step(
     data: &DMatrix<Float>,
     means: &DMatrix<Float>,
@@ -720,6 +721,7 @@ struct DPGMResult {
 // # Returns
 //
 // DPGMResult
+#[allow(clippy::unnecessary_cast)]
 fn dpgm(n_components: usize, ensemble: &EnsembleStatus, rng: &mut Rng) -> DPGMResult {
     let (n_walkers, _, n_parameters) = ensemble.dimension();
     let data = ensemble.get_latest_position_matrix();
