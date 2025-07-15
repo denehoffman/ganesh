@@ -2,8 +2,6 @@ use std::{fmt::Debug, sync::Arc};
 
 use parking_lot::RwLock;
 
-use crate::core::Bounds;
-
 use super::Status;
 
 /// A trait which holds a [`callback`](`Observer::callback`) function that can be used to check an
@@ -11,13 +9,7 @@ use super::Status;
 pub trait Observer<S: Status, U> {
     /// A function that is called at every step of a minimization [`Algorithm`](`crate::traits::Algorithm`). If it returns
     /// `true`, the [`Minimizer::minimize`](`crate::core::Engine::minimize`) method will terminate.
-    fn callback(
-        &mut self,
-        step: usize,
-        bounds: Option<&Bounds>,
-        status: &mut S,
-        user_data: &mut U,
-    ) -> bool;
+    fn callback(&mut self, step: usize, status: &mut S, user_data: &mut U) -> bool;
 }
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
@@ -35,7 +27,7 @@ pub trait Observer<S: Status, U> {
 /// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
-/// let mut m = Engine::new(nm).setup(|m| m.with_observer(obs.clone()).on_status(|s| s.with_x0([2.3, 3.4])));
+/// let mut m = Engine::new(nm).setup_engine(|e| e.with_observer(obs.clone()).setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.3, 3.4]))));
 /// m.process(&problem).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
@@ -48,13 +40,7 @@ impl DebugObserver {
     }
 }
 impl<S: Status + Debug, U: Debug> Observer<S, U> for DebugObserver {
-    fn callback(
-        &mut self,
-        step: usize,
-        _bounds: Option<&Bounds>,
-        status: &mut S,
-        _user_data: &mut U,
-    ) -> bool {
+    fn callback(&mut self, step: usize, status: &mut S, _user_data: &mut U) -> bool {
         println!("Step: {}\n{:#?}", step, status);
         false
     }

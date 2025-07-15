@@ -14,8 +14,10 @@ use crate::{
 /// A swarm of particles used in particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Swarm {
+    /// The internal boundaries used by the swarm
+    pub bounds: Option<Bounds>,
     /// The number of particles
-    n_particles: usize,
+    pub n_particles: usize,
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
     /// The topology used by the swarm
@@ -33,11 +35,11 @@ pub struct Swarm {
 impl Swarm {
     /// Get list of the particles in the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
-    pub fn get_particles(&self, bounds: Option<&Bounds>) -> Vec<SwarmParticle> {
+    pub fn get_particles(&self) -> Vec<SwarmParticle> {
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
             self.particles
                 .iter()
-                .map(|p| p.to_bounded(bounds))
+                .map(|p| p.to_bounded(self.bounds.as_ref()))
                 .collect()
         } else {
             self.particles.clone()
@@ -59,6 +61,7 @@ impl Swarm {
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.bounds = bounds.cloned();
         let mut particle_positions =
             self.position_initializer
                 .init_positions(rng, dimension, self.n_particles);
@@ -68,12 +71,12 @@ impl Swarm {
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
-            particle_positions
-                .iter_mut()
-                .for_each(|point| *point = Bound::to_unbounded(point.x.as_slice(), bounds).into());
-            particle_velocities
-                .iter_mut()
-                .for_each(|velocity| *velocity = Bound::to_unbounded(velocity.as_slice(), bounds));
+            particle_positions.iter_mut().for_each(|point| {
+                *point = Bound::to_unbounded(point.x.as_slice(), self.bounds.as_ref()).into()
+            });
+            particle_velocities.iter_mut().for_each(|velocity| {
+                *velocity = Bound::to_unbounded(velocity.as_slice(), self.bounds.as_ref())
+            });
         }
         self.particles = particle_positions
             .into_iter()
@@ -84,7 +87,7 @@ impl Swarm {
                     velocity,
                     func,
                     user_data,
-                    bounds,
+                    self.bounds.as_ref(),
                     self.boundary_method,
                 )
             })

@@ -43,14 +43,6 @@ impl DerefMut for EnsembleStatus {
     }
 }
 impl EnsembleStatus {
-    /// Set the initial positions of the walkers
-    ///
-    /// # See Also
-    /// [`Walker::new`]
-    pub fn with_walkers(&mut self, x0: Vec<DVector<Float>>) -> &mut Self {
-        self.walkers = x0.into_iter().map(Walker::new).collect();
-        self
-    }
     /// Get the dimension of the [`EnsembleStatus`] `(n_walkers, n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize, usize) {
         let n_walkers = self.walkers.len();

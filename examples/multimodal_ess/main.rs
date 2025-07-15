@@ -6,7 +6,7 @@ use std::path::Path;
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
 use ganesh::core::Engine;
-use ganesh::traits::CostFunction;
+use ganesh::traits::{Configurable, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::DVector;
@@ -32,20 +32,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|_| DVector::from_fn(2, |_, _| rng.normal(0.0, 7.0)))
         .collect();
 
-    // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 20% of the time,
-    // Global steps 70% of the time, and Gaussian steps the other 10%.
-    // The global step is set with a scale factor of 0.5 on the covariance matrix of each Gaussian
-    // mixture cluster, where the default is usually 0.001. This promotes jumps between distant
-    // clusters.
-    let a = ESS::new(
-        [
-            ESSMove::gaussian(0.1),
-            ESSMove::global(0.7, None, Some(0.5), Some(4)),
-            ESSMove::differential(0.2),
-        ],
-        rng,
-    );
-
     // Terminate if the number of steps exceeds 6 integrated autocorrelation times (IAT) and the
     // difference in IAT is less than 1%
     let aco = AutocorrelationObserver::default()
@@ -53,11 +39,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_n_taus_threshold(6)
         .build();
 
-    // Create a new Sampler
-    let mut m = Engine::new(a).setup(|m| {
-        m.with_observer(aco.clone())
-            .on_status(|s| s.with_walkers(x0.clone()))
-            .with_max_steps(8000)
+    // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 20% of the time,
+    // Global steps 70% of the time, and Gaussian steps the other 10%.
+    // The global step is set with a scale factor of 0.5 on the covariance matrix of each Gaussian
+    // mixture cluster, where the default is usually 0.001. This promotes jumps between distant
+    // clusters.
+    let mut m = Engine::new(ESS::new(rng)).setup_engine(|e| {
+        e.setup_algorithm(|a| {
+            a.setup_config(|c| {
+                c.with_walkers(x0.clone()).with_moves([
+                    ESSMove::gaussian(0.1),
+                    ESSMove::global(0.7, None, Some(0.5), Some(4)),
+                    ESSMove::differential(0.2),
+                ])
+            })
+        })
+        .with_observer(aco.clone())
+        .with_max_steps(8000)
     });
 
     // Run a maximum of 8000 steps of the MCMC algorithm

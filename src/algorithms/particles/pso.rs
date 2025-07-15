@@ -4,13 +4,83 @@ use fastrand::Rng;
 use nalgebra::DVector;
 
 use crate::{
-    core::{Bounds, MinimizationSummary},
-    traits::{Algorithm, CostFunction, Status},
+    algorithms::particles::Swarm,
+    core::{Bounded, Bounds, MinimizationSummary},
+    traits::{Algorithm, Configurable, CostFunction, Status},
     utils::generate_random_vector,
     Float,
 };
 
 use super::{SwarmStatus, SwarmTopology, SwarmUpdateMethod};
+
+/// The internal configuration struct for the [`PSO`] algorithm.
+#[derive(Clone)]
+pub struct PSOConfig {
+    swarm: Swarm,
+    bounds: Option<Bounds>,
+    omega: Float,
+    c1: Float,
+    c2: Float,
+}
+impl PSOConfig {
+    /// Sets the inertial weight $`\omega`$ (default = `0.8`).
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if $`\omega < 0`$.
+    pub fn with_omega(&mut self, value: Float) -> &mut Self {
+        assert!(value >= 0.0);
+        self.omega = value;
+        self
+    }
+    /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
+    /// to move towards its personal best (default = `0.1`).
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if $`c_1 < 0`$.
+    pub fn with_c1(&mut self, value: Float) -> &mut Self {
+        assert!(value >= 0.0);
+        self.c1 = value;
+        self
+    }
+    /// Sets the social weight $`c_2`$ which controls the particle's tendency
+    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
+    /// (default = `0.1`).
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if $`c_2 < 0`$.
+    pub fn with_c2(&mut self, value: Float) -> &mut Self {
+        assert!(value >= 0.0);
+        self.c2 = value;
+        self
+    }
+    /// Convenience method to configure the swarm.
+    pub fn setup_swarm<F>(&mut self, f: F) -> &mut Self
+    where
+        F: FnOnce(&mut Swarm) -> &mut Swarm,
+    {
+        f(&mut self.swarm);
+        self
+    }
+}
+impl Bounded for PSOConfig {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl Default for PSOConfig {
+    fn default() -> Self {
+        Self {
+            swarm: Swarm::default(),
+            bounds: None,
+            omega: 0.8,
+            c1: 0.1,
+            c2: 0.1,
+        }
+    }
+}
 
 /// Particle Swarm Optimizer
 ///
@@ -36,62 +106,27 @@ use super::{SwarmStatus, SwarmTopology, SwarmUpdateMethod};
 /// [^2]: [Chu, W., Gao, X., & Sorooshian, S. (2011). Handling boundary constraints for particle swarm optimization in high-dimensional search space. In Information Sciences (Vol. 181, Issue 20, pp. 4569–4581). Elsevier BV.](https://doi.org/10.1016/j.ins.2010.11.030)
 #[derive(Clone)]
 pub struct PSO {
-    omega: Float,
-    c1: Float,
-    c2: Float,
+    config: PSOConfig,
     rng: Rng,
     dimension: usize,
+}
+impl Configurable for PSO {
+    type Config = PSOConfig;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
 }
 
 impl PSO {
     /// Construct a new particle swarm optimizer with `n_particles` particles working in an
     /// `n_dimensions` dimensional space.
-    pub const fn new(dimension: usize, rng: Rng) -> Self {
+    pub fn new(dimension: usize, rng: Rng) -> Self {
         Self {
-            omega: 0.8,
-            c1: 0.1,
-            c2: 0.1,
+            config: PSOConfig::default(),
             rng,
             dimension,
         }
-    }
-    /// Set the dimension of the PSO. This is used to generate random vectors for the particles.
-    pub const fn with_dimension(mut self, dimension: usize) -> Self {
-        self.dimension = dimension;
-        self
-    }
-    /// Sets the inertial weight $`\omega`$ (default = `0.8`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\omega < 0`$.
-    pub fn with_omega(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.omega = value;
-        self
-    }
-    /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
-    /// to move towards its personal best (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_1 < 0`$.
-    pub fn with_c1(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.c1 = value;
-        self
-    }
-    /// Sets the social weight $`c_2`$ which controls the particle's tendency
-    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
-    /// (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_2 < 0`$.
-    pub fn with_c2(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.c2 = value;
-        self
     }
     fn nbest(&self, i: usize, status: &SwarmStatus) -> DVector<Float> {
         let swarm = &status.swarm;
@@ -105,20 +140,18 @@ impl PSO {
     }
     fn update<U, E>(
         &mut self,
-        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let swarm = &status.swarm;
         match swarm.update_method {
-            SwarmUpdateMethod::Synchronous => self.update_sync(bounds, status, func, user_data),
-            SwarmUpdateMethod::Asynchronous => self.update_async(bounds, status, func, user_data),
+            SwarmUpdateMethod::Synchronous => self.update_sync(status, func, user_data),
+            SwarmUpdateMethod::Asynchronous => self.update_async(status, func, user_data),
         }
     }
     fn update_sync<U, E>(
         &mut self,
-        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -139,20 +172,24 @@ impl PSO {
             let dim = particle.position.x.len();
             let rv1 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
             let rv2 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
-            particle.velocity = particle.velocity.scale(self.omega)
+            particle.velocity = particle.velocity.scale(self.config.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
-                    .scale(self.c1)
+                    .scale(self.config.c1)
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
-                    .scale(self.c2);
-            particle.update_position(func, user_data, bounds, status.swarm.boundary_method)?;
+                    .scale(self.config.c2);
+            particle.update_position(
+                func,
+                user_data,
+                self.config.bounds.as_ref(),
+                status.swarm.boundary_method,
+            )?;
         }
         Ok(())
     }
     fn update_async<U, E>(
         &mut self,
-        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E>,
         user_data: &mut U,
@@ -166,14 +203,19 @@ impl PSO {
                 generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
             let rv2 =
                 generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
-            particle.velocity = particle.velocity.scale(self.omega)
+            particle.velocity = particle.velocity.scale(self.config.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
-                    .scale(self.c1)
+                    .scale(self.config.c1)
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
-                    .scale(self.c2);
-            particle.update_position(func, user_data, bounds, status.swarm.boundary_method)?;
+                    .scale(self.config.c2);
+            particle.update_position(
+                func,
+                user_data,
+                self.config.bounds.as_ref(),
+                status.swarm.boundary_method,
+            )?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
             }
@@ -190,13 +232,17 @@ impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        status
-            .swarm
-            .initialize(&mut self.rng, self.dimension, bounds, func, user_data)?;
+        status.swarm = self.config.swarm.clone();
+        status.swarm.initialize(
+            &mut self.rng,
+            self.dimension,
+            self.config.bounds.as_ref(),
+            func,
+            user_data,
+        )?;
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
@@ -211,17 +257,15 @@ impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.update(bounds, status, func, user_data)
+        self.update(status, func, user_data)
     }
 
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         _status: &mut SwarmStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -230,7 +274,6 @@ impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &SwarmStatus,
         _user_data: &U,
@@ -239,7 +282,7 @@ impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
             x0: vec![0.0; status.gbest.x.len()],
             x: status.gbest.x.iter().cloned().collect(),
             fx: status.gbest.fx,
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             converged: status.converged,
             cost_evals: 0,
             gradient_evals: 0,
@@ -262,8 +305,8 @@ mod tests {
 
     use crate::{
         algorithms::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
-        core::{Bounds, CtrlCAbortSignal, Engine, Point},
-        traits::{CostFunction, Observer},
+        core::{CtrlCAbortSignal, Engine, Point},
+        traits::{Configurable, CostFunction, Observer},
         Float, PI,
     };
 
@@ -285,14 +328,8 @@ mod tests {
     }
 
     impl<U> Observer<SwarmStatus, U> for TrackingObserver {
-        fn callback(
-            &mut self,
-            _step: usize,
-            bounds: Option<&Bounds>,
-            status: &mut SwarmStatus,
-            _user_data: &mut U,
-        ) -> bool {
-            self.history.push(status.swarm.get_particles(bounds));
+        fn callback(&mut self, _step: usize, status: &mut SwarmStatus, _user_data: &mut U) -> bool {
+            self.history.push(status.swarm.get_particles());
             self.best_history.push(status.gbest.clone());
             false
         }
@@ -318,14 +355,13 @@ mod tests {
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s =
-            Engine::new(PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8)).setup(|m| {
-                m.with_abort_signal(CtrlCAbortSignal::new())
-                    .with_observer(tracker.clone())
-                    .with_max_steps(200)
-                    .with_parameter_names(["X".to_string(), "Y".to_string()])
-                    .on_status(|status| {
-                        status.on_swarm(|swarm| {
+        let mut s = Engine::new(PSO::new(2, rng)).setup_engine(|e| {
+            e.setup_algorithm(|a| {
+                a.setup_config(|c| {
+                    c.with_c1(0.1)
+                        .with_c2(0.1)
+                        .with_omega(0.8)
+                        .setup_swarm(|swarm| {
                             swarm.with_n_particles(50).with_position_initializer(
                                 SwarmPositionInitializer::RandomInLimits(vec![
                                     (-20.0, 20.0),
@@ -333,8 +369,13 @@ mod tests {
                                 ]),
                             )
                         })
-                    })
-            });
+                })
+            })
+            .with_abort_signal(CtrlCAbortSignal::new())
+            .with_observer(tracker.clone())
+            .with_max_steps(200)
+            .with_parameter_names(["X".to_string(), "Y".to_string()])
+        });
 
         // Run the particle swarm optimizer
         s.process(&Function).unwrap();

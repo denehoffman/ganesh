@@ -2,8 +2,8 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, CostFunction, Status},
+    core::{bound::Bounds, Bounded, MinimizationSummary, Point},
+    traits::{Algorithm, Configurable, CostFunction, Status},
     utils::SampleFloat,
     Float,
 };
@@ -20,11 +20,9 @@ pub trait SimulatedAnnealingGenerator<U, E> {
     ) -> DVector<Float>;
 }
 
-/// A struct for the simulated annealing algorithm.
-pub struct SimulatedAnnealing<G, U, E>
-where
-    G: SimulatedAnnealingGenerator<U, E>,
-{
+/// The internal configuration struct for the [`SimulatedAnnealing`] algorithm.
+pub struct SimulatedAnnealingConfig<U, E> {
+    bounds: Option<Bounds>,
     /// The initial temperature for the simulated annealing algorithm.
     pub initial_temperature: Float,
     /// The cooling rate for the simulated annealing algorithm.
@@ -32,10 +30,45 @@ where
     /// The minimum temperature for the simulated annealing algorithm.
     pub min_temperature: Float,
     /// The generator for generating new points in the simulated annealing algorithm.
-    pub generator: G,
-    rng: fastrand::Rng,
+    pub generator: Box<dyn SimulatedAnnealingGenerator<U, E>>,
     _user_data: std::marker::PhantomData<U>,
     _error: std::marker::PhantomData<E>,
+}
+impl<U, E> SimulatedAnnealingConfig<U, E> {
+    /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
+    pub fn new<G: SimulatedAnnealingGenerator<U, E> + 'static>(
+        initial_temperature: Float,
+        cooling_rate: Float,
+        min_temperature: Float,
+        generator: G,
+    ) -> Self {
+        Self {
+            bounds: None,
+            initial_temperature,
+            cooling_rate,
+            min_temperature,
+            generator: Box::new(generator),
+            _user_data: std::marker::PhantomData,
+            _error: std::marker::PhantomData,
+        }
+    }
+}
+impl<U, E> Bounded for SimulatedAnnealingConfig<U, E> {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+/// A struct for the simulated annealing algorithm.
+pub struct SimulatedAnnealing<U, E> {
+    config: SimulatedAnnealingConfig<U, E>,
+    rng: fastrand::Rng,
+}
+impl<U, E> Configurable for SimulatedAnnealing<U, E> {
+    type Config = SimulatedAnnealingConfig<U, E>;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
 }
 
 /// A struct for the status of the simulated annealing algorithm.
@@ -76,47 +109,34 @@ impl Status for SimulatedAnnealingStatus {
     }
 }
 
-impl<G, U, E> SimulatedAnnealing<G, U, E>
-where
-    G: SimulatedAnnealingGenerator<U, E>,
-{
+impl<U, E> SimulatedAnnealing<U, E> {
     /// Creates a new instance of the simulated annealing algorithm.
-    pub fn new(
-        initial_temperature: Float,
-        cooling_rate: Float,
-        min_temperature: Float,
-        generator: G,
-    ) -> Self {
+    pub fn new(config: SimulatedAnnealingConfig<U, E>) -> Self {
         Self {
+            config,
             rng: fastrand::Rng::new(),
-            generator,
-            initial_temperature,
-            cooling_rate,
-            min_temperature,
-            _user_data: std::marker::PhantomData,
-            _error: std::marker::PhantomData,
         }
     }
 }
 
-impl<G, U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<G, U, E>
-where
-    G: SimulatedAnnealingGenerator<U, E>,
-{
+impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E> {
     type Summary = MinimizationSummary;
 
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        let bounds = self.config.bounds.as_ref();
         status.current.x = DVector::zeros(bounds.expect("The simulated annealing algorithm requires bounds to be explicitly specified, even if all parameters are unbounded!").len());
-        let x0 = self.generator.generate(func, bounds, status, user_data);
+        let x0 = self
+            .config
+            .generator
+            .generate(func, bounds, status, user_data);
         let fx0 = func.evaluate(x0.as_slice(), user_data)?;
-        status.temperature = self.initial_temperature;
+        status.temperature = self.config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
         status.best = status.current.clone();
         status.iteration = 0;
@@ -126,11 +146,10 @@ where
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
-        if status.temperature < self.min_temperature {
+        if status.temperature < self.config.min_temperature {
             return Ok(true);
         }
         Ok(false)
@@ -140,16 +159,18 @@ where
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        let x = self.generator.generate(func, bounds, status, user_data);
+        let x =
+            self.config
+                .generator
+                .generate(func, self.config.bounds.as_ref(), status, user_data);
         let fx = func.evaluate(x.as_slice(), user_data)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
-        status.temperature *= self.cooling_rate;
+        status.temperature *= self.config.cooling_rate;
         status.iteration += 1;
 
         let acceptance_probability = if status.current.fx < status.best.fx {
@@ -168,7 +189,6 @@ where
     fn postprocessing(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         _status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> Result<(), E> {
@@ -178,7 +198,6 @@ where
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &SimulatedAnnealingStatus,
         _user_data: &U,
@@ -187,7 +206,7 @@ where
             x0: vec![Float::NAN; status.best.x.nrows()],
             x: status.best.x.iter().cloned().collect(),
             fx: status.best.fx,
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.cost_evals,
             gradient_evals: 0,
@@ -208,10 +227,12 @@ mod tests {
     use nalgebra::DVector;
 
     use crate::{
-        algorithms::gradient_free::SimulatedAnnealing,
-        core::{Bound, Bounds, CtrlCAbortSignal, Engine},
+        algorithms::gradient_free::{
+            simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
+        },
+        core::{Bound, Bounded, Bounds, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::{CostFunction, Gradient},
+        traits::{Configurable, CostFunction, Gradient},
         Float,
     };
 
@@ -237,10 +258,15 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let solver = SimulatedAnnealing::new(1.0, 0.999, 1e-3, AnnealingGenerator);
-        let mut m = Engine::new(solver).setup(|m| {
-            m.with_abort_signal(CtrlCAbortSignal::new())
-                .with_bounds([(-5.0, 5.0), (-5.0, 5.0)])
+        let solver = SimulatedAnnealing::new(SimulatedAnnealingConfig::new(
+            1.0,
+            0.999,
+            1e-3,
+            AnnealingGenerator,
+        ));
+        let mut m = Engine::new(solver).setup_engine(|e| {
+            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds([(-5.0, 5.0), (-5.0, 5.0)])))
+                .with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(5_000)
         });
         let problem = Rosenbrock { n: 2 };

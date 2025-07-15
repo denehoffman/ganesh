@@ -2,62 +2,75 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::{
-    traits::{AbortSignal, Algorithm, CostFunction, Observer, Status},
-    Float,
-};
+use crate::traits::{AbortSignal, Algorithm, CostFunction, Observer, Status};
 
-use super::{Bound, Bounds, NopAbortSignal};
+use super::NopAbortSignal;
 
 const DEFAULT_MAX_STEPS: usize = 4000;
 /// The main struct used for running [`Algorithm`]s on [`CostFunction`]s.
-pub struct Engine<S, U, E, Summary> {
+pub struct Engine<S, U, E, Summary, A>
+where
+    A: Algorithm<S, U, E, Summary = Summary>,
+{
     /// The [`Status`] of the [`Algorithm`], usually read after minimization.
     pub status: S,
     /// The [`Algorithm::Summary`], usually read after minimization.
     pub result: Summary,
 
-    algorithm: Box<dyn Algorithm<S, U, E, Summary = Summary>>,
+    algorithm: A,
     observers: Vec<Arc<RwLock<dyn Observer<S, U>>>>,
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
 
-    bounds: Option<Bounds>,
+    // bounds: Option<Bounds>,
     parameter_names: Option<Vec<String>>,
     max_steps: usize,
+
+    _error: std::marker::PhantomData<E>,
 }
 
-impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
+impl<S, U, E, Summary, A> Engine<S, U, E, Summary, A>
+where
+    S: Status,
+    U: Default,
+    Summary: Default,
+    A: Algorithm<S, U, E, Summary = Summary>,
+{
     /// Creates a new [`Engine`] with the given [`Algorithm`].
-    pub fn new<T: Algorithm<S, U, E, Summary = Summary> + 'static>(solver: T) -> Self {
+    pub fn new(solver: A) -> Self {
         Self {
             status: S::default(),
-            bounds: None,
+            // bounds: None,
             parameter_names: None,
             max_steps: DEFAULT_MAX_STEPS,
-            algorithm: Box::new(solver),
+            algorithm: solver,
             observers: Vec::default(),
             abort_signal: Box::new(NopAbortSignal),
             user_data: Default::default(),
             result: Default::default(),
+            _error: std::marker::PhantomData,
         }
     }
 
-    /// Convenience method to use chainable methods to set up the [`Engine`].
+    /// Convenience method to use chainable methods to setup the [`Engine`].
     /// Example usage:
     /// ```rust
     /// # use ganesh::algorithms::gradient::LBFGSB;
     /// # use ganesh::core::CtrlCAbortSignal;
     /// # use ganesh::core::Engine;
+    /// # use ganesh::traits::Configurable;
+    /// # use ganesh::core::Bounded;
     /// # use std::convert::Infallible;
     /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
     /// let mut m = Engine::new(solver)
-    ///   .setup(|m| {
-    ///     m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+    ///   .setup_engine(|e| {
+    ///     e.setup_algorithm(|a| a.setup_config(|c| {
+    ///         c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+    ///     }))
     ///      .with_abort_signal(CtrlCAbortSignal::new())
     ///   });
     /// ```
-    pub fn setup<F>(mut self, mut f: F) -> Self
+    pub fn setup_engine<F>(mut self, mut f: F) -> Self
     where
         F: FnMut(&mut Self) -> &mut Self,
     {
@@ -66,33 +79,11 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     }
 
     /// Edit the [`Status`] of the [`Engine`].
-    pub fn on_status<F>(&mut self, mut f: F) -> &mut Self
+    pub fn setup_algorithm<F>(&mut self, mut f: F) -> &mut Self
     where
-        F: FnMut(&mut S) -> &mut S,
+        F: FnMut(&mut A) -> &mut A,
     {
-        f(&mut self.status);
-        self
-    }
-
-    /// Sets all [`Bound`]s used by the [`Algorithm`]. This can be [`None`] for an unbounded problem, or
-    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
-    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
-    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the number of bounds is not equal to the number of free
-    /// parameters.
-    pub fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(
-        &mut self,
-        bounds: I,
-    ) -> &mut Self {
-        let bounds = bounds
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<_>>()
-            .into();
-        self.bounds = Some(bounds);
+        f(&mut self.algorithm);
         self
     }
 
@@ -113,7 +104,7 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
         self
     }
     /// Set the [`AbortSignal`] of the [`Engine`].
-    pub fn with_abort_signal<A: AbortSignal + 'static>(&mut self, abort_signal: A) -> &mut Self {
+    pub fn with_abort_signal<Ab: AbortSignal + 'static>(&mut self, abort_signal: Ab) -> &mut Self {
         self.abort_signal = Box::new(abort_signal);
         self
     }
@@ -128,25 +119,6 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
     pub fn with_observer(&mut self, observer: Arc<RwLock<dyn Observer<S, U>>>) -> &mut Self {
         self.observers.push(observer);
         self
-    }
-
-    /// Check parameters against the bounds
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if any parameter is outside of its given bound.
-    pub fn assert_parameters(&self, x: &[Float]) {
-        if let Some(bounds) = &self.bounds {
-            for (i, (x_i, bound_i)) in x.iter().zip(bounds.iter()).enumerate() {
-                assert!(
-                    bound_i.contains(*x_i),
-                    "Parameter #{} = {} is outside of the given bound: {}",
-                    i,
-                    x_i,
-                    bound_i
-                )
-            }
-        }
     }
 
     /// Process the given [`CostFunction`] using the [`Engine::algorithm`].
@@ -166,49 +138,32 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
         self.status.reset();
         self.abort_signal.reset();
         self.algorithm.reset();
-        self.algorithm.initialize(
-            func,
-            self.bounds.as_ref(),
-            &mut self.status,
-            &mut self.user_data,
-        )?;
+        self.algorithm
+            .initialize(func, &mut self.status, &mut self.user_data)?;
         let mut current_step = 0;
         let mut observer_termination = false;
         while current_step <= self.max_steps
             && !observer_termination
-            && !self.algorithm.check_for_termination(
-                func,
-                self.bounds.as_ref(),
-                &mut self.status,
-                &mut self.user_data,
-            )?
+            && !self
+                .algorithm
+                .check_for_termination(func, &mut self.status, &mut self.user_data)?
             && !self.abort_signal.is_aborted()
         {
-            self.algorithm.step(
-                current_step,
-                func,
-                self.bounds.as_ref(),
-                &mut self.status,
-                &mut self.user_data,
-            )?;
+            self.algorithm
+                .step(current_step, func, &mut self.status, &mut self.user_data)?;
             current_step += 1;
             if !self.observers.is_empty() {
                 for observer in self.observers.iter_mut() {
                     observer_termination = observer.write().callback(
                         current_step,
-                        self.bounds.as_ref(),
                         &mut self.status,
                         &mut self.user_data,
                     ) || observer_termination;
                 }
             }
         }
-        self.algorithm.postprocessing(
-            func,
-            self.bounds.as_ref(),
-            &mut self.status,
-            &mut self.user_data,
-        )?;
+        self.algorithm
+            .postprocessing(func, &mut self.status, &mut self.user_data)?;
         if !observer_termination && current_step > self.max_steps && !self.status.converged() {
             self.status.update_message("MAX EVALS");
         }
@@ -217,7 +172,6 @@ impl<S: Status, U: Default, E, Summary: Default> Engine<S, U, E, Summary> {
         }
         self.result = self.algorithm.summarize(
             func,
-            self.bounds.as_ref(),
             self.parameter_names.as_ref(),
             &self.status,
             &self.user_data,

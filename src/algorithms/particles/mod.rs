@@ -17,10 +17,7 @@ pub use swarm::{
 pub mod swarm_status;
 pub use swarm_status::SwarmStatus;
 
-use crate::{
-    core::{Bounds, Point},
-    traits::Observer,
-};
+use crate::{core::Point, traits::Observer};
 
 /// An [`Observer`] which stores the swarm particles' history as well as the
 /// history of global best positions.
@@ -40,15 +37,9 @@ impl TrackingSwarmObserver {
 }
 
 impl<U> Observer<SwarmStatus, U> for TrackingSwarmObserver {
-    fn callback(
-        &mut self,
-        _step: usize,
-        bounds: Option<&Bounds>,
-        status: &mut SwarmStatus,
-        _user_data: &mut U,
-    ) -> bool {
+    fn callback(&mut self, _step: usize, status: &mut SwarmStatus, _user_data: &mut U) -> bool {
         self.history.push(status.swarm.particles.clone());
-        self.best_history.push(status.get_best(bounds));
+        self.best_history.push(status.get_best());
         false
     }
 }

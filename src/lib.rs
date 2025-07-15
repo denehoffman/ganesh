@@ -60,7 +60,7 @@
 //!     let problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
 //!     let mut m = Engine::new(nm);
-//!     m.on_status(|s| s.with_x0([2.0, 2.0]));
+//!     m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])));
 //!     m.process(&problem)?;
 //!     println!("{}", m.result);
 //!     Ok(())

@@ -10,7 +10,7 @@ pub mod point;
 pub mod summary;
 
 pub use abort_signal::{AtomicAbortSignal, CtrlCAbortSignal, NopAbortSignal};
-pub use bound::{Bound, Bounds};
+pub use bound::{Bound, Bounded, Bounds};
 pub use engine::Engine;
 pub use point::Point;
 pub use summary::{MCMCSummary, MinimizationSummary};

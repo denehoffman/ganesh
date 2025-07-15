@@ -7,7 +7,7 @@ use fastrand::Rng;
 use ganesh::algorithms::mcmc::ESS;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
 use ganesh::core::Engine;
-use ganesh::traits::CostFunction;
+use ganesh::traits::{Configurable, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};
@@ -44,19 +44,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
-    // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
-    // and Gaussian steps the other 10%
-    let a = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
-
     let aco = AutocorrelationObserver::default()
         .with_verbose(true)
         .build();
 
-    // Create a new Sampler
-    let mut m = Engine::new(a).setup(|m| {
-        m.with_observer(aco.clone())
-            .on_status(|s| s.with_walkers(x0.clone()))
-            .with_user_data(cov_inv.clone())
+    // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
+    // and Gaussian steps the other 10%
+    let mut m = Engine::new(ESS::new(rng)).setup_engine(|e| {
+        e.setup_algorithm(|a| {
+            a.setup_config(|c| {
+                c.with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
+                    .with_walkers(x0.clone())
+            })
+        })
+        .with_observer(aco.clone())
+        .with_user_data(cov_inv.clone())
     });
 
     // Run a maximum of 1000 steps of the MCMC algorithm

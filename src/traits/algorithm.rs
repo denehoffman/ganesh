@@ -1,5 +1,3 @@
-use crate::core::Bounds;
-
 use super::CostFunction;
 
 /// A trait representing a minimization algorithm.
@@ -9,6 +7,7 @@ use super::CostFunction;
 pub trait Algorithm<S, U, E> {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
+
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
     /// # Errors
@@ -18,7 +17,6 @@ pub trait Algorithm<S, U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -33,7 +31,6 @@ pub trait Algorithm<S, U, E> {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -58,7 +55,6 @@ pub trait Algorithm<S, U, E> {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<bool, E>;
@@ -73,7 +69,6 @@ pub trait Algorithm<S, U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -90,7 +85,6 @@ pub trait Algorithm<S, U, E> {
     fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &S,
         user_data: &U,

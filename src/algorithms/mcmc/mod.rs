@@ -163,6 +163,7 @@ pub fn integrated_autocorrelation_times(
 /// use ganesh::algorithms::mcmc::AutocorrelationObserver;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS};
 /// use ganesh::core::Engine;
+/// use ganesh::traits::Configurable;
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
@@ -174,15 +175,14 @@ pub fn integrated_autocorrelation_times(
 /// let x0: Vec<DVector<Float>> = (0..5)
 ///     .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
 ///     .collect();
-/// let ess = ESS::new([ESSMove::gaussian(0.1), ESSMove::differential(0.9)], rng);
 /// let obs = AutocorrelationObserver::default()
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
-/// let mut sampler = Engine::new(ess);
+/// let mut sampler = Engine::new(ESS::new(rng));
 /// sampler
 ///     .with_observer(obs)
-///     .on_status(|s| s.with_walkers(x0.clone()));
+///     .setup_algorithm(|a| a.setup_config(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])));
 /// sampler.process(&problem).unwrap();
 /// println!("{:?}", sampler.result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
@@ -259,13 +259,7 @@ impl Default for AutocorrelationObserver {
 }
 
 impl<U> Observer<EnsembleStatus, U> for AutocorrelationObserver {
-    fn callback(
-        &mut self,
-        step: usize,
-        bounds: Option<&crate::core::Bounds>,
-        status: &mut EnsembleStatus,
-        user_data: &mut U,
-    ) -> bool {
+    fn callback(&mut self, step: usize, status: &mut EnsembleStatus, user_data: &mut U) -> bool {
         if step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(
                 self.c,

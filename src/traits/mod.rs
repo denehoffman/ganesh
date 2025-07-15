@@ -2,6 +2,8 @@
 pub mod abort_signal;
 /// Module containing the [`Algorithm`] trait.
 pub mod algorithm;
+/// Module containing the [`Configuration`] trait.
+pub mod config;
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
 /// Module containing various line-search methods.
@@ -13,6 +15,7 @@ pub mod status;
 
 pub use abort_signal::AbortSignal;
 pub use algorithm::Algorithm;
+pub use config::Configurable;
 pub use cost_function::{CostFunction, Gradient, Hessian};
 pub use linesearch::LineSearch;
 pub use observer::Observer;

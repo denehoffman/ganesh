@@ -8,6 +8,7 @@ use ganesh::algorithms::particles::SwarmPositionInitializer;
 use ganesh::algorithms::particles::TrackingSwarmObserver;
 use ganesh::algorithms::particles::PSO;
 use ganesh::core::Engine;
+use ganesh::traits::Configurable;
 use ganesh::traits::CostFunction;
 use ganesh::Float;
 use ganesh::PI;
@@ -30,26 +31,27 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rng = Rng::new();
     rng.seed(0);
 
-    // Create a particle swarm optimizer algorithm and set some hyperparameters
-    let pso = PSO::new(2, rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
-
     // Create a tracker to record swarm history
     let tracker = TrackingSwarmObserver::build();
 
-    // Create a new Sampler
-    let mut m = Engine::new(pso).setup(|m| {
-        m.with_observer(tracker.clone())
-            .with_max_steps(200)
-            .on_status(|s| {
-                s.on_swarm(|swarm| {
-                    swarm
-                        .with_position_initializer(SwarmPositionInitializer::RandomInLimits(vec![
-                            (-20.0, 20.0),
-                            (-20.0, 20.0),
-                        ]))
-                        .with_n_particles(50)
-                })
+    // Create a particle swarm optimizer algorithm and set some hyperparameters
+    let mut m = Engine::new(PSO::new(2, rng)).setup_engine(|e| {
+        e.setup_algorithm(|a| {
+            a.setup_config(|c| {
+                c.with_c1(0.1)
+                    .with_c2(0.1)
+                    .with_omega(0.8)
+                    .setup_swarm(|swarm| {
+                        swarm
+                            .with_position_initializer(SwarmPositionInitializer::RandomInLimits(
+                                vec![(-20.0, 20.0), (-20.0, 20.0)],
+                            ))
+                            .with_n_particles(50)
+                    })
             })
+        })
+        .with_observer(tracker.clone())
+        .with_max_steps(200)
     });
 
     // Run the particle swarm optimizer

@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    core::{Bounds, Point},
-    traits::Status,
-};
+use crate::{core::Point, traits::Status};
 
 use super::{swarm::SwarmBoundaryMethod, Swarm};
 
@@ -23,21 +20,12 @@ pub struct SwarmStatus {
 impl SwarmStatus {
     /// Get the global best position found by the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will return the position in the original bounded space.
-    pub fn get_best(&self, bounds: Option<&Bounds>) -> Point {
+    pub fn get_best(&self) -> Point {
         if matches!(self.swarm.boundary_method, SwarmBoundaryMethod::Transform) {
-            self.gbest.to_bounded(bounds)
+            self.gbest.to_bounded(self.swarm.bounds.as_ref())
         } else {
             self.gbest.clone()
         }
-    }
-
-    /// Convenience method to configure the swarm.
-    pub fn on_swarm<F>(&mut self, f: F) -> &mut Self
-    where
-        F: FnOnce(&mut Swarm) -> &mut Swarm,
-    {
-        f(&mut self.swarm);
-        self
     }
 }
 

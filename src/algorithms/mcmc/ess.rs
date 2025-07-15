@@ -6,8 +6,9 @@ use nalgebra::{Cholesky, DMatrix, DVector};
 use parking_lot::RwLock;
 
 use crate::{
-    core::{Bounds, MCMCSummary, Point},
-    traits::{Algorithm, CostFunction, Status},
+    algorithms::mcmc::Walker,
+    core::{Bounded, Bounds, MCMCSummary, Point},
+    traits::{Algorithm, Configurable, CostFunction, Status},
     utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
     Float, PI,
 };
@@ -213,33 +214,34 @@ impl ESSMove {
     }
 }
 
-/// The Ensemble Slice Sampler
-///
-/// This sampler follows Algorithm 5 in Karamanis & Beutler.[^1].
-///
-/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
+/// The internal configuration struct for the [`ESS`] algorithm.
 #[derive(Clone)]
-pub struct ESS {
-    rng: Rng,
+pub struct ESSConfig {
+    bounds: Option<Bounds>,
+    walkers: Vec<Walker>,
     moves: Vec<WeightedESSMove>,
     n_adaptive: usize,
     max_steps: usize,
     mu: Float,
 }
-
-/// A [`ESSMove`] coupled with a weight
-pub type WeightedESSMove = (ESSMove, Float);
-
-impl ESS {
-    /// Create a new Ensemble Slice Sampler from a list of weighted [`ESSMove`]s
-    pub fn new<T: AsRef<[WeightedESSMove]>>(moves: T, rng: Rng) -> Self {
-        Self {
-            rng,
-            moves: moves.as_ref().to_vec(),
-            n_adaptive: 0,
-            max_steps: 10000,
-            mu: 1.0,
-        }
+impl Bounded for ESSConfig {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl ESSConfig {
+    /// Set the moves for the [`ESS`] algorithm to use.
+    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(&mut self, moves: T) -> &mut Self {
+        self.moves = moves.as_ref().to_vec();
+        self
+    }
+    /// Set the initial positions of the walkers
+    ///
+    /// # See Also
+    /// [`Walker::new`]
+    pub fn with_walkers(&mut self, x0: Vec<DVector<Float>>) -> &mut Self {
+        self.walkers = x0.into_iter().map(Walker::new).collect();
+        self
     }
     /// Set the number of adaptive moves to perform at the start of sampling (default: `0`)
     pub const fn with_n_adaptive(mut self, n_adaptive: usize) -> Self {
@@ -257,16 +259,58 @@ impl ESS {
         self
     }
 }
+impl Default for ESSConfig {
+    fn default() -> Self {
+        Self {
+            bounds: None,
+            walkers: Vec::default(),
+            moves: Vec::default(),
+            n_adaptive: 0,
+            max_steps: 10000,
+            mu: 1.0,
+        }
+    }
+}
 
+/// The Ensemble Slice Sampler
+///
+/// This sampler follows Algorithm 5 in Karamanis & Beutler.[^1].
+///
+/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
+#[derive(Clone)]
+pub struct ESS {
+    config: ESSConfig,
+    rng: Rng,
+}
+
+/// A [`ESSMove`] coupled with a weight
+pub type WeightedESSMove = (ESSMove, Float);
+
+impl ESS {
+    /// Create a new Ensemble Slice Sampler from a list of weighted [`ESSMove`]s
+    pub fn new(rng: Rng) -> Self {
+        Self {
+            config: ESSConfig::default(),
+            rng,
+        }
+    }
+}
+impl Configurable for ESS {
+    type Config = ESSConfig;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
+}
 impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
     type Summary = MCMCSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        status.walkers = self.config.walkers.clone();
         status.evaluate_latest(func, user_data)
     }
 
@@ -274,20 +318,26 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(&self.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
+            .choice_weighted(
+                &self
+                    .config
+                    .moves
+                    .iter()
+                    .map(|s| s.1)
+                    .collect::<Vec<Float>>(),
+            )
             .unwrap_or(0);
-        let step_type = self.moves[step_type_index].0;
+        let step_type = self.config.moves[step_type_index].0;
         step_type.step(
             i_step,
-            self.n_adaptive,
-            self.max_steps,
-            &mut self.mu,
+            self.config.n_adaptive,
+            self.config.max_steps,
+            &mut self.config.mu,
             func,
             user_data,
             status,
@@ -298,7 +348,6 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<bool, E> {
@@ -308,13 +357,12 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
     fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &EnsembleStatus,
         user_data: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             parameter_names: parameter_names.cloned(),
             message: status.message().to_string(),
             chain: status.get_chain(None, None),

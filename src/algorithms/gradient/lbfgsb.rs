@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Bounds, MinimizationSummary};
+use crate::core::{Bound, Bounded, Bounds, MinimizationSummary};
 
-use crate::traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch};
+use crate::traits::{Algorithm, Configurable, CostFunction, Gradient, Hessian, LineSearch};
 use crate::Float;
 
 use crate::algorithms::line_search::StrongWolfeLineSearch;
@@ -66,25 +66,11 @@ pub enum LBFGSBErrorMode {
     Skip,
 }
 
-/// The L-BFGS-B (Limited memory, bounded Broyden-Fletcher-Goldfarb-Shanno) algorithm.
-///
-/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
-/// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
-/// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
-///
-/// [^1] [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
-#[allow(clippy::upper_case_acronyms)]
+/// The internal configuration struct for the [`LBFGSB`] algorithm.
 #[derive(Clone)]
-pub struct LBFGSB<U, E> {
-    x: DVector<Float>,
-    g: DVector<Float>,
-    l: DVector<Float>,
-    u: DVector<Float>,
-    m_mat: DMatrix<Float>,
-    w_mat: DMatrix<Float>,
-    theta: Float,
-    f: Float,
-    f_previous: Float,
+pub struct LBFGSBConfig<U, E> {
+    x0: DVector<Float>,
+    bounds: Option<Bounds>,
     terminator_f: LBFGSBFTerminator,
     terminator_g: LBFGSBGTerminator,
     eps_f_abs: Float,
@@ -92,14 +78,39 @@ pub struct LBFGSB<U, E> {
     tol_g_abs: Float,
     line_search: Box<dyn LineSearch<GradientStatus, U, E>>,
     m: usize,
-    y_store: VecDeque<DVector<Float>>,
-    s_store: VecDeque<DVector<Float>>,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
 }
-
-impl<U, E> LBFGSB<U, E> {
-    /// Set the termination condition concerning the function values.
+impl<U, E> Default for LBFGSBConfig<U, E> {
+    fn default() -> Self {
+        Self {
+            x0: DVector::zeros(0),
+            bounds: None,
+            terminator_f: LBFGSBFTerminator,
+            terminator_g: LBFGSBGTerminator,
+            eps_f_abs: Float::sqrt(Float::EPSILON),
+            eps_g_abs: Float::cbrt(Float::EPSILON),
+            tol_g_abs: Float::cbrt(Float::EPSILON),
+            line_search: Box::<StrongWolfeLineSearch>::default(),
+            m: 10,
+            max_step: 1e8,
+            error_mode: Default::default(),
+        }
+    }
+}
+impl<U, E> Bounded for LBFGSBConfig<U, E> {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl<U, E> LBFGSBConfig<U, E> {
+    /// Set the starting position of the algorithm.
+    pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
+        let x0 = x0.into_iter().collect::<Vec<Float>>();
+        self.x0 = DVector::from_column_slice(&x0);
+        self
+    }
+    /// Set the termination condition concerning the values of the objective function.
     pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator) -> Self {
         self.terminator_f = term;
         self
@@ -165,6 +176,38 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
+/// The L-BFGS-B (Limited memory, bounded Broyden-Fletcher-Goldfarb-Shanno) algorithm.
+///
+/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
+/// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
+/// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
+///
+/// [^1] [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Clone)]
+pub struct LBFGSB<U, E> {
+    x: DVector<Float>,
+    g: DVector<Float>,
+    l: DVector<Float>,
+    u: DVector<Float>,
+    m_mat: DMatrix<Float>,
+    w_mat: DMatrix<Float>,
+    theta: Float,
+    f: Float,
+    f_previous: Float,
+    y_store: VecDeque<DVector<Float>>,
+    s_store: VecDeque<DVector<Float>>,
+    config: LBFGSBConfig<U, E>,
+}
+
+impl<U, E> Configurable for LBFGSB<U, E> {
+    type Config = LBFGSBConfig<U, E>;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
+}
+
 impl<U, E> Default for LBFGSB<U, E> {
     fn default() -> Self {
         Self {
@@ -177,17 +220,9 @@ impl<U, E> Default for LBFGSB<U, E> {
             theta: 1.0,
             f: Float::INFINITY,
             f_previous: Float::INFINITY,
-            terminator_f: LBFGSBFTerminator,
-            terminator_g: LBFGSBGTerminator,
-            eps_f_abs: Float::sqrt(Float::EPSILON),
-            eps_g_abs: Float::cbrt(Float::EPSILON),
-            tol_g_abs: Float::cbrt(Float::EPSILON),
-            line_search: Box::<StrongWolfeLineSearch>::default(),
-            m: 10,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
-            max_step: 1e8,
-            error_mode: Default::default(),
+            config: LBFGSBConfig::default(),
         }
     }
 }
@@ -383,7 +418,7 @@ impl<U, E> LBFGSB<U, E> {
         x_bar - &self.x
     }
     fn compute_max_step(&self, d: &DVector<Float>) -> Float {
-        let mut max_step = self.max_step;
+        let mut max_step = self.config.max_step;
         for i in 0..self.x.len() {
             max_step = if d[i] > 0.0 {
                 Float::min(max_step, (self.u[i] - self.x[i]) / d[i])
@@ -402,16 +437,15 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
-        let x0 = status.x0.as_ref();
+        let x0 = self.config.x0.as_ref();
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &bounds {
+        if let Some(bounds_vec) = &self.config.bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
                     Bound::NoBound => {}
@@ -447,15 +481,20 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         &mut self,
         _i_step: usize,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
-        let (valid, alpha, f_kp1, g_kp1) =
-            self.line_search
-                .search(&self.x, &d, Some(max_step), func, None, user_data, status)?;
+        let (valid, alpha, f_kp1, g_kp1) = self.config.line_search.search(
+            &self.x,
+            &d,
+            Some(max_step),
+            func,
+            None,
+            user_data,
+            status,
+        )?;
         if valid {
             let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
@@ -466,7 +505,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
                 self.s_store.push_back(dx.clone());
                 self.y_store.push_back(dg);
                 self.theta = yy / sy;
-                if self.s_store.len() > self.m {
+                if self.s_store.len() > self.config.m {
                     self.s_store.pop_front();
                     self.y_store.pop_front();
                 }
@@ -490,16 +529,20 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
-        self.terminator_f
-            .update_convergence(self.f, self.f_previous, status, self.eps_f_abs);
+        self.config.terminator_f.update_convergence(
+            self.f,
+            self.f_previous,
+            status,
+            self.config.eps_f_abs,
+        );
         self.f_previous = self.f;
-        self.terminator_g
-            .update_convergence(&self.g, status, self.eps_g_abs);
-        if self.get_inf_norm_projected_gradient() < self.tol_g_abs {
+        self.config
+            .terminator_g
+            .update_convergence(&self.g, status, self.config.eps_g_abs);
+        if self.get_inf_norm_projected_gradient() < self.config.tol_g_abs {
             status.set_converged();
             status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
         }
@@ -509,11 +552,10 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        match self.error_mode {
+        match self.config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
                 let hessian = func.hessian(self.x.as_slice(), user_data)?;
                 status.with_hess(&hessian);
@@ -526,16 +568,15 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
         let result = MinimizationSummary {
-            x0: status.x0.iter().cloned().collect(),
+            x0: self.config.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
@@ -572,8 +613,9 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Engine},
+        core::{Bounded, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
+        traits::Configurable,
         Float,
     };
 
@@ -590,24 +632,31 @@ mod tests {
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut m =
+            Engine::new(solver).setup_engine(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -616,27 +665,33 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Engine::new(solver).setup(|m| {
-            m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+        let mut m = Engine::new(solver).setup_engine(|e| {
+            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])))
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

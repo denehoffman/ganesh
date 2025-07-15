@@ -6,8 +6,6 @@ use crate::{traits::Status, Float};
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GradientFreeStatus {
-    /// The initial parameters of the minimization.
-    pub x0: DVector<Float>,
     /// A [`String`] message that can be set by [`Algorithm`](crate::traits::Algorithm)s.
     pub message: String,
     /// The current parameters of the minimization.
@@ -50,12 +48,6 @@ impl Status for GradientFreeStatus {
 }
 
 impl GradientFreeStatus {
-    /// Updates the [`GradientFreeStatus::x0`] field.
-    pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
-        let x0 = x0.into_iter().collect::<Vec<Float>>();
-        self.x0 = DVector::from_column_slice(&x0);
-        self
-    }
     /// Updates the [`GradientFreeStatus::message`] field.
     pub fn with_message(&mut self, message: &str) {
         self.message = message.to_string();

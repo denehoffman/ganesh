@@ -5,8 +5,9 @@ use nalgebra::DVector;
 use parking_lot::RwLock;
 
 use crate::{
-    core::{Bounds, MCMCSummary, Point},
-    traits::{Algorithm, CostFunction, Status},
+    algorithms::mcmc::Walker,
+    core::{Bounded, Bounds, MCMCSummary, Point},
+    traits::{Algorithm, Configurable, CostFunction, Status},
     utils::{RandChoice, SampleFloat},
     Float,
 };
@@ -129,6 +130,34 @@ impl AIESMove {
     }
 }
 
+/// The internal configuration struct for the [`AIES`] algorithm.
+#[derive(Clone, Default)]
+pub struct AIESConfig {
+    bounds: Option<Bounds>,
+    walkers: Vec<Walker>,
+    moves: Vec<WeightedAIESMove>,
+}
+impl Bounded for AIESConfig {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl AIESConfig {
+    /// Set the moves for the [`AIES`] algorithm to use.
+    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(&mut self, moves: T) -> &mut Self {
+        self.moves = moves.as_ref().to_vec();
+        self
+    }
+    /// Set the initial positions of the walkers
+    ///
+    /// # See Also
+    /// [`Walker::new`]
+    pub fn with_walkers(&mut self, x0: Vec<DVector<Float>>) -> &mut Self {
+        self.walkers = x0.into_iter().map(Walker::new).collect();
+        self
+    }
+}
+
 /// The Affine Invariant Ensemble Sampler
 ///
 /// This sampler follows the AIES algorithm defined in Goodman & Weare[^1].
@@ -136,20 +165,27 @@ impl AIESMove {
 /// [^1]: Goodman, J., & Weare, J. (2010). Ensemble samplers with affine invariance. In Communications in Applied Mathematics and Computational Science (Vol. 5, Issue 1, pp. 65–80). Mathematical Sciences Publishers. <https://doi.org/10.2140/camcos.2010.5.65>
 #[derive(Clone)]
 pub struct AIES {
+    config: AIESConfig,
     rng: Rng,
-    moves: Vec<WeightedAIESMove>,
 }
 
 /// A [`AIESMove`] coupled with a weight
 pub type WeightedAIESMove = (AIESMove, Float);
 
 impl AIES {
-    /// Create a new Affine Invariant Ensemble Sampler from a list of weighted [`AIESMove`]s
-    pub fn new<T: AsRef<[WeightedAIESMove]>>(moves: T, rng: Rng) -> Self {
+    /// Create a new Affine Invariant Ensemble Sampler
+    pub fn new(rng: Rng) -> Self {
         Self {
+            config: AIESConfig::default(),
             rng,
-            moves: moves.as_ref().to_vec(),
         }
+    }
+}
+impl Configurable for AIES {
+    type Config = AIESConfig;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
     }
 }
 
@@ -158,10 +194,10 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        status.walkers = self.config.walkers.clone();
         status.evaluate_latest(func, user_data)
     }
 
@@ -169,22 +205,27 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(&self.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
+            .choice_weighted(
+                &self
+                    .config
+                    .moves
+                    .iter()
+                    .map(|s| s.1)
+                    .collect::<Vec<Float>>(),
+            )
             .unwrap_or(0);
-        let step_type = self.moves[step_type_index].0;
+        let step_type = self.config.moves[step_type_index].0;
         step_type.step(func, user_data, status, &mut self.rng)
     }
 
     fn check_for_termination(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<bool, E> {
@@ -194,13 +235,12 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
     fn summarize(
         &self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &EnsembleStatus,
         user_data: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             parameter_names: parameter_names.cloned(),
             message: status.message().to_string(),
             chain: status.get_chain(None, None),

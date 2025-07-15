@@ -2,9 +2,9 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::line_search::StrongWolfeLineSearch,
-    core::{Bound, Bounds, MinimizationSummary},
+    core::{Bound, Bounded, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{Algorithm, CostFunction, Gradient, Hessian, LineSearch},
+    traits::{Algorithm, Configurable, CostFunction, Gradient, Hessian, LineSearch},
     Float,
 };
 
@@ -85,31 +85,31 @@ impl ConjugateGradientMethod {
     }
 }
 
-/// The Conjugate Gradient algorithm.
-///
-/// The conjugate gradient algorithm is a gradient descent method similar to quasi-Newton methods, but rather than
-/// approximate the Hessian, it uses the gradient at the previous step to modify the step
-/// direction, scaled by a parameter $`\beta`$. See [^1] for more information.
-///
-/// [^1]: [Shewchuk, J.R. (1994). An Introduction to the Conjugate Gradient Method Without the Agonizing Pain: Edition 1+1/4.](https://www.cs.cmu.edu/~quake-papers/painless-conjugate-gradient.pdf)
+/// The internal configuration struct for the [`ConjugateGradient`] algorithm.
 #[derive(Clone)]
-pub struct ConjugateGradient<U, E> {
-    x: DVector<Float>,
-    dx: DVector<Float>,
-    dx_previous: DVector<Float>,
-    s_previous: DVector<Float>,
+pub struct ConjugateGradientConfig<U, E> {
+    x0: DVector<Float>,
+    bounds: Option<Bounds>,
     conjugate_gradient_method: ConjugateGradientMethod,
     line_search: Box<dyn LineSearch<GradientStatus, U, E>>,
-    f: Float,
-    f_previous: Float,
     terminator_g: ConjugateGradientGTerminator,
     eps_g_abs: Float,
     max_step: Float,
     error_mode: ConjugateGradientErrorMode,
     n_restart: usize,
 }
-
-impl<U, E> ConjugateGradient<U, E> {
+impl<U, E> Bounded for ConjugateGradientConfig<U, E> {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl<U, E> ConjugateGradientConfig<U, E> {
+    /// Set the starting position of the algorithm.
+    pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
+        let x0 = x0.into_iter().collect::<Vec<Float>>();
+        self.x0 = DVector::from_column_slice(&x0);
+        self
+    }
     /// Set the method for computing the $`\beta`$ term of the conjugate gradient update.
     pub const fn with_method(mut self, method: ConjugateGradientMethod) -> Self {
         self.conjugate_gradient_method = method;
@@ -153,18 +153,13 @@ impl<U, E> ConjugateGradient<U, E> {
         self
     }
 }
-
-impl<U, E> Default for ConjugateGradient<U, E> {
+impl<U, E> Default for ConjugateGradientConfig<U, E> {
     fn default() -> Self {
         Self {
-            x: Default::default(),
-            dx: Default::default(),
-            dx_previous: Default::default(),
-            s_previous: Default::default(),
+            x0: DVector::zeros(0),
+            bounds: None,
             conjugate_gradient_method: Default::default(),
             line_search: Box::<StrongWolfeLineSearch>::default(),
-            f: Float::INFINITY,
-            f_previous: Float::INFINITY,
             terminator_g: ConjugateGradientGTerminator,
             eps_g_abs: Float::cbrt(Float::EPSILON),
             max_step: 1e8,
@@ -174,19 +169,59 @@ impl<U, E> Default for ConjugateGradient<U, E> {
     }
 }
 
+/// The Conjugate Gradient algorithm.
+///
+/// The conjugate gradient algorithm is a gradient descent method similar to quasi-Newton methods, but rather than
+/// approximate the Hessian, it uses the gradient at the previous step to modify the step
+/// direction, scaled by a parameter $`\beta`$. See [^1] for more information.
+///
+/// [^1]: [Shewchuk, J.R. (1994). An Introduction to the Conjugate Gradient Method Without the Agonizing Pain: Edition 1+1/4.](https://www.cs.cmu.edu/~quake-papers/painless-conjugate-gradient.pdf)
+pub struct ConjugateGradient<U, E> {
+    x: DVector<Float>,
+    dx: DVector<Float>,
+    dx_previous: DVector<Float>,
+    s_previous: DVector<Float>,
+    f: Float,
+    f_previous: Float,
+    config: ConjugateGradientConfig<U, E>,
+}
+
+impl<U, E> Default for ConjugateGradient<U, E> {
+    fn default() -> Self {
+        Self {
+            x: Default::default(),
+            dx: Default::default(),
+            dx_previous: Default::default(),
+            s_previous: Default::default(),
+            f: Float::INFINITY,
+            f_previous: Float::INFINITY,
+            config: ConjugateGradientConfig::default(),
+        }
+    }
+}
+
+impl<U, E> Configurable for ConjugateGradient<U, E> {
+    type Config = ConjugateGradientConfig<U, E>;
+
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
+}
+
 impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
     type Summary = MinimizationSummary;
+
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        let bounds = self.config.bounds.as_ref();
         if bounds.is_some() {
             maybe_warn("The Conjugate Gradient method has experimental support for bounded parameters, but it may be unstable and fail to converge!");
         }
-        self.x = Bound::to_bounded(status.x0.as_slice(), bounds);
+        self.x = Bound::to_bounded(self.config.x0.as_slice(), bounds);
         self.dx = -func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
         status.inc_n_g_evals();
         status.with_position((
@@ -201,17 +236,16 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
         &mut self,
         i_step: usize,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         if i_step == 0 {
-            let (_valid, alpha, f, g) = self.line_search.search(
+            let (_valid, alpha, f, g) = self.config.line_search.search(
                 &self.x,
                 &self.dx,
-                Some(self.max_step),
+                Some(self.config.max_step),
                 func,
-                bounds,
+                self.config.bounds.as_ref(),
                 user_data,
                 status,
             )?;
@@ -221,24 +255,27 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
             self.dx_previous = self.dx.clone();
             self.dx = -g;
             self.s_previous = self.dx.clone();
-            status.with_position((Bound::to_bounded(self.x.as_slice(), bounds), f));
+            status.with_position((
+                Bound::to_bounded(self.x.as_slice(), self.config.bounds.as_ref()),
+                f,
+            ));
         } else {
-            let beta = if i_step % self.n_restart == 0 {
+            let beta = if i_step % self.config.n_restart == 0 {
                 0.0
             } else {
-                self.conjugate_gradient_method.compute_beta(
+                self.config.conjugate_gradient_method.compute_beta(
                     &self.dx,
                     &self.dx_previous,
                     &self.s_previous,
                 )
             };
             let s = &self.dx + self.s_previous.scale(beta);
-            let (_valid, alpha, f, g) = self.line_search.search(
+            let (_valid, alpha, f, g) = self.config.line_search.search(
                 &self.x,
                 &s,
-                Some(self.max_step),
+                Some(self.config.max_step),
                 func,
-                bounds,
+                self.config.bounds.as_ref(),
                 user_data,
                 status,
             )?;
@@ -248,7 +285,10 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
             self.dx_previous = self.dx.clone();
             self.dx = -g;
             self.s_previous = s;
-            status.with_position((Bound::to_bounded(self.x.as_slice(), bounds), f));
+            status.with_position((
+                Bound::to_bounded(self.x.as_slice(), self.config.bounds.as_ref()),
+                f,
+            ));
         }
         Ok(())
     }
@@ -256,28 +296,27 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
     fn check_for_termination(
         &mut self,
         _func: &dyn CostFunction<U, E>,
-        _bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
-        self.terminator_g
-            .update_convergence(&-&self.dx, status, self.eps_g_abs);
+        self.config
+            .terminator_g
+            .update_convergence(&-&self.dx, status, self.config.eps_g_abs);
         Ok(status.converged)
     }
 
     fn summarize(
         &self,
         _func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
         let result = MinimizationSummary {
-            x0: status.x0.iter().cloned().collect(),
+            x0: self.config.x0.iter().cloned().collect(),
             x: status.x.iter().cloned().collect(),
             fx: status.fx,
-            bounds: bounds.cloned(),
+            bounds: self.config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
@@ -295,14 +334,13 @@ impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
     fn postprocessing(
         &mut self,
         func: &dyn CostFunction<U, E>,
-        bounds: Option<&Bounds>,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
-        match self.error_mode {
+        match self.config.error_mode {
             ConjugateGradientErrorMode::ExactHessian => {
                 let hessian = func.hessian(
-                    Bound::to_unbounded(self.x.as_slice(), bounds).as_slice(),
+                    Bound::to_unbounded(self.x.as_slice(), self.config.bounds.as_ref()).as_slice(),
                     user_data,
                 )?;
                 status.with_hess(&hessian);
@@ -329,8 +367,9 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{CtrlCAbortSignal, Engine},
+        core::{Bounded, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
+        traits::Configurable,
         Float,
     };
 
@@ -347,24 +386,31 @@ mod tests {
     #[test]
     fn test_conjugate_gradient() -> Result<(), Infallible> {
         let solver = ConjugateGradient::default();
-        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut m =
+            Engine::new(solver).setup_engine(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -376,27 +422,29 @@ mod tests {
     #[test]
     fn test_bounded_conjugate_gradient() -> Result<(), Infallible> {
         let solver = ConjugateGradient::default();
-        let mut m = Engine::new(solver).setup(|m| {
-            m.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
+        let mut m = Engine::new(solver).setup_engine(|e| {
+            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])))
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
-        m.on_status(|s| s.with_x0([-2.0, 2.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.on_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        // m.update_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.on_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        // m.update_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.on_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        // m.update_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.on_status(|s| s.with_x0([0.0, 0.0])).process(&problem)?;
+        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
+            .process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.on_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        // m.update_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
