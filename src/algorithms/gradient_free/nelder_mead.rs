@@ -85,7 +85,7 @@ pub struct Simplex {
     points: Vec<Point>,
     dimension: usize,
     sorted: bool,
-    centroid: DVector<Float>,
+    total_centroid: DVector<Float>,
     volume: Float,
     initial_best: Point,
     initial_worst: Point,
@@ -112,23 +112,24 @@ impl Simplex {
         // NOTE: volume calculation is off by a constant 1/n! which divides out on both sides
         // whenever we use this!
         let volume = Float::sqrt(gram_mat.determinant());
-        let dim = n_params as Float;
-        let centroid: DVector<Float> = sorted_points
-            .iter()
-            .rev()
-            .skip(1)
-            .map(|p| (&p.x / dim))
-            .sum();
+        let total_centroid =
+            sorted_points.iter().map(|p| (&p.x)).sum::<DVector<Float>>() / points.len() as Float;
         Self {
             points: sorted_points,
             dimension: points.len(),
             sorted: false,
-            centroid,
+            total_centroid,
             volume,
             initial_best,
             initial_worst,
             initial_volume: volume,
         }
+    }
+    fn corrected_centroid(&self) -> DVector<Float> {
+        let n = self.points.len();
+        let total = &self.total_centroid * (n as Float);
+        let sum = total - &self.points[n - 1].x;
+        sum / ((n - 1) as Float)
     }
     fn best_position(&self, bounds: Option<&Bounds>) -> (DVector<Float>, Float) {
         let (y, fx) = self.best().clone().into_vec_val();
@@ -144,39 +145,32 @@ impl Simplex {
         &self.points[self.points.len() - 2]
     }
     fn insert_and_sort(&mut self, index: usize, element: Point) {
+        let removed = self.points.remove(self.points.len() - 1);
+        let n = self.points.len() as Float + 1.0;
+        self.total_centroid += (&element.x - &removed.x) / n;
+
         self.points.insert(index, element);
-        self.points.pop();
         self.sorted = false;
         self.sort();
-        self.compute_centroid();
     }
     fn insert_sorted(&mut self, index: usize, element: Point) {
+        let removed = self.points.remove(self.points.len() - 1);
         self.points.insert(index, element);
-        self.points.pop();
         self.sorted = true;
-        self.compute_centroid();
+
+        let n = self.points.len() as Float;
+        self.total_centroid += (&self.points[index].x - &removed.x) / n;
     }
+
     fn sort(&mut self) {
         if !self.sorted {
             self.sorted = true;
             self.points.sort_by(|a, b| a.total_cmp(b));
         }
     }
-    fn compute_centroid(&mut self) {
-        let dim = (self.points.len() - 1) as Float;
-        self.centroid = self.points.iter().rev().skip(1).map(|p| &p.x / dim).sum()
-    }
-    // TODO: track centroid updates
-    #[allow(dead_code)]
-    fn centroid_add(&mut self, a: &Point) {
-        let dim = (self.points.len() - 1) as Float;
-        self.centroid += &a.x / dim;
-    }
-    // TODO: track centroid updates
-    #[allow(dead_code)]
-    fn centroid_remove(&mut self, a: &Point) {
-        let dim = (self.points.len() - 1) as Float;
-        self.centroid -= &a.x / dim;
+    fn compute_total_centroid(&mut self) {
+        let n = self.points.len() as Float;
+        self.total_centroid = self.points.iter().map(|p| &p.x).sum::<DVector<Float>>() / n;
     }
     fn scale_volume(&mut self, factor: Float) {
         self.volume *= factor;
@@ -635,7 +629,7 @@ impl<U, E> Algorithm<GradientFreeStatus, U, E> for NelderMead {
         let h = self.config.simplex.worst();
         let s = self.config.simplex.second_worst();
         let l = self.config.simplex.best();
-        let c = &self.config.simplex.centroid;
+        let c = &self.config.simplex.corrected_centroid();
         let mut xr = Point::from(c + (c - &h.x).scale(self.config.alpha));
         xr.evaluate_bounded(func, bounds, user_data)?;
         status.inc_n_f_evals();
@@ -758,7 +752,7 @@ impl<U, E> Algorithm<GradientFreeStatus, U, E> for NelderMead {
         self.config.simplex.sorted = false;
         self.config.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
-        self.config.simplex.compute_centroid();
+        self.config.simplex.compute_total_centroid();
         status.with_position(self.config.simplex.best_position(bounds));
         status.with_message("SHRINK");
         self.config.simplex.scale_volume(Float::powi(
@@ -841,9 +835,11 @@ mod tests {
     use std::convert::Infallible;
 
     use approx::assert_relative_eq;
+    use nalgebra::DVector;
 
     use crate::{
-        core::{CtrlCAbortSignal, Engine},
+        algorithms::gradient_free::nelder_mead::Simplex,
+        core::{CtrlCAbortSignal, Engine, Point},
         test_functions::Rosenbrock,
         traits::Bounded,
         Float,
@@ -931,5 +927,61 @@ mod tests {
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
+    }
+
+    fn point(x: &[Float], fx: Float) -> Point {
+        Point {
+            x: DVector::from_column_slice(x),
+            fx,
+        }
+    }
+    #[test]
+    fn test_corrected_centroid() {
+        let pts = vec![
+            point(&[1.0, 2.0], 1.0),
+            point(&[2.0, 3.0], 2.0),
+            point(&[3.0, 4.0], 3.0),
+        ];
+        let simplex = Simplex::new(&pts);
+
+        let expected = (&pts[0].x + &pts[1].x) / 2.0;
+
+        let actual = simplex.corrected_centroid();
+        assert_eq!(actual, expected);
+    }
+    #[test]
+    fn test_insert_sorted() {
+        let mut simplex = Simplex::new(&[
+            point(&[0.0, 0.0], 0.0),
+            point(&[1.0, 1.0], 1.0),
+            point(&[2.0, 2.0], 2.0),
+        ]);
+
+        let original_total = simplex.total_centroid.clone();
+
+        let new_point = point(&[3.0, 3.0], 1.5);
+        simplex.insert_sorted(1, new_point.clone());
+
+        let expected_total = &original_total + (&new_point.x - &point(&[2.0, 2.0], 2.0).x) / 3.0;
+
+        assert_eq!(simplex.total_centroid.clone(), expected_total);
+    }
+    #[test]
+    fn test_insert_and_sort() {
+        let mut simplex = Simplex::new(&[
+            point(&[5.0, 0.0], 5.0),
+            point(&[1.0, 1.0], 1.0),
+            point(&[2.0, 2.0], 2.0),
+        ]);
+
+        let original_total = simplex.total_centroid.clone();
+        let new_point = point(&[0.5, 0.5], 0.2);
+
+        simplex.insert_and_sort(0, new_point.clone());
+
+        let expected_total = &original_total + (&new_point.x - &point(&[5.0, 0.0], 5.0).x) / 3.0;
+
+        assert_eq!(simplex.best(), &new_point);
+        assert_eq!(simplex.total_centroid.clone(), expected_total);
     }
 }
