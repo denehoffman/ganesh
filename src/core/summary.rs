@@ -37,9 +37,8 @@ impl Display for MinimizationSummary {
         use tabled::{
             builder::Builder,
             settings::{
-                object::Row,
-                style::{BorderSpanCorrection, HorizontalLine},
-                Alignment, Color, Padding, Span, Style, Theme,
+                object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Color,
+                Padding, Span, Style, Theme,
             },
         };
         let mut builder = Builder::default();
@@ -129,7 +128,7 @@ impl Display for MinimizationSummary {
             .modify((4, 0), Span::column(4))
             .modify((4, 4), Span::column(2))
             .modify(Row::from(5), Color::BOLD)
-            .with(BorderSpanCorrection);
+            .with(BorderCorrection::span());
 
         f.write_str(&table.to_string())?;
         Ok(())
