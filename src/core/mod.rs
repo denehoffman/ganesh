@@ -6,11 +6,11 @@ pub mod bound;
 pub mod engine;
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
-/// [`Summary`] type for the result of the minimization.
+/// Summary types for the result of the minimization.
 pub mod summary;
 
 pub use abort_signal::{AtomicAbortSignal, CtrlCAbortSignal, NopAbortSignal};
-pub use bound::{Bound, Bounded, Bounds};
+pub use bound::{Bound, Bounds};
 pub use engine::Engine;
 pub use point::Point;
 pub use summary::{MCMCSummary, MinimizationSummary};

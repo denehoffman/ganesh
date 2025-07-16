@@ -6,8 +6,8 @@ use parking_lot::RwLock;
 
 use crate::{
     algorithms::mcmc::Walker,
-    core::{Bounded, Bounds, MCMCSummary, Point},
-    traits::{Algorithm, Configurable, CostFunction, Status},
+    core::{Bounds, MCMCSummary, Point},
+    traits::{Algorithm, Bounded, CostFunction, Status},
     utils::{RandChoice, SampleFloat},
     Float,
 };
@@ -181,16 +181,13 @@ impl AIES {
         }
     }
 }
-impl Configurable for AIES {
-    type Config = AIESConfig;
-
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
-}
 
 impl<U, E> Algorithm<EnsembleStatus, U, E> for AIES {
     type Summary = MCMCSummary;
+    type Config = AIESConfig;
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,

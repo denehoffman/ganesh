@@ -53,24 +53,24 @@ where
     }
 
     /// Convenience method to use chainable methods to setup the [`Engine`].
-    /// Example usage:
+    ///
+    /// # Example:
+    ///
     /// ```rust
     /// # use ganesh::algorithms::gradient::LBFGSB;
     /// # use ganesh::core::CtrlCAbortSignal;
     /// # use ganesh::core::Engine;
-    /// # use ganesh::traits::Configurable;
     /// # use ganesh::core::Bounded;
     /// # use std::convert::Infallible;
     /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
     /// let mut m = Engine::new(solver)
-    ///   .setup_engine(|e| {
-    ///     e.setup_algorithm(|a| a.setup_config(|c| {
-    ///         c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])
-    ///     }))
-    ///      .with_abort_signal(CtrlCAbortSignal::new())
+    ///   .setup(|e| {
+    ///     e.configure(|c| {
+    ///         c.with_bounds([(-4.0, 4.0), (-4.0, 4.0)])
+    ///     }).with_abort_signal(CtrlCAbortSignal::new())
     ///   });
     /// ```
-    pub fn setup_engine<F>(mut self, mut f: F) -> Self
+    pub fn setup<F>(mut self, mut f: F) -> Self
     where
         F: FnMut(&mut Self) -> &mut Self,
     {
@@ -78,12 +78,28 @@ where
         self
     }
 
-    /// Edit the [`Status`] of the [`Engine`].
-    pub fn setup_algorithm<F>(&mut self, mut f: F) -> &mut Self
+    /// Convenience method to use chainable methods to setup the [`Algorithm::Config`]. This is
+    /// typically where things like initial conditions and bounds are set.
+    ///
+    /// # Example:
+    ///
+    /// ```rust
+    /// # use ganesh::algorithms::gradient::LBFGSB;
+    /// # use ganesh::core::CtrlCAbortSignal;
+    /// # use ganesh::core::Engine;
+    /// # use ganesh::core::Bounded;
+    /// # use std::convert::Infallible;
+    /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
+    /// let mut m = Engine::new(solver).configure(|c| {
+    ///     c.with_bounds([(-4.0, 4.0), (-4.0, 4.0)])
+    ///      .with_x0([1.2, 2.3])
+    /// });
+    /// ```
+    pub fn configure<F>(&mut self, mut f: F) -> &mut Self
     where
-        F: FnMut(&mut A) -> &mut A,
+        F: FnMut(&mut A::Config) -> &mut A::Config,
     {
-        f(&mut self.algorithm);
+        f(self.algorithm.get_config_mut());
         self
     }
 
@@ -121,7 +137,7 @@ where
         self
     }
 
-    /// Process the given [`CostFunction`] using the [`Engine::algorithm`].
+    /// Process the given [`CostFunction`] using the [`Engine`]'s stored [`Algorithm`].
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if [`Algorithm::check_for_termination`] returns `true` or if

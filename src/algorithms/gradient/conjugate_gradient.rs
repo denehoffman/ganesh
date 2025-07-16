@@ -2,9 +2,9 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::line_search::StrongWolfeLineSearch,
-    core::{Bound, Bounded, Bounds, MinimizationSummary},
+    core::{Bound, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{Algorithm, Configurable, CostFunction, Gradient, Hessian, LineSearch},
+    traits::{Algorithm, Bounded, CostFunction, Gradient, Hessian, LineSearch},
     Float,
 };
 
@@ -200,17 +200,12 @@ impl<U, E> Default for ConjugateGradient<U, E> {
     }
 }
 
-impl<U, E> Configurable for ConjugateGradient<U, E> {
+impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
+    type Summary = MinimizationSummary;
     type Config = ConjugateGradientConfig<U, E>;
-
     fn get_config_mut(&mut self) -> &mut Self::Config {
         &mut self.config
     }
-}
-
-impl<U, E> Algorithm<GradientStatus, U, E> for ConjugateGradient<U, E> {
-    type Summary = MinimizationSummary;
-
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -367,9 +362,9 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{Bounded, CtrlCAbortSignal, Engine},
+        core::{CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::Configurable,
+        traits::Bounded,
         Float,
     };
 
@@ -386,31 +381,24 @@ mod tests {
     #[test]
     fn test_conjugate_gradient() -> Result<(), Infallible> {
         let solver = ConjugateGradient::default();
-        let mut m =
-            Engine::new(solver).setup_engine(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -422,29 +410,27 @@ mod tests {
     #[test]
     fn test_bounded_conjugate_gradient() -> Result<(), Infallible> {
         let solver = ConjugateGradient::default();
-        let mut m = Engine::new(solver).setup_engine(|e| {
-            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])))
+        let mut m = Engine::new(solver).setup(|e| {
+            e.configure(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.update_status(|s| s.with_x0([2.0, 2.0])).process(&problem)?;
+        // m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.update_status(|s| s.with_x0([2.0, -2.0])).process(&problem)?;
+        // m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.update_status(|s| s.with_x0([-2.0, -2.0])).process(&problem)?;
+        // m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        // m.update_status(|s| s.with_x0([1.0, 1.0])).process(&problem)?;
+        // m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         // assert!(m.result.converged);
         // assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

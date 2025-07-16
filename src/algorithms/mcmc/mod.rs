@@ -163,7 +163,6 @@ pub fn integrated_autocorrelation_times(
 /// use ganesh::algorithms::mcmc::AutocorrelationObserver;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS};
 /// use ganesh::core::Engine;
-/// use ganesh::traits::Configurable;
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
@@ -182,7 +181,7 @@ pub fn integrated_autocorrelation_times(
 /// let mut sampler = Engine::new(ESS::new(rng));
 /// sampler
 ///     .with_observer(obs)
-///     .setup_algorithm(|a| a.setup_config(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])));
+///     .configure(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]));
 /// sampler.process(&problem).unwrap();
 /// println!("{:?}", sampler.result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
@@ -237,7 +236,7 @@ impl AutocorrelationObserver {
         self.verbose = verbose;
         self
     }
-    /// Finalize the [`MCMCObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
+    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
     pub fn build(self) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(self))
     }

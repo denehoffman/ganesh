@@ -5,8 +5,8 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::particles::Swarm,
-    core::{Bounded, Bounds, MinimizationSummary},
-    traits::{Algorithm, Configurable, CostFunction, Status},
+    core::{Bounds, MinimizationSummary},
+    traits::{Algorithm, Bounded, CostFunction, Status},
     utils::generate_random_vector,
     Float,
 };
@@ -109,13 +109,6 @@ pub struct PSO {
     config: PSOConfig,
     rng: Rng,
     dimension: usize,
-}
-impl Configurable for PSO {
-    type Config = PSOConfig;
-
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
 }
 
 impl PSO {
@@ -229,6 +222,10 @@ impl PSO {
 
 impl<U, E> Algorithm<SwarmStatus, U, E> for PSO {
     type Summary = MinimizationSummary;
+    type Config = PSOConfig;
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -306,7 +303,7 @@ mod tests {
     use crate::{
         algorithms::particles::{SwarmParticle, SwarmPositionInitializer, SwarmStatus, PSO},
         core::{CtrlCAbortSignal, Engine, Point},
-        traits::{Configurable, CostFunction, Observer},
+        traits::{CostFunction, Observer},
         Float, PI,
     };
 
@@ -355,21 +352,19 @@ mod tests {
         let tracker = TrackingObserver::build();
 
         // Create a new Sampler
-        let mut s = Engine::new(PSO::new(2, rng)).setup_engine(|e| {
-            e.setup_algorithm(|a| {
-                a.setup_config(|c| {
-                    c.with_c1(0.1)
-                        .with_c2(0.1)
-                        .with_omega(0.8)
-                        .setup_swarm(|swarm| {
-                            swarm.with_n_particles(50).with_position_initializer(
-                                SwarmPositionInitializer::RandomInLimits(vec![
-                                    (-20.0, 20.0),
-                                    (-20.0, 20.0),
-                                ]),
-                            )
-                        })
-                })
+        let mut s = Engine::new(PSO::new(2, rng)).setup(|e| {
+            e.configure(|c| {
+                c.with_c1(0.1)
+                    .with_c2(0.1)
+                    .with_omega(0.8)
+                    .setup_swarm(|swarm| {
+                        swarm.with_n_particles(50).with_position_initializer(
+                            SwarmPositionInitializer::RandomInLimits(vec![
+                                (-20.0, 20.0),
+                                (-20.0, 20.0),
+                            ]),
+                        )
+                    })
             })
             .with_abort_signal(CtrlCAbortSignal::new())
             .with_observer(tracker.clone())

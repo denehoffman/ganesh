@@ -7,8 +7,8 @@ use parking_lot::RwLock;
 
 use crate::{
     algorithms::mcmc::Walker,
-    core::{Bounded, Bounds, MCMCSummary, Point},
-    traits::{Algorithm, Configurable, CostFunction, Status},
+    core::{Bounds, MCMCSummary, Point},
+    traits::{Algorithm, Bounded, CostFunction, Status},
     utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
     Float, PI,
 };
@@ -295,15 +295,12 @@ impl ESS {
         }
     }
 }
-impl Configurable for ESS {
+impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
+    type Summary = MCMCSummary;
     type Config = ESSConfig;
-
     fn get_config_mut(&mut self) -> &mut Self::Config {
         &mut self.config
     }
-}
-impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
-    type Summary = MCMCSummary;
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,

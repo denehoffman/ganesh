@@ -2,8 +2,8 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{bound::Bounds, Bounded, MinimizationSummary, Point},
-    traits::{Algorithm, Configurable, CostFunction, Status},
+    core::{bound::Bounds, MinimizationSummary, Point},
+    traits::{Algorithm, Bounded, CostFunction, Status},
     utils::SampleFloat,
     Float,
 };
@@ -63,13 +63,6 @@ pub struct SimulatedAnnealing<U, E> {
     config: SimulatedAnnealingConfig<U, E>,
     rng: fastrand::Rng,
 }
-impl<U, E> Configurable for SimulatedAnnealing<U, E> {
-    type Config = SimulatedAnnealingConfig<U, E>;
-
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
-}
 
 /// A struct for the status of the simulated annealing algorithm.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -121,7 +114,10 @@ impl<U, E> SimulatedAnnealing<U, E> {
 
 impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E> {
     type Summary = MinimizationSummary;
-
+    type Config = SimulatedAnnealingConfig<U, E>;
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
@@ -230,9 +226,9 @@ mod tests {
         algorithms::gradient_free::{
             simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
         },
-        core::{Bound, Bounded, Bounds, CtrlCAbortSignal, Engine},
+        core::{Bound, Bounds, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::{Configurable, CostFunction, Gradient},
+        traits::{Bounded, CostFunction, Gradient},
         Float,
     };
 
@@ -264,8 +260,8 @@ mod tests {
             1e-3,
             AnnealingGenerator,
         ));
-        let mut m = Engine::new(solver).setup_engine(|e| {
-            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds([(-5.0, 5.0), (-5.0, 5.0)])))
+        let mut m = Engine::new(solver).setup(|e| {
+            e.configure(|c| c.with_bounds([(-5.0, 5.0), (-5.0, 5.0)]))
                 .with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(5_000)
         });

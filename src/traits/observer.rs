@@ -8,7 +8,7 @@ use super::Status;
 /// [`Algorithm`](`crate::traits::Algorithm`)'s [`Status`] during a minimization.
 pub trait Observer<S: Status, U> {
     /// A function that is called at every step of a minimization [`Algorithm`](`crate::traits::Algorithm`). If it returns
-    /// `true`, the [`Minimizer::minimize`](`crate::core::Engine::minimize`) method will terminate.
+    /// `true`, the [`Engine::process`](`crate::core::Engine::process`) method will terminate.
     fn callback(&mut self, step: usize, status: &mut S, user_data: &mut U) -> bool;
 }
 
@@ -27,7 +27,7 @@ pub trait Observer<S: Status, U> {
 /// let problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
-/// let mut m = Engine::new(nm).setup_engine(|e| e.with_observer(obs.clone()).setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.3, 3.4]))));
+/// let mut m = Engine::new(nm).setup(|e| e.with_observer(obs.clone()).configure(|c| c.with_x0([2.3, 3.4])));
 /// m.process(&problem).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);

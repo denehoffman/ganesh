@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::core::{Bound, Bounded, Bounds, MinimizationSummary};
+use crate::core::{Bound, Bounds, MinimizationSummary};
 
-use crate::traits::{Algorithm, Configurable, CostFunction, Gradient, Hessian, LineSearch};
+use crate::traits::{Algorithm, Bounded, CostFunction, Gradient, Hessian, LineSearch};
 use crate::Float;
 
 use crate::algorithms::line_search::StrongWolfeLineSearch;
@@ -182,7 +182,7 @@ impl<U, E> LBFGSBConfig<U, E> {
 /// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
 /// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
 ///
-/// [^1] [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
+/// [^1]: [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
 pub struct LBFGSB<U, E> {
@@ -198,14 +198,6 @@ pub struct LBFGSB<U, E> {
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
     config: LBFGSBConfig<U, E>,
-}
-
-impl<U, E> Configurable for LBFGSB<U, E> {
-    type Config = LBFGSBConfig<U, E>;
-
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
 }
 
 impl<U, E> Default for LBFGSB<U, E> {
@@ -434,6 +426,10 @@ impl<U, E> LBFGSB<U, E> {
 
 impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     type Summary = MinimizationSummary;
+    type Config = LBFGSBConfig<U, E>;
+    fn get_config_mut(&mut self) -> &mut Self::Config {
+        &mut self.config
+    }
     fn initialize(
         &mut self,
         func: &dyn CostFunction<U, E>,
@@ -613,9 +609,9 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{Bounded, CtrlCAbortSignal, Engine},
+        core::{CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::Configurable,
+        traits::Bounded,
         Float,
     };
 
@@ -632,31 +628,24 @@ mod tests {
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m =
-            Engine::new(solver).setup_engine(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())
@@ -665,33 +654,27 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let solver = LBFGSB::default();
-        let mut m = Engine::new(solver).setup_engine(|e| {
-            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])))
+        let mut m = Engine::new(solver).setup(|e| {
+            e.configure(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
                 .with_abort_signal(CtrlCAbortSignal::new())
         });
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         Ok(())

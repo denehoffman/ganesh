@@ -7,7 +7,7 @@ use fastrand::Rng;
 use ganesh::algorithms::mcmc::ESS;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
 use ganesh::core::Engine;
-use ganesh::traits::{Configurable, CostFunction};
+use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};
@@ -50,12 +50,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
     // and Gaussian steps the other 10%
-    let mut m = Engine::new(ESS::new(rng)).setup_engine(|e| {
-        e.setup_algorithm(|a| {
-            a.setup_config(|c| {
-                c.with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
-                    .with_walkers(x0.clone())
-            })
+    let mut m = Engine::new(ESS::new(rng)).setup(|e| {
+        e.configure(|c| {
+            c.with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
+                .with_walkers(x0.clone())
         })
         .with_observer(aco.clone())
         .with_user_data(cov_inv.clone())

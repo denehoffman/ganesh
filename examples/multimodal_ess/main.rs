@@ -6,7 +6,7 @@ use std::path::Path;
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
 use ganesh::core::Engine;
-use ganesh::traits::{Configurable, CostFunction};
+use ganesh::traits::CostFunction;
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::DVector;
@@ -44,15 +44,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The global step is set with a scale factor of 0.5 on the covariance matrix of each Gaussian
     // mixture cluster, where the default is usually 0.001. This promotes jumps between distant
     // clusters.
-    let mut m = Engine::new(ESS::new(rng)).setup_engine(|e| {
-        e.setup_algorithm(|a| {
-            a.setup_config(|c| {
-                c.with_walkers(x0.clone()).with_moves([
-                    ESSMove::gaussian(0.1),
-                    ESSMove::global(0.7, None, Some(0.5), Some(4)),
-                    ESSMove::differential(0.2),
-                ])
-            })
+    let mut m = Engine::new(ESS::new(rng)).setup(|e| {
+        e.configure(|c| {
+            c.with_walkers(x0.clone()).with_moves([
+                ESSMove::gaussian(0.1),
+                ESSMove::global(0.7, None, Some(0.5), Some(4)),
+                ESSMove::differential(0.2),
+            ])
         })
         .with_observer(aco.clone())
         .with_max_steps(8000)

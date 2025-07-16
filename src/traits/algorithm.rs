@@ -1,3 +1,5 @@
+use crate::core::{Bound, Bounds};
+
 use super::CostFunction;
 
 /// A trait representing a minimization algorithm.
@@ -7,6 +9,11 @@ use super::CostFunction;
 pub trait Algorithm<S, U, E> {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
+    /// The configuration struct for the algorithm.
+    type Config;
+
+    /// A helper method to get the mutable internal configuration struct.
+    fn get_config_mut(&mut self) -> &mut Self::Config;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -92,4 +99,26 @@ pub trait Algorithm<S, U, E> {
 
     /// Reset the algorithm to its initial state.
     fn reset(&mut self) {}
+}
+
+/// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter bounds.
+pub trait Bounded
+where
+    Self: Sized,
+{
+    /// A helper method to get the mutable internal [`Bounds`] object.
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds>;
+    /// Sets all [`Bound`]s used by the [`Algorithm`]. This can be [`None`] for an unbounded problem, or
+    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
+    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
+    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
+    fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(&mut self, bounds: I) -> &mut Self {
+        let bounds = bounds
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .into();
+        *self.get_bounds_mut() = Some(bounds);
+        self
+    }
 }

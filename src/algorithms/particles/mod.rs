@@ -30,7 +30,7 @@ pub struct TrackingSwarmObserver {
 }
 
 impl TrackingSwarmObserver {
-    /// Finalize the [`SwarmObserver`] by wrapping it in an [`Arc`] and [`RwLock`]
+    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
     pub fn build() -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self::default()))
     }

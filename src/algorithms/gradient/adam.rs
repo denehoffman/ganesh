@@ -2,9 +2,9 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{bound::Bounded, Bound, Bounds, MinimizationSummary},
+    core::{Bound, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{Algorithm, Configurable, CostFunction, Gradient},
+    traits::{Algorithm, Bounded, CostFunction, Gradient},
     Float,
 };
 
@@ -95,7 +95,7 @@ impl Bounded for AdamConfig {
 /// This minimization [`Algorithm`] is intended to be used with stochastic objective functions, and
 /// the algorithm itself is described in [^1].
 ///
-/// [^1] [D. P. Kingma and J. Ba, “Adam: A Method for Stochastic Optimization,” 2014, arXiv. doi: 10.48550/ARXIV.1412.6980.](https://doi.org/10.48550/ARXIV.1412.6980)
+/// [^1]: [D. P. Kingma and J. Ba, “Adam: A Method for Stochastic Optimization,” 2014, arXiv. doi: 10.48550/ARXIV.1412.6980.](https://doi.org/10.48550/ARXIV.1412.6980)
 #[derive(Clone, Default)]
 pub struct Adam {
     config: AdamConfig,
@@ -107,15 +107,13 @@ pub struct Adam {
     ema_loss: Float,
     ema_counter: usize,
 }
-impl Configurable for Adam {
+impl<U, E> Algorithm<GradientStatus, U, E> for Adam {
+    type Summary = MinimizationSummary;
     type Config = AdamConfig;
 
     fn get_config_mut(&mut self) -> &mut Self::Config {
         &mut self.config
     }
-}
-impl<U, E> Algorithm<GradientStatus, U, E> for Adam {
-    type Summary = MinimizationSummary;
 
     fn initialize(
         &mut self,
@@ -228,9 +226,9 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        core::{Bounded, CtrlCAbortSignal, Engine},
+        core::{CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::Configurable,
+        traits::Bounded,
         Float,
     };
 
@@ -238,33 +236,27 @@ mod tests {
 
     #[test]
     fn test_adam() -> Result<(), Infallible> {
-        let mut m = Engine::new(Adam::default()).setup_engine(|e| {
+        let mut m = Engine::new(Adam::default()).setup(|e| {
             e.with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(1_000_000)
         });
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())
@@ -272,34 +264,28 @@ mod tests {
 
     #[test]
     fn test_bounded_conjugate_gradient() -> Result<(), Infallible> {
-        let mut m = Engine::new(Adam::default()).setup_engine(|e| {
-            e.setup_algorithm(|a| a.setup_config(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)])))
+        let mut m = Engine::new(Adam::default()).setup(|e| {
+            e.configure(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
                 .with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(1_000_000)
         });
         let problem = Rosenbrock { n: 2 };
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, 2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([-2.0, -2.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([0.0, 0.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.setup_algorithm(|a| a.setup_config(|c| c.with_x0([1.0, 1.0])))
-            .process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())
