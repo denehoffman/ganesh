@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bounded_conjugate_gradient() -> Result<(), Infallible> {
+    fn test_bounded_adam() -> Result<(), Infallible> {
         let mut m = Engine::new(Adam::default()).setup(|e| {
             e.configure(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
                 .with_abort_signal(CtrlCAbortSignal::new())
