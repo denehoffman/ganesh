@@ -39,7 +39,8 @@ This crate is still in an early development phase, and the API is not stable. It
 # Table of Contents
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
-- [MCMC](#mcmc)
+- [Algorithms](#algorithms)
+- [Examples](#examples)
 - [Bounds](#bounds)
 - [Future Plans](#future-plans)
 - [Citations](#citations)
@@ -117,8 +118,7 @@ At the moment, `ganesh` contains the following `Algorithm`s:
 - Gradient descent/quasi-Newton:
   - `LBFGSB`
   - `ConjugateGradient`
-  - `Adam` (for stochastic
-  `CostFunction`s)
+  - `Adam` (for stochastic `CostFunction`s)
 - Gradient-free:
   - `NelderMead`
   - `SimulatedAnnealing`

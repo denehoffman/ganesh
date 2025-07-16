@@ -9,7 +9,8 @@
 //! # Table of Contents
 //! - [Key Features](#key-features)
 //! - [Quick Start](#quick-start)
-//! - [MCMC](#mcmc)
+//! - [Algorithms](#algorithms)
+//! - [Examples](#examples)
 //! - [Bounds](#bounds)
 //! - [Future Plans](#future-plans)
 //! - [Citations](#citations)
@@ -97,8 +98,7 @@
 //! - Gradient descent/quasi-Newton:
 //!   - [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`)
 //!   - [`ConjugateGradient`](`crate::algorithms::gradient::ConjugateGradient`)
-//!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic
-//!   [`CostFunction`](crate::traits::CostFunction)s)
+//!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic [`CostFunction`](crate::traits::CostFunction)s)
 //! - Gradient-free:
 //!   - [`NelderMead`](`crate::algorithms::gradient_free::NelderMead`)
 //!   - [`SimulatedAnnealing`](`crate::algorithms::gradient_free::SimulatedAnnealing`)
