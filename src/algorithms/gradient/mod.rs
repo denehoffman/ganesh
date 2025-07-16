@@ -2,10 +2,6 @@
 pub mod lbfgsb;
 pub use lbfgsb::LBFGSB;
 
-/// Implementation of the conjugate gradient algorithm.
-pub mod conjugate_gradient;
-pub use conjugate_gradient::ConjugateGradient;
-
 /// Implementation of the Adam algorithm.
 pub mod adam;
 pub use adam::Adam;

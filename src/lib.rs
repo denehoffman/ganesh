@@ -97,7 +97,6 @@
 //! At the moment, `ganesh` contains the following [`Algorithm`](`crate::traits::Algorithm`)s:
 //! - Gradient descent/quasi-Newton:
 //!   - [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`)
-//!   - [`ConjugateGradient`](`crate::algorithms::gradient::ConjugateGradient`)
 //!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic [`CostFunction`](crate::traits::CostFunction)s)
 //! - Gradient-free:
 //!   - [`NelderMead`](`crate::algorithms::gradient_free::NelderMead`)
