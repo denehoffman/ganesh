@@ -374,10 +374,12 @@ impl<U, E> LBFGSB<U, E> {
         let w_tr_z_mat = self.w_mat.transpose() * &z_mat;
         let n_mat = DMatrix::identity(self.m_mat.shape().0, self.m_mat.shape().1)
             - (&self.m_mat * (&w_tr_z_mat * w_tr_z_mat.transpose())).unscale(self.theta);
-        let n_mat_inv = n_mat
-            .try_inverse()
-            .expect("Error: Something has gone horribly wrong, inversion of N^{-1} failed!");
-        let v = n_mat_inv * &self.m_mat * &self.w_mat.transpose() * &z_mat * &r_hat_c;
+        let v = n_mat
+            .lu()
+            .solve(&(&self.m_mat * &self.w_mat.transpose() * &z_mat * &r_hat_c))
+            .expect(
+                "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
+            );
         let d_hat_u =
             -(r_hat_c + (w_tr_z_mat.transpose() * v).unscale(self.theta)).unscale(self.theta);
         // The minus sign here is missing in equation 5.11, this is a typo!
