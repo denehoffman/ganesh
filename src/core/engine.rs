@@ -60,7 +60,7 @@ where
     /// # use ganesh::algorithms::gradient::LBFGSB;
     /// # use ganesh::core::CtrlCAbortSignal;
     /// # use ganesh::core::Engine;
-    /// # use ganesh::core::Bounded;
+    /// # use ganesh::traits::Bounded;
     /// # use std::convert::Infallible;
     /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
     /// let mut m = Engine::new(solver)
@@ -87,7 +87,7 @@ where
     /// # use ganesh::algorithms::gradient::LBFGSB;
     /// # use ganesh::core::CtrlCAbortSignal;
     /// # use ganesh::core::Engine;
-    /// # use ganesh::core::Bounded;
+    /// # use ganesh::traits::Bounded;
     /// # use std::convert::Infallible;
     /// let solver: LBFGSB<(), Infallible> = LBFGSB::default();
     /// let mut m = Engine::new(solver).configure(|c| {
