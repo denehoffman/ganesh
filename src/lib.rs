@@ -1,4 +1,4 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued [`Result`] ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
 //!
 //! <div class="warning">
 //!
@@ -21,7 +21,7 @@
 //!
 //! ## Quick Start
 //!
-//! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the Rosenbrock function:
+//! This crate provides some common test functions in the [`test_functions`](`crate::test_functions`) module. Consider the following implementation of the Rosenbrock function:
 //!
 //! ```rust
 //! use ganesh::traits::*;
@@ -90,21 +90,36 @@
 //! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
 //! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
-//! ## MCMC
-//! Markov Chain Monte Carlo samplers can be found in the `mcmc` module, and an example can be found in `/examples/multivariate_normal_ess`:
+//!
+//! ## Algorithms
+//!
+//! At the moment, `ganesh` contains the following [`Algorithm`](`crate::traits::Algorithm`)s:
+//! - Gradient descent/quasi-Newton:
+//!   - [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`)
+//!   - [`ConjugateGradient`](`crate::algorithms::gradient::ConjugateGradient`)
+//!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic
+//!   [`CostFunction`](crate::traits::CostFunction)s)
+//! - Gradient-free:
+//!   - [`NelderMead`](`crate::algorithms::gradient_free::NelderMead`)
+//!   - [`SimulatedAnnealing`](`crate::algorithms::gradient_free::SimulatedAnnealing`)
+//! - Markov Chain Monte Carlo (MCMC):
+//!   - [`AIES`](`crate::algorithms::mcmc::AIES`)
+//!   - [`ESS`](`crate::algorithms::mcmc::ESS`)
+//! - Swarms:
+//!   - [`PSO`](`crate::algorithms::particles::PSO`) (a basic form of particle swarm optimization)
+//!
+//! All algorithms are written in pure Rust, including `L-BFGS-B` which is typically a binding to
+//! `FORTRAN` code in other crates.
+//!
+//! ## Examples
+//!
+//! More examples can be found in the `examples` directory of this project. They all contain a
+//! `.justfile` which allows the whole example to be run with the command, [`just`](https://github.com/casey/just).
+//! To just run the Rust-side code and skip the Python visualization, any of the examples can be run with
+//!
 //! ```shell
-//! cd examples/multivariate_normal_ess
-//! pip install -r requirements.txt
-//! just
+//! cargo r -r --example <example_name>
 //! ```
-//! if [`Just`](https://github.com/casey/just) is installed, or
-//! ```shell
-//! cd examples/multivariate_normal_ess
-//! pip install -r requirements.txt
-//! cargo r -r --example multivariate_normal_ess
-//! python visualize.py
-//! ```
-//! to run manually.
 //!
 //! ## Bounds
 //! All [`Algorithm`]s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::gradient::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
@@ -130,12 +145,12 @@
 //! ```math
 //! x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
 //! ```
-//! As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should be used with caution. They turn linear problems into nonlinear ones, which can mess with error propagation and even fit convergence, not to mention increase function complexity. Methods which output covariance matrices need to be adjusted if bounded, and `MINUIT` recommends fitting a second time near a minimum without bounds to ensure proper error propagation.
+//! As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should be used with caution. They turn linear problems into nonlinear ones, which can mess with error propagation and even fit convergence, not to mention increase function complexity. Methods which output covariance matrices need to be adjusted if bounded, and `MINUIT` recommends fitting a second time near a minimum without bounds to ensure proper error propagation. Some methods, like `L-BFGS-B`, are written with implicit bounds handling, and these transformations are not performed in such cases.
 //!
 //! ## Future Plans
 //!
 //! * Eventually, I would like to implement some more modern gradient-free optimization techniques.
-//! * There are probably many optimizations and algorithm extensions that I'm missing right now because I just wanted to get it working first.
+//! * There are probably many optimizations and algorithm extensions that I'm missing right now.
 //! * There should be more tests and documentation (as usual).
 //!
 //! ## Citations
