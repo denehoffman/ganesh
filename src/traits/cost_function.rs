@@ -44,6 +44,11 @@ pub trait CostFunction<U, E> {
     ) -> Result<Float, E> {
         self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
+    /// Update the user data in a function.
+    ///
+    /// This method is only called once per algorithm step.
+    #[allow(unused_variables)]
+    fn update_user_data(&mut self, user_data: &mut U) {}
 }
 
 /// A trait which calculates the gradient of a [`CostFunction`] at a given point.

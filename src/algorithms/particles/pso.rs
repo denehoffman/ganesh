@@ -373,7 +373,7 @@ mod tests {
         });
 
         // Run the particle swarm optimizer
-        s.process(&Function).unwrap();
+        s.process(&mut Function).unwrap();
 
         println!("{}", s.result);
 

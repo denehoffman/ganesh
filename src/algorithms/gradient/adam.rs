@@ -240,23 +240,29 @@ mod tests {
             e.with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(1_000_000)
         });
-        let problem = Rosenbrock { n: 2 };
-        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
+        let mut problem = Rosenbrock { n: 2 };
+        m.configure(|c| c.with_x0([-2.0, 2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())
@@ -269,23 +275,29 @@ mod tests {
                 .with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(1_000_000)
         });
-        let problem = Rosenbrock { n: 2 };
-        m.configure(|c| c.with_x0([-2.0, 2.0])).process(&problem)?;
+        let mut problem = Rosenbrock { n: 2 };
+        m.configure(|c| c.with_x0([-2.0, 2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([2.0, 2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, 2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([2.0, -2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([2.0, -2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([-2.0, -2.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([-2.0, -2.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([0.0, 0.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([0.0, 0.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
-        m.configure(|c| c.with_x0([1.0, 1.0])).process(&problem)?;
+        m.configure(|c| c.with_x0([1.0, 1.0]))
+            .process(&mut problem)?;
         assert!(m.result.converged);
         assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         Ok(())

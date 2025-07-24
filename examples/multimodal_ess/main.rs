@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }
     }
-    let problem = Problem;
+    let mut problem = Problem;
 
     // Create and seed a random number generator
     let mut rng = Rng::new();
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Run a maximum of 8000 steps of the MCMC algorithm
-    m.process(&problem)?;
+    m.process(&mut problem)?;
 
     // Get the resulting samples (no burn-in)
     let chains = m.result.chain;

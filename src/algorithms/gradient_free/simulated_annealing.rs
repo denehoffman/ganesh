@@ -265,8 +265,8 @@ mod tests {
                 .with_abort_signal(CtrlCAbortSignal::new())
                 .with_max_steps(5_000)
         });
-        let problem = Rosenbrock { n: 2 };
-        m.process(&problem).unwrap();
+        let mut problem = Rosenbrock { n: 2 };
+        m.process(&mut problem).unwrap();
         println!("{}", m.result);
         assert_relative_eq!(m.status.best.fx, 0.0, epsilon = 0.5);
     }

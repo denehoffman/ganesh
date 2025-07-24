@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 * DVector::from_row_slice(x).dot(&(&*user_data * DVector::from_column_slice(x))))
         }
     }
-    let problem = Problem;
+    let mut problem = Problem;
 
     // Create and seed a random number generator
     let mut rng = Rng::new();
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Run a maximum of 1000 steps of the MCMC algorithm
-    m.process(&problem)?;
+    m.process(&mut problem)?;
 
     // Get the resulting samples (no burn-in)
     let chains = m.result.chain;
