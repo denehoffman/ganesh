@@ -22,7 +22,6 @@ where
     abort_signal: Box<dyn AbortSignal>,
     user_data: U,
 
-    // bounds: Option<Bounds>,
     parameter_names: Option<Vec<String>>,
     max_steps: usize,
 
@@ -40,7 +39,6 @@ where
     pub fn new(solver: A) -> Self {
         Self {
             status: S::default(),
-            // bounds: None,
             parameter_names: None,
             max_steps: DEFAULT_MAX_STEPS,
             algorithm: solver,

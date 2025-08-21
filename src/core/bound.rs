@@ -1,5 +1,4 @@
 use fastrand::Rng;
-use fastrand_contrib::RngExt;
 use nalgebra::DVector;
 use std::{
     fmt::Display,
@@ -58,7 +57,7 @@ impl Bound {
     /// Get a value in the uniform distribution between `lower` and `upper`.
     #[cfg(not(feature = "f32"))]
     pub fn get_uniform(&self, rng: &mut Rng) -> Float {
-        rng.f64_range(self.lower()..self.upper()) as Float
+        rng.range(self.lower(), self.upper()) as Float
     }
     /// Get a value in the uniform distribution between `lower` and `upper`.
     #[cfg(feature = "f32")]
@@ -73,16 +72,6 @@ impl Bound {
             Self::UpperBound(ub) => value <= *ub,
             Self::LowerAndUpperBound(lb, ub) => value >= *lb && value <= *ub,
         }
-    }
-    /// Checks whether the given [`DVector`] is compatible with the list of bounds in each
-    /// coordinate.
-    pub fn contains_vec(bounds: &[Self], vec: &DVector<Float>) -> bool {
-        for (bound, value) in bounds.iter().zip(vec) {
-            if !bound.contains(*value) {
-                return false;
-            }
-        }
-        true
     }
     /// Checks whether the given `value` is compatible with the bound and returns `0.0` if it is,
     /// and the distance to the bound otherwise signed by whether the bound is a lower (`-`) or
@@ -114,17 +103,6 @@ impl Bound {
                 }
             }
         }
-    }
-    /// Checks whether each of the given [`DVector`]'s coordinates are compatible with the bounds
-    /// and returns a [`DVector`] containing the result of [`Bound::bound_excess`] at each
-    /// coordinate.
-    pub fn bounds_excess(bounds: &[Self], vec: &DVector<Float>) -> DVector<Float> {
-        bounds
-            .iter()
-            .zip(vec)
-            .map(|(b, v)| b.bound_excess(*v))
-            .collect::<Vec<Float>>()
-            .into()
     }
     /// Returns the lower bound or `-inf` if there is none.
     pub const fn lower(&self) -> Float {
@@ -170,21 +148,7 @@ impl Bound {
     /// ```math
     /// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
     /// ```
-    pub fn to_bounded(values: &[Float], bounds: Option<&Bounds>) -> DVector<Float> {
-        bounds
-            .map_or_else(
-                || values.to_vec(),
-                |bounds| {
-                    values
-                        .iter()
-                        .zip(bounds.iter())
-                        .map(|(val, bound)| bound._to_bounded(*val))
-                        .collect()
-                },
-            )
-            .into()
-    }
-    fn _to_bounded(&self, val: Float) -> Float {
+    pub fn to_bounded(&self, val: Float) -> Float {
         match *self {
             Self::LowerBound(lb) => lb - 1.0 + Float::sqrt(Float::powi(val, 2) + 1.0),
             Self::UpperBound(ub) => ub + 1.0 - Float::sqrt(Float::powi(val, 2) + 1.0),
@@ -206,21 +170,7 @@ impl Bound {
     /// ```math
     /// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
     /// ```
-    pub fn to_unbounded(values: &[Float], bounds: Option<&Bounds>) -> DVector<Float> {
-        bounds
-            .map_or_else(
-                || values.to_vec(),
-                |bounds| {
-                    values
-                        .iter()
-                        .zip(bounds.iter())
-                        .map(|(val, bound)| bound._to_unbounded(*val))
-                        .collect()
-                },
-            )
-            .into()
-    }
-    fn _to_unbounded(&self, val: Float) -> Float {
+    pub fn to_unbounded(&self, val: Float) -> Float {
         match *self {
             Self::LowerBound(lb) => Float::sqrt(Float::powi(val - lb + 1.0, 2) - 1.0),
             Self::UpperBound(ub) => Float::sqrt(Float::powi(ub - val + 1.0, 2) - 1.0),
@@ -230,19 +180,122 @@ impl Bound {
     }
 }
 
+/// A trait for types which can be constrained to a set of [`Bounds`].
+pub trait Boundable {
+    /// Creates a random vector of values in the bounds.
+    fn random_vector_in(bounds: &Bounds, rng: &mut Rng) -> Self;
+    /// Checks whether [`self`] is contained in the given [`Bounds`] .
+    fn is_in(&self, bounds: &Bounds) -> bool;
+    /// Returns the signed amount that [`self`] exceeds the given [`Bounds`].
+    fn excess_from(&self, bounds: &Bounds) -> Self;
+    /// Transform [`self`] to an instance constrained inside the given [`Bounds`].
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self;
+    /// Transform [`self`] from an instance constrained inside the given [`Bounds`] to an
+    /// unconstrained instance.
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self;
+}
+impl Boundable for Vec<Float> {
+    fn random_vector_in(bounds: &Bounds, rng: &mut Rng) -> Self {
+        bounds.iter().map(|b| b.get_uniform(rng)).collect()
+    }
+    fn is_in(&self, bounds: &Bounds) -> bool {
+        for (value, bound) in self.iter().zip(bounds.iter()) {
+            if !bound.contains(*value) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn excess_from(&self, bounds: &Bounds) -> Self {
+        self.iter()
+            .zip(bounds.iter())
+            .map(|(v, b)| b.bound_excess(*v))
+            .collect()
+    }
+
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self {
+        bounds.map_or_else(
+            || self.clone(),
+            |bounds| {
+                self.iter()
+                    .zip(bounds.iter())
+                    .map(|(val, bound)| bound.to_bounded(*val))
+                    .collect()
+            },
+        )
+    }
+
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self {
+        bounds.map_or_else(
+            || self.clone(),
+            |bounds| {
+                self.iter()
+                    .zip(bounds.iter())
+                    .map(|(val, bound)| bound.to_unbounded(*val))
+                    .collect()
+            },
+        )
+    }
+}
+
+impl Boundable for DVector<Float> {
+    fn random_vector_in(bounds: &Bounds, rng: &mut Rng) -> Self {
+        bounds
+            .iter()
+            .map(|b| b.get_uniform(rng))
+            .collect::<Vec<_>>()
+            .into()
+    }
+    fn is_in(&self, bounds: &Bounds) -> bool {
+        for (value, bound) in self.iter().zip(bounds.iter()) {
+            if !bound.contains(*value) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn excess_from(&self, bounds: &Bounds) -> Self {
+        self.iter()
+            .zip(bounds.iter())
+            .map(|(v, b)| b.bound_excess(*v))
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self {
+        bounds.map_or_else(
+            || self.clone(),
+            |bounds| {
+                self.iter()
+                    .zip(bounds.iter())
+                    .map(|(val, bound)| bound.to_bounded(*val))
+                    .collect::<Vec<_>>()
+                    .into()
+            },
+        )
+    }
+
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self {
+        bounds.map_or_else(
+            || self.clone(),
+            |bounds| {
+                self.iter()
+                    .zip(bounds.iter())
+                    .map(|(val, bound)| bound.to_unbounded(*val))
+                    .collect::<Vec<_>>()
+                    .into()
+            },
+        )
+    }
+}
+
 /// A struct that contains a list of [`Bound`]s.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Bounds(Vec<Bound>);
 
 impl Bounds {
-    /// Creates a random vector of values in the bounds.
-    pub fn random_vector(&self, rng: &mut Rng) -> DVector<Float> {
-        self.iter()
-            .map(|b| rng.range(b.lower(), b.upper()))
-            .collect::<Vec<Float>>()
-            .into()
-    }
-
     /// Returns the inner Vector of bounds.
     pub fn into_inner(self) -> Vec<Bound> {
         self.0

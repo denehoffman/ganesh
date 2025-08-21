@@ -2,7 +2,7 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::Bounds,
+    core::{bound::Boundable, Bounds},
     traits::{CostFunction, Gradient, LineSearch},
     Float,
 };
@@ -76,7 +76,7 @@ impl StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate_bounded(x.as_slice(), bounds, user_data)
+        func.evaluate(x.constrain_to(bounds).as_slice(), user_data)
     }
     fn g_eval<U, E>(
         &self,
@@ -87,7 +87,7 @@ impl StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient_bounded(x.as_slice(), bounds, user_data)
+        func.gradient(x.constrain_to(bounds).as_slice(), user_data)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(

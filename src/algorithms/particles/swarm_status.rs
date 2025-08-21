@@ -22,7 +22,7 @@ impl SwarmStatus {
     /// [`SwarmBoundaryMethod::Transform`], this will return the position in the original bounded space.
     pub fn get_best(&self) -> Point {
         if matches!(self.swarm.boundary_method, SwarmBoundaryMethod::Transform) {
-            self.gbest.to_bounded(self.swarm.bounds.as_ref())
+            self.gbest.constrain_to(self.swarm.bounds.as_ref())
         } else {
             self.gbest.clone()
         }

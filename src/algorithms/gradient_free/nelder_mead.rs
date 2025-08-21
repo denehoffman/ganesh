@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use nalgebra::{DMatrix, DVector};
 
 use crate::{
-    core::{Bound, Bounds, MinimizationSummary, Point},
+    core::{bound::Boundable, Bounds, MinimizationSummary, Point},
     traits::{Algorithm, Bounded, CostFunction, Hessian},
     Float,
 };
@@ -42,7 +42,7 @@ impl SimplexConstructionMethod {
         match self {
             Self::Orthogonal { simplex_size } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(Bound::to_unbounded(x0, bounds));
+                let mut point_0 = Point::from(x0.to_vec().unconstrain_from(bounds));
                 point_0.evaluate_bounded(func, bounds, user_data)?;
                 points.push(point_0.clone());
                 let dim = point_0.dimension();
@@ -67,7 +67,7 @@ impl SimplexConstructionMethod {
                     &simplex
                         .iter()
                         .map(|x| {
-                            let mut point_i = Point::from(Bound::to_unbounded(x, bounds));
+                            let mut point_i = Point::from(x.unconstrain_from(bounds));
                             point_i.evaluate_bounded(func, bounds, user_data)?;
                             Ok(point_i)
                         })
@@ -133,7 +133,7 @@ impl Simplex {
     }
     fn best_position(&self, bounds: Option<&Bounds>) -> (DVector<Float>, Float) {
         let (y, fx) = self.best().clone().into_vec_val();
-        (Bound::to_bounded(&y, bounds), fx)
+        (y.constrain_to(bounds).into(), fx)
     }
     fn best(&self) -> &Point {
         &self.points[0]

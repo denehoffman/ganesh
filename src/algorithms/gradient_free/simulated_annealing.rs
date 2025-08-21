@@ -226,7 +226,7 @@ mod tests {
         algorithms::gradient_free::{
             simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
         },
-        core::{Bound, Bounds, CtrlCAbortSignal, Engine},
+        core::{bound::Boundable, Bounds, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
         traits::{Bounded, CostFunction, Gradient},
         Float,
@@ -247,7 +247,7 @@ mod tests {
                 .gradient(status.current.x.as_slice(), user_data)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
-            let x = Bound::to_bounded(x.as_slice(), bounds);
+            let x = x.constrain_to(bounds);
             x
         }
     }

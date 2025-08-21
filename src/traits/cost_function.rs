@@ -1,9 +1,6 @@
 use nalgebra::{DMatrix, DVector};
 
-use crate::{
-    core::{Bound, Bounds},
-    Float,
-};
+use crate::Float;
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
@@ -28,22 +25,6 @@ pub trait CostFunction<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
-    /// The evaluation of the function at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
-    fn evaluate_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Bounds>,
-        user_data: &mut U,
-    ) -> Result<Float, E> {
-        self.evaluate(Bound::to_bounded(x, bounds).as_slice(), user_data)
-    }
     /// Update the user data in a function.
     ///
     /// This method is only called once per algorithm step.
@@ -84,22 +65,6 @@ pub trait Gradient<U, E>: CostFunction<U, E> {
             grad[i] = (f_plus - f_minus) / (2.0 * h[i]);
         }
         Ok(grad)
-    }
-    /// The evaluation of the gradient at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
-    fn gradient_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Bounds>,
-        user_data: &mut U,
-    ) -> Result<DVector<Float>, E> {
-        self.gradient(Bound::to_bounded(x, bounds).as_slice(), user_data)
     }
 }
 
@@ -147,24 +112,7 @@ pub trait Hessian<U, E>: Gradient<U, E> {
         }
         Ok(res)
     }
-    /// The evaluation of the hessian at a point `x` with the given arguments/user data. This
-    /// function assumes `x` is an internal, unbounded vector, but performs a coordinate transform
-    /// to bound `x` when evaluating the function.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
-    fn hessian_bounded(
-        &self,
-        x: &[Float],
-        bounds: Option<&Bounds>,
-        user_data: &mut U,
-    ) -> Result<DMatrix<Float>, E> {
-        self.hessian(Bound::to_bounded(x, bounds).as_slice(), user_data)
-    }
 }
-
 impl<U, E, T: ?Sized + CostFunction<U, E>> Gradient<U, E> for T {}
 impl<U, E, T: ?Sized + Gradient<U, E>> Hessian<U, E> for T {}
 

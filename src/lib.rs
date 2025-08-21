@@ -58,11 +58,11 @@
 //! #     }
 //! # }
 //! fn main() -> Result<(), Infallible> {
-//!     let problem = Rosenbrock { n: 2 };
+//!     let mut problem = Rosenbrock { n: 2 };
 //!     let nm = NelderMead::default();
 //!     let mut m = Engine::new(nm);
 //!     m.configure(|c| c.with_x0([2.0, 2.0]));
-//!     m.process(&problem)?;
+//!     m.process(&mut problem)?;
 //!     println!("{}", m.result);
 //!     Ok(())
 //! }

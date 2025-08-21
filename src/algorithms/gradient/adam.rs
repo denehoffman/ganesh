@@ -2,7 +2,7 @@ use nalgebra::DVector;
 
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{Bound, Bounds, MinimizationSummary},
+    core::{bound::Boundable, Bounds, MinimizationSummary},
     maybe_warn,
     traits::{Algorithm, Bounded, CostFunction, Gradient},
     Float,
@@ -125,10 +125,10 @@ impl<U, E> Algorithm<GradientStatus, U, E> for Adam {
             maybe_warn("The Adam optimizer has experimental support for bounded parameters, but it may be unstable and fail to converge!");
         }
         let bounds = self.config.bounds.as_ref();
-        self.x = Bound::to_bounded(self.config.x0.as_slice(), bounds);
+        self.x = self.config.x0.unconstrain_from(bounds);
         self.g = DVector::zeros(self.x.len());
-        self.f = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
-        status.with_position((Bound::to_unbounded(self.x.as_slice(), bounds), self.f));
+        self.f = func.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
+        status.with_position((self.x.constrain_to(bounds), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
@@ -143,7 +143,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for Adam {
         user_data: &mut U,
     ) -> Result<(), E> {
         let bounds = self.config.bounds.as_ref();
-        self.g = func.gradient_bounded(self.x.as_slice(), bounds, user_data)?;
+        self.g = func.gradient(self.x.constrain_to(bounds).as_slice(), user_data)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(self.config.beta_1) + self.g.scale(1.0 - self.config.beta_1);
         self.v = self.v.scale(self.config.beta_2)
@@ -154,9 +154,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for Adam {
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + self.config.epsilon));
-        self.f = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+        self.f = func.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
         status.inc_n_f_evals();
-        status.with_position((Bound::to_bounded(self.x.as_slice(), bounds), self.f));
+        status.with_position((self.x.constrain_to(bounds), self.f));
         Ok(())
     }
 

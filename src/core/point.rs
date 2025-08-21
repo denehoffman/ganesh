@@ -3,9 +3,9 @@ use std::fmt::Display;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
-use crate::{traits::CostFunction, Float};
+use crate::{core::bound::Boundable, traits::CostFunction, Float};
 
-use super::{Bound, Bounds};
+use super::Bounds;
 
 /// Describes a point in parameter space that can be used in [`Algorithm`](`crate::traits::Algorithm`)s.
 #[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
@@ -57,7 +57,7 @@ impl Point {
         user_data: &mut UD,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.evaluate_bounded(self.x.as_slice(), bounds, user_data)?;
+            self.fx = func.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
         }
         Ok(())
     }
@@ -80,9 +80,9 @@ impl Point {
         self.fx
     }
     /// Converts the point's `x` from an unbounded space to a bounded one.
-    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
+    pub fn constrain_to(&self, bounds: Option<&Bounds>) -> Self {
         Self {
-            x: Bound::to_bounded(self.x.as_slice(), bounds),
+            x: self.x.constrain_to(bounds),
             fx: self.fx,
         }
     }

@@ -5,7 +5,7 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{Bound, Bounds, Point},
+    core::{bound::Boundable, Bounds, Point},
     traits::CostFunction,
     utils::{generate_random_vector_in_limits, SampleFloat},
     Float,
@@ -71,12 +71,12 @@ impl Swarm {
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
-            particle_positions.iter_mut().for_each(|point| {
-                *point = Bound::to_unbounded(point.x.as_slice(), self.bounds.as_ref()).into()
-            });
-            particle_velocities.iter_mut().for_each(|velocity| {
-                *velocity = Bound::to_unbounded(velocity.as_slice(), self.bounds.as_ref())
-            });
+            particle_positions
+                .iter_mut()
+                .for_each(|point| *point = point.x.unconstrain_from(bounds).into());
+            particle_velocities
+                .iter_mut()
+                .for_each(|velocity| *velocity = velocity.unconstrain_from(bounds));
         }
         self.particles = particle_positions
             .into_iter()
@@ -331,12 +331,12 @@ impl SwarmParticle {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
                     self.position.set_position(new_position);
-                    if Bound::contains_vec(bounds, &self.position.x) {
+                    if self.position.x.is_in(bounds) {
                         self.position.fx = Float::INFINITY;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
-                    let bounds_excess = Bound::bounds_excess(bounds, &new_position);
+                    let bounds_excess = new_position.excess_from(bounds);
                     self.position.set_position(new_position - bounds_excess);
                     self.position.evaluate(func, user_data)?;
                 }
@@ -356,9 +356,9 @@ impl SwarmParticle {
     /// nonlinear transformation.
     pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
         Self {
-            position: self.position.to_bounded(bounds),
-            velocity: Bound::to_bounded(self.velocity.as_slice(), bounds),
-            best: self.best.to_bounded(bounds),
+            position: self.position.constrain_to(bounds),
+            velocity: self.velocity.constrain_to(bounds),
+            best: self.best.constrain_to(bounds),
         }
     }
 }
