@@ -167,7 +167,7 @@ pub fn integrated_autocorrelation_times(
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
 ///
-/// let problem = NegativeRosenbrock { n: 2 };
+/// let mut problem = NegativeRosenbrock { n: 2 };
 /// let mut rng = Rng::new();
 /// // Use a seed that will converge in a reasonable amount of time
 /// rng.seed(9301690130845527930);
@@ -182,10 +182,10 @@ pub fn integrated_autocorrelation_times(
 /// sampler
 ///     .with_observer(obs)
 ///     .configure(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]));
-/// sampler.process(&problem).unwrap();
+/// sampler.process(&mut problem).unwrap();
 /// println!("{:?}", sampler.result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
-/// assert!(sampler.result.dimension == (5, 3781, 2));
+/// assert!(sampler.result.dimension == (5, 3821, 2));
 /// ```
 pub struct AutocorrelationObserver {
     n_check: usize,

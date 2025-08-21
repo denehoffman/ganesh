@@ -24,11 +24,11 @@ pub trait Observer<S: Status, U> {
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::traits::observer::DebugObserver;
 ///
-/// let problem = Rosenbrock { n: 2 };
+/// let mut problem = Rosenbrock { n: 2 };
 /// let nm = NelderMead::default();
 /// let obs = DebugObserver::build();
 /// let mut m = Engine::new(nm).setup(|e| e.with_observer(obs.clone()).configure(|c| c.with_x0([2.3, 3.4])));
-/// m.process(&problem).unwrap();
+/// m.process(&mut problem).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(m.status.converged);
 /// ```
