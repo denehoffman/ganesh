@@ -113,7 +113,7 @@ impl Simplex {
         // whenever we use this!
         let volume = Float::sqrt(gram_mat.determinant());
         let total_centroid =
-            sorted_points.iter().map(|p| (&p.x)).sum::<DVector<Float>>() / points.len() as Float;
+            sorted_points.iter().map(|p| &p.x).sum::<DVector<Float>>() / points.len() as Float;
         Self {
             points: sorted_points,
             dimension: points.len(),
