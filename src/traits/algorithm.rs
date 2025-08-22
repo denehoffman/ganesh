@@ -11,6 +11,8 @@ pub trait Algorithm<S, U, E> {
     type Summary;
     /// The configuration struct for the algorithm.
     type Config;
+    /// The parameter type for the algorithm.
+    type Parameter;
 
     /// A helper method to get the mutable internal configuration struct.
     fn get_config_mut(&mut self) -> &mut Self::Config;
@@ -21,12 +23,9 @@ pub trait Algorithm<S, U, E> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn initialize(
-        &mut self,
-        func: &dyn CostFunction<U, E>,
-        status: &mut S,
-        user_data: &mut U,
-    ) -> Result<(), E>;
+    fn initialize<C>(&mut self, func: &C, status: &mut S, user_data: &mut U) -> Result<(), E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
     ///
@@ -34,13 +33,15 @@ pub trait Algorithm<S, U, E> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn step(
+    fn step<C>(
         &mut self,
         i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut S,
         user_data: &mut U,
-    ) -> Result<(), E>;
+    ) -> Result<(), E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>;
 
     /*
     TODO: replace this with a terminator trait. There should be some basic traits:
@@ -59,12 +60,14 @@ pub trait Algorithm<S, U, E> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn check_for_termination(
+    fn check_for_termination<C>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut S,
         user_data: &mut U,
-    ) -> Result<bool, E>;
+    ) -> Result<bool, E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>;
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
     ///
@@ -73,12 +76,10 @@ pub trait Algorithm<S, U, E> {
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     #[allow(unused_variables)]
-    fn postprocessing(
-        &mut self,
-        func: &dyn CostFunction<U, E>,
-        status: &mut S,
-        user_data: &mut U,
-    ) -> Result<(), E> {
+    fn postprocessing<C>(&mut self, func: &C, status: &mut S, user_data: &mut U) -> Result<(), E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>,
+    {
         Ok(())
     }
 
@@ -89,13 +90,15 @@ pub trait Algorithm<S, U, E> {
     /// Returns an `Err(E)` if any internal evaluation fails while creating the [`Algorithm::Summary`].
     /// See [`CostFunction::evaluate`] for more information.
     #[allow(unused_variables)]
-    fn summarize(
+    fn summarize<C>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         parameter_names: Option<&Vec<String>>,
         status: &S,
         user_data: &U,
-    ) -> Result<Self::Summary, E>;
+    ) -> Result<Self::Summary, E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>;
 
     /// Reset the algorithm to its initial state.
     fn reset(&mut self) {}

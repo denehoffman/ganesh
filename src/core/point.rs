@@ -34,11 +34,11 @@ impl Point {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Parameter = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.evaluate(self.x.as_slice(), user_data)?;
+            self.fx = func.evaluate(&self.x, user_data)?;
         }
         Ok(())
     }
@@ -52,12 +52,12 @@ impl Point {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate_bounded<UD, E>(
         &mut self,
-        func: &dyn CostFunction<UD, E>,
+        func: &dyn CostFunction<UD, E, Parameter = DVector<Float>>,
         bounds: Option<&Bounds>,
         user_data: &mut UD,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
+            self.fx = func.evaluate(&self.x.constrain_to(bounds), user_data)?;
         }
         Ok(())
     }

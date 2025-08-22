@@ -429,15 +429,20 @@ impl<U, E> LBFGSB<U, E> {
 impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     type Summary = MinimizationSummary;
     type Config = LBFGSBConfig<U, E>;
+    type Parameter = DVector<Float>;
+
     fn get_config_mut(&mut self) -> &mut Self::Config {
         &mut self.config
     }
-    fn initialize(
+    fn initialize<C>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut GradientStatus,
         user_data: &mut U,
-    ) -> Result<(), E> {
+    ) -> Result<(), E>
+    where
+        C: CostFunction<U, E, Parameter = Self::Parameter>,
+    {
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         let x0 = self.config.x0.as_ref();
@@ -465,9 +470,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
                 x0[i]
             }
         });
-        self.g = func.gradient(self.x.as_slice(), user_data)?;
+        self.g = func.gradient(&self.x, user_data)?;
         status.inc_n_g_evals();
-        self.f = func.evaluate(self.x.as_slice(), user_data)?;
+        self.f = func.evaluate(&self.x, user_data)?;
         status.with_position((self.x.clone(), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
@@ -475,10 +480,10 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(())
     }
 
-    fn step(
+    fn step<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
         _i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -524,9 +529,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(())
     }
 
-    fn check_for_termination(
+    fn check_for_termination<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &C,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -547,15 +552,15 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(status.converged)
     }
 
-    fn postprocessing(
+    fn postprocessing<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         match self.config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = func.hessian(self.x.as_slice(), user_data)?;
+                let hessian = func.hessian(&self.x, user_data)?;
                 status.with_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}
@@ -563,9 +568,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(())
     }
 
-    fn summarize(
+    fn summarize<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &C,
         parameter_names: Option<&Vec<String>>,
         status: &GradientStatus,
         _user_data: &U,

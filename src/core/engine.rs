@@ -148,7 +148,10 @@ where
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn process(&mut self, func: &mut dyn CostFunction<U, E>) -> Result<(), E> {
+    pub fn process<C: CostFunction<U, E, Parameter = A::Parameter>>(
+        &mut self,
+        func: &mut C,
+    ) -> Result<(), E> {
         self.status.reset();
         self.abort_signal.reset();
         self.algorithm.reset();

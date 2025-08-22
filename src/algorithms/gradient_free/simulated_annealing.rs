@@ -13,7 +13,7 @@ pub trait SimulatedAnnealingGenerator<U, E> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Parameter = DVector<Float>>,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
@@ -115,13 +115,14 @@ impl<U, E> SimulatedAnnealing<U, E> {
 impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E> {
     type Summary = MinimizationSummary;
     type Config = SimulatedAnnealingConfig<U, E>;
+    type Parameter = DVector<Float>;
     fn get_config_mut(&mut self) -> &mut Self::Config {
         &mut self.config
     }
     #[allow(clippy::expect_used)]
-    fn initialize(
+    fn initialize<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -131,7 +132,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
             .config
             .generator
             .generate(func, bounds, status, user_data);
-        let fx0 = func.evaluate(x0.as_slice(), user_data)?;
+        let fx0 = func.evaluate(&x0, user_data)?;
         status.temperature = self.config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
         status.best = status.current.clone();
@@ -139,9 +140,9 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn check_for_termination(
+    fn check_for_termination<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &C,
         status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> Result<bool, E> {
@@ -151,10 +152,10 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(false)
     }
 
-    fn step(
+    fn step<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
         _i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        func: &C,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -162,7 +163,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
             self.config
                 .generator
                 .generate(func, self.config.bounds.as_ref(), status, user_data);
-        let fx = func.evaluate(x.as_slice(), user_data)?;
+        let fx = func.evaluate(&x, user_data)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
@@ -182,18 +183,18 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn postprocessing(
+    fn postprocessing<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &C,
         _status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> Result<(), E> {
         Ok(())
     }
 
-    fn summarize(
+    fn summarize<C: CostFunction<U, E, Parameter = Self::Parameter>>(
         &self,
-        _func: &dyn CostFunction<U, E>,
+        _func: &C,
         parameter_names: Option<&Vec<String>>,
         status: &SimulatedAnnealingStatus,
         _user_data: &U,
@@ -238,13 +239,13 @@ mod tests {
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator {
         fn generate(
             &mut self,
-            func: &dyn CostFunction<U, E>,
+            func: &dyn CostFunction<U, E, Parameter = DVector<Float>>,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
         ) -> DVector<Float> {
             let g = func
-                .gradient(status.current.x.as_slice(), user_data)
+                .gradient(&status.current.x, user_data)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
             let x = x.constrain_to(bounds);
