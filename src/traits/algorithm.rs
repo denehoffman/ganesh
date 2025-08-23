@@ -1,19 +1,22 @@
-use crate::core::{Bound, Bounds};
-
-use super::CostFunction;
+use crate::{
+    core::{Bound, Bounds},
+    traits::{cost_function::Updatable, Callback, Status},
+};
+use parking_lot::RwLock;
+use std::{convert::Infallible, sync::Arc};
 
 /// A trait representing a minimization algorithm.
 ///
 /// This trait is implemented for the algorithms found in the [`solvers`](super) module, and contains
 /// all the methods needed to be run by a [`Engine`](crate::core::Engine).
-pub trait Algorithm<S, U, E> {
+pub trait Algorithm<P, S: Status, U = (), E = Infallible>
+where
+    P: Updatable<U, E>,
+{
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
     /// The configuration struct for the algorithm.
     type Config;
-
-    /// A helper method to get the mutable internal configuration struct.
-    fn get_config_mut(&mut self) -> &mut Self::Config;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -23,7 +26,8 @@ pub trait Algorithm<S, U, E> {
     /// information.
     fn initialize(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        config: Self::Config,
+        problem: &P,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -36,8 +40,8 @@ pub trait Algorithm<S, U, E> {
     /// information.
     fn step(
         &mut self,
-        i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        current_step: usize,
+        problem: &P,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -52,19 +56,6 @@ pub trait Algorithm<S, U, E> {
     A lambda function with the correct parameters should implement the trait by default.
     */
 
-    /// Runs any termination/convergence checks and returns true if the algorithm has converged.
-    /// Developers should also update the internal [`Status`](crate::traits::Status) of the algorithm here if converged.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
-    fn check_for_termination(
-        &mut self,
-        func: &dyn CostFunction<U, E>,
-        status: &mut S,
-        user_data: &mut U,
-    ) -> Result<bool, E>;
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
     ///
@@ -73,12 +64,7 @@ pub trait Algorithm<S, U, E> {
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     #[allow(unused_variables)]
-    fn postprocessing(
-        &mut self,
-        func: &dyn CostFunction<U, E>,
-        status: &mut S,
-        user_data: &mut U,
-    ) -> Result<(), E> {
+    fn postprocessing(&mut self, problem: &P, status: &mut S, user_data: &mut U) -> Result<(), E> {
         Ok(())
     }
 
@@ -91,14 +77,45 @@ pub trait Algorithm<S, U, E> {
     #[allow(unused_variables)]
     fn summarize(
         &self,
-        func: &dyn CostFunction<U, E>,
-        parameter_names: Option<&Vec<String>>,
+        current_step: usize,
+        problem: &P,
         status: &S,
         user_data: &U,
     ) -> Result<Self::Summary, E>;
 
     /// Reset the algorithm to its initial state.
     fn reset(&mut self) {}
+
+    fn process(
+        &mut self,
+        problem: &mut P,
+        user_data: &mut U,
+        config: Self::Config,
+        callbacks: &[Arc<RwLock<dyn Callback<Self, P, S, U, E>>>],
+    ) -> Result<Self::Summary, E>
+    where
+        Self: Sized,
+    {
+        let mut status = S::default();
+        self.initialize(config, problem, &mut status, user_data)?;
+        let mut current_step = 0;
+        loop {
+            self.step(current_step, problem, &mut status, user_data)?;
+
+            if callbacks.iter().any(|callback| {
+                callback
+                    .write()
+                    .callback(current_step, self, problem, &mut status, user_data)
+                    .is_break()
+            }) {
+                break;
+            }
+            problem.update(user_data)?;
+            current_step += 1;
+        }
+        self.postprocessing(problem, &mut status, user_data)?;
+        self.summarize(current_step, problem, &status, user_data)
+    }
 }
 
 /// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter bounds.
@@ -112,7 +129,7 @@ where
     /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
     /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
     /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(&mut self, bounds: I) -> &mut Self {
+    fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
         let bounds = bounds
             .into_iter()
             .map(Into::into)

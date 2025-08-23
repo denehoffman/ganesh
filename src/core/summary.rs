@@ -32,6 +32,14 @@ pub struct MinimizationSummary {
     pub converged: bool,
 }
 
+impl MinimizationSummary {
+    /// Set the names associated with each parameter.
+    pub fn with_parameter_names(mut self, parameter_names: &[String]) -> Self {
+        self.parameter_names = Some(parameter_names.to_vec());
+        self
+    }
+}
+
 impl Display for MinimizationSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use tabled::{
@@ -155,6 +163,14 @@ pub struct MCMCSummary {
     pub converged: bool,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
+}
+
+impl MCMCSummary {
+    /// Set the names associated with each parameter.
+    pub fn with_parameter_names(mut self, parameter_names: &[String]) -> Self {
+        self.parameter_names = Some(parameter_names.to_vec());
+        self
+    }
 }
 
 #[cfg(test)]

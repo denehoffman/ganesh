@@ -1,8 +1,5 @@
 /// Implementation of Particle Swarm Optimization (PSO) algorithm
 pub mod pso;
-use std::sync::Arc;
-
-use parking_lot::RwLock;
 pub use pso::PSO;
 
 /// [`Swarm`] type for swarm-based optimizers.
@@ -17,7 +14,11 @@ pub use swarm::{
 pub mod swarm_status;
 pub use swarm_status::SwarmStatus;
 
-use crate::{core::Point, traits::Observer};
+use crate::{
+    core::Point,
+    traits::{cost_function::Updatable, Algorithm, Callback},
+};
+use std::ops::ControlFlow;
 
 /// An [`Observer`] which stores the swarm particles' history as well as the
 /// history of global best positions.
@@ -29,17 +30,21 @@ pub struct TrackingSwarmObserver {
     pub best_history: Vec<Point>,
 }
 
-impl TrackingSwarmObserver {
-    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
-    pub fn build() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self::default()))
-    }
-}
-
-impl<U> Observer<SwarmStatus, U> for TrackingSwarmObserver {
-    fn callback(&mut self, _step: usize, status: &mut SwarmStatus, _user_data: &mut U) -> bool {
+impl<A, P, U, E> Callback<A, P, SwarmStatus, U, E> for TrackingSwarmObserver
+where
+    A: Algorithm<P, SwarmStatus, U, E>,
+    P: Updatable<U, E>,
+{
+    fn callback(
+        &mut self,
+        _current_step: usize,
+        _algorithm: &mut A,
+        _problem: &P,
+        status: &mut SwarmStatus,
+        _user_data: &mut U,
+    ) -> ControlFlow<()> {
         self.history.push(status.swarm.particles.clone());
         self.best_history.push(status.get_best());
-        false
+        ControlFlow::Continue(())
     }
 }
