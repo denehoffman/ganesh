@@ -1,6 +1,18 @@
+use std::convert::Infallible;
+
 use nalgebra::{DMatrix, DVector};
 
 use crate::Float;
+
+/// A trait which gives a method by which the user may update the problem and `user_data`.
+pub trait Updatable<U = (), E = Infallible> {
+    /// Update the user data in a function.
+    ///
+    /// This method is only called once per algorithm step.
+    fn update(&mut self, user_data: &mut U) -> Result<(), E> {
+        Ok(())
+    }
+}
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
@@ -11,7 +23,7 @@ use crate::Float;
 /// representing the type of user data/arguments, and a generic `E` representing any possible
 /// errors that might be returned during function execution.
 ///
-pub trait CostFunction<U, E> {
+pub trait CostFunction<U = (), E = Infallible>: Updatable<U, E> {
     /*
     TODO: introduce a `type Parameter` and imlement the bound methods exclusively for `&[Float]` or `DVectorView`.
     The reason is that some algorithms, like `SimulatedAnnealing`, do not have a vector space as a parameter space
@@ -25,11 +37,6 @@ pub trait CostFunction<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
-    /// Update the user data in a function.
-    ///
-    /// This method is only called once per algorithm step.
-    #[allow(unused_variables)]
-    fn update_user_data(&mut self, user_data: &mut U) {}
 }
 
 /// A trait which calculates the gradient of a [`CostFunction`] at a given point.
@@ -37,7 +44,7 @@ pub trait CostFunction<U, E> {
 /// There is a default implementation of a gradient function which uses a central
 /// finite-difference method to evaluate derivatives. If an exact gradient is known, it can be used
 /// to speed up gradient-dependent algorithms.
-pub trait Gradient<U, E>: CostFunction<U, E> {
+pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -73,7 +80,7 @@ pub trait Gradient<U, E>: CostFunction<U, E> {
 /// There is a default implementation of a hessian function which uses a central
 /// finite-difference method to evaluate derivatives. If an exact hessian is known, it can be used
 /// to speed up hessian-dependent algorithms.
-pub trait Hessian<U, E>: Gradient<U, E> {
+pub trait Hessian<U = (), E = Infallible>: Gradient<U, E> {
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -113,8 +120,6 @@ pub trait Hessian<U, E>: Gradient<U, E> {
         Ok(res)
     }
 }
-impl<U, E, T: ?Sized + CostFunction<U, E>> Gradient<U, E> for T {}
-impl<U, E, T: ?Sized + Gradient<U, E>> Hessian<U, E> for T {}
 
 #[cfg(test)]
 mod tests {
@@ -123,16 +128,19 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        traits::{CostFunction, Gradient, Hessian},
+        traits::{cost_function::Updatable, CostFunction, Gradient, Hessian},
         Float,
     };
 
     struct TestFunction;
-    impl CostFunction<(), Infallible> for TestFunction {
+    impl Updatable for TestFunction {}
+    impl CostFunction for TestFunction {
         fn evaluate(&self, x: &[Float], _: &mut ()) -> Result<Float, Infallible> {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
+    impl Gradient for TestFunction {}
+    impl Hessian for TestFunction {}
     static X: [Float; 2] = [1.0, 2.0];
 
     #[test]

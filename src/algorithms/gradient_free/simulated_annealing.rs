@@ -1,19 +1,41 @@
-use nalgebra::DVector;
-use serde::{Deserialize, Serialize};
-
 use crate::{
     core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, CostFunction, Status},
+    traits::{Algorithm, Bounded, Callback, Gradient, Status},
     utils::SampleFloat,
     Float,
 };
+use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
+use std::ops::ControlFlow;
+
+/// A temperature-activated terminator for [`SimulatedAnnealing`].
+pub struct SimulatedAnnealingTerminator;
+impl<P, U, E> Callback<SimulatedAnnealing<U, E>, P, SimulatedAnnealingStatus, U, E>
+    for SimulatedAnnealingTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn callback(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut SimulatedAnnealing<U, E>,
+        _problem: &P,
+        status: &mut SimulatedAnnealingStatus,
+        _user_data: &mut U,
+    ) -> ControlFlow<()> {
+        if status.temperature < algorithm.config.min_temperature {
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+}
 
 /// A trait for generating new points in the simulated annealing algorithm.
 pub trait SimulatedAnnealingGenerator<U, E> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
@@ -112,19 +134,22 @@ impl<U, E> SimulatedAnnealing<U, E> {
     }
 }
 
-impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E> {
+impl<P, U, E> Algorithm<P, SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E>
+where
+    P: Gradient<U, E>,
+{
     type Summary = MinimizationSummary;
     type Config = SimulatedAnnealingConfig<U, E>;
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
+
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        config: Self::Config,
+        func: &P,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.config = config;
         let bounds = self.config.bounds.as_ref();
         status.current.x = DVector::zeros(bounds.expect("The simulated annealing algorithm requires bounds to be explicitly specified, even if all parameters are unbounded!").len());
         let x0 = self
@@ -139,30 +164,18 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn check_for_termination(
-        &mut self,
-        _func: &dyn CostFunction<U, E>,
-        status: &mut SimulatedAnnealingStatus,
-        _user_data: &mut U,
-    ) -> Result<bool, E> {
-        if status.temperature < self.config.min_temperature {
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
     fn step(
         &mut self,
-        _i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        _current_step: usize,
+        problem: &P,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         let x =
             self.config
                 .generator
-                .generate(func, self.config.bounds.as_ref(), status, user_data);
-        let fx = func.evaluate(x.as_slice(), user_data)?;
+                .generate(problem, self.config.bounds.as_ref(), status, user_data);
+        let fx = problem.evaluate(x.as_slice(), user_data)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
@@ -184,7 +197,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
 
     fn postprocessing(
         &mut self,
-        _func: &dyn CostFunction<U, E>,
+        _problem: &P,
         _status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> Result<(), E> {
@@ -193,8 +206,8 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
 
     fn summarize(
         &self,
-        _func: &dyn CostFunction<U, E>,
-        parameter_names: Option<&Vec<String>>,
+        _current_step: usize,
+        _problem: &P,
         status: &SimulatedAnnealingStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
@@ -207,7 +220,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
             cost_evals: status.cost_evals,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: parameter_names.as_ref().map(|names| names.to_vec()),
+            parameter_names: None,
             std: vec![0.0; status.best.x.len()],
         };
 
@@ -224,11 +237,12 @@ mod tests {
 
     use crate::{
         algorithms::gradient_free::{
-            simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
+            simulated_annealing::{SimulatedAnnealingConfig, SimulatedAnnealingTerminator},
+            SimulatedAnnealing,
         },
-        core::{bound::Boundable, Bounds, CtrlCAbortSignal, Engine},
+        core::{bound::Boundable, Bounds},
         test_functions::Rosenbrock,
-        traits::{Bounded, CostFunction, Gradient},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, Gradient},
         Float,
     };
 
@@ -238,7 +252,7 @@ mod tests {
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator {
         fn generate(
             &mut self,
-            func: &dyn CostFunction<U, E>,
+            func: &dyn Gradient<U, E>,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
@@ -254,20 +268,26 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let solver = SimulatedAnnealing::new(SimulatedAnnealingConfig::new(
+        let mut solver = SimulatedAnnealing::new(SimulatedAnnealingConfig::new(
             1.0,
             0.999,
             1e-3,
             AnnealingGenerator,
-        ));
-        let mut m = Engine::new(solver).setup(|e| {
-            e.configure(|c| c.with_bounds([(-5.0, 5.0), (-5.0, 5.0)]))
-                .with_abort_signal(CtrlCAbortSignal::new())
-                .with_max_steps(5_000)
-        });
+        )); // TODO: We need to sort this out, the config should go later
         let mut problem = Rosenbrock { n: 2 };
-        m.process(&mut problem).unwrap();
-        println!("{}", m.result);
-        assert_relative_eq!(m.status.best.fx, 0.0, epsilon = 0.5);
+        let result = solver
+            .process(
+                &mut problem,
+                &mut (),
+                SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3, AnnealingGenerator)
+                    .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
+                &[
+                    SimulatedAnnealingTerminator.build(),
+                    MaxSteps(5_000).build(),
+                ],
+            )
+            .unwrap();
+        println!("{}", result);
+        assert_relative_eq!(result.fx, 0.0, epsilon = 0.5);
     }
 }

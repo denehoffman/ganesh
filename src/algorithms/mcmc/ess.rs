@@ -231,7 +231,7 @@ impl Bounded for ESSConfig {
 }
 impl ESSConfig {
     /// Set the moves for the [`ESS`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(&mut self, moves: T) -> &mut Self {
+    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> Self {
         self.moves = moves.as_ref().to_vec();
         self
     }
@@ -239,7 +239,7 @@ impl ESSConfig {
     ///
     /// # See Also
     /// [`Walker::new`]
-    pub fn with_walkers(&mut self, x0: Vec<DVector<Float>>) -> &mut Self {
+    pub fn with_walkers(mut self, x0: Vec<DVector<Float>>) -> Self {
         self.walkers = x0.into_iter().map(Walker::new).collect();
         self
     }
@@ -295,26 +295,28 @@ impl ESS {
         }
     }
 }
-impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
+impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
+where
+    P: CostFunction<U, E>,
+{
     type Summary = MCMCSummary;
     type Config = ESSConfig;
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
     fn initialize(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        config: Self::Config,
+        problem: &P,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.config = config;
         status.walkers = self.config.walkers.clone();
-        status.evaluate_latest(func, user_data)
+        status.evaluate_latest(problem, user_data)
     }
 
     fn step(
         &mut self,
-        i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        current_step: usize,
+        problem: &P,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -331,36 +333,27 @@ impl<U, E> Algorithm<EnsembleStatus, U, E> for ESS {
             .unwrap_or(0);
         let step_type = self.config.moves[step_type_index].0;
         step_type.step(
-            i_step,
+            current_step,
             self.config.n_adaptive,
             self.config.max_steps,
             &mut self.config.mu,
-            func,
+            problem,
             user_data,
             status,
             &mut self.rng,
         )
     }
 
-    fn check_for_termination(
-        &mut self,
-        func: &dyn CostFunction<U, E>,
-        status: &mut EnsembleStatus,
-        user_data: &mut U,
-    ) -> Result<bool, E> {
-        Ok(false)
-    }
-
     fn summarize(
         &self,
-        func: &dyn CostFunction<U, E>,
-        parameter_names: Option<&Vec<String>>,
+        current_step: usize,
+        problem: &P,
         status: &EnsembleStatus,
         user_data: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
             bounds: self.config.bounds.clone(),
-            parameter_names: parameter_names.cloned(),
+            parameter_names: None,
             message: status.message().to_string(),
             chain: status.get_chain(None, None),
             cost_evals: status.n_f_evals,

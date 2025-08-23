@@ -1,14 +1,14 @@
 #![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
-    traits::{CostFunction, Observer},
+    traits::{cost_function::Updatable, Algorithm, Callback, CostFunction},
     Float,
 };
 use nalgebra::{Complex, DVector};
 use parking_lot::RwLock;
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
@@ -236,10 +236,6 @@ impl AutocorrelationObserver {
         self.verbose = verbose;
         self
     }
-    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
-    pub fn build(self) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(self))
-    }
 }
 
 impl Default for AutocorrelationObserver {
@@ -257,16 +253,27 @@ impl Default for AutocorrelationObserver {
     }
 }
 
-impl<U> Observer<EnsembleStatus, U> for AutocorrelationObserver {
-    fn callback(&mut self, step: usize, status: &mut EnsembleStatus, user_data: &mut U) -> bool {
-        if step % self.n_check == 0 {
+impl<A, P, U, E> Callback<A, P, EnsembleStatus, U, E> for AutocorrelationObserver
+where
+    A: Algorithm<P, EnsembleStatus, U, E>,
+    P: Updatable<U, E>,
+{
+    fn callback(
+        &mut self,
+        current_step: usize,
+        algorithm: &mut A,
+        problem: &P,
+        status: &mut EnsembleStatus,
+        user_data: &mut U,
+    ) -> ControlFlow<()> {
+        if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(
                 self.c,
-                Some((step as Float * self.discard) as usize),
+                Some((current_step as Float * self.discard) as usize),
                 None,
             );
             let tau = taus.mean();
-            let enough_steps = tau * (self.n_taus_threshold as Float) < step as Float;
+            let enough_steps = tau * (self.n_taus_threshold as Float) < current_step as Float;
             let (dtau, dtau_met) = if !self.taus.is_empty() {
                 let dtau = Float::abs(self.taus.last().unwrap_or(&0.0) - tau) / tau;
                 (dtau, dtau < self.dtau_threshold)
@@ -281,13 +288,15 @@ impl<U> Observer<EnsembleStatus, U> for AutocorrelationObserver {
                     "Minimum steps to converge = {}",
                     (tau * (self.n_taus_threshold as Float)) as usize
                 );
-                println!("Steps completed = {}", step);
+                println!("Steps completed = {}", current_step);
                 println!("Δτ/τ = {} (converges if < {})", dtau, self.dtau_threshold);
                 println!("Converged: {}\n", converged);
             }
             self.taus.push(tau);
-            return converged && self.terminate;
+            if converged && self.terminate {
+                return ControlFlow::Break(());
+            }
         }
-        false
+        ControlFlow::Continue(())
     }
 }

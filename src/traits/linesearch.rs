@@ -1,9 +1,11 @@
 use dyn_clone::DynClone;
 use nalgebra::DVector;
 
-use crate::{core::Bounds, traits::Status, Float};
-
-use super::cost_function::CostFunction;
+use crate::{
+    core::Bounds,
+    traits::{Gradient, Status},
+    Float,
+};
 
 /// A trait which defines the methods for a line search algorithm.
 ///
@@ -27,7 +29,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        func: &dyn CostFunction<U, E>,
+        problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut S,

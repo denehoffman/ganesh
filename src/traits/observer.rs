@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, ops::ControlFlow, sync::Arc};
 
 use parking_lot::RwLock;
 
@@ -9,7 +9,7 @@ use super::Status;
 pub trait Observer<S: Status, U> {
     /// A function that is called at every step of a minimization [`Algorithm`](`crate::traits::Algorithm`). If it returns
     /// `true`, the [`Engine::process`](`crate::core::Engine::process`) method will terminate.
-    fn callback(&mut self, step: usize, status: &mut S, user_data: &mut U) -> bool;
+    fn callback(&mut self, step: usize, status: &mut S, user_data: &mut U) -> ControlFlow<()>;
 }
 
 /// A debugging observer which prints out the step, status, and any user data at the current step
@@ -40,8 +40,8 @@ impl DebugObserver {
     }
 }
 impl<S: Status + Debug, U: Debug> Observer<S, U> for DebugObserver {
-    fn callback(&mut self, step: usize, status: &mut S, _user_data: &mut U) -> bool {
+    fn callback(&mut self, step: usize, status: &mut S, _user_data: &mut U) -> ControlFlow<()> {
         println!("Step: {}\n{:#?}", step, status);
-        false
+        ControlFlow::Continue(())
     }
 }

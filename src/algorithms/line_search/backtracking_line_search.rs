@@ -1,11 +1,10 @@
-use nalgebra::DVector;
-
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds},
-    traits::{CostFunction, Gradient, LineSearch},
+    traits::{Gradient, LineSearch},
     Float,
 };
+use nalgebra::DVector;
 
 /// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
 /// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).
@@ -28,7 +27,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        func: &dyn CostFunction<U, E>,
+        problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,
@@ -36,11 +35,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
         let phi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
-            func.evaluate((x + p.scale(alpha)).constrain_to(bounds).as_slice(), ud)
+            problem.evaluate((x + p.scale(alpha)).constrain_to(bounds).as_slice(), ud)
         };
         let dphi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
-            Ok(func
+            Ok(problem
                 .gradient((x + p.scale(alpha)).constrain_to(bounds).as_slice(), ud)?
                 .dot(p))
         };
@@ -50,7 +49,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         loop {
             let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
-                let g_alpha_i = func.gradient(
+                let g_alpha_i = problem.gradient(
                     (x + p.scale(alpha_i)).constrain_to(bounds).as_slice(),
                     user_data,
                 )?;
