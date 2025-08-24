@@ -1,7 +1,7 @@
 use super::GradientFreeStatus;
 use crate::{
     core::{bound::Boundable, Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, Callback, CostFunction, Hessian},
+    traits::{Algorithm, Bounded, Callback, CostFunction},
     Float,
 };
 use nalgebra::{DMatrix, DVector};
@@ -211,7 +211,7 @@ pub enum NelderMeadFTerminator {
 }
 impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadFTerminator
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -305,7 +305,7 @@ pub enum NelderMeadXTerminator {
 
 impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadXTerminator
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -593,7 +593,7 @@ pub struct NelderMead {
 }
 impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = NelderMeadConfig;

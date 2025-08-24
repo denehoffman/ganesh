@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use crate::traits::cost_function::Updatable;
-use crate::traits::{CostFunction, Gradient, Hessian};
+use crate::traits::CostFunction;
 use crate::Float;
 
 /// The Rosenbrock function, a non-convex function with a single minimum.
@@ -23,8 +23,6 @@ impl CostFunction for Rosenbrock {
             .sum())
     }
 }
-impl Gradient for Rosenbrock {}
-impl Hessian for Rosenbrock {}
 
 /// The negative Rosenbrock function, a non-convex function with a single maximum.
 ///
@@ -48,5 +46,3 @@ impl CostFunction for NegativeRosenbrock {
             .sum::<Float>())
     }
 }
-impl Gradient for NegativeRosenbrock {}
-impl Hessian for NegativeRosenbrock {}
