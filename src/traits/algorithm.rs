@@ -5,10 +5,10 @@ use crate::{
 use parking_lot::RwLock;
 use std::{convert::Infallible, sync::Arc};
 
-/// A trait representing a minimization algorithm.
+/// A trait representing an [`Algorithm`] which can be used to solve a problem `P`.
 ///
-/// This trait is implemented for the algorithms found in the [`solvers`](super) module, and contains
-/// all the methods needed to be run by a [`Engine`](crate::core::Engine).
+/// This trait is implemented for the algorithms found in the [`algorithms`](`crate::algorithms`) module and contains
+/// all the methods needed to [`process`](`Algorithm::process`) a problem.
 pub trait Algorithm<P, S: Status, U = (), E = Infallible>
 where
     P: Updatable<U, E>,
@@ -22,8 +22,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn initialize(
         &mut self,
         config: Self::Config,
@@ -36,8 +35,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn step(
         &mut self,
         current_step: usize,
@@ -46,23 +44,12 @@ where
         user_data: &mut U,
     ) -> Result<(), E>;
 
-    /*
-    TODO: replace this with a terminator trait. There should be some basic traits:
-    - max iterations terminator, which just checks if the max iterations have been reached
-    - convergence terminator, which checks if the cost function has converged
-    - gradient terminator, which checks if the gradient has converged or is small enough
-    - time terminator, which checks if the time has been reached
-    The minimizer should hold a vector of terminators and check them after each step.
-    A lambda function with the correct parameters should implement the trait by default.
-    */
-
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
     /// regardless of whether the [`Algorithm`] converged.
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     #[allow(unused_variables)]
     fn postprocessing(&mut self, problem: &P, status: &mut S, user_data: &mut U) -> Result<(), E> {
         Ok(())
@@ -72,8 +59,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if any internal evaluation fails while creating the [`Algorithm::Summary`].
-    /// See [`CostFunction::evaluate`] for more information.
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     #[allow(unused_variables)]
     fn summarize(
         &self,
@@ -86,6 +72,17 @@ where
     /// Reset the algorithm to its initial state.
     fn reset(&mut self) {}
 
+    /// Process the given problem using this [`Algorithm`].
+    ///
+    /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
+    /// terminating if any supplied [`Callback`]s return
+    /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
+    /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
+    /// summary of the [`Algorithm`]'s state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn process(
         &mut self,
         problem: &mut P,
