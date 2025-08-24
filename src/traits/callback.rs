@@ -1,4 +1,4 @@
-use std::{convert::Infallible, ops::ControlFlow, sync::Arc};
+use std::{convert::Infallible, fmt::Debug, ops::ControlFlow, sync::Arc};
 
 use parking_lot::RwLock;
 
@@ -113,6 +113,49 @@ where
         if current_step >= self.0 {
             return ControlFlow::Break(());
         }
+        ControlFlow::Continue(())
+    }
+}
+
+/// A debugging callback which prints out the step, status, and any user data at the current step
+/// in an algorithm.
+///
+/// # Usage:
+///
+/// ```rust
+/// use ganesh::traits::*;
+/// use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
+/// use ganesh::test_functions::Rosenbrock;
+/// use ganesh::traits::callback::DebugCallback;
+///
+/// let mut problem = Rosenbrock { n: 2 };
+/// let mut nm = NelderMead::default();
+/// let obs = DebugCallback.build();
+/// let result = nm.process(&mut problem, &mut (), NelderMeadConfig::default().with_x0([2.3, 3.4]), NelderMead::default_callbacks().with(obs)).unwrap();
+/// // ^ This will print debug messages for each step
+/// assert!(result.converged);
+/// ```
+pub struct DebugCallback;
+impl DebugCallback {
+    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
+    pub fn build() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self))
+    }
+}
+impl<A, P, S: Status + Debug, U: Debug, E> Callback<A, P, S, U, E> for DebugCallback
+where
+    A: Algorithm<P, S, U, E>,
+    P: Updatable<U, E>,
+{
+    fn callback(
+        &mut self,
+        current_step: usize,
+        _algorithm: &mut A,
+        _problem: &P,
+        status: &mut S,
+        _user_data: &mut U,
+    ) -> ControlFlow<()> {
+        println!("Step: {}\n{:#?}", current_step, status);
         ControlFlow::Continue(())
     }
 }

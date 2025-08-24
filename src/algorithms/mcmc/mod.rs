@@ -12,11 +12,11 @@ use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
-pub use aies::{AIESMove, AIES};
+pub use aies::{AIESConfig, AIESMove, AIES};
 
 /// Ensemble Slice Sampler
 pub mod ess;
-pub use ess::{ESSMove, ESS};
+pub use ess::{ESSConfig, ESSMove, ESS};
 
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
@@ -161,11 +161,11 @@ pub fn integrated_autocorrelation_times(
 /// ```rust
 /// use fastrand::Rng;
 /// use ganesh::algorithms::mcmc::AutocorrelationObserver;
-/// use ganesh::algorithms::mcmc::{ESSMove, ESS};
-/// use ganesh::core::Engine;
+/// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
+/// use ganesh::traits::*;
 ///
 /// let mut problem = NegativeRosenbrock { n: 2 };
 /// let mut rng = Rng::new();
@@ -178,14 +178,13 @@ pub fn integrated_autocorrelation_times(
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
-/// let mut sampler = Engine::new(ESS::new(rng));
-/// sampler
-///     .with_observer(obs)
-///     .configure(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]));
-/// sampler.process(&mut problem).unwrap();
-/// println!("{:?}", sampler.result.dimension);
+/// let mut sampler = ESS::new(rng);
+/// let result = sampler.process(&mut problem, &mut (),
+/// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
+/// ESSMove::differential(0.9)]), [obs]).unwrap();
+/// println!("{:?}", result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
-/// assert!(sampler.result.dimension == (5, 3821, 2));
+/// assert!(result.dimension == (5, 3822, 2));
 /// ```
 pub struct AutocorrelationObserver {
     n_check: usize,

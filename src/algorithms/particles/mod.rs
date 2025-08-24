@@ -1,6 +1,6 @@
 /// Implementation of Particle Swarm Optimization (PSO) algorithm
 pub mod pso;
-pub use pso::PSO;
+pub use pso::{PSOConfig, PSO};
 
 /// [`Swarm`] type for swarm-based optimizers.
 pub mod swarm;

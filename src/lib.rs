@@ -26,13 +26,14 @@
 //!
 //! ```rust
 //! use ganesh::traits::*;
-//! use ganesh::{core::Engine, Float};
+//! use ganesh::Float;
 //! use std::convert::Infallible;
 //!
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl CostFunction<(), Infallible> for Rosenbrock {
+//! impl Updatable for Rosenbrock {}
+//! impl CostFunction for Rosenbrock {
 //!     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
 //!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -42,15 +43,16 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::algorithms::gradient_free::NelderMead;
+//! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
-//! use ganesh::{core::Engine, Float};
+//! use ganesh::Float;
 //! use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
 //! #     pub n: usize,
 //! # }
-//! # impl CostFunction<(), Infallible> for Rosenbrock {
+//! # impl Updatable for Rosenbrock {}
+//! # impl CostFunction for Rosenbrock {
 //! #     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
 //! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -59,11 +61,10 @@
 //! # }
 //! fn main() -> Result<(), Infallible> {
 //!     let mut problem = Rosenbrock { n: 2 };
-//!     let nm = NelderMead::default();
-//!     let mut m = Engine::new(nm);
-//!     m.configure(|c| c.with_x0([2.0, 2.0]));
-//!     m.process(&mut problem)?;
-//!     println!("{}", m.result);
+//!     let mut nm = NelderMead::default();
+//!     let result = nm.process(&mut problem, &mut (), NelderMeadConfig::default().with_x0([2.0, 2.0]),
+//!     NelderMead::default_callbacks())?;
+//!     println!("{}", result);
 //!     Ok(())
 //! }
 //! ```
