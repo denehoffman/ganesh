@@ -263,12 +263,12 @@ mod tests {
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
         ) -> DVector<Float> {
+            #[allow(clippy::expect_used)]
             let g = func
                 .gradient(status.current.x.as_slice(), user_data)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
-            let x = x.constrain_to(bounds);
-            x
+            x.constrain_to(bounds)
         }
     }
 

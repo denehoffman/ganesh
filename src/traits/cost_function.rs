@@ -9,6 +9,11 @@ pub trait Updatable<U = (), E = Infallible> {
     /// Update the user data in a function.
     ///
     /// This method is only called once per algorithm step.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the update fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
     #[allow(unused_variables)]
     fn update(&mut self, user_data: &mut U) -> Result<(), E> {
         Ok(())
@@ -25,12 +30,6 @@ pub trait Updatable<U = (), E = Infallible> {
 /// errors that might be returned during function execution.
 ///
 pub trait CostFunction<U = (), E = Infallible>: Updatable<U, E> {
-    /*
-    TODO: introduce a `type Parameter` and imlement the bound methods exclusively for `&[Float]` or `DVectorView`.
-    The reason is that some algorithms, like `SimulatedAnnealing`, do not have a vector space as a parameter space
-    but parameters are rather a set of something different, like a ordered list, a tree, a graph or a list of indices.
-    */
-
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -151,11 +150,13 @@ mod tests {
     }
 
     #[test]
-    fn test_cost_function_covariance_and_std() {
+    fn test_cost_function_covariance_and_std() -> Result<(), Infallible> {
         use crate::utils::hessian_to_covariance;
-        let hessian = TestFunction.hessian(&X, &mut ()).unwrap();
+        let hessian = TestFunction.hessian(&X, &mut ())?;
+        #[allow(clippy::unwrap_used)]
         let cov = hessian_to_covariance(&hessian).unwrap();
         assert_relative_eq!(cov[(0, 0)], 0.5, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(cov[(1, 1)], 0.5, epsilon = Float::EPSILON.cbrt());
+        Ok(())
     }
 }
