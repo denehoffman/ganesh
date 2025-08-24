@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),
         ]),
-        &[aco.clone(), MaxSteps(1000).build()],
+        [aco.clone(), MaxSteps(1000).build()],
     )?;
 
     // Get the resulting samples (no burn-in)

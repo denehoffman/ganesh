@@ -1,9 +1,8 @@
 use crate::{
     core::{Bound, Bounds},
-    traits::{cost_function::Updatable, Callback, Status},
+    traits::{callback::Callbacks, cost_function::Updatable, Status},
 };
-use parking_lot::RwLock;
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 /// A trait representing an [`Algorithm`] which can be used to solve a problem `P`.
 ///
@@ -83,23 +82,25 @@ where
     /// # Errors
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
-    fn process(
+    fn process<C>(
         &mut self,
         problem: &mut P,
         user_data: &mut U,
         config: Self::Config,
-        callbacks: &[Arc<RwLock<dyn Callback<Self, P, S, U, E>>>],
+        callbacks: C,
     ) -> Result<Self::Summary, E>
     where
+        C: Into<Callbacks<Self, P, S, U, E>>,
         Self: Sized,
     {
         let mut status = S::default();
+        let cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
         self.initialize(config, problem, &mut status, user_data)?;
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, user_data)?;
 
-            if callbacks.iter().any(|callback| {
+            if cbs.as_slice().iter().any(|callback| {
                 callback
                     .write()
                     .callback(current_step, self, problem, &mut status, user_data)
@@ -112,6 +113,14 @@ where
         }
         self.postprocessing(problem, &mut status, user_data)?;
         self.summarize(current_step, problem, &status, user_data)
+    }
+
+    /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].
+    fn default_callbacks() -> Callbacks<Self, P, S, U, E>
+    where
+        Self: Sized,
+    {
+        Callbacks::default()
     }
 }
 

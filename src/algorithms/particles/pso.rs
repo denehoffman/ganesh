@@ -340,7 +340,7 @@ mod tests {
                             ]),
                         )
                     }),
-                &callbacks,
+                callbacks,
             )
             .unwrap();
 

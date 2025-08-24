@@ -1,6 +1,6 @@
 use crate::{
     core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, Callback, CostFunction, Status},
+    traits::{callback::Callbacks, Algorithm, Bounded, Callback, CostFunction, Status},
     utils::SampleFloat,
     Float,
 };
@@ -226,6 +226,13 @@ where
 
         Ok(result)
     }
+
+    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus, U, E>
+    where
+        Self: Sized,
+    {
+        SimulatedAnnealingTerminator.build().into()
+    }
 }
 
 #[cfg(test)]
@@ -237,8 +244,7 @@ mod tests {
 
     use crate::{
         algorithms::gradient_free::{
-            simulated_annealing::{SimulatedAnnealingConfig, SimulatedAnnealingTerminator},
-            SimulatedAnnealing,
+            simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
         },
         core::{bound::Boundable, Bounds},
         test_functions::Rosenbrock,
@@ -281,10 +287,7 @@ mod tests {
                 &mut (),
                 SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3, AnnealingGenerator)
                     .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
-                &[
-                    SimulatedAnnealingTerminator.build(),
-                    MaxSteps(5_000).build(),
-                ],
+                SimulatedAnnealing::default_callbacks().with(MaxSteps(5_000).build()),
             )
             .unwrap();
         println!("{}", result);

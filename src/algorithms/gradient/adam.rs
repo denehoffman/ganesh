@@ -2,7 +2,7 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{Algorithm, Bounded, Callback, CostFunction},
+    traits::{callback::Callbacks, Algorithm, Bounded, Callback, CostFunction},
     Float,
 };
 use nalgebra::DVector;
@@ -229,12 +229,19 @@ where
         self.ema_loss = 0.0;
         self.ema_counter = 0;
     }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    where
+        Self: Sized,
+    {
+        AdamEMATerminator.build().into()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        algorithms::gradient::adam::{AdamConfig, AdamEMATerminator},
+        algorithms::gradient::adam::AdamConfig,
         test_functions::Rosenbrock,
         traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
         Float,
@@ -248,7 +255,6 @@ mod tests {
     fn test_adam() -> Result<(), Infallible> {
         let mut solver = Adam::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![AdamEMATerminator.build(), MaxSteps(1_000_000).build()];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -262,7 +268,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 AdamConfig::default().with_x0(starting_value),
-                &terminators,
+                Adam::default_callbacks().with(MaxSteps(1_000_000).build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
@@ -274,7 +280,6 @@ mod tests {
     fn test_bounded_adam() -> Result<(), Infallible> {
         let mut solver = Adam::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![AdamEMATerminator.build(), MaxSteps(1_000_000).build()];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -290,7 +295,7 @@ mod tests {
                 AdamConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                &terminators,
+                Adam::default_callbacks().with(MaxSteps(1_000_000).build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());

@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ]))
                     .with_n_particles(50)
             }),
-        &[tracker.clone(), MaxSteps(200).build()],
+        [tracker.clone(), MaxSteps(200).build()],
     )?;
 
     println!("{}", result);

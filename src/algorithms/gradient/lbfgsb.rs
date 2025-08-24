@@ -1,3 +1,4 @@
+use crate::traits::callback::Callbacks;
 use crate::traits::{Algorithm, Bounded, Callback, CostFunction, LineSearch};
 use crate::Float;
 use crate::{
@@ -601,14 +602,24 @@ where
         self.y_store = VecDeque::default();
         self.s_store = VecDeque::default();
     }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    where
+        Self: Sized,
+    {
+        vec![
+            LBFGSBFTerminator.build(),
+            LBFGSBGTerminator.build(),
+            LBFGSBInfNormGTerminator.build(),
+        ]
+        .into()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        algorithms::gradient::lbfgsb::{
-            LBFGSBConfig, LBFGSBFTerminator, LBFGSBGTerminator, LBFGSBInfNormGTerminator,
-        },
+        algorithms::gradient::lbfgsb::LBFGSBConfig,
         test_functions::Rosenbrock,
         traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
         Float,
@@ -629,12 +640,6 @@ mod tests {
     fn test_lbfgsb() -> Result<(), Infallible> {
         let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![
-            LBFGSBFTerminator.build(),
-            LBFGSBGTerminator.build(),
-            LBFGSBInfNormGTerminator.build(),
-            MaxSteps::default().build(),
-        ];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -648,7 +653,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 LBFGSBConfig::default().with_x0(starting_value),
-                &terminators,
+                LBFGSB::default_callbacks().with(MaxSteps::default().build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
@@ -660,12 +665,6 @@ mod tests {
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
         let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![
-            LBFGSBFTerminator.build(),
-            LBFGSBGTerminator.build(),
-            LBFGSBInfNormGTerminator.build(),
-            MaxSteps::default().build(),
-        ];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -681,7 +680,7 @@ mod tests {
                 LBFGSBConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                &terminators,
+                LBFGSB::default_callbacks().with(MaxSteps::default().build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());

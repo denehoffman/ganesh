@@ -802,6 +802,17 @@ where
 
         Ok(result)
     }
+
+    fn default_callbacks() -> crate::traits::callback::Callbacks<Self, P, GradientFreeStatus, U, E>
+    where
+        Self: Sized,
+    {
+        vec![
+            NelderMeadFTerminator::default().build(),
+            NelderMeadXTerminator::default().build(),
+        ]
+        .into()
+    }
 }
 
 #[cfg(test)]
@@ -812,9 +823,7 @@ mod tests {
     use nalgebra::DVector;
 
     use crate::{
-        algorithms::gradient_free::nelder_mead::{
-            NelderMeadConfig, NelderMeadFTerminator, NelderMeadXTerminator, Simplex,
-        },
+        algorithms::gradient_free::nelder_mead::{NelderMeadConfig, Simplex},
         core::Point,
         test_functions::Rosenbrock,
         traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
@@ -827,11 +836,6 @@ mod tests {
     fn test_nelder_mead() -> Result<(), Infallible> {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![
-            NelderMeadFTerminator::default().build(),
-            NelderMeadXTerminator::default().build(),
-            MaxSteps(1_000_000).build(),
-        ];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -845,7 +849,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 NelderMeadConfig::default().with_x0(starting_value),
-                &terminators,
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -857,11 +861,6 @@ mod tests {
     fn test_bounded_nelder_mead() -> Result<(), Infallible> {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![
-            NelderMeadFTerminator::default().build(),
-            NelderMeadXTerminator::default().build(),
-            MaxSteps(1_000_000).build(),
-        ];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -877,7 +876,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                &terminators,
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -889,11 +888,6 @@ mod tests {
     fn test_adaptive_nelder_mead() -> Result<(), Infallible> {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
-        let terminators = vec![
-            NelderMeadFTerminator::default().build(),
-            NelderMeadXTerminator::default().build(),
-            MaxSteps(1_000_000).build(),
-        ];
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -909,7 +903,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_adaptive(2),
-                &terminators,
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
