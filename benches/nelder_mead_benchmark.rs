@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::gradient_free::{
         nelder_mead::{NelderMeadConfig, NelderMeadFTerminator, NelderMeadXTerminator},
@@ -12,45 +12,51 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Nelder Mead");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let mut problem = Rosenbrock { n: *ndim };
-            let mut solver = NelderMead::default();
-            b.iter(|| {
-                let result = solver
-                    .process(
-                        &mut problem,
-                        &mut (),
-                        NelderMeadConfig::default().with_x0(vec![5.0; *ndim]),
-                        &[
-                            NelderMeadFTerminator::default().build(),
-                            NelderMeadXTerminator::default().build(),
-                        ],
-                    )
-                    .unwrap();
-                black_box(&result);
-            });
+            let base_cfg = NelderMeadConfig::default().with_x0(vec![5.0; *ndim]);
+            let terms = vec![
+                NelderMeadFTerminator::default().build(),
+                NelderMeadXTerminator::default().build(),
+            ];
+
+            b.iter_batched(
+                || {
+                    let problem = Rosenbrock { n: *ndim };
+                    let solver = NelderMead::default();
+                    let cfg = base_cfg.clone();
+                    (problem, solver, cfg)
+                },
+                |(mut problem, mut solver, cfg)| {
+                    let result = solver.process(&mut problem, &mut (), cfg, &terms).unwrap();
+                    black_box(result);
+                },
+                BatchSize::SmallInput,
+            );
         });
         group.bench_with_input(
             BenchmarkId::new("Rosenbrock (adaptive)", n),
             &n,
             |b, ndim| {
-                let mut problem = Rosenbrock { n: *ndim };
-                let mut solver = NelderMead::default();
-                b.iter(|| {
-                    let result = solver
-                        .process(
-                            &mut problem,
-                            &mut (),
-                            NelderMeadConfig::default()
-                                .with_x0(vec![5.0; *ndim])
-                                .with_adaptive(n),
-                            &[
-                                NelderMeadFTerminator::default().build(),
-                                NelderMeadXTerminator::default().build(),
-                            ],
-                        )
-                        .unwrap();
-                    black_box(&result);
-                });
+                let base_cfg = NelderMeadConfig::default()
+                    .with_x0(vec![5.0; *ndim])
+                    .with_adaptive(*ndim);
+                let terms = vec![
+                    NelderMeadFTerminator::default().build(),
+                    NelderMeadXTerminator::default().build(),
+                ];
+
+                b.iter_batched(
+                    || {
+                        let problem = Rosenbrock { n: *ndim };
+                        let solver = NelderMead::default();
+                        let cfg = base_cfg.clone();
+                        (problem, solver, cfg)
+                    },
+                    |(mut problem, mut solver, cfg)| {
+                        let result = solver.process(&mut problem, &mut (), cfg, &terms).unwrap();
+                        black_box(result);
+                    },
+                    BatchSize::SmallInput,
+                );
             },
         );
     }
