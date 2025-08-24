@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::gradient::{
         lbfgsb::{LBFGSBConfig, LBFGSBFTerminator, LBFGSBGTerminator, LBFGSBInfNormGTerminator},
@@ -12,23 +12,26 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("LBFGSB");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let mut problem = Rosenbrock { n: *ndim };
-            let mut solver = LBFGSB::default();
-            b.iter(|| {
-                let result = solver
-                    .process(
-                        &mut problem,
-                        &mut (),
-                        LBFGSBConfig::default().with_x0(vec![5.0; *ndim]),
-                        &[
-                            LBFGSBFTerminator.build(),
-                            LBFGSBGTerminator.build(),
-                            LBFGSBInfNormGTerminator.build(),
-                        ],
-                    )
-                    .unwrap();
-                black_box(&result);
-            });
+            let base_cfg = LBFGSBConfig::default().with_x0(vec![5.0; *ndim]);
+            let terms = vec![
+                LBFGSBFTerminator.build(),
+                LBFGSBGTerminator.build(),
+                LBFGSBInfNormGTerminator.build(),
+            ];
+
+            b.iter_batched(
+                || {
+                    let problem = Rosenbrock { n: *ndim };
+                    let solver = LBFGSB::default();
+                    let cfg = base_cfg.clone();
+                    (problem, solver, cfg)
+                },
+                |(mut problem, mut solver, cfg)| {
+                    let result = solver.process(&mut problem, &mut (), cfg, &terms).unwrap();
+                    black_box(result);
+                },
+                BatchSize::SmallInput,
+            );
         });
     }
     group.finish();
