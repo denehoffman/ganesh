@@ -9,6 +9,7 @@ pub trait Updatable<U = (), E = Infallible> {
     /// Update the user data in a function.
     ///
     /// This method is only called once per algorithm step.
+    #[allow(unused_variables)]
     fn update(&mut self, user_data: &mut U) -> Result<(), E> {
         Ok(())
     }
