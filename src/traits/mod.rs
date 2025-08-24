@@ -14,6 +14,6 @@ pub mod status;
 pub use abort_signal::AbortSignal;
 pub use algorithm::{Algorithm, Bounded};
 pub use callback::Callback;
-pub use cost_function::{CostFunction, Gradient, Hessian};
+pub use cost_function::CostFunction;
 pub use linesearch::LineSearch;
 pub use status::Status;

@@ -37,14 +37,7 @@ pub trait CostFunction<U = (), E = Infallible>: Updatable<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
-}
 
-/// A trait which calculates the gradient of a [`CostFunction`] at a given point.
-///
-/// There is a default implementation of a gradient function which uses a central
-/// finite-difference method to evaluate derivatives. If an exact gradient is known, it can be used
-/// to speed up gradient-dependent algorithms.
-pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -73,14 +66,7 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
         }
         Ok(grad)
     }
-}
 
-/// A trait which calculates the hessian of a [`CostFunction`] at a given point.
-///
-/// There is a default implementation of a hessian function which uses a central
-/// finite-difference method to evaluate derivatives. If an exact hessian is known, it can be used
-/// to speed up hessian-dependent algorithms.
-pub trait Hessian<U = (), E = Infallible>: Gradient<U, E> {
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -128,7 +114,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        traits::{cost_function::Updatable, CostFunction, Gradient, Hessian},
+        traits::{cost_function::Updatable, CostFunction},
         Float,
     };
 
@@ -139,8 +125,6 @@ mod tests {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
-    impl Gradient for TestFunction {}
-    impl Hessian for TestFunction {}
     static X: [Float; 2] = [1.0, 2.0];
 
     #[test]

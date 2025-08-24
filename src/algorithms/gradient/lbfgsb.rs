@@ -1,4 +1,4 @@
-use crate::traits::{Algorithm, Bounded, Callback, Hessian, LineSearch};
+use crate::traits::{Algorithm, Bounded, Callback, CostFunction, LineSearch};
 use crate::Float;
 use crate::{
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
@@ -18,7 +18,7 @@ use std::ops::ControlFlow;
 pub struct LBFGSBFTerminator;
 impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -48,7 +48,7 @@ where
 pub struct LBFGSBGTerminator;
 impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -71,7 +71,7 @@ where
 pub struct LBFGSBInfNormGTerminator;
 impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -448,7 +448,7 @@ impl<U, E> LBFGSB<U, E> {
 
 impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB<U, E>
 where
-    P: Hessian<U, E>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = LBFGSBConfig<U, E>;

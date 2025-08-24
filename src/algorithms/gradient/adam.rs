@@ -2,7 +2,7 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{Algorithm, Bounded, Callback, Gradient},
+    traits::{Algorithm, Bounded, Callback, CostFunction},
     Float,
 };
 use nalgebra::DVector;
@@ -14,7 +14,7 @@ use std::ops::ControlFlow;
 pub struct AdamEMATerminator;
 impl<P, U, E> Callback<Adam, P, GradientStatus, U, E> for AdamEMATerminator
 where
-    P: Gradient<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -147,7 +147,7 @@ pub struct Adam {
 }
 impl<P, U, E> Algorithm<P, GradientStatus, U, E> for Adam
 where
-    P: Gradient<U, E>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = AdamConfig;

@@ -1,6 +1,6 @@
 use crate::{
     core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, Callback, Gradient, Status},
+    traits::{Algorithm, Bounded, Callback, CostFunction, Status},
     utils::SampleFloat,
     Float,
 };
@@ -13,7 +13,7 @@ pub struct SimulatedAnnealingTerminator;
 impl<P, U, E> Callback<SimulatedAnnealing<U, E>, P, SimulatedAnnealingStatus, U, E>
     for SimulatedAnnealingTerminator
 where
-    P: Gradient<U, E>,
+    P: CostFunction<U, E>,
 {
     fn callback(
         &mut self,
@@ -35,7 +35,7 @@ pub trait SimulatedAnnealingGenerator<U, E> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn CostFunction<U, E>,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
@@ -136,7 +136,7 @@ impl<U, E> SimulatedAnnealing<U, E> {
 
 impl<P, U, E> Algorithm<P, SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E>
 where
-    P: Gradient<U, E>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = SimulatedAnnealingConfig<U, E>;
@@ -242,7 +242,7 @@ mod tests {
         },
         core::{bound::Boundable, Bounds},
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, Gradient},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, CostFunction},
         Float,
     };
 
@@ -252,7 +252,7 @@ mod tests {
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator {
         fn generate(
             &mut self,
-            func: &dyn Gradient<U, E>,
+            func: &dyn CostFunction<U, E>,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
