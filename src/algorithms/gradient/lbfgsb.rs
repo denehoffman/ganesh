@@ -33,6 +33,7 @@ where
             status.with_message("F_EVAL CONVERGED");
             return ControlFlow::Break(());
         }
+        algorithm.f_previous = algorithm.f;
         ControlFlow::Continue(())
     }
 }
