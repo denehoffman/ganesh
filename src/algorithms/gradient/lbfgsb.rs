@@ -546,29 +546,6 @@ where
         Ok(())
     }
 
-    // fn check_for_termination(
-    //     &mut self,
-    //     _func: &dyn CostFunction<U, E>,
-    //     status: &mut GradientStatus,
-    //     _user_data: &mut U,
-    // ) -> Result<bool, E> {
-    //     self.config.terminator_f.update_convergence(
-    //         self.f,
-    //         self.f_previous,
-    //         status,
-    //         self.config.eps_f_abs,
-    //     );
-    //     self.f_previous = self.f;
-    //     self.config
-    //         .terminator_g
-    //         .update_convergence(&self.g, status, self.config.eps_g_abs);
-    //     if self.get_inf_norm_projected_gradient() < self.config.tol_g_abs {
-    //         status.set_converged();
-    //         status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
-    //     }
-    //     Ok(status.converged)
-    // }
-
     fn postprocessing(
         &mut self,
         problem: &P,
