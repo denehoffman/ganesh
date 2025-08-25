@@ -442,6 +442,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     ) -> Result<(), E>
     where
         C: CostFunction<U, E, Parameter = Self::Parameter>,
+        C: Gradient<U, E>,
     {
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;

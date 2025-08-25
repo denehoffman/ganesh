@@ -45,28 +45,6 @@ pub trait Gradient<U, E>: CostFunction<U, E, Parameter = DVector<Float>> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &Self::Parameter, user_data: &mut U) -> Result<DVector<Float>, E>;
-}
-
-/// A trait which calculates the hessian of a [`CostFunction`] at a given point.
-///
-/// There is a default implementation of a hessian function which uses a central
-/// finite-difference method to evaluate derivatives. If an exact hessian is known, it can be used
-/// to speed up hessian-dependent algorithms.
-pub trait Hessian<U, E>: Gradient<U, E> {
-    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
-    fn hessian(&self, x: &Self::Parameter, user_data: &mut U) -> Result<DMatrix<Float>, E>;
-}
-
-impl<U, E, T> Gradient<U, E> for T
-where
-    T: CostFunction<U, E, Parameter = DVector<Float>> + ?Sized,
-{
     fn gradient(&self, x: &Self::Parameter, user_data: &mut U) -> Result<DVector<Float>, E> {
         let n = x.len();
         let x = x.clone();
@@ -91,10 +69,18 @@ where
     }
 }
 
-impl<U, E, T: ?Sized + Gradient<U, E>> Hessian<U, E> for T
-where
-    Self: CostFunction<U, E, Parameter = DVector<Float>>,
-{
+/// A trait which calculates the hessian of a [`CostFunction`] at a given point.
+///
+/// There is a default implementation of a hessian function which uses a central
+/// finite-difference method to evaluate derivatives. If an exact hessian is known, it can be used
+/// to speed up hessian-dependent algorithms.
+pub trait Hessian<U, E>: Gradient<U, E> {
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
     fn hessian(&self, x: &Self::Parameter, user_data: &mut U) -> Result<DMatrix<Float>, E> {
         let x = DVector::from_column_slice(x.as_slice());
         let h: DVector<Float> = x
@@ -148,6 +134,16 @@ mod tests {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
+    impl Gradient<(), Infallible> for TestFunction {
+        fn gradient(
+            &self,
+            x: &Self::Parameter,
+            _user_data: &mut (),
+        ) -> Result<DVector<Float>, Infallible> {
+            Ok(DVector::from_column_slice(&[2.0 * x[0], 2.0 * x[1]]))
+        }
+    }
+    impl Hessian<(), Infallible> for TestFunction {}
     const X: LazyCell<DVector<Float>> = LazyCell::new(|| DVector::from_column_slice(&[1.0, 2.0]));
 
     #[test]

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, CostFunction, Status},
+    traits::{Algorithm, Bounded, CostFunction, Gradient, Status},
     utils::SampleFloat,
     Float,
 };
@@ -13,7 +13,7 @@ pub trait SimulatedAnnealingGenerator<U, E> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        func: &dyn CostFunction<U, E, Parameter = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
@@ -112,7 +112,10 @@ impl<U, E> SimulatedAnnealing<U, E> {
     }
 }
 
-impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E> {
+impl<U, E, C> Algorithm<SimulatedAnnealingStatus, U, E, C> for SimulatedAnnealing<U, E>
+where
+    C: CostFunction<U, E, Parameter = DVector<Float>> + Gradient<U, E>,
+{
     type Summary = MinimizationSummary;
     type Config = SimulatedAnnealingConfig<U, E>;
     type Parameter = DVector<Float>;
@@ -120,7 +123,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         &mut self.config
     }
     #[allow(clippy::expect_used)]
-    fn initialize<C: CostFunction<U, E, Parameter = Self::Parameter>>(
+    fn initialize(
         &mut self,
         func: &C,
         status: &mut SimulatedAnnealingStatus,
@@ -140,7 +143,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn check_for_termination<C: CostFunction<U, E, Parameter = Self::Parameter>>(
+    fn check_for_termination(
         &mut self,
         _func: &C,
         status: &mut SimulatedAnnealingStatus,
@@ -152,7 +155,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(false)
     }
 
-    fn step<C: CostFunction<U, E, Parameter = Self::Parameter>>(
+    fn step(
         &mut self,
         _i_step: usize,
         func: &C,
@@ -183,7 +186,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn postprocessing<C: CostFunction<U, E, Parameter = Self::Parameter>>(
+    fn postprocessing(
         &mut self,
         _func: &C,
         _status: &mut SimulatedAnnealingStatus,
@@ -192,7 +195,7 @@ impl<U, E> Algorithm<SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E
         Ok(())
     }
 
-    fn summarize<C: CostFunction<U, E, Parameter = Self::Parameter>>(
+    fn summarize(
         &self,
         _func: &C,
         parameter_names: Option<&Vec<String>>,
@@ -229,7 +232,7 @@ mod tests {
         },
         core::{bound::Boundable, Bounds, CtrlCAbortSignal, Engine},
         test_functions::Rosenbrock,
-        traits::{Bounded, CostFunction, Gradient},
+        traits::{Bounded, Gradient},
         Float,
     };
 
@@ -239,7 +242,7 @@ mod tests {
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator {
         fn generate(
             &mut self,
-            func: &dyn CostFunction<U, E, Parameter = DVector<Float>>,
+            func: &dyn Gradient<U, E>,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
