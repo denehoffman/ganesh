@@ -10,7 +10,7 @@ use std::ops::ControlFlow;
 
 /// A temperature-activated terminator for [`SimulatedAnnealing`].
 pub struct SimulatedAnnealingTerminator;
-impl<P, U, E> Callback<SimulatedAnnealing<U, E>, P, SimulatedAnnealingStatus, U, E>
+impl<P, U, E> Callback<SimulatedAnnealing<U, E, P>, P, SimulatedAnnealingStatus, U, E>
     for SimulatedAnnealingTerminator
 where
     P: CostFunction<U, E>,
@@ -18,7 +18,7 @@ where
     fn callback(
         &mut self,
         _current_step: usize,
-        algorithm: &mut SimulatedAnnealing<U, E>,
+        algorithm: &mut SimulatedAnnealing<U, E, P>,
         _problem: &P,
         status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
@@ -31,11 +31,11 @@ where
 }
 
 /// A trait for generating new points in the simulated annealing algorithm.
-pub trait SimulatedAnnealingGenerator<U, E> {
+pub trait SimulatedAnnealingGenerator<U, E, P> {
     /// Generates a new point based on the current point, cost function and the status.
     fn generate(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        problem: &P,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus,
         user_data: &mut U,
@@ -43,7 +43,7 @@ pub trait SimulatedAnnealingGenerator<U, E> {
 }
 
 /// The internal configuration struct for the [`SimulatedAnnealing`] algorithm.
-pub struct SimulatedAnnealingConfig<U, E> {
+pub struct SimulatedAnnealingConfig<U, E, P> {
     bounds: Option<Bounds>,
     /// The initial temperature for the simulated annealing algorithm.
     pub initial_temperature: Float,
@@ -52,13 +52,13 @@ pub struct SimulatedAnnealingConfig<U, E> {
     /// The minimum temperature for the simulated annealing algorithm.
     pub min_temperature: Float,
     /// The generator for generating new points in the simulated annealing algorithm.
-    pub generator: Box<dyn SimulatedAnnealingGenerator<U, E>>,
+    pub generator: Box<dyn SimulatedAnnealingGenerator<U, E, P>>,
     _user_data: std::marker::PhantomData<U>,
     _error: std::marker::PhantomData<E>,
 }
-impl<U, E> SimulatedAnnealingConfig<U, E> {
+impl<U, E, P> SimulatedAnnealingConfig<U, E, P> {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub fn new<G: SimulatedAnnealingGenerator<U, E> + 'static>(
+    pub fn new<G: SimulatedAnnealingGenerator<U, E, P> + 'static>(
         initial_temperature: Float,
         cooling_rate: Float,
         min_temperature: Float,
@@ -75,14 +75,14 @@ impl<U, E> SimulatedAnnealingConfig<U, E> {
         }
     }
 }
-impl<U, E> Bounded for SimulatedAnnealingConfig<U, E> {
+impl<U, E, P> Bounded for SimulatedAnnealingConfig<U, E, P> {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
 }
 /// A struct for the simulated annealing algorithm.
-pub struct SimulatedAnnealing<U, E> {
-    config: SimulatedAnnealingConfig<U, E>,
+pub struct SimulatedAnnealing<U, E, P> {
+    config: SimulatedAnnealingConfig<U, E, P>,
     rng: fastrand::Rng,
 }
 
@@ -124,9 +124,9 @@ impl Status for SimulatedAnnealingStatus {
     }
 }
 
-impl<U, E> SimulatedAnnealing<U, E> {
+impl<U, E, P> SimulatedAnnealing<U, E, P> {
     /// Creates a new instance of the simulated annealing algorithm.
-    pub fn new(config: SimulatedAnnealingConfig<U, E>) -> Self {
+    pub fn new(config: SimulatedAnnealingConfig<U, E, P>) -> Self {
         Self {
             config,
             rng: fastrand::Rng::new(),
@@ -134,12 +134,12 @@ impl<U, E> SimulatedAnnealing<U, E> {
     }
 }
 
-impl<P, U, E> Algorithm<P, SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E>
+impl<P, U, E> Algorithm<P, SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E, P>
 where
     P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
-    type Config = SimulatedAnnealingConfig<U, E>;
+    type Config = SimulatedAnnealingConfig<U, E, P>;
 
     #[allow(clippy::expect_used)]
     fn initialize(
@@ -248,23 +248,26 @@ mod tests {
         },
         core::{bound::Boundable, Bounds},
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, CostFunction},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, Gradient},
         Float,
     };
 
     use super::{SimulatedAnnealingGenerator, SimulatedAnnealingStatus};
 
     pub struct AnnealingGenerator;
-    impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator {
+    impl<U, E: Debug, P> SimulatedAnnealingGenerator<U, E, P> for AnnealingGenerator
+    where
+        P: Gradient<U, E>,
+    {
         fn generate(
             &mut self,
-            func: &dyn CostFunction<U, E>,
+            problem: &P,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus,
             user_data: &mut U,
         ) -> DVector<Float> {
             #[allow(clippy::expect_used)]
-            let g = func
+            let g = problem
                 .gradient(status.current.x.as_slice(), user_data)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);

@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 
-use crate::traits::cost_function::Updatable;
-use crate::traits::CostFunction;
+use crate::traits::{CostFunction, Gradient};
 use crate::Float;
 
 /// The Rosenbrock function, a non-convex function with a single minimum.
@@ -14,7 +13,6 @@ pub struct Rosenbrock {
     /// The number of dimensions of the function (must be >= 2).
     pub n: usize,
 }
-impl Updatable for Rosenbrock {}
 impl CostFunction for Rosenbrock {
     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
@@ -23,6 +21,7 @@ impl CostFunction for Rosenbrock {
             .sum())
     }
 }
+impl Gradient for Rosenbrock {}
 
 /// The negative Rosenbrock function, a non-convex function with a single maximum.
 ///
@@ -37,7 +36,6 @@ pub struct NegativeRosenbrock {
     /// The number of dimensions of the function (must be >= 2).
     pub n: usize,
 }
-impl Updatable for NegativeRosenbrock {}
 impl CostFunction for NegativeRosenbrock {
     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
@@ -46,3 +44,4 @@ impl CostFunction for NegativeRosenbrock {
             .sum::<Float>())
     }
 }
+impl Gradient for NegativeRosenbrock {}

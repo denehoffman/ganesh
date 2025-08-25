@@ -3,7 +3,7 @@ use nalgebra::DVector;
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds},
-    traits::{CostFunction, LineSearch},
+    traits::{Gradient, LineSearch},
     Float,
 };
 
@@ -69,7 +69,7 @@ impl StrongWolfeLineSearch {
 impl StrongWolfeLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
@@ -80,7 +80,7 @@ impl StrongWolfeLineSearch {
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
@@ -92,7 +92,7 @@ impl StrongWolfeLineSearch {
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn Gradient<U, E>,
         x0: &DVector<Float>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
@@ -143,7 +143,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn CostFunction<U, E>,
+        problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,

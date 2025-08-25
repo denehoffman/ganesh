@@ -1,6 +1,6 @@
 use crate::{
     core::{Bound, Bounds},
-    traits::{callback::Callbacks, cost_function::Updatable, Status},
+    traits::{callback::Callbacks, Status},
 };
 use std::convert::Infallible;
 
@@ -8,10 +8,7 @@ use std::convert::Infallible;
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`](`crate::algorithms`) module and contains
 /// all the methods needed to [`process`](`Algorithm::process`) a problem.
-pub trait Algorithm<P, S: Status, U = (), E = Infallible>
-where
-    P: Updatable<U, E>,
-{
+pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
     /// The configuration struct for the algorithm.
@@ -108,7 +105,6 @@ where
             }) {
                 break;
             }
-            problem.update(user_data)?;
             current_step += 1;
         }
         self.postprocessing(problem, &mut status, user_data)?;

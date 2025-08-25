@@ -16,7 +16,7 @@ pub use swarm_status::SwarmStatus;
 
 use crate::{
     core::Point,
-    traits::{cost_function::Updatable, Algorithm, Callback},
+    traits::{Algorithm, Callback},
 };
 use std::ops::ControlFlow;
 
@@ -33,7 +33,6 @@ pub struct TrackingSwarmObserver {
 impl<A, P, U, E> Callback<A, P, SwarmStatus, U, E> for TrackingSwarmObserver
 where
     A: Algorithm<P, SwarmStatus, U, E>,
-    P: Updatable<U, E>,
 {
     fn callback(
         &mut self,

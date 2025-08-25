@@ -4,22 +4,6 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::Float;
 
-/// A trait which gives a method by which the user may update the problem and `user_data`.
-pub trait Updatable<U = (), E = Infallible> {
-    /// Update the user data in a function.
-    ///
-    /// This method is only called once per algorithm step.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the update fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
-    #[allow(unused_variables)]
-    fn update(&mut self, user_data: &mut U) -> Result<(), E> {
-        Ok(())
-    }
-}
-
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
 /// Such a function may also take a `user_data: &mut UD` field which can be used to pass external
@@ -29,7 +13,7 @@ pub trait Updatable<U = (), E = Infallible> {
 /// representing the type of user data/arguments, and a generic `E` representing any possible
 /// errors that might be returned during function execution.
 ///
-pub trait CostFunction<U = (), E = Infallible>: Updatable<U, E> {
+pub trait CostFunction<U = (), E = Infallible> {
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -37,7 +21,8 @@ pub trait CostFunction<U = (), E = Infallible>: Updatable<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// `std::convert::Infallible` if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
-
+}
+pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -114,17 +99,17 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::{
-        traits::{cost_function::Updatable, CostFunction},
+        traits::{CostFunction, Gradient},
         Float,
     };
 
     struct TestFunction;
-    impl Updatable for TestFunction {}
     impl CostFunction for TestFunction {
         fn evaluate(&self, x: &[Float], _: &mut ()) -> Result<Float, Infallible> {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
+    impl Gradient for TestFunction {}
     static X: [Float; 2] = [1.0, 2.0];
 
     #[test]

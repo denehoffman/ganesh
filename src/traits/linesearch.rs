@@ -3,7 +3,7 @@ use nalgebra::DVector;
 
 use crate::{
     core::Bounds,
-    traits::{CostFunction, Status},
+    traits::{Gradient, Status},
     Float,
 };
 
@@ -29,7 +29,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn CostFunction<U, E>,
+        problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut S,

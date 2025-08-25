@@ -399,7 +399,6 @@ pub struct NelderMeadConfig {
     simplex: Simplex,
     construction_method: SimplexConstructionMethod,
     expansion_method: SimplexExpansionMethod,
-    compute_parameter_errors: bool,
     eps_x_rel: Float,
     eps_x_abs: Float,
     eps_f_rel: Float,
@@ -524,12 +523,6 @@ impl NelderMeadConfig {
         self.expansion_method = method;
         self
     }
-    /// Disable covariance calculation upon convergence (not recommended except for testing very large
-    /// problems).
-    pub const fn with_no_error_calculation(mut self) -> Self {
-        self.compute_parameter_errors = false;
-        self
-    }
 }
 impl Bounded for NelderMeadConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
@@ -548,7 +541,6 @@ impl Default for NelderMeadConfig {
             simplex: Simplex::default(),
             construction_method: SimplexConstructionMethod::default(),
             expansion_method: SimplexExpansionMethod::default(),
-            compute_parameter_errors: true,
             eps_x_rel: Float::EPSILON.powf(0.25),
             eps_x_abs: Float::EPSILON.powf(0.25),
             eps_f_rel: Float::EPSILON.powf(0.25),
@@ -760,19 +752,6 @@ where
             self.config.delta,
             self.config.simplex.dimension as i32,
         ));
-        Ok(())
-    }
-
-    fn postprocessing(
-        &mut self,
-        problem: &P,
-        status: &mut GradientFreeStatus,
-        user_data: &mut U,
-    ) -> Result<(), E> {
-        if self.config.compute_parameter_errors {
-            let hessian = problem.hessian(status.x.as_slice(), user_data)?;
-            status.with_hess(&hessian);
-        }
         Ok(())
     }
 

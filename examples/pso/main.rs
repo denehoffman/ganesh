@@ -1,7 +1,7 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::particles::{pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO},
-    traits::{callback::MaxSteps, cost_function::Updatable, Algorithm, Callback, CostFunction},
+    traits::{callback::MaxSteps, Algorithm, Callback, CostFunction},
     Float, PI,
 };
 use parking_lot::RwLock;
@@ -16,7 +16,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Rastrigin function
-    impl Updatable for Problem {}
     impl CostFunction for Problem {
         fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(10.0

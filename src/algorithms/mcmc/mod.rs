@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
-    traits::{cost_function::Updatable, Algorithm, Callback, CostFunction},
+    traits::{Algorithm, Callback, CostFunction},
     Float,
 };
 use nalgebra::{Complex, DVector};
@@ -255,7 +255,6 @@ impl Default for AutocorrelationObserver {
 impl<A, P, U, E> Callback<A, P, EnsembleStatus, U, E> for AutocorrelationObserver
 where
     A: Algorithm<P, EnsembleStatus, U, E>,
-    P: Updatable<U, E>,
 {
     fn callback(
         &mut self,

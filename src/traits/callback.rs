@@ -2,7 +2,7 @@ use std::{convert::Infallible, fmt::Debug, ops::ControlFlow, sync::Arc};
 
 use parking_lot::RwLock;
 
-use crate::traits::{cost_function::Updatable, Algorithm, Status};
+use crate::traits::{Algorithm, Status};
 
 /// A [`Callback`] wrapped in an [`Arc<RwLock>`].
 pub type WrappedCallback<A, P, S, U, E> = Arc<RwLock<dyn Callback<A, P, S, U, E>>>;
@@ -15,7 +15,6 @@ pub trait Callback<A, P, S, U = (), E = Infallible>
 where
     A: Algorithm<P, S, U, E>,
     S: Status,
-    P: Updatable<U, E>,
 {
     /// A callback method which is called on each step of an [`Algorithm`].
     fn callback(
@@ -99,7 +98,6 @@ impl Default for MaxSteps {
 impl<A, P, S, U, E> Callback<A, P, S, U, E> for MaxSteps
 where
     A: Algorithm<P, S, U, E>,
-    P: Updatable<U, E>,
     S: Status,
 {
     fn callback(
@@ -145,7 +143,6 @@ impl DebugCallback {
 impl<A, P, S: Status + Debug, U: Debug, E> Callback<A, P, S, U, E> for DebugCallback
 where
     A: Algorithm<P, S, U, E>,
-    P: Updatable<U, E>,
 {
     fn callback(
         &mut self,

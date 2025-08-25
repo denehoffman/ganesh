@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds},
-    traits::{CostFunction, LineSearch},
+    traits::{Gradient, LineSearch},
     Float,
 };
 use nalgebra::DVector;
@@ -27,7 +27,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn CostFunction<U, E>,
+        problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
         user_data: &mut U,
         status: &mut GradientStatus,

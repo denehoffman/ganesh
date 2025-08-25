@@ -8,7 +8,6 @@ use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::cost_function::Updatable;
 use ganesh::traits::{Algorithm, Callback, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
@@ -20,7 +19,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Function (Himmelblau's test function)
-    impl Updatable for Problem {}
     impl CostFunction for Problem {
         fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))

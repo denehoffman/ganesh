@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use crate::traits::{cost_function::Updatable, Algorithm, Callback, Status};
+use crate::traits::{Algorithm, Callback, Status};
 
 /// A trait for abort signals.
 /// This trait is used in minimizers to check if the user has requested to abort the calculation.
@@ -17,7 +17,6 @@ impl<T, A, P, S, U, E> Callback<A, P, S, U, E> for T
 where
     T: AbortSignal,
     A: Algorithm<P, S, U, E>,
-    P: Updatable<U, E>,
     S: Status,
 {
     fn callback(

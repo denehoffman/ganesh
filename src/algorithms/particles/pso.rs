@@ -295,7 +295,7 @@ mod tests {
         algorithms::particles::{
             pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
         },
-        traits::{callback::MaxSteps, cost_function::Updatable, Algorithm, Callback, CostFunction},
+        traits::{callback::MaxSteps, Algorithm, Callback, CostFunction},
         Float, PI,
     };
 
@@ -303,7 +303,6 @@ mod tests {
     fn test_pso() {
         // Define the function to sample (a multimodal distribution)
         struct Function;
-        impl Updatable for Function {}
         // Implement Rastrigin function
         impl CostFunction for Function {
             fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {

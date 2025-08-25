@@ -9,7 +9,6 @@ use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::ESS;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::cost_function::Updatable;
 use ganesh::traits::{Algorithm, Callback, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
@@ -20,7 +19,6 @@ use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multinormal distribution)
     struct Problem;
-    impl Updatable<DMatrix<Float>> for Problem {}
     // Implement Function (user_data is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
     impl CostFunction<DMatrix<Float>> for Problem {
