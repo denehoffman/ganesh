@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
-    traits::{Algorithm, Callback, CostFunction},
+    traits::{Algorithm, CostFunction, Terminator},
     Float,
 };
 use nalgebra::{Complex, DVector};
@@ -160,7 +160,7 @@ pub fn integrated_autocorrelation_times(
 ///
 /// ```rust
 /// use fastrand::Rng;
-/// use ganesh::algorithms::mcmc::AutocorrelationObserver;
+/// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use nalgebra::DVector;
@@ -174,19 +174,19 @@ pub fn integrated_autocorrelation_times(
 /// let x0: Vec<DVector<Float>> = (0..5)
 ///     .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
 ///     .collect();
-/// let obs = AutocorrelationObserver::default()
+/// let aco = AutocorrelationTerminator::default()
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
 /// let mut sampler = ESS::new(rng);
 /// let result = sampler.process(&mut problem, &mut (),
 /// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
-/// ESSMove::differential(0.9)]), Callbacks::empty().with(obs)).unwrap();
+/// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco)).unwrap();
 /// println!("{:?}", result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
 /// assert!(result.dimension == (5, 3822, 2));
 /// ```
-pub struct AutocorrelationObserver {
+pub struct AutocorrelationTerminator {
     n_check: usize,
     n_taus_threshold: usize,
     dtau_threshold: Float,
@@ -198,7 +198,7 @@ pub struct AutocorrelationObserver {
     pub taus: Vec<Float>,
 }
 
-impl AutocorrelationObserver {
+impl AutocorrelationTerminator {
     /// Set how often (in number of steps) to check this observer (default: `50`)
     pub const fn with_n_check(mut self, n_check: usize) -> Self {
         self.n_check = n_check;
@@ -242,7 +242,7 @@ impl AutocorrelationObserver {
     }
 }
 
-impl Default for AutocorrelationObserver {
+impl Default for AutocorrelationTerminator {
     fn default() -> Self {
         Self {
             n_check: 50,
@@ -257,17 +257,17 @@ impl Default for AutocorrelationObserver {
     }
 }
 
-impl<A, P, U, E> Callback<A, P, EnsembleStatus, U, E> for AutocorrelationObserver
+impl<A, P, U, E> Terminator<A, P, EnsembleStatus, U, E> for AutocorrelationTerminator
 where
     A: Algorithm<P, EnsembleStatus, U, E>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         current_step: usize,
         algorithm: &mut A,
-        problem: &mut P,
+        problem: &P,
         status: &mut EnsembleStatus,
-        user_data: &mut U,
+        user_data: &U,
     ) -> ControlFlow<()> {
         if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(

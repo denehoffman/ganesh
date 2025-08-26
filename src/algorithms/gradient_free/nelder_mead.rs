@@ -1,7 +1,7 @@
 use super::GradientFreeStatus;
 use crate::{
     core::{bound::Boundable, Bounds, MinimizationSummary, Point},
-    traits::{callback::Callbacks, Algorithm, Bounded, Callback, CostFunction},
+    traits::{callback::Callbacks, Algorithm, Bounded, CostFunction, Terminator},
     Float,
 };
 use nalgebra::{DMatrix, DVector};
@@ -211,17 +211,17 @@ pub enum NelderMeadFTerminator {
     #[default]
     StdDev,
 }
-impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadFTerminator
+impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadFTerminator
 where
     P: CostFunction<U, E, Input = DVector<Float>>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientFreeStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         let simplex = &algorithm.config.simplex;
         match self {
@@ -305,17 +305,17 @@ pub enum NelderMeadXTerminator {
     Singer,
 }
 
-impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadXTerminator
+impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadXTerminator
 where
     P: CostFunction<U, E, Input = DVector<Float>>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientFreeStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         let simplex = &algorithm.config.simplex;
         match self {
@@ -789,8 +789,8 @@ where
         Self: Sized,
     {
         Callbacks::empty()
-            .with(NelderMeadFTerminator::default())
-            .with(NelderMeadXTerminator::default())
+            .with_terminator(NelderMeadFTerminator::default())
+            .with_terminator(NelderMeadXTerminator::default())
     }
 }
 
@@ -828,7 +828,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 NelderMeadConfig::default().with_x0(starting_value),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
+                NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -855,7 +855,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
+                NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -882,7 +882,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_adaptive(2),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
+                NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));

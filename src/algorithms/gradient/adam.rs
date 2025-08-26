@@ -2,7 +2,7 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{bound::Boundable, Bounds, MinimizationSummary},
     maybe_warn,
-    traits::{callback::Callbacks, Algorithm, Bounded, Callback, Gradient},
+    traits::{callback::Callbacks, Algorithm, Bounded, Gradient, Terminator},
     Float,
 };
 use nalgebra::DVector;
@@ -12,17 +12,17 @@ use std::ops::ControlFlow;
 /// loss does not improve in the number of steps defined by the [`AdamConfig`] `patience`
 /// parameter.
 pub struct AdamEMATerminator;
-impl<P, U, E> Callback<Adam, P, GradientStatus, U, E> for AdamEMATerminator
+impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E> for AdamEMATerminator
 where
     P: Gradient<U, E>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut Adam,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         let prev_ema_loss = algorithm.ema_loss;
         algorithm.ema_loss = algorithm
@@ -234,7 +234,7 @@ where
     where
         Self: Sized,
     {
-        Callbacks::empty().with(AdamEMATerminator)
+        Callbacks::empty().with_terminator(AdamEMATerminator)
     }
 }
 
@@ -268,7 +268,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 AdamConfig::default().with_x0(starting_value),
-                Adam::default_callbacks().with(MaxSteps(1_000_000)),
+                Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
@@ -295,7 +295,7 @@ mod tests {
                 AdamConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                Adam::default_callbacks().with(MaxSteps(1_000_000)),
+                Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());

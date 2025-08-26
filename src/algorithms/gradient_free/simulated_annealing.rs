@@ -1,6 +1,6 @@
 use crate::{
     core::{bound::Bounds, MinimizationSummary, Point},
-    traits::{callback::Callbacks, Algorithm, Bounded, Callback, CostFunction, Status},
+    traits::{callback::Callbacks, Algorithm, Bounded, CostFunction, Status, Terminator},
     utils::SampleFloat,
     Float,
 };
@@ -9,19 +9,19 @@ use std::ops::ControlFlow;
 
 /// A temperature-activated terminator for [`SimulatedAnnealing`].
 pub struct SimulatedAnnealingTerminator;
-impl<P, U, E, I> Callback<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E>
+impl<P, U, E, I> Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E>
     for SimulatedAnnealingTerminator
 where
     P: SimulatedAnnealingGenerator<U, E, Input = I>,
     I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut SimulatedAnnealing,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         if status.temperature < algorithm.config.min_temperature {
             return ControlFlow::Break(());
@@ -227,7 +227,7 @@ where
     where
         Self: Sized,
     {
-        Callbacks::empty().with(SimulatedAnnealingTerminator)
+        Callbacks::empty().with_terminator(SimulatedAnnealingTerminator)
     }
 }
 
@@ -318,7 +318,7 @@ mod tests {
                 &mut (),
                 SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3)
                     .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
-                SimulatedAnnealing::default_callbacks().with(MaxSteps(5_000)),
+                SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),
             )
             .unwrap();
         println!("{}", result);

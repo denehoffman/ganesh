@@ -17,10 +17,10 @@ pub use swarm_status::SwarmStatus;
 
 use crate::{
     core::Point,
-    traits::{Algorithm, Callback},
+    traits::{Algorithm, Observer},
     DVector, Float,
 };
-use std::{ops::ControlFlow, sync::Arc};
+use std::sync::Arc;
 
 /// An [`Observer`] which stores the swarm particles' history as well as the
 /// history of global best positions.
@@ -41,20 +41,19 @@ impl TrackingSwarmObserver {
     }
 }
 
-impl<A, P, U, E> Callback<A, P, SwarmStatus, U, E> for TrackingSwarmObserver
+impl<A, P, U, E> Observer<A, P, SwarmStatus, U, E> for TrackingSwarmObserver
 where
     A: Algorithm<P, SwarmStatus, U, E>,
 {
-    fn callback(
+    fn observe(
         &mut self,
         _current_step: usize,
-        _algorithm: &mut A,
-        _problem: &mut P,
-        status: &mut SwarmStatus,
-        _user_data: &mut U,
-    ) -> ControlFlow<()> {
+        _algorithm: &A,
+        _problem: &P,
+        status: &SwarmStatus,
+        _user_data: &U,
+    ) {
         self.history.push(status.swarm.particles.clone());
         self.best_history.push(status.get_best());
-        ControlFlow::Continue(())
     }
 }

@@ -1,5 +1,5 @@
 use crate::traits::callback::Callbacks;
-use crate::traits::{Algorithm, Bounded, Callback, Gradient, LineSearch};
+use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
 use crate::Float;
 use crate::{
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
@@ -17,17 +17,17 @@ use std::ops::ControlFlow;
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
-impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
 where
     P: Gradient<U, E>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.f).abs() < algorithm.config.eps_f_abs {
             status.set_converged();
@@ -47,17 +47,17 @@ where
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
-impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
 where
     P: Gradient<U, E>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         if algorithm.g.dot(&algorithm.g).sqrt() < algorithm.config.eps_g_abs {
             status.set_converged();
@@ -70,17 +70,17 @@ where
 
 /// A terminator which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
 pub struct LBFGSBInfNormGTerminator;
-impl<P, U, E> Callback<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
 where
     P: Gradient<U, E>,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &mut P,
+        _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &mut U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         if algorithm.get_inf_norm_projected_gradient() < algorithm.config.tol_g_abs {
             status.set_converged();
@@ -608,9 +608,9 @@ where
         Self: Sized,
     {
         Callbacks::empty()
-            .with(LBFGSBFTerminator)
-            .with(LBFGSBGTerminator)
-            .with(LBFGSBInfNormGTerminator)
+            .with_terminator(LBFGSBFTerminator)
+            .with_terminator(LBFGSBGTerminator)
+            .with_terminator(LBFGSBInfNormGTerminator)
     }
 }
 
@@ -651,7 +651,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 LBFGSBConfig::default().with_x0(starting_value),
-                LBFGSB::default_callbacks().with(MaxSteps::default()),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
@@ -678,7 +678,7 @@ mod tests {
                 LBFGSBConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                LBFGSB::default_callbacks().with(MaxSteps::default()),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());

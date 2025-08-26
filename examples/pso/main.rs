@@ -49,7 +49,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ]))
                     .with_n_particles(50)
             }),
-        Callbacks::empty().with(tracker.clone()).with(MaxSteps(200)),
+        Callbacks::empty()
+            .with_observer(tracker.clone())
+            .with_terminator(MaxSteps(200)),
     )?;
 
     println!("{}", result);

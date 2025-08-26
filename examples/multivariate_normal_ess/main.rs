@@ -6,7 +6,7 @@ use std::path::Path;
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::ESS;
-use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
+use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove};
 use ganesh::traits::callback::MaxSteps;
 use ganesh::traits::{Algorithm, Callbacks, CostFunction};
 use ganesh::utils::SampleFloat;
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
-    let aco = AutocorrelationObserver::default()
+    let aco = AutocorrelationTerminator::default()
         .with_verbose(true)
         .build();
 
@@ -62,7 +62,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),
         ]),
-        Callbacks::empty().with(aco.clone()).with(MaxSteps(1000)),
+        Callbacks::empty()
+            .with_terminator(aco.clone())
+            .with_terminator(MaxSteps(1000)),
     )?;
 
     // Get the resulting samples (no burn-in)

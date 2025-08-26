@@ -5,7 +5,7 @@ use std::path::Path;
 
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
-use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
+use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove, ESS};
 use ganesh::traits::callback::MaxSteps;
 use ganesh::traits::{Algorithm, Callbacks, CostFunction};
 use ganesh::utils::SampleFloat;
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Terminate if the number of steps exceeds 6 integrated autocorrelation times (IAT) and the
     // difference in IAT is less than 1%
-    let aco = AutocorrelationObserver::default()
+    let aco = AutocorrelationTerminator::default()
         .with_verbose(true)
         .with_n_taus_threshold(6)
         .build();
@@ -56,7 +56,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),
         ]),
-        Callbacks::empty().with(aco.clone()).with(MaxSteps(8000)),
+        Callbacks::empty()
+            .with_terminator(aco.clone())
+            .with_terminator(MaxSteps(8000)),
     )?;
 
     // Get the resulting samples (no burn-in)
