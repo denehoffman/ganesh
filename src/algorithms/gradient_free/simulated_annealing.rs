@@ -250,15 +250,23 @@ mod tests {
 
     use super::{SimulatedAnnealingGenerator, SimulatedAnnealingStatus};
 
-    pub struct AnnealingGenerator<U, E>(pub Box<dyn Gradient<U, E>>);
-    impl<U, E> CostFunction<U, E> for AnnealingGenerator<U, E> {
+    pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E>>);
+    impl<U, E> GradientAnnealingProblem<U, E> {
+        pub fn new<P>(problem: P) -> Self
+        where
+            P: Gradient<U, E> + 'static,
+        {
+            Self(Box::new(problem))
+        }
+    }
+    impl<U, E> CostFunction<U, E> for GradientAnnealingProblem<U, E> {
         type Input = DVector<Float>;
 
         fn evaluate(&self, x: &Self::Input, user_data: &mut U) -> Result<Float, E> {
             self.0.evaluate(x, user_data)
         }
     }
-    impl<U, E> Gradient<U, E> for AnnealingGenerator<U, E> {
+    impl<U, E> Gradient<U, E> for GradientAnnealingProblem<U, E> {
         fn gradient(&self, x: &Self::Input, user_data: &mut U) -> Result<DVector<Float>, E> {
             self.0.gradient(x, user_data)
         }
@@ -271,7 +279,7 @@ mod tests {
             self.0.hessian(x, user_data)
         }
     }
-    impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for AnnealingGenerator<U, E>
+    impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for GradientAnnealingProblem<U, E>
     where
         Self: Gradient<U, E>,
     {
@@ -303,7 +311,7 @@ mod tests {
     fn test_simulated_annealing() {
         let mut solver =
             SimulatedAnnealing::new(SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3), Some(0));
-        let mut problem = AnnealingGenerator(Box::new(Rosenbrock { n: 2 }));
+        let mut problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 });
         let result = solver
             .process(
                 &mut problem,
