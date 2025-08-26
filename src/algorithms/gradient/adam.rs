@@ -155,7 +155,7 @@ where
     fn initialize(
         &mut self,
         config: Self::Config,
-        problem: &P,
+        problem: &mut P,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -177,7 +177,7 @@ where
     fn step(
         &mut self,
         i_step: usize,
-        problem: &P,
+        problem: &mut P,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {

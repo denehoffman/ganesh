@@ -22,7 +22,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     fn initialize(
         &mut self,
         config: Self::Config,
-        problem: &P,
+        problem: &mut P,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;
@@ -35,7 +35,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     fn step(
         &mut self,
         current_step: usize,
-        problem: &P,
+        problem: &mut P,
         status: &mut S,
         user_data: &mut U,
     ) -> Result<(), E>;

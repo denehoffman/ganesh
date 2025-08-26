@@ -227,7 +227,7 @@ where
     fn initialize(
         &mut self,
         config: Self::Config,
-        problem: &P,
+        problem: &mut P,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -253,7 +253,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &P,
+        problem: &mut P,
         status: &mut SwarmStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
