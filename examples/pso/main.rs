@@ -1,16 +1,14 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::particles::{pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO},
-    traits::{callback::MaxSteps, Algorithm, Callback, CostFunction},
+    traits::{callback::MaxSteps, Algorithm, Callbacks, CostFunction},
     Float, PI,
 };
-use parking_lot::RwLock;
 use std::convert::Infallible;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
@@ -30,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     rng.seed(0);
 
     // Create a tracker to record swarm history
-    let tracker = Arc::new(RwLock::new(TrackingSwarmObserver::default()));
+    let tracker = TrackingSwarmObserver::new();
 
     // Create a particle swarm optimizer algorithm and set some hyperparameters
     // Run the particle swarm optimizer
@@ -50,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ]))
                     .with_n_particles(50)
             }),
-        [tracker.clone(), MaxSteps(200).build()],
+        Callbacks::empty().with(tracker.clone()).with(MaxSteps(200)),
     )?;
 
     println!("{}", result);

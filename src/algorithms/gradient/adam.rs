@@ -20,7 +20,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut Adam,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -234,7 +234,7 @@ where
     where
         Self: Sized,
     {
-        AdamEMATerminator.build().into()
+        Callbacks::empty().with(AdamEMATerminator)
     }
 }
 
@@ -243,7 +243,7 @@ mod tests {
     use crate::{
         algorithms::gradient::adam::AdamConfig,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
+        traits::{callback::MaxSteps, Algorithm, Bounded},
         Float,
     };
     use approx::assert_relative_eq;
@@ -268,7 +268,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 AdamConfig::default().with_x0(starting_value),
-                Adam::default_callbacks().with(MaxSteps(1_000_000).build()),
+                Adam::default_callbacks().with(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
@@ -295,7 +295,7 @@ mod tests {
                 AdamConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                Adam::default_callbacks().with(MaxSteps(1_000_000).build()),
+                Adam::default_callbacks().with(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());

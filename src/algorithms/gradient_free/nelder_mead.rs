@@ -1,7 +1,7 @@
 use super::GradientFreeStatus;
 use crate::{
     core::{bound::Boundable, Bounds, MinimizationSummary, Point},
-    traits::{Algorithm, Bounded, Callback, CostFunction},
+    traits::{callback::Callbacks, Algorithm, Bounded, Callback, CostFunction},
     Float,
 };
 use nalgebra::{DMatrix, DVector};
@@ -217,7 +217,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientFreeStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -311,7 +311,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientFreeStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -782,15 +782,13 @@ where
         Ok(result)
     }
 
-    fn default_callbacks() -> crate::traits::callback::Callbacks<Self, P, GradientFreeStatus, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus, U, E>
     where
         Self: Sized,
     {
-        vec![
-            NelderMeadFTerminator::default().build(),
-            NelderMeadXTerminator::default().build(),
-        ]
-        .into()
+        Callbacks::empty()
+            .with(NelderMeadFTerminator::default())
+            .with(NelderMeadXTerminator::default())
     }
 }
 
@@ -805,7 +803,7 @@ mod tests {
         algorithms::gradient_free::nelder_mead::{NelderMeadConfig, Simplex},
         core::Point,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
+        traits::{callback::MaxSteps, Algorithm, Bounded},
         Float,
     };
 
@@ -828,7 +826,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 NelderMeadConfig::default().with_x0(starting_value),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -855,7 +853,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
@@ -882,7 +880,7 @@ mod tests {
                 NelderMeadConfig::default()
                     .with_x0(starting_value)
                     .with_adaptive(2),
-                NelderMead::default_callbacks().with(MaxSteps(1_000_000).build()),
+                NelderMead::default_callbacks().with(MaxSteps(1_000_000)),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));

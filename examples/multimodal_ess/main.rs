@@ -2,17 +2,15 @@ use std::convert::Infallible;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::sync::Arc;
 
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove, ESS};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::{Algorithm, Callback, CostFunction};
+use ganesh::traits::{Algorithm, Callbacks, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::DVector;
-use parking_lot::RwLock;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -37,11 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Terminate if the number of steps exceeds 6 integrated autocorrelation times (IAT) and the
     // difference in IAT is less than 1%
-    let aco = Arc::new(RwLock::new(
-        AutocorrelationObserver::default()
-            .with_verbose(true)
-            .with_n_taus_threshold(6),
-    ));
+    let aco = AutocorrelationObserver::default()
+        .with_verbose(true)
+        .with_n_taus_threshold(6)
+        .build();
 
     let mut sampler = ESS::new(rng);
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 20% of the time,
@@ -58,14 +55,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),
         ]),
-        [aco.clone(), MaxSteps(8000).build()],
+        Callbacks::empty().with(aco.clone()).with(MaxSteps(8000)),
     )?;
 
     // Get the resulting samples (no burn-in)
     let chains = result.chain;
 
     // Get the integrated autocorrelation times
-    let taus = aco.read().taus.clone();
+    let taus = aco.lock().taus.clone();
 
     // Export the results to a Python .pkl file to visualize via matplotlib
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);

@@ -25,7 +25,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -55,7 +55,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -78,7 +78,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB<U, E>,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut GradientStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -607,12 +607,10 @@ where
     where
         Self: Sized,
     {
-        vec![
-            LBFGSBFTerminator.build(),
-            LBFGSBGTerminator.build(),
-            LBFGSBInfNormGTerminator.build(),
-        ]
-        .into()
+        Callbacks::empty()
+            .with(LBFGSBFTerminator)
+            .with(LBFGSBGTerminator)
+            .with(LBFGSBInfNormGTerminator)
     }
 }
 
@@ -621,7 +619,7 @@ mod tests {
     use crate::{
         algorithms::gradient::lbfgsb::LBFGSBConfig,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback},
+        traits::{Algorithm, Bounded, MaxSteps},
         Float,
     };
     use approx::assert_relative_eq;
@@ -653,7 +651,7 @@ mod tests {
                 &mut problem,
                 &mut (),
                 LBFGSBConfig::default().with_x0(starting_value),
-                LBFGSB::default_callbacks().with(MaxSteps::default().build()),
+                LBFGSB::default_callbacks().with(MaxSteps::default()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
@@ -680,7 +678,7 @@ mod tests {
                 LBFGSBConfig::default()
                     .with_x0(starting_value)
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                LBFGSB::default_callbacks().with(MaxSteps::default().build()),
+                LBFGSB::default_callbacks().with(MaxSteps::default()),
             )?;
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());

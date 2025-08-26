@@ -1,6 +1,6 @@
 use crate::{
     core::{Bound, Bounds},
-    traits::{callback::Callbacks, Status},
+    traits::{callback::Callbacks, Callback, Status},
 };
 use std::convert::Infallible;
 
@@ -91,18 +91,16 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         Self: Sized,
     {
         let mut status = S::default();
-        let cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
+        let mut cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
         self.initialize(config, problem, &mut status, user_data)?;
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, user_data)?;
 
-            if cbs.as_slice().iter().any(|callback| {
-                callback
-                    .write()
-                    .callback(current_step, self, problem, &mut status, user_data)
-                    .is_break()
-            }) {
+            if cbs
+                .callback(current_step, self, problem, &mut status, user_data)
+                .is_break()
+            {
                 break;
             }
             current_step += 1;

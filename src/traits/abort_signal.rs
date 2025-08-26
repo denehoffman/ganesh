@@ -23,7 +23,7 @@ where
         &mut self,
         _current_step: usize,
         _algorithm: &mut A,
-        _problem: &P,
+        _problem: &mut P,
         _status: &mut S,
         _user_data: &mut U,
     ) -> ControlFlow<()> {

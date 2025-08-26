@@ -6,12 +6,12 @@ use crate::Float;
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
-/// Such a function may also take a `user_data: &mut UD` field which can be used to pass external
+/// Such a function may also take a `user_data: &mut U` field which can be used to pass external
 /// arguments to the function during minimization, or can be modified by the function itself.
 ///
-/// The `CostFunction` trait takes a generic `T` which represents a numeric scalar, a generic `U`
-/// representing the type of user data/arguments, and a generic `E` representing any possible
-/// errors that might be returned during function execution.
+/// The `CostFunction` trait takes a generic `U` representing the type of user data/arguments
+/// and a generic `E` representing any possible errors that might be returned during function
+/// execution.
 ///
 pub trait CostFunction<U = (), E = Infallible> {
     /// The evaluation of the function at a point `x` with the given arguments/user data.
@@ -19,9 +19,19 @@ pub trait CostFunction<U = (), E = Infallible> {
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
+    /// [`std::convert::Infallible`] if the function evaluation never fails.
     fn evaluate(&self, x: &[Float], user_data: &mut U) -> Result<Float, E>;
 }
+
+/// A trait which defines the gradient of a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
+///
+/// Such a function may also take a `user_data: &mut U` field which can be used to pass external
+/// arguments to the function during minimization, or can be modified by the function itself.
+///
+/// The `Gradient` trait takes a  generic `U` representing the type of user data/arguments
+/// and a generic `E` representing any possible errors that might be returned during function
+/// execution.
+///
 pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///

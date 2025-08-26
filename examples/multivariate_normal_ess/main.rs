@@ -2,18 +2,16 @@ use std::convert::Infallible;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::sync::Arc;
 
 use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::ESS;
 use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::{Algorithm, Callback, CostFunction};
+use ganesh::traits::{Algorithm, Callbacks, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};
-use parking_lot::RwLock;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -47,9 +45,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
-    let aco = Arc::new(RwLock::new(
-        AutocorrelationObserver::default().with_verbose(true),
-    ));
+    let aco = AutocorrelationObserver::default()
+        .with_verbose(true)
+        .build();
 
     let mut sampler = ESS::new(rng);
 
@@ -64,14 +62,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),
         ]),
-        [aco.clone(), MaxSteps(1000).build()],
+        Callbacks::empty().with(aco.clone()).with(MaxSteps(1000)),
     )?;
 
     // Get the resulting samples (no burn-in)
     let chains = result.chain;
 
     // Get the integrated autocorrelation times
-    let taus = aco.read().taus.clone();
+    let taus = aco.lock().taus.clone();
 
     // Export the results to a Python .pkl file to visualize via matplotlib
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);

@@ -19,7 +19,7 @@ where
         &mut self,
         _current_step: usize,
         algorithm: &mut SimulatedAnnealing<U, E, P>,
-        _problem: &P,
+        _problem: &mut P,
         status: &mut SimulatedAnnealingStatus,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
@@ -126,10 +126,14 @@ impl Status for SimulatedAnnealingStatus {
 
 impl<U, E, P> SimulatedAnnealing<U, E, P> {
     /// Creates a new instance of the simulated annealing algorithm.
-    pub fn new(config: SimulatedAnnealingConfig<U, E, P>) -> Self {
+    pub fn new(config: SimulatedAnnealingConfig<U, E, P>, seed: Option<u64>) -> Self {
         Self {
             config,
-            rng: fastrand::Rng::new(),
+            rng: if let Some(seed) = seed {
+                fastrand::Rng::with_seed(seed)
+            } else {
+                fastrand::Rng::new()
+            },
         }
     }
 }
@@ -231,7 +235,7 @@ where
     where
         Self: Sized,
     {
-        SimulatedAnnealingTerminator.build().into()
+        Callbacks::empty().with(SimulatedAnnealingTerminator)
     }
 }
 
@@ -248,7 +252,7 @@ mod tests {
         },
         core::{bound::Boundable, Bounds},
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callback, Gradient},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Gradient},
         Float,
     };
 
@@ -277,12 +281,10 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let mut solver = SimulatedAnnealing::new(SimulatedAnnealingConfig::new(
-            1.0,
-            0.999,
-            1e-3,
-            AnnealingGenerator,
-        )); // TODO: We need to sort this out, the config should go later
+        let mut solver = SimulatedAnnealing::new(
+            SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3, AnnealingGenerator),
+            Some(0),
+        ); // TODO: We need to sort this out, the config should go later
         let mut problem = Rosenbrock { n: 2 };
         let result = solver
             .process(
@@ -290,7 +292,7 @@ mod tests {
                 &mut (),
                 SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3, AnnealingGenerator)
                     .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
-                SimulatedAnnealing::default_callbacks().with(MaxSteps(5_000).build()),
+                SimulatedAnnealing::default_callbacks().with(MaxSteps(5_000)),
             )
             .unwrap();
         println!("{}", result);

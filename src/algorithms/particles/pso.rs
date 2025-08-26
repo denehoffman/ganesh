@@ -295,7 +295,10 @@ mod tests {
         algorithms::particles::{
             pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
         },
-        traits::{callback::MaxSteps, Algorithm, Callback, CostFunction},
+        traits::{
+            callback::{Callbacks, MaxSteps},
+            Algorithm, CostFunction,
+        },
         Float, PI,
     };
 
@@ -316,8 +319,8 @@ mod tests {
         let mut rng = Rng::new();
         rng.seed(0);
 
-        let tracker = TrackingSwarmObserver::default().build();
-        let callbacks = vec![MaxSteps(200).build(), tracker.clone()];
+        let tracker = TrackingSwarmObserver::new();
+        let callbacks = Callbacks::empty().with(MaxSteps(200)).with(tracker.clone());
 
         // Create a new Sampler
         let mut solver = PSO::new(2, rng);

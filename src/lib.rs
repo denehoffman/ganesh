@@ -32,7 +32,6 @@
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl Updatable for Rosenbrock {}
 //! impl CostFunction for Rosenbrock {
 //!     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
@@ -51,7 +50,6 @@
 //! # pub struct Rosenbrock {
 //! #     pub n: usize,
 //! # }
-//! # impl Updatable for Rosenbrock {}
 //! # impl CostFunction for Rosenbrock {
 //! #     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
@@ -62,8 +60,10 @@
 //! fn main() -> Result<(), Infallible> {
 //!     let mut problem = Rosenbrock { n: 2 };
 //!     let mut nm = NelderMead::default();
-//!     let result = nm.process(&mut problem, &mut (), NelderMeadConfig::default().with_x0([2.0, 2.0]),
-//!     NelderMead::default_callbacks())?;
+//!     let result = nm.process(&mut problem,
+//!                             &mut (),
+//!                             NelderMeadConfig::default().with_x0([2.0, 2.0]),
+//!                             NelderMead::default_callbacks())?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }

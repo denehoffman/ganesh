@@ -13,7 +13,7 @@ pub mod status;
 
 pub use abort_signal::AbortSignal;
 pub use algorithm::{Algorithm, Bounded};
-pub use callback::Callback;
+pub use callback::{Callback, Callbacks, DebugObserver, MaxSteps};
 pub use cost_function::{CostFunction, Gradient};
 pub use linesearch::LineSearch;
 pub use status::Status;

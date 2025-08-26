@@ -5,7 +5,7 @@ use crate::{
     Float,
 };
 use nalgebra::{Complex, DVector};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
 use std::{ops::ControlFlow, sync::Arc};
@@ -181,7 +181,7 @@ pub fn integrated_autocorrelation_times(
 /// let mut sampler = ESS::new(rng);
 /// let result = sampler.process(&mut problem, &mut (),
 /// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
-/// ESSMove::differential(0.9)]), [obs]).unwrap();
+/// ESSMove::differential(0.9)]), Callbacks::empty().with(obs)).unwrap();
 /// println!("{:?}", result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
 /// assert!(result.dimension == (5, 3822, 2));
@@ -235,6 +235,11 @@ impl AutocorrelationObserver {
         self.verbose = verbose;
         self
     }
+
+    /// Wrap the observer in an [`Arc<Mutex<_>>`].
+    pub fn build(self) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(self))
+    }
 }
 
 impl Default for AutocorrelationObserver {
@@ -260,7 +265,7 @@ where
         &mut self,
         current_step: usize,
         algorithm: &mut A,
-        problem: &P,
+        problem: &mut P,
         status: &mut EnsembleStatus,
         user_data: &mut U,
     ) -> ControlFlow<()> {
