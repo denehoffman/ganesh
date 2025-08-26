@@ -166,7 +166,7 @@ where
         let bounds = self.config.bounds.as_ref();
         self.x = self.config.x0.unconstrain_from(bounds);
         self.g = DVector::zeros(self.x.len());
-        self.f = problem.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
+        self.f = problem.evaluate(&self.x.constrain_to(bounds), user_data)?;
         status.with_position((self.x.constrain_to(bounds), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
@@ -182,7 +182,7 @@ where
         user_data: &mut U,
     ) -> Result<(), E> {
         let bounds = self.config.bounds.as_ref();
-        self.g = problem.gradient(self.x.constrain_to(bounds).as_slice(), user_data)?;
+        self.g = problem.gradient(&self.x.constrain_to(bounds), user_data)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(self.config.beta_1) + self.g.scale(1.0 - self.config.beta_1);
         self.v = self.v.scale(self.config.beta_2)
@@ -193,7 +193,7 @@ where
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + self.config.epsilon));
-        self.f = problem.evaluate(self.x.constrain_to(bounds).as_slice(), user_data)?;
+        self.f = problem.evaluate(&self.x.constrain_to(bounds), user_data)?;
         status.inc_n_f_evals();
         status.with_position((self.x.constrain_to(bounds), self.f));
         Ok(())

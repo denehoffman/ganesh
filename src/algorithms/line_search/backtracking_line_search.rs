@@ -35,12 +35,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
         let phi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
-            problem.evaluate((x + p.scale(alpha)).constrain_to(bounds).as_slice(), ud)
+            problem.evaluate(&(x + p.scale(alpha)).constrain_to(bounds), ud)
         };
         let dphi = |alpha: Float, ud: &mut U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
             Ok(problem
-                .gradient((x + p.scale(alpha)).constrain_to(bounds).as_slice(), ud)?
+                .gradient(&(x + p.scale(alpha)).constrain_to(bounds), ud)?
                 .dot(p))
         };
         let phi_0 = phi(0.0, user_data, status)?;
@@ -49,10 +49,8 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         loop {
             let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
-                let g_alpha_i = problem.gradient(
-                    (x + p.scale(alpha_i)).constrain_to(bounds).as_slice(),
-                    user_data,
-                )?;
+                let g_alpha_i =
+                    problem.gradient(&(x + p.scale(alpha_i)).constrain_to(bounds), user_data)?;
                 return Ok((true, alpha_i, phi_alpha_i, g_alpha_i));
             }
             alpha_i *= self.rho;

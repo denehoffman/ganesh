@@ -18,6 +18,7 @@ pub use swarm_status::SwarmStatus;
 use crate::{
     core::Point,
     traits::{Algorithm, Callback},
+    DVector, Float,
 };
 use std::{ops::ControlFlow, sync::Arc};
 
@@ -28,7 +29,7 @@ pub struct TrackingSwarmObserver {
     /// The history of the swarm particles
     pub history: Vec<Vec<SwarmParticle>>,
     /// The history of the best position in the swarm
-    pub best_history: Vec<Point>,
+    pub best_history: Vec<Point<DVector<Float>>>,
 }
 impl TrackingSwarmObserver {
     /// Create a new observer to track the swarm history, wrapped in an [`Arc<Mutex<_>>`]

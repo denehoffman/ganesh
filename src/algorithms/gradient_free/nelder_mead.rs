@@ -31,7 +31,7 @@ impl Default for SimplexConstructionMethod {
 impl SimplexConstructionMethod {
     fn generate<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         x0: &[Float],
         bounds: Option<&Bounds>,
         user_data: &mut U,
@@ -39,10 +39,11 @@ impl SimplexConstructionMethod {
         match self {
             Self::Orthogonal { simplex_size } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(x0.to_vec().unconstrain_from(bounds));
+                let mut point_0 =
+                    Point::from(DVector::from_column_slice(x0).unconstrain_from(bounds));
                 point_0.evaluate_bounded(func, bounds, user_data)?;
                 points.push(point_0.clone());
-                let dim = point_0.dimension();
+                let dim = point_0.x.len();
                 assert!(
                     dim >= 2,
                     "Nelder-Mead is only a suitable method for problems of dimension >= 2"
@@ -64,11 +65,12 @@ impl SimplexConstructionMethod {
                     &simplex
                         .iter()
                         .map(|x| {
-                            let mut point_i = Point::from(x.unconstrain_from(bounds));
+                            let mut point_i =
+                                Point::from(DVector::from_column_slice(x).unconstrain_from(bounds));
                             point_i.evaluate_bounded(func, bounds, user_data)?;
                             Ok(point_i)
                         })
-                        .collect::<Result<Vec<Point>, E>>()?,
+                        .collect::<Result<Vec<Point<DVector<Float>>>, E>>()?,
                 ))
             }
         }
@@ -79,13 +81,13 @@ impl SimplexConstructionMethod {
 /// sorted.
 #[derive(Default, Clone)]
 pub struct Simplex {
-    points: Vec<Point>,
+    points: Vec<Point<DVector<Float>>>,
     dimension: usize,
     sorted: bool,
     total_centroid: DVector<Float>,
     volume: Float,
-    initial_best: Point,
-    initial_worst: Point,
+    initial_best: Point<DVector<Float>>,
+    initial_worst: Point<DVector<Float>>,
     initial_volume: Float,
 }
 impl Debug for Simplex {
@@ -94,7 +96,7 @@ impl Debug for Simplex {
     }
 }
 impl Simplex {
-    fn new(points: &[Point]) -> Self {
+    fn new(points: &[Point<DVector<Float>>]) -> Self {
         let mut sorted_points = points.to_vec();
         sorted_points.sort_by(|a, b| a.total_cmp(b));
         let initial_best = sorted_points[0].clone();
@@ -129,19 +131,19 @@ impl Simplex {
         sum / ((n - 1) as Float)
     }
     fn best_position(&self, bounds: Option<&Bounds>) -> (DVector<Float>, Float) {
-        let (y, fx) = self.best().clone().into_vec_val();
+        let (y, fx) = self.best().clone().destructure();
         (y.constrain_to(bounds).into(), fx)
     }
-    fn best(&self) -> &Point {
+    fn best(&self) -> &Point<DVector<Float>> {
         &self.points[0]
     }
-    fn worst(&self) -> &Point {
+    fn worst(&self) -> &Point<DVector<Float>> {
         &self.points[self.points.len() - 1]
     }
-    fn second_worst(&self) -> &Point {
+    fn second_worst(&self) -> &Point<DVector<Float>> {
         &self.points[self.points.len() - 2]
     }
-    fn insert_and_sort(&mut self, index: usize, element: Point) {
+    fn insert_and_sort(&mut self, index: usize, element: Point<DVector<Float>>) {
         let removed = self.points.remove(self.points.len() - 1);
         let n = self.points.len() as Float + 1.0;
         self.total_centroid += (&element.x - &removed.x) / n;
@@ -150,7 +152,7 @@ impl Simplex {
         self.sorted = false;
         self.sort();
     }
-    fn insert_sorted(&mut self, index: usize, element: Point) {
+    fn insert_sorted(&mut self, index: usize, element: Point<DVector<Float>>) {
         let removed = self.points.remove(self.points.len() - 1);
         self.points.insert(index, element);
         self.sorted = true;
@@ -211,7 +213,7 @@ pub enum NelderMeadFTerminator {
 }
 impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadFTerminator
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     fn callback(
         &mut self,
@@ -305,7 +307,7 @@ pub enum NelderMeadXTerminator {
 
 impl<P, U, E> Callback<NelderMead, P, GradientFreeStatus, U, E> for NelderMeadXTerminator
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     fn callback(
         &mut self,
@@ -585,7 +587,7 @@ pub struct NelderMead {
 }
 impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     type Summary = MinimizationSummary;
     type Config = NelderMeadConfig;
@@ -888,7 +890,7 @@ mod tests {
         Ok(())
     }
 
-    fn point(x: &[Float], fx: Float) -> Point {
+    fn point(x: &[Float], fx: Float) -> Point<DVector<Float>> {
         Point {
             x: DVector::from_column_slice(x),
             fx,

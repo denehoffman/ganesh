@@ -68,7 +68,7 @@ impl ESSMove {
         n_adaptive: usize,
         max_steps: usize,
         mu: &mut Float,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
@@ -297,7 +297,7 @@ impl ESS {
 }
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     type Summary = MCMCSummary;
     type Config = ESSConfig;

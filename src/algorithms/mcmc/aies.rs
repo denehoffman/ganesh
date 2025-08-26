@@ -40,7 +40,7 @@ impl AIESMove {
     }
     fn step<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
@@ -184,7 +184,7 @@ impl AIES {
 
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for AIES
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     type Summary = MCMCSummary;
     type Config = AIESConfig;

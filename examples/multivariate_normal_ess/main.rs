@@ -20,13 +20,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Implement Function (user_data is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
     impl CostFunction<DMatrix<Float>> for Problem {
+        type Input = DVector<Float>;
         fn evaluate(
             &self,
-            x: &[Float],
+            x: &DVector<Float>,
             user_data: &mut DMatrix<Float>,
         ) -> Result<Float, Infallible> {
-            Ok(-0.5
-                * DVector::from_row_slice(x).dot(&(&*user_data * DVector::from_column_slice(x))))
+            Ok(-0.5 * x.dot(&(&*user_data * x)))
         }
     }
     let mut problem = Problem;

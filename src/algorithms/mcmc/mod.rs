@@ -25,7 +25,7 @@ pub use ensemble_status::EnsembleStatus;
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
-    history: Vec<Arc<RwLock<Point>>>,
+    history: Vec<Arc<RwLock<Point<DVector<Float>>>>>,
 }
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
@@ -36,7 +36,7 @@ impl Walker {
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
         let n_steps = self.history.len();
-        let n_variables = self.history[0].read().dimension();
+        let n_variables = self.history[0].read().x.len();
         (n_steps, n_variables)
     }
     /// Reset the history of the [`Walker`] (except for its starting position)
@@ -53,7 +53,7 @@ impl Walker {
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> Arc<RwLock<Point>> {
+    pub fn get_latest(&self) -> Arc<RwLock<Point<DVector<Float>>>> {
         assert!(!self.history.is_empty());
         self.history[self.history.len() - 1].clone()
     }
@@ -65,13 +65,13 @@ impl Walker {
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.get_latest().write().evaluate(func, user_data)
     }
     /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
+    pub fn push(&mut self, position: Arc<RwLock<Point<DVector<Float>>>>) {
         self.history.push(position)
     }
 }

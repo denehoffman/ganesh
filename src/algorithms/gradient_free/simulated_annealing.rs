@@ -4,23 +4,23 @@ use crate::{
     utils::SampleFloat,
     Float,
 };
-use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
 
 /// A temperature-activated terminator for [`SimulatedAnnealing`].
 pub struct SimulatedAnnealingTerminator;
-impl<P, U, E> Callback<SimulatedAnnealing<U, E, P>, P, SimulatedAnnealingStatus, U, E>
+impl<P, U, E, I> Callback<SimulatedAnnealing<U, E, P, I>, P, SimulatedAnnealingStatus<I>, U, E>
     for SimulatedAnnealingTerminator
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = I>,
+    I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
     fn callback(
         &mut self,
         _current_step: usize,
-        algorithm: &mut SimulatedAnnealing<U, E, P>,
+        algorithm: &mut SimulatedAnnealing<U, E, P, I>,
         _problem: &mut P,
-        status: &mut SimulatedAnnealingStatus,
+        status: &mut SimulatedAnnealingStatus<I>,
         _user_data: &mut U,
     ) -> ControlFlow<()> {
         if status.temperature < algorithm.config.min_temperature {
@@ -32,18 +32,28 @@ where
 
 /// A trait for generating new points in the simulated annealing algorithm.
 pub trait SimulatedAnnealingGenerator<U, E, P> {
-    /// Generates a new point based on the current point, cost function and the status.
+    /// The parameter space produced by the generator.
+    type Output;
+    /// Returns the initial state of the algorithm.
+    fn initial(
+        &mut self,
+        problem: &P,
+        bounds: Option<&Bounds>,
+        status: &mut SimulatedAnnealingStatus<Self::Output>,
+        user_data: &mut U,
+    ) -> Self::Output;
+    /// Generates a new state based on the current state, cost function and the status.
     fn generate(
         &mut self,
         problem: &P,
         bounds: Option<&Bounds>,
-        status: &mut SimulatedAnnealingStatus,
+        status: &mut SimulatedAnnealingStatus<Self::Output>,
         user_data: &mut U,
-    ) -> DVector<Float>;
+    ) -> Self::Output;
 }
 
 /// The internal configuration struct for the [`SimulatedAnnealing`] algorithm.
-pub struct SimulatedAnnealingConfig<U, E, P> {
+pub struct SimulatedAnnealingConfig<U, E, P, O> {
     bounds: Option<Bounds>,
     /// The initial temperature for the simulated annealing algorithm.
     pub initial_temperature: Float,
@@ -52,13 +62,13 @@ pub struct SimulatedAnnealingConfig<U, E, P> {
     /// The minimum temperature for the simulated annealing algorithm.
     pub min_temperature: Float,
     /// The generator for generating new points in the simulated annealing algorithm.
-    pub generator: Box<dyn SimulatedAnnealingGenerator<U, E, P>>,
+    pub generator: Box<dyn SimulatedAnnealingGenerator<U, E, P, Output = O>>,
     _user_data: std::marker::PhantomData<U>,
     _error: std::marker::PhantomData<E>,
 }
-impl<U, E, P> SimulatedAnnealingConfig<U, E, P> {
+impl<U, E, P, O> SimulatedAnnealingConfig<U, E, P, O> {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub fn new<G: SimulatedAnnealingGenerator<U, E, P> + 'static>(
+    pub fn new<G: SimulatedAnnealingGenerator<U, E, P, Output = O> + 'static>(
         initial_temperature: Float,
         cooling_rate: Float,
         min_temperature: Float,
@@ -75,26 +85,26 @@ impl<U, E, P> SimulatedAnnealingConfig<U, E, P> {
         }
     }
 }
-impl<U, E, P> Bounded for SimulatedAnnealingConfig<U, E, P> {
+impl<U, E, P, O> Bounded for SimulatedAnnealingConfig<U, E, P, O> {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
 }
 /// A struct for the simulated annealing algorithm.
-pub struct SimulatedAnnealing<U, E, P> {
-    config: SimulatedAnnealingConfig<U, E, P>,
+pub struct SimulatedAnnealing<U, E, P, O> {
+    config: SimulatedAnnealingConfig<U, E, P, O>,
     rng: fastrand::Rng,
 }
 
 /// A struct for the status of the simulated annealing algorithm.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SimulatedAnnealingStatus {
+pub struct SimulatedAnnealingStatus<I> {
     /// The current temperature of the simulated annealing algorithm.
     pub temperature: Float,
     /// The best point in the simulated annealing algorithm.
-    pub best: Point,
+    pub best: Point<I>,
     /// The current point in the simulated annealing algorithm.
-    pub current: Point,
+    pub current: Point<I>,
     /// The number of iterations.
     pub iteration: usize,
     /// Flag indicating whether the algorithm has converged.
@@ -105,7 +115,10 @@ pub struct SimulatedAnnealingStatus {
     pub cost_evals: usize,
 }
 
-impl Status for SimulatedAnnealingStatus {
+impl<I> Status for SimulatedAnnealingStatus<I>
+where
+    I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
+{
     fn reset(&mut self) {
         self.converged = false;
         self.message = String::new();
@@ -124,9 +137,9 @@ impl Status for SimulatedAnnealingStatus {
     }
 }
 
-impl<U, E, P> SimulatedAnnealing<U, E, P> {
+impl<U, E, P, O> SimulatedAnnealing<U, E, P, O> {
     /// Creates a new instance of the simulated annealing algorithm.
-    pub fn new(config: SimulatedAnnealingConfig<U, E, P>, seed: Option<u64>) -> Self {
+    pub fn new(config: SimulatedAnnealingConfig<U, E, P, O>, seed: Option<u64>) -> Self {
         Self {
             config,
             rng: if let Some(seed) = seed {
@@ -138,29 +151,29 @@ impl<U, E, P> SimulatedAnnealing<U, E, P> {
     }
 }
 
-impl<P, U, E> Algorithm<P, SimulatedAnnealingStatus, U, E> for SimulatedAnnealing<U, E, P>
+impl<P, U, E, I> Algorithm<P, SimulatedAnnealingStatus<I>, U, E> for SimulatedAnnealing<U, E, P, I>
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = I>,
+    I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
     type Summary = MinimizationSummary;
-    type Config = SimulatedAnnealingConfig<U, E, P>;
+    type Config = SimulatedAnnealingConfig<U, E, P, I>;
 
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
         config: Self::Config,
         func: &P,
-        status: &mut SimulatedAnnealingStatus,
+        status: &mut SimulatedAnnealingStatus<I>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.config = config;
         let bounds = self.config.bounds.as_ref();
-        status.current.x = DVector::zeros(bounds.expect("The simulated annealing algorithm requires bounds to be explicitly specified, even if all parameters are unbounded!").len());
         let x0 = self
             .config
             .generator
-            .generate(func, bounds, status, user_data);
-        let fx0 = func.evaluate(x0.as_slice(), user_data)?;
+            .initial(func, bounds, status, user_data);
+        let fx0 = func.evaluate(&x0, user_data)?;
         status.temperature = self.config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
         status.best = status.current.clone();
@@ -172,14 +185,14 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut SimulatedAnnealingStatus,
+        status: &mut SimulatedAnnealingStatus<I>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let x =
             self.config
                 .generator
                 .generate(problem, self.config.bounds.as_ref(), status, user_data);
-        let fx = problem.evaluate(x.as_slice(), user_data)?;
+        let fx = problem.evaluate(&x, user_data)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
@@ -202,7 +215,7 @@ where
     fn postprocessing(
         &mut self,
         _problem: &P,
-        _status: &mut SimulatedAnnealingStatus,
+        _status: &mut SimulatedAnnealingStatus<I>,
         _user_data: &mut U,
     ) -> Result<(), E> {
         Ok(())
@@ -212,26 +225,27 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &SimulatedAnnealingStatus,
+        _status: &SimulatedAnnealingStatus<I>,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
-        let result = MinimizationSummary {
-            x0: vec![Float::NAN; status.best.x.nrows()],
-            x: status.best.x.iter().cloned().collect(),
-            fx: status.best.fx,
-            bounds: self.config.bounds.clone(),
-            converged: status.converged,
-            cost_evals: status.cost_evals,
-            gradient_evals: 0,
-            message: status.message.clone(),
-            parameter_names: None,
-            std: vec![0.0; status.best.x.len()],
-        };
-
-        Ok(result)
+        todo!("We should make a unique summary for this since `I` could be anything.")
+        // let result = MinimizationSummary {
+        //     x0: vec![Float::NAN; status.best.x.nrows()],
+        //     x: status.best.x.iter().cloned().collect(),
+        //     fx: status.best.fx,
+        //     bounds: self.config.bounds.clone(),
+        //     converged: status.converged,
+        //     cost_evals: status.cost_evals,
+        //     gradient_evals: 0,
+        //     message: status.message.clone(),
+        //     parameter_names: None,
+        //     std: vec![0.0; status.best.x.len()],
+        // };
+        //
+        // Ok(result)
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E>
     where
         Self: Sized,
     {
@@ -263,19 +277,30 @@ mod tests {
     where
         P: Gradient<U, E>,
     {
+        type Output = DVector<Float>;
         fn generate(
             &mut self,
             problem: &P,
             bounds: Option<&Bounds>,
-            status: &mut SimulatedAnnealingStatus,
+            status: &mut SimulatedAnnealingStatus<Self::Output>,
             user_data: &mut U,
-        ) -> DVector<Float> {
+        ) -> Self::Output {
             #[allow(clippy::expect_used)]
             let g = problem
-                .gradient(status.current.x.as_slice(), user_data)
+                .gradient(&status.current.x, user_data)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
             x.constrain_to(bounds)
+        }
+
+        fn initial(
+            &mut self,
+            _problem: &P,
+            bounds: Option<&Bounds>,
+            _status: &mut SimulatedAnnealingStatus<Self::Output>,
+            _user_data: &mut U,
+        ) -> Self::Output {
+            DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds)
         }
     }
 

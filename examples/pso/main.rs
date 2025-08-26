@@ -2,7 +2,7 @@ use fastrand::Rng;
 use ganesh::{
     algorithms::particles::{pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO},
     traits::{callback::MaxSteps, Algorithm, Callbacks, CostFunction},
-    Float, PI,
+    DVector, Float, PI,
 };
 use std::convert::Infallible;
 use std::error::Error;
@@ -15,7 +15,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Rastrigin function
     impl CostFunction for Problem {
-        fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+        type Input = DVector<Float>;
+        fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
             Ok(10.0
                 + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
                 + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))

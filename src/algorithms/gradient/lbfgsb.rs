@@ -488,9 +488,9 @@ where
                 x0[i]
             }
         });
-        self.g = problem.gradient(self.x.as_slice(), user_data)?;
+        self.g = problem.gradient(&self.x, user_data)?;
         status.inc_n_g_evals();
-        self.f = problem.evaluate(self.x.as_slice(), user_data)?;
+        self.f = problem.evaluate(&self.x, user_data)?;
         status.with_position((self.x.clone(), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
@@ -555,7 +555,7 @@ where
     ) -> Result<(), E> {
         match self.config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = problem.hessian(self.x.as_slice(), user_data)?;
+                let hessian = problem.hessian(&self.x, user_data)?;
                 status.with_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}

@@ -134,7 +134,7 @@ impl PSO {
     fn update<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let swarm = &status.swarm;
@@ -146,7 +146,7 @@ impl PSO {
     fn update_sync<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for particle in &mut status.swarm.particles {
@@ -184,7 +184,7 @@ impl PSO {
     fn update_async<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
@@ -192,10 +192,8 @@ impl PSO {
             .collect();
 
         for (i, particle) in status.swarm.particles.iter_mut().enumerate() {
-            let rv1 =
-                generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
-            let rv2 =
-                generate_random_vector(particle.position.dimension(), 0.0, 0.1, &mut self.rng);
+            let rv1 = generate_random_vector(particle.position.x.len(), 0.0, 0.1, &mut self.rng);
+            let rv2 = generate_random_vector(particle.position.x.len(), 0.0, 0.1, &mut self.rng);
             particle.velocity = particle.velocity.scale(self.config.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
@@ -222,7 +220,7 @@ impl PSO {
 
 impl<P, U, E> Algorithm<P, SwarmStatus, U, E> for PSO
 where
-    P: CostFunction<U, E>,
+    P: CostFunction<U, E, Input = DVector<Float>>,
 {
     type Summary = MinimizationSummary;
     type Config = PSOConfig;
@@ -299,7 +297,7 @@ mod tests {
             callback::{Callbacks, MaxSteps},
             Algorithm, CostFunction,
         },
-        Float, PI,
+        DVector, Float, PI,
     };
 
     #[test]
@@ -308,7 +306,12 @@ mod tests {
         struct Function;
         // Implement Rastrigin function
         impl CostFunction for Function {
-            fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+            type Input = DVector<Float>;
+            fn evaluate(
+                &self,
+                x: &DVector<Float>,
+                _user_data: &mut (),
+            ) -> Result<Float, Infallible> {
                 Ok(10.0
                     + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
                     + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))

@@ -76,7 +76,7 @@ impl StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate(x.constrain_to(bounds).as_slice(), user_data)
+        func.evaluate(&x.constrain_to(bounds), user_data)
     }
     fn g_eval<U, E>(
         &self,
@@ -87,7 +87,7 @@ impl StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(x.constrain_to(bounds).as_slice(), user_data)
+        func.gradient(&x.constrain_to(bounds), user_data)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
