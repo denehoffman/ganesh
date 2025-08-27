@@ -44,21 +44,16 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     fn gradient(&self, x: &Self::Input, user_data: &mut U) -> Result<DVector<Float>, E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
-        // This is technically the best step size for the gradient, cbrt(eps) * x_i (or just
-        // cbrt(eps) if x_i = 0)
-        let h: DVector<Float> = x
-            .iter()
-            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
-            .collect::<Vec<_>>()
-            .into();
+        let mut xw = x.clone();
         for i in 0..n {
-            let mut x_plus = x.clone();
-            let mut x_minus = x.clone();
-            x_plus[i] += h[i];
-            x_minus[i] -= h[i];
-            let f_plus = self.evaluate(&x_plus, user_data)?;
-            let f_minus = self.evaluate(&x_minus, user_data)?;
-            grad[i] = (f_plus - f_minus) / (2.0 * h[i]);
+            let xi = x[i];
+            let hi = Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0);
+            xw[i] = xi + hi;
+            let f_plus = self.evaluate(&xw, user_data)?;
+            xw[i] = xi - hi;
+            let f_minus = self.evaluate(&xw, user_data)?;
+            xw[i] = xi;
+            grad[i] = (f_plus - f_minus) / (2.0 * hi);
         }
         Ok(grad)
     }
@@ -70,35 +65,28 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     fn hessian(&self, x: &Self::Input, user_data: &mut U) -> Result<DMatrix<Float>, E> {
-        let h: DVector<Float> = x
-            .iter()
-            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
-            .collect::<Vec<_>>()
-            .into();
-        let mut res = DMatrix::zeros(x.len(), x.len());
-        let mut g_plus = DMatrix::zeros(x.len(), x.len());
-        let mut g_minus = DMatrix::zeros(x.len(), x.len());
-        // g+ and g- are such that
-        // g+[(i, j)] = g[i](x + h_je_j) and
-        // g-[(i, j)] = g[i](x - h_je_j)
-        for i in 0..x.len() {
-            let mut x_plus = x.clone();
-            let mut x_minus = x.clone();
-            x_plus[i] += h[i];
-            x_minus[i] -= h[i];
-            g_plus.set_column(i, &self.gradient(&x_plus, user_data)?);
-            g_minus.set_column(i, &self.gradient(&x_minus, user_data)?);
-            for j in 0..=i {
-                if i == j {
-                    res[(i, j)] = (g_plus[(i, j)] - g_minus[(i, j)]) / (2.0 * h[i]);
-                } else {
-                    res[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (4.0 * h[j]))
-                        + ((g_plus[(j, i)] - g_minus[(j, i)]) / (4.0 * h[i]));
-                    res[(j, i)] = res[(i, j)];
-                }
+        let n = x.len();
+        let mut hess = DMatrix::zeros(n, n);
+        let g0 = self.gradient(x, user_data)?;
+        let mut xw = x.clone();
+        for j in 0..n {
+            let xj = x[j];
+            let hj = Float::sqrt(Float::EPSILON) * (xj.abs() + 1.0);
+            xw[j] = xj + hj;
+            let mut gj = self.gradient(&xw, user_data)?;
+            xw[j] = xj;
+            gj -= &g0;
+            gj /= hj;
+            hess.set_column(j, &gj);
+        }
+        for i in 0..n {
+            for j in 0..i {
+                let s = 0.5 * (hess[(i, j)] + hess[(j, i)]);
+                hess[(i, j)] = s;
+                hess[(j, i)] = s;
             }
         }
-        Ok(res)
+        Ok(hess)
     }
 }
 
