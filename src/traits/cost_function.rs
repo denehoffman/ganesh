@@ -71,30 +71,28 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
             .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
             .collect::<Vec<_>>()
             .into();
-        let mut hessian = DMatrix::zeros(n, n);
+        let mut hess = DMatrix::zeros(n, n);
+        let mut g_plus = DMatrix::zeros(n, n);
+        let mut g_minus = DMatrix::zeros(n, n);
         let mut xw = x.clone();
-        for i in 0..n {
-            let xi = x[i];
-            let hi = h[i];
-            let inv2hi = 1.0 / (2.0 * hi);
-            let inv4hi = 0.5 * inv2hi;
-            xw[i] = xi + hi;
-            let g_plus = self.gradient(&xw, user_data)?;
-            xw[i] = xi - hi;
-            let g_minus = self.gradient(&xw, user_data)?;
+        // g+ and g- are such that
+        // g+[(i, j)] = g[i](x + h_je_j) and
+        // g-[(i, j)] = g[i](x - h_je_j)
+        for i in 0..x.len() {
+            let xi = xw[i];
+            xw[i] = xi + h[i];
+            g_plus.set_column(i, &self.gradient(&xw, user_data)?);
+            xw[i] = xi - h[i];
+            g_minus.set_column(i, &self.gradient(&xw, user_data)?);
             xw[i] = xi;
-            hessian[(i, i)] = (g_plus[i] - g_minus[i]) * inv2hi;
+            hess[(i, i)] = (g_plus[(i, i)] - g_minus[(i, i)]) / (2.0 * h[i]);
             for j in 0..i {
-                let m = (g_plus[j] - g_minus[j]) * inv4hi;
-                hessian[(i, j)] += m;
-                hessian[(j, i)] = hessian[(i, j)];
-            }
-            for j in (i + 1)..n {
-                let m = (g_plus[j] - g_minus[j]) * inv4hi;
-                hessian[(j, i)] = m;
+                hess[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (4.0 * h[j]))
+                    + ((g_plus[(j, i)] - g_minus[(j, i)]) / (4.0 * h[i]));
+                hess[(j, i)] = hess[(i, j)];
             }
         }
-        Ok(hessian)
+        Ok(hess)
     }
 }
 
