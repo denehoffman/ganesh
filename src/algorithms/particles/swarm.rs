@@ -58,7 +58,7 @@ impl Swarm {
         rng: &mut Rng,
         dimension: usize,
         bounds: Option<&Bounds>,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.bounds = bounds.cloned();
@@ -213,7 +213,7 @@ impl SwarmPositionInitializer {
         rng: &mut Rng,
         dimension: usize,
         n_particles: usize,
-    ) -> Vec<Point> {
+    ) -> Vec<Point<DVector<Float>>> {
         match self {
             Self::Zero => (0..n_particles)
                 .map(|_| DVector::zeros(dimension).into())
@@ -275,11 +275,11 @@ impl SwarmVelocityInitializer {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct SwarmParticle {
     /// The position of the particle (in unbounded space)
-    pub position: Point,
+    pub position: Point<DVector<Float>>,
     /// The velocity of the particle (in unbounded space)
     pub velocity: DVector<Float>,
     /// The best position of the particle (as measured by the minimum value of `fx`)
-    pub best: Point,
+    pub best: Point<DVector<Float>>,
 }
 impl SwarmParticle {
     /// Create a new particle with the given position, velocity, and cost function
@@ -290,9 +290,9 @@ impl SwarmParticle {
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
     pub fn new<U, E>(
-        position: Point,
+        position: Point<DVector<Float>>,
         velocity: DVector<Float>,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
         bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
@@ -321,7 +321,7 @@ impl SwarmParticle {
     /// information.
     pub fn update_position<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
         bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,

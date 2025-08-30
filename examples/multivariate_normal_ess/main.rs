@@ -4,10 +4,11 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use fastrand::Rng;
+use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::ESS;
-use ganesh::algorithms::mcmc::{AutocorrelationObserver, ESSMove};
-use ganesh::core::Engine;
-use ganesh::traits::CostFunction;
+use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove};
+use ganesh::traits::callback::MaxSteps;
+use ganesh::traits::{Algorithm, Callbacks, CostFunction};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};
@@ -18,14 +19,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Function (user_data is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
-    impl CostFunction<DMatrix<Float>, Infallible> for Problem {
+    impl CostFunction<DMatrix<Float>> for Problem {
+        type Input = DVector<Float>;
         fn evaluate(
             &self,
-            x: &[Float],
+            x: &DVector<Float>,
             user_data: &mut DMatrix<Float>,
         ) -> Result<Float, Infallible> {
-            Ok(-0.5
-                * DVector::from_row_slice(x).dot(&(&*user_data * DVector::from_column_slice(x))))
+            Ok(-0.5 * x.dot(&(&*user_data * x)))
         }
     }
     let mut problem = Problem;
@@ -41,32 +42,36 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate a random (inverse) covariance matrix (scaling on off-diagonals makes for
     // nicer-looking results)
-    let cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
+    let mut cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
-    let aco = AutocorrelationObserver::default()
+    let aco = AutocorrelationTerminator::default()
         .with_verbose(true)
         .build();
 
+    let mut sampler = ESS::new(rng);
+
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
     // and Gaussian steps the other 10%
-    let mut m = Engine::new(ESS::new(rng)).setup(|e| {
-        e.configure(|c| {
-            c.with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
-                .with_walkers(x0.clone())
-        })
-        .with_observer(aco.clone())
-        .with_user_data(cov_inv.clone())
-    });
-
     // Run a maximum of 1000 steps of the MCMC algorithm
-    m.process(&mut problem)?;
+    let result = sampler.process(
+        &mut problem,
+        &mut cov_inv,
+        ESSConfig::default().with_walkers(x0.clone()).with_moves([
+            ESSMove::gaussian(0.1),
+            ESSMove::global(0.7, None, Some(0.5), Some(4)),
+            ESSMove::differential(0.2),
+        ]),
+        Callbacks::empty()
+            .with_terminator(aco.clone())
+            .with_terminator(MaxSteps(1000)),
+    )?;
 
     // Get the resulting samples (no burn-in)
-    let chains = m.result.chain;
+    let chains = result.chain;
 
     // Get the integrated autocorrelation times
-    let taus = aco.read().taus.clone();
+    let taus = aco.lock().taus.clone();
 
     // Export the results to a Python .pkl file to visualize via matplotlib
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);

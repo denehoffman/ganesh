@@ -2,18 +2,18 @@
 pub mod abort_signal;
 /// Module containing the [`Algorithm`] and [`Bounded`] traits.
 pub mod algorithm;
+/// Module containing the [`Callback`] trait and its implementations.
+pub mod callback;
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
 /// Module containing various line-search methods.
 pub mod linesearch;
-/// Module containing the [`Observer`] trait and its implementations.
-pub mod observer;
 /// Module containing the [`Status`] trait and its implementations.
 pub mod status;
 
 pub use abort_signal::AbortSignal;
 pub use algorithm::{Algorithm, Bounded};
-pub use cost_function::{CostFunction, Gradient, Hessian};
+pub use callback::{Callback, Callbacks, DebugObserver, MaxSteps, Observer, Terminator};
+pub use cost_function::{CostFunction, Gradient};
 pub use linesearch::LineSearch;
-pub use observer::Observer;
 pub use status::Status;

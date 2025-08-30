@@ -51,7 +51,7 @@ impl EnsembleStatus {
     }
     /// Add a set of positions to the [`EnsembleStatus`], adding each position to the corresponding
     /// [`Walker`] in the given order
-    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point>>>) {
+    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point<DVector<Float>>>>>) {
         self.walkers
             .iter_mut()
             .zip(positions)
@@ -67,7 +67,7 @@ impl EnsembleStatus {
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
@@ -120,7 +120,10 @@ impl EnsembleStatus {
             .unscale(self.walkers.len() as Float)
     }
     /// Iterate through all the [`Walker`]s other than the one at the provided `index`
-    pub fn iter_compliment(&self, index: usize) -> impl Iterator<Item = Arc<RwLock<Point>>> + '_ {
+    pub fn iter_compliment(
+        &self,
+        index: usize,
+    ) -> impl Iterator<Item = Arc<RwLock<Point<DVector<Float>>>>> + '_ {
         self.walkers
             .iter()
             .enumerate()

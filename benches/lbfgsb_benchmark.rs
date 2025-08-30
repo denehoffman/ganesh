@@ -1,22 +1,28 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use ganesh::algorithms::gradient::LBFGSB;
-use ganesh::core::{CtrlCAbortSignal, Engine};
-use ganesh::test_functions::rosenbrock::Rosenbrock;
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use ganesh::{
+    algorithms::gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
+    test_functions::rosenbrock::Rosenbrock,
+    traits::Algorithm,
+};
 
 fn lbfgsb_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("LBFGSB");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let mut problem = Rosenbrock { n: *ndim };
-            let mut m = Engine::new(LBFGSB::default()).setup(|m| {
-                m.with_abort_signal(CtrlCAbortSignal::new())
-                    .with_max_steps(10_000_000)
-                    .configure(|c| c.with_x0(vec![5.0; *ndim]))
-            });
-            b.iter(|| {
-                m.process(&mut problem).unwrap();
-                black_box(&m.status);
-            });
+            let base_cfg = LBFGSBConfig::default().with_x0(vec![5.0; *ndim]);
+            b.iter_batched(
+                || {
+                    let problem = Rosenbrock { n: *ndim };
+                    let solver = LBFGSB::default();
+                    let cbs = LBFGSB::default_callbacks();
+                    (problem, solver, base_cfg.clone(), cbs)
+                },
+                |(mut problem, mut solver, cfg, cbs)| {
+                    let result = solver.process(&mut problem, &mut (), cfg, cbs).unwrap();
+                    black_box(result);
+                },
+                BatchSize::SmallInput,
+            );
         });
     }
     group.finish();

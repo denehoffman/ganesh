@@ -1,15 +1,13 @@
-use std::collections::VecDeque;
-
-use nalgebra::{DMatrix, DVector};
-
-use crate::core::{Bound, Bounds, MinimizationSummary};
-
-use crate::traits::{Algorithm, Bounded, CostFunction, Gradient, Hessian, LineSearch};
+use crate::traits::callback::Callbacks;
+use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
 use crate::Float;
-
-use crate::algorithms::line_search::StrongWolfeLineSearch;
-
-use super::GradientStatus;
+use crate::{
+    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
+    core::{Bound, Bounds, MinimizationSummary},
+};
+use nalgebra::{DMatrix, DVector};
+use std::collections::VecDeque;
+use std::ops::ControlFlow;
 
 /// A terminator for the [`LBFGSB`] [`Algorithm`]
 ///
@@ -19,18 +17,25 @@ use super::GradientStatus;
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
-impl LBFGSBFTerminator {
-    fn update_convergence(
-        &self,
-        fx_current: Float,
-        fx_previous: Float,
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<U, E>,
+        _problem: &P,
         status: &mut GradientStatus,
-        eps_abs: Float,
-    ) {
-        if (fx_previous - fx_current).abs() < eps_abs {
+        _user_data: &U,
+    ) -> ControlFlow<()> {
+        if (algorithm.f_previous - algorithm.f).abs() < algorithm.config.eps_f_abs {
             status.set_converged();
             status.with_message("F_EVAL CONVERGED");
+            return ControlFlow::Break(());
         }
+        algorithm.f_previous = algorithm.f;
+        ControlFlow::Continue(())
     }
 }
 
@@ -42,17 +47,47 @@ impl LBFGSBFTerminator {
 /// CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
-impl LBFGSBGTerminator {
-    fn update_convergence(
-        &self,
-        gradient: &DVector<Float>,
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<U, E>,
+        _problem: &P,
         status: &mut GradientStatus,
-        eps_abs: Float,
-    ) {
-        if gradient.dot(gradient).sqrt() < eps_abs {
+        _user_data: &U,
+    ) -> ControlFlow<()> {
+        if algorithm.g.dot(&algorithm.g).sqrt() < algorithm.config.eps_g_abs {
             status.set_converged();
             status.with_message("GRADIENT CONVERGED");
+            return ControlFlow::Break(());
         }
+        ControlFlow::Continue(())
+    }
+}
+
+/// A terminator which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
+pub struct LBFGSBInfNormGTerminator;
+impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<U, E>,
+        _problem: &P,
+        status: &mut GradientStatus,
+        _user_data: &U,
+    ) -> ControlFlow<()> {
+        if algorithm.get_inf_norm_projected_gradient() < algorithm.config.tol_g_abs {
+            status.set_converged();
+            status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
     }
 }
 
@@ -71,8 +106,6 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSBConfig<U, E> {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
-    terminator_f: LBFGSBFTerminator,
-    terminator_g: LBFGSBGTerminator,
     eps_f_abs: Float,
     eps_g_abs: Float,
     tol_g_abs: Float,
@@ -86,8 +119,6 @@ impl<U, E> Default for LBFGSBConfig<U, E> {
         Self {
             x0: DVector::zeros(0),
             bounds: None,
-            terminator_f: LBFGSBFTerminator,
-            terminator_g: LBFGSBGTerminator,
             eps_f_abs: Float::sqrt(Float::EPSILON),
             eps_g_abs: Float::cbrt(Float::EPSILON),
             tol_g_abs: Float::cbrt(Float::EPSILON),
@@ -105,19 +136,9 @@ impl<U, E> Bounded for LBFGSBConfig<U, E> {
 }
 impl<U, E> LBFGSBConfig<U, E> {
     /// Set the starting position of the algorithm.
-    pub fn with_x0<I: IntoIterator<Item = Float>>(&mut self, x0: I) -> &mut Self {
+    pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
         self.x0 = DVector::from_column_slice(&x0);
-        self
-    }
-    /// Set the termination condition concerning the values of the objective function.
-    pub const fn with_terminator_f(mut self, term: LBFGSBFTerminator) -> Self {
-        self.terminator_f = term;
-        self
-    }
-    /// Set the termination condition concerning the gradient values.
-    pub const fn with_terminator_g(mut self, term: LBFGSBGTerminator) -> Self {
-        self.terminator_g = term;
         self
     }
     /// Set the absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
@@ -426,18 +447,20 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
-impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
+impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB<U, E>
+where
+    P: Gradient<U, E>,
+{
     type Summary = MinimizationSummary;
     type Config = LBFGSBConfig<U, E>;
-    fn get_config_mut(&mut self) -> &mut Self::Config {
-        &mut self.config
-    }
     fn initialize(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        config: Self::Config,
+        problem: &mut P,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
+        self.config = config;
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         let x0 = self.config.x0.as_ref();
@@ -465,9 +488,9 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
                 x0[i]
             }
         });
-        self.g = func.gradient(self.x.as_slice(), user_data)?;
+        self.g = problem.gradient(&self.x, user_data)?;
         status.inc_n_g_evals();
-        self.f = func.evaluate(self.x.as_slice(), user_data)?;
+        self.f = problem.evaluate(&self.x, user_data)?;
         status.with_position((self.x.clone(), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
@@ -478,7 +501,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
     fn step(
         &mut self,
         _i_step: usize,
-        func: &dyn CostFunction<U, E>,
+        problem: &mut P,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
@@ -488,7 +511,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
             &self.x,
             &d,
             Some(max_step),
-            func,
+            problem,
             None,
             user_data,
             status,
@@ -524,38 +547,15 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         Ok(())
     }
 
-    fn check_for_termination(
-        &mut self,
-        _func: &dyn CostFunction<U, E>,
-        status: &mut GradientStatus,
-        _user_data: &mut U,
-    ) -> Result<bool, E> {
-        self.config.terminator_f.update_convergence(
-            self.f,
-            self.f_previous,
-            status,
-            self.config.eps_f_abs,
-        );
-        self.f_previous = self.f;
-        self.config
-            .terminator_g
-            .update_convergence(&self.g, status, self.config.eps_g_abs);
-        if self.get_inf_norm_projected_gradient() < self.config.tol_g_abs {
-            status.set_converged();
-            status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
-        }
-        Ok(status.converged)
-    }
-
     fn postprocessing(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        problem: &P,
         status: &mut GradientStatus,
         user_data: &mut U,
     ) -> Result<(), E> {
         match self.config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = func.hessian(self.x.as_slice(), user_data)?;
+                let hessian = problem.hessian(&self.x, user_data)?;
                 status.with_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}
@@ -565,8 +565,8 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
 
     fn summarize(
         &self,
-        _func: &dyn CostFunction<U, E>,
-        parameter_names: Option<&Vec<String>>,
+        _current_step: usize,
+        _problem: &P,
         status: &GradientStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
@@ -579,7 +579,7 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
-            parameter_names: parameter_names.as_ref().map(|names| names.to_vec()),
+            parameter_names: None,
             std: status
                 .err
                 .as_ref()
@@ -602,20 +602,28 @@ impl<U, E> Algorithm<GradientStatus, U, E> for LBFGSB<U, E> {
         self.y_store = VecDeque::default();
         self.s_store = VecDeque::default();
     }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    where
+        Self: Sized,
+    {
+        Callbacks::empty()
+            .with_terminator(LBFGSBFTerminator)
+            .with_terminator(LBFGSBGTerminator)
+            .with_terminator(LBFGSBInfNormGTerminator)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
-
-    use approx::assert_relative_eq;
-
     use crate::{
-        core::{CtrlCAbortSignal, Engine},
+        algorithms::gradient::lbfgsb::LBFGSBConfig,
         test_functions::Rosenbrock,
-        traits::Bounded,
+        traits::{Algorithm, Bounded, MaxSteps},
         Float,
     };
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
 
     use super::LBFGSB;
 
@@ -624,73 +632,57 @@ mod tests {
     fn test_problem_constructor() {
         #[allow(clippy::box_default)]
         let solver: LBFGSB<(), Infallible> = LBFGSB::default();
-        let problem = Engine::new(solver);
     }
 
     #[test]
     fn test_lbfgsb() -> Result<(), Infallible> {
-        let solver = LBFGSB::default();
-        let mut m = Engine::new(solver).setup(|m| m.with_abort_signal(CtrlCAbortSignal::new()));
+        let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
-        m.configure(|c| c.with_x0([-2.0, 2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([2.0, 2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([2.0, -2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([-2.0, -2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([0.0, 0.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([1.0, 1.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver.process(
+                &mut problem,
+                &mut (),
+                LBFGSBConfig::default().with_x0(starting_value),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+            )?;
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
         Ok(())
     }
 
     #[test]
     fn test_bounded_lbfgsb() -> Result<(), Infallible> {
-        let solver = LBFGSB::default();
-        let mut m = Engine::new(solver).setup(|e| {
-            e.configure(|c| c.with_bounds(vec![(-4.0, 4.0), (-4.0, 4.0)]))
-                .with_abort_signal(CtrlCAbortSignal::new())
-        });
+        let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
-        m.configure(|c| c.with_x0([-2.0, 2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([2.0, 2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([2.0, -2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([-2.0, -2.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([0.0, 0.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        m.configure(|c| c.with_x0([1.0, 1.0]))
-            .process(&mut problem)?;
-        assert!(m.result.converged);
-        assert_relative_eq!(m.result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver.process(
+                &mut problem,
+                &mut (),
+                LBFGSBConfig::default()
+                    .with_x0(starting_value)
+                    .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+            )?;
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
         Ok(())
     }
 }

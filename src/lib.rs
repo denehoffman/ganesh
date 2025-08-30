@@ -26,14 +26,15 @@
 //!
 //! ```rust
 //! use ganesh::traits::*;
-//! use ganesh::{core::Engine, Float};
+//! use ganesh::{Float, DVector};
 //! use std::convert::Infallible;
 //!
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl CostFunction<(), Infallible> for Rosenbrock {
-//!     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+//! impl CostFunction for Rosenbrock {
+//!     type Input = DVector<Float>;
+//!     fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
 //!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //!             .sum())
@@ -42,16 +43,17 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::algorithms::gradient_free::NelderMead;
+//! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
-//! use ganesh::{core::Engine, Float};
+//! use ganesh::{Float, DVector};
 //! use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
 //! #     pub n: usize,
 //! # }
-//! # impl CostFunction<(), Infallible> for Rosenbrock {
-//! #     fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+//! # impl CostFunction for Rosenbrock {
+//! #     type Input = DVector<Float>;
+//! #     fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
 //! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //! #             .sum())
@@ -59,11 +61,12 @@
 //! # }
 //! fn main() -> Result<(), Infallible> {
 //!     let mut problem = Rosenbrock { n: 2 };
-//!     let nm = NelderMead::default();
-//!     let mut m = Engine::new(nm);
-//!     m.configure(|c| c.with_x0([2.0, 2.0]));
-//!     m.process(&mut problem)?;
-//!     println!("{}", m.result);
+//!     let mut nm = NelderMead::default();
+//!     let result = nm.process(&mut problem,
+//!                             &mut (),
+//!                             NelderMeadConfig::default().with_x0([2.0, 2.0]),
+//!                             NelderMead::default_callbacks())?;
+//!     println!("{}", result);
 //!     Ok(())
 //! }
 //! ```
@@ -239,6 +242,8 @@ pub type Float = f64;
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(feature = "f32")]
 pub type Float = f32;
+
+pub use nalgebra::DVector;
 
 /// The mathematical constant $`\pi`$.
 #[cfg(not(feature = "f32"))]

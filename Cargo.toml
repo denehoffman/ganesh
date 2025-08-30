@@ -46,5 +46,9 @@ harness = false
 name = "lbfgsb_benchmark"
 harness = false
 
+[[bench]]
+name = "derivatives"
+harness = false
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./docs/docs-header.html"]

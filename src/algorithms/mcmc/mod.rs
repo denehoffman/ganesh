@@ -1,22 +1,22 @@
 #![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
-    traits::{CostFunction, Observer},
+    traits::{Algorithm, CostFunction, Terminator},
     Float,
 };
 use nalgebra::{Complex, DVector};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
-pub use aies::{AIESMove, AIES};
+pub use aies::{AIESConfig, AIESMove, AIES};
 
 /// Ensemble Slice Sampler
 pub mod ess;
-pub use ess::{ESSMove, ESS};
+pub use ess::{ESSConfig, ESSMove, ESS};
 
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
@@ -25,7 +25,7 @@ pub use ensemble_status::EnsembleStatus;
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
-    history: Vec<Arc<RwLock<Point>>>,
+    history: Vec<Arc<RwLock<Point<DVector<Float>>>>>,
 }
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
@@ -36,7 +36,7 @@ impl Walker {
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
         let n_steps = self.history.len();
-        let n_variables = self.history[0].read().dimension();
+        let n_variables = self.history[0].read().x.len();
         (n_steps, n_variables)
     }
     /// Reset the history of the [`Walker`] (except for its starting position)
@@ -53,7 +53,7 @@ impl Walker {
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> Arc<RwLock<Point>> {
+    pub fn get_latest(&self) -> Arc<RwLock<Point<DVector<Float>>>> {
         assert!(!self.history.is_empty());
         self.history[self.history.len() - 1].clone()
     }
@@ -65,13 +65,13 @@ impl Walker {
     /// information.
     pub fn evaluate_latest<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         self.get_latest().write().evaluate(func, user_data)
     }
     /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: Arc<RwLock<Point>>) {
+    pub fn push(&mut self, position: Arc<RwLock<Point<DVector<Float>>>>) {
         self.history.push(position)
     }
 }
@@ -160,12 +160,12 @@ pub fn integrated_autocorrelation_times(
 ///
 /// ```rust
 /// use fastrand::Rng;
-/// use ganesh::algorithms::mcmc::AutocorrelationObserver;
-/// use ganesh::algorithms::mcmc::{ESSMove, ESS};
-/// use ganesh::core::Engine;
+/// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
+/// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
 /// use ganesh::test_functions::NegativeRosenbrock;
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
+/// use ganesh::traits::*;
 ///
 /// let mut problem = NegativeRosenbrock { n: 2 };
 /// let mut rng = Rng::new();
@@ -174,20 +174,19 @@ pub fn integrated_autocorrelation_times(
 /// let x0: Vec<DVector<Float>> = (0..5)
 ///     .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
 ///     .collect();
-/// let obs = AutocorrelationObserver::default()
+/// let aco = AutocorrelationTerminator::default()
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
-/// let mut sampler = Engine::new(ESS::new(rng));
-/// sampler
-///     .with_observer(obs)
-///     .configure(|c| c.with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]));
-/// sampler.process(&mut problem).unwrap();
-/// println!("{:?}", sampler.result.dimension);
+/// let mut sampler = ESS::new(rng);
+/// let result = sampler.process(&mut problem, &mut (),
+/// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
+/// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco)).unwrap();
+/// println!("{:?}", result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
-/// assert!(sampler.result.dimension == (5, 3821, 2));
+/// assert!(result.dimension == (5, 3822, 2));
 /// ```
-pub struct AutocorrelationObserver {
+pub struct AutocorrelationTerminator {
     n_check: usize,
     n_taus_threshold: usize,
     dtau_threshold: Float,
@@ -199,7 +198,7 @@ pub struct AutocorrelationObserver {
     pub taus: Vec<Float>,
 }
 
-impl AutocorrelationObserver {
+impl AutocorrelationTerminator {
     /// Set how often (in number of steps) to check this observer (default: `50`)
     pub const fn with_n_check(mut self, n_check: usize) -> Self {
         self.n_check = n_check;
@@ -236,13 +235,14 @@ impl AutocorrelationObserver {
         self.verbose = verbose;
         self
     }
-    /// Finalize the [`Observer`] by wrapping it in an [`Arc`] and [`RwLock`]
-    pub fn build(self) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(self))
+
+    /// Wrap the observer in an [`Arc<Mutex<_>>`].
+    pub fn build(self) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(self))
     }
 }
 
-impl Default for AutocorrelationObserver {
+impl Default for AutocorrelationTerminator {
     fn default() -> Self {
         Self {
             n_check: 50,
@@ -257,16 +257,26 @@ impl Default for AutocorrelationObserver {
     }
 }
 
-impl<U> Observer<EnsembleStatus, U> for AutocorrelationObserver {
-    fn callback(&mut self, step: usize, status: &mut EnsembleStatus, user_data: &mut U) -> bool {
-        if step % self.n_check == 0 {
+impl<A, P, U, E> Terminator<A, P, EnsembleStatus, U, E> for AutocorrelationTerminator
+where
+    A: Algorithm<P, EnsembleStatus, U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        current_step: usize,
+        algorithm: &mut A,
+        problem: &P,
+        status: &mut EnsembleStatus,
+        user_data: &U,
+    ) -> ControlFlow<()> {
+        if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(
                 self.c,
-                Some((step as Float * self.discard) as usize),
+                Some((current_step as Float * self.discard) as usize),
                 None,
             );
             let tau = taus.mean();
-            let enough_steps = tau * (self.n_taus_threshold as Float) < step as Float;
+            let enough_steps = tau * (self.n_taus_threshold as Float) < current_step as Float;
             let (dtau, dtau_met) = if !self.taus.is_empty() {
                 let dtau = Float::abs(self.taus.last().unwrap_or(&0.0) - tau) / tau;
                 (dtau, dtau < self.dtau_threshold)
@@ -281,13 +291,15 @@ impl<U> Observer<EnsembleStatus, U> for AutocorrelationObserver {
                     "Minimum steps to converge = {}",
                     (tau * (self.n_taus_threshold as Float)) as usize
                 );
-                println!("Steps completed = {}", step);
+                println!("Steps completed = {}", current_step);
                 println!("Δτ/τ = {} (converges if < {})", dtau, self.dtau_threshold);
                 println!("Converged: {}\n", converged);
             }
             self.taus.push(tau);
-            return converged && self.terminate;
+            if converged && self.terminate {
+                return ControlFlow::Break(());
+            }
         }
-        false
+        ControlFlow::Continue(())
     }
 }
