@@ -24,9 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             x: &DVector<Float>,
             _user_data: &mut (),
         ) -> Result<Float, Infallible> {
-            Ok(-Float::ln(
-                (x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2),
-            ))
+            Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }
     }
     let mut problem = Problem;
