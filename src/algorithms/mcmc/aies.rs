@@ -7,7 +7,7 @@ use parking_lot::RwLock;
 use crate::{
     algorithms::mcmc::Walker,
     core::{Bounds, MCMCSummary, Point},
-    traits::{Algorithm, Bounded, CostFunction, Status},
+    traits::{Algorithm, Bounded, LogDensity, Status},
     utils::{RandChoice, SampleFloat},
     Float,
 };
@@ -38,13 +38,16 @@ impl AIESMove {
     pub const fn walk(weight: Float) -> WeightedAIESMove {
         (Self::Walk, weight)
     }
-    fn step<U, E>(
+    fn step<P, U, E>(
         &self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        problem: &P,
         user_data: &mut U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
-    ) -> Result<(), E> {
+    ) -> Result<(), E>
+    where
+        P: LogDensity<U, E, Input = DVector<Float>>,
+    {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
             Self::Stretch { a } => {
@@ -81,7 +84,7 @@ impl AIESMove {
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal =
                         Point::from(&x_l.read().x - (&x_k.read().x - &x_l.read().x).scale(z));
-                    proposal.evaluate(func, user_data)?;
+                    proposal.log_density(problem, user_data)?;
                     // The acceptance probability should then be (in an n-dimensional problem),
                     //
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
@@ -113,7 +116,7 @@ impl AIESMove {
                     let mut proposal = Point::from(&x_k.read().x + w);
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
-                    proposal.evaluate(func, user_data)?;
+                    proposal.log_density(problem, user_data)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
                     let r = proposal.fx_checked() - x_k.read().fx_checked();
                     (proposal, r)
@@ -184,7 +187,7 @@ impl AIES {
 
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for AIES
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: LogDensity<U, E, Input = DVector<Float>>,
 {
     type Summary = MCMCSummary;
     type Config = AIESConfig;
@@ -197,7 +200,7 @@ where
     ) -> Result<(), E> {
         self.config = config;
         status.walkers = self.config.walkers.clone();
-        status.evaluate_latest(problem, user_data)
+        status.log_density_latest(problem, user_data)
     }
 
     fn step(

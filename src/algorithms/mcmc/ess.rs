@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use crate::{
     algorithms::mcmc::Walker,
     core::{Bounds, MCMCSummary, Point},
-    traits::{Algorithm, Bounded, CostFunction, Status},
+    traits::{Algorithm, Bounded, LogDensity, Status},
     utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
     Float, PI,
 };
@@ -62,17 +62,20 @@ impl ESSMove {
         )
     }
     #[allow(clippy::too_many_arguments)]
-    fn step<U, E>(
+    fn step<P, U, E>(
         &self,
         step: usize,
         n_adaptive: usize,
         max_steps: usize,
         mu: &mut Float,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        problem: &P,
         user_data: &mut U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
-    ) -> Result<(), E> {
+    ) -> Result<(), E>
+    where
+        P: LogDensity<U, E, Input = DVector<Float>>,
+    {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
             Self::Differential => {
@@ -156,17 +159,17 @@ impl ESSMove {
             // L <- -U
             let mut l = -rng.float();
             let mut p_l = Point::from(&x_k.read().x + eta.scale(l));
-            p_l.evaluate(func, user_data)?;
+            p_l.log_density(problem, user_data)?;
             // R <- L + 1
             let mut r = l + 1.0;
             let mut p_r = Point::from(&x_k.read().x + eta.scale(r));
-            p_r.evaluate(func, user_data)?;
+            p_r.log_density(problem, user_data)?;
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k.read().x + eta.scale(l));
-                p_l.evaluate(func, user_data)?;
+                p_l.log_density(problem, user_data)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -175,7 +178,7 @@ impl ESSMove {
                 // R <- R + 1
                 r += 1.0;
                 p_r.set_position(&x_k.read().x + eta.scale(r));
-                p_r.evaluate(func, user_data)?;
+                p_r.log_density(problem, user_data)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -185,7 +188,7 @@ impl ESSMove {
                 let xprime = rng.range(l, r);
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k.read().x + eta.scale(xprime));
-                p_yprime.evaluate(func, user_data)?;
+                p_yprime.log_density(problem, user_data)?;
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
@@ -202,7 +205,7 @@ impl ESSMove {
             };
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
             let mut proposal = Point::from(&x_k.read().x + eta.scale(xprime));
-            proposal.evaluate(func, user_data)?;
+            proposal.log_density(problem, user_data)?;
             positions.push(Arc::new(RwLock::new(proposal)))
         }
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
@@ -297,7 +300,7 @@ impl ESS {
 }
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: LogDensity<U, E, Input = DVector<Float>>,
 {
     type Summary = MCMCSummary;
     type Config = ESSConfig;
@@ -310,7 +313,7 @@ where
     ) -> Result<(), E> {
         self.config = config;
         status.walkers = self.config.walkers.clone();
-        status.evaluate_latest(problem, user_data)
+        status.log_density_latest(problem, user_data)
     }
 
     fn step(

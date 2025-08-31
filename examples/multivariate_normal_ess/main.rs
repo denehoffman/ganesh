@@ -8,7 +8,7 @@ use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::ESS;
 use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::{Algorithm, Callbacks, CostFunction};
+use ganesh::traits::{Algorithm, Callbacks, LogDensity};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::{DMatrix, DVector};
@@ -19,9 +19,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Function (user_data is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
-    impl CostFunction<DMatrix<Float>> for Problem {
+    impl LogDensity<DMatrix<Float>> for Problem {
         type Input = DVector<Float>;
-        fn evaluate(
+        fn log_density(
             &self,
             x: &DVector<Float>,
             user_data: &mut DMatrix<Float>,

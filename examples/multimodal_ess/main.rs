@@ -7,7 +7,7 @@ use fastrand::Rng;
 use ganesh::algorithms::mcmc::ess::ESSConfig;
 use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove, ESS};
 use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::{Algorithm, Callbacks, CostFunction};
+use ganesh::traits::{Algorithm, Callbacks, LogDensity};
 use ganesh::utils::SampleFloat;
 use ganesh::Float;
 use nalgebra::DVector;
@@ -17,10 +17,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Function (Himmelblau's test function)
-    impl CostFunction for Problem {
+    impl LogDensity for Problem {
         type Input = DVector<Float>;
-        fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
-            Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
+        fn log_density(
+            &self,
+            x: &DVector<Float>,
+            _user_data: &mut (),
+        ) -> Result<Float, Infallible> {
+            Ok(-Float::ln(
+                (x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2),
+            ))
         }
     }
     let mut problem = Problem;

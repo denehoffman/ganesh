@@ -96,6 +96,18 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     }
 }
 
+pub trait LogDensity<U = (), E = Infallible> {
+    /// The input space consumed by the log-density function
+    type Input;
+    /// The log of the evaluation of the density function at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// [`std::convert::Infallible`] if the function evaluation never fails.
+    fn log_density(&self, x: &Self::Input, user_data: &mut U) -> Result<Float, E>;
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;

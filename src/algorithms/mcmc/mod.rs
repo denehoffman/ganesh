@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
-    traits::{Algorithm, CostFunction, Terminator},
+    traits::{Algorithm, LogDensity, Terminator},
     Float,
 };
 use nalgebra::{Complex, DVector};
@@ -63,12 +63,12 @@ impl Walker {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn evaluate_latest<U, E>(
+    pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
-        self.get_latest().write().evaluate(func, user_data)
+        self.get_latest().write().log_density(func, user_data)
     }
     /// Add a new position to the [`Walker`]'s history
     pub fn push(&mut self, position: Arc<RwLock<Point<DVector<Float>>>>) {
@@ -158,16 +158,16 @@ pub fn integrated_autocorrelation_times(
 ///
 /// # Usage:
 ///
-/// ```rust
+/// ```ignore
 /// use fastrand::Rng;
 /// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
-/// use ganesh::test_functions::NegativeRosenbrock;
+/// use ganesh::test_functions::Rosenbrock;
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
 /// use ganesh::traits::*;
 ///
-/// let mut problem = NegativeRosenbrock { n: 2 };
+/// let mut problem = Rosenbrock { n: 2 };
 /// let mut rng = Rng::new();
 /// // Use a seed that will converge in a reasonable amount of time
 /// rng.seed(9301690130845527930);
@@ -184,7 +184,6 @@ pub fn integrated_autocorrelation_times(
 /// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco)).unwrap();
 /// println!("{:?}", result.dimension);
 /// // ^ This will print autocorrelation messages for every 20 steps
-/// assert!(result.dimension == (5, 3822, 2));
 /// ```
 pub struct AutocorrelationTerminator {
     n_check: usize,

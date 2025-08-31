@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 
-use crate::traits::{CostFunction, Gradient};
+use crate::traits::{CostFunction, Gradient, LogDensity};
 use crate::{DVector, Float};
 
 /// The Rosenbrock function, a non-convex function with a single minimum.
@@ -24,26 +24,15 @@ impl CostFunction for Rosenbrock {
 }
 impl Gradient for Rosenbrock {}
 
-/// The negative Rosenbrock function, a non-convex function with a single maximum.
-///
-/// This function can be used to test MCMC methods which maximize probability rather than minimize
-/// function value.
-///
-/// ```math
-/// f(\vec{x}) = -\sum_{i=1}^{n-1} \left[100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2 \right]
-/// ```
-/// where $`n \geq 2`$. This function has a maximum at $`f(\vec{1}) = 0`$.
-pub struct NegativeRosenbrock {
-    /// The number of dimensions of the function (must be >= 2).
-    pub n: usize,
-}
-impl CostFunction for NegativeRosenbrock {
+impl LogDensity for Rosenbrock {
     type Input = DVector<Float>;
-    fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
+
+    fn log_density(&self, x: &Self::Input, _user_data: &mut ()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
-        Ok(-(0..(self.n - 1))
-            .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
-            .sum::<Float>())
+        Ok(-Float::ln(
+            (0..(self.n - 1))
+                .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
+                .sum::<Float>(),
+        ))
     }
 }
-impl Gradient for NegativeRosenbrock {}

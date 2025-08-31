@@ -2,7 +2,11 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{core::bound::Boundable, traits::CostFunction, DVector, Float};
+use crate::{
+    core::bound::Boundable,
+    traits::{CostFunction, LogDensity},
+    DVector, Float,
+};
 
 use super::Bounds;
 
@@ -33,6 +37,22 @@ impl<I> Point<I> {
     ) -> Result<(), E> {
         if self.fx.is_nan() {
             self.fx = func.evaluate(&self.x, user_data)?;
+        }
+        Ok(())
+    }
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn log_density<U, E>(
+        &mut self,
+        func: &dyn LogDensity<U, E, Input = I>,
+        user_data: &mut U,
+    ) -> Result<(), E> {
+        if self.fx.is_nan() {
+            self.fx = func.log_density(&self.x, user_data)?;
         }
         Ok(())
     }

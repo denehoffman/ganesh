@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::Point,
-    traits::{CostFunction, Status},
+    traits::{LogDensity, Status},
     Float,
 };
 
@@ -65,13 +65,13 @@ impl EnsembleStatus {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn evaluate_latest<U, E>(
+    pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
         user_data: &mut U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
-            walker.evaluate_latest(func, user_data)?;
+            walker.log_density_latest(func, user_data)?;
         }
         Ok(())
     }

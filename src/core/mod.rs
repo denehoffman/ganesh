@@ -10,4 +10,4 @@ pub mod summary;
 pub use abort_signal::{AtomicAbortSignal, CtrlCAbortSignal, NopAbortSignal};
 pub use bound::{Bound, Bounds};
 pub use point::Point;
-pub use summary::{MCMCSummary, MinimizationSummary};
+pub use summary::{MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary};
