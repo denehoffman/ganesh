@@ -1,5 +1,5 @@
 use crate::{
-    core::{bound::Bounds, MinimizationSummary, Point},
+    core::{bound::Bounds, Point, SimulatedAnnealingSummary},
     traits::{callback::Callbacks, Algorithm, Bounded, CostFunction, Status, Terminator},
     utils::SampleFloat,
     Float,
@@ -85,6 +85,8 @@ pub struct SimulatedAnnealing {
 pub struct SimulatedAnnealingStatus<I> {
     /// The current temperature of the simulated annealing algorithm.
     pub temperature: Float,
+    /// The initial point in the simulated annealing algorithm.
+    pub initial: Point<I>,
     /// The best point in the simulated annealing algorithm.
     pub best: Point<I>,
     /// The current point in the simulated annealing algorithm.
@@ -140,7 +142,7 @@ where
     P: SimulatedAnnealingGenerator<U, E, Input = I>,
     I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
-    type Summary = MinimizationSummary;
+    type Summary = SimulatedAnnealingSummary<I>;
     type Config = SimulatedAnnealingConfig;
 
     #[allow(clippy::expect_used)]
@@ -157,6 +159,7 @@ where
         let fx0 = problem.evaluate(&x0, user_data)?;
         status.temperature = self.config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
+        status.initial = status.current.clone();
         status.best = status.current.clone();
         status.iteration = 0;
         Ok(())
@@ -190,37 +193,22 @@ where
         Ok(())
     }
 
-    fn postprocessing(
-        &mut self,
-        _problem: &P,
-        _status: &mut SimulatedAnnealingStatus<I>,
-        _user_data: &mut U,
-    ) -> Result<(), E> {
-        Ok(())
-    }
-
     fn summarize(
         &self,
         _current_step: usize,
         _problem: &P,
-        _status: &SimulatedAnnealingStatus<I>,
+        status: &SimulatedAnnealingStatus<I>,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
-        todo!("We should make a unique summary for this since `I` could be anything.")
-        // let result = MinimizationSummary {
-        //     x0: vec![Float::NAN; status.best.x.nrows()],
-        //     x: status.best.x.iter().cloned().collect(),
-        //     fx: status.best.fx,
-        //     bounds: self.config.bounds.clone(),
-        //     converged: status.converged,
-        //     cost_evals: status.cost_evals,
-        //     gradient_evals: 0,
-        //     message: status.message.clone(),
-        //     parameter_names: None,
-        //     std: vec![0.0; status.best.x.len()],
-        // };
-        //
-        // Ok(result)
+        Ok(SimulatedAnnealingSummary {
+            bounds: self.config.bounds.clone(),
+            message: status.message.clone(),
+            x0: status.initial.x.clone(),
+            x: status.best.x.clone(),
+            fx: status.best.fx.clone(),
+            cost_evals: status.cost_evals,
+            converged: status.converged,
+        })
     }
 
     fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E>
@@ -321,7 +309,6 @@ mod tests {
                 SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),
             )
             .unwrap();
-        println!("{}", result);
         assert_relative_eq!(result.fx, 0.0, epsilon = 0.5);
     }
 }

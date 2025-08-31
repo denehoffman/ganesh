@@ -143,6 +143,25 @@ impl Display for MinimizationSummary {
     }
 }
 
+/// A struct that holds the results of a minimization run.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SimulatedAnnealingSummary<I> {
+    /// The bounds of the parameters. This is `None` if no bounds were set.
+    pub bounds: Option<Bounds>,
+    /// A message that can be set by minimization algorithms.
+    pub message: String,
+    /// The initial parameters of the minimization.
+    pub x0: I,
+    /// The current parameters of the minimization.
+    pub x: I,
+    /// The standard deviations of the parameters at the end of the fit.
+    pub fx: Float,
+    /// The number of function evaluations.
+    pub cost_evals: usize,
+    /// Flag that says whether or not the fit is in a converged state.
+    pub converged: bool,
+}
+
 /// A struct that holds the results of an MCMC sampling.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MCMCSummary {
