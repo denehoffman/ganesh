@@ -120,17 +120,17 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
         user_data: &mut U,
     ) -> ControlFlow<()> {
         match self {
-            CallbackLike::Callback(callback) => {
+            Self::Callback(callback) => {
                 callback.callback(current_step, algorithm, problem, status, user_data)
             }
-            CallbackLike::Terminator(terminator) => terminator.check_for_termination(
+            Self::Terminator(terminator) => terminator.check_for_termination(
                 current_step,
                 algorithm,
                 problem,
                 status,
                 user_data,
             ),
-            CallbackLike::Observer(observer) => {
+            Self::Observer(observer) => {
                 observer.observe(current_step, algorithm, problem, status, user_data);
                 ControlFlow::Continue(())
             }
@@ -142,7 +142,7 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
 pub struct Callbacks<A, P, S, U, E>(Vec<CallbackLike<A, P, S, U, E>>);
 impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
     /// Create an empty set of [`Callback`]s.
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self(Vec::new())
     }
     /// Return the set of [`Callbacks`] with an additional [`Callback`] added.

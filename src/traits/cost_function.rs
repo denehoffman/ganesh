@@ -123,6 +123,7 @@ mod tests {
     impl CostFunction for TestFunction {
         type Input = DVector<Float>;
         fn evaluate(&self, x: &DVector<Float>, _: &mut ()) -> Result<Float, Infallible> {
+            #[allow(clippy::suboptimal_flops)]
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }

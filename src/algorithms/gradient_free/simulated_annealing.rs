@@ -60,7 +60,11 @@ pub struct SimulatedAnnealingConfig {
 }
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub fn new(initial_temperature: Float, cooling_rate: Float, min_temperature: Float) -> Self {
+    pub const fn new(
+        initial_temperature: Float,
+        cooling_rate: Float,
+        min_temperature: Float,
+    ) -> Self {
         Self {
             bounds: None,
             initial_temperature,
@@ -128,11 +132,7 @@ impl SimulatedAnnealing {
     pub fn new(config: SimulatedAnnealingConfig, seed: Option<u64>) -> Self {
         Self {
             config,
-            rng: if let Some(seed) = seed {
-                fastrand::Rng::with_seed(seed)
-            } else {
-                fastrand::Rng::new()
-            },
+            rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
         }
     }
 }
@@ -205,7 +205,7 @@ where
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
-            fx: status.best.fx.clone(),
+            fx: status.best.fx,
             cost_evals: status.cost_evals,
             converged: status.converged,
         })
@@ -291,6 +291,7 @@ mod tests {
             _status: &mut SimulatedAnnealingStatus<Self::Input>,
             _user_data: &mut U,
         ) -> Self::Input {
+            #[allow(clippy::expect_used)]
             DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds)
         }
     }

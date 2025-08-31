@@ -132,7 +132,7 @@ impl Simplex {
     }
     fn best_position(&self, bounds: Option<&Bounds>) -> (DVector<Float>, Float) {
         let (y, fx) = self.best().clone().destructure();
-        (y.constrain_to(bounds).into(), fx)
+        (y.constrain_to(bounds), fx)
     }
     fn best(&self) -> &Point<DVector<Float>> {
         &self.points[0]

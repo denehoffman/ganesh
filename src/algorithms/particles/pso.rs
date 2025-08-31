@@ -312,6 +312,7 @@ mod tests {
                 x: &DVector<Float>,
                 _user_data: &mut (),
             ) -> Result<Float, Infallible> {
+                #[allow(clippy::suboptimal_flops)]
                 Ok(10.0
                     + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
                     + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))
@@ -325,7 +326,7 @@ mod tests {
         let tracker = TrackingSwarmObserver::new();
         let callbacks = Callbacks::empty()
             .with_terminator(MaxSteps(200))
-            .with_observer(tracker.clone());
+            .with_observer(tracker);
 
         // Create a new Sampler
         let mut solver = PSO::new(2, rng);

@@ -34,7 +34,7 @@ pub struct TrackingSwarmObserver {
 impl TrackingSwarmObserver {
     /// Create a new observer to track the swarm history, wrapped in an [`Arc<Mutex<_>>`]
     pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(TrackingSwarmObserver {
+        Arc::new(Mutex::new(Self {
             history: Vec::new(),
             best_history: Vec::new(),
         }))
