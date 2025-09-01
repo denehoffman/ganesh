@@ -90,7 +90,7 @@ impl ESSMove {
                 n_components,
             } => {
                 ensemble.update_message(&format!(
-                    "Gloabl Move (scale = {}, rescale_cov = {}, n_components = {})",
+                    "Global Move (scale = {}, rescale_cov = {}, n_components = {})",
                     scale, rescale_cov, n_components
                 ));
             }
@@ -968,7 +968,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ess_step_runs() {
+    fn test_differential_step_runs() {
         let rng = Rng::with_seed(0);
         let mut ess = ESS::new(rng);
         let walkers = make_walkers(3, 2);
@@ -985,14 +985,126 @@ mod tests {
     }
 
     #[test]
+    fn test_gaussian_step_runs() {
+        let mut ess = ESS::new(Rng::with_seed(100));
+        let walkers = make_walkers(6, 2);
+        let cfg = ESSConfig::default()
+            .with_walkers(walkers)
+            .with_moves(vec![ESSMove::gaussian(1.0)]);
+        let mut status = EnsembleStatus::default();
+        let mut f = Rosenbrock { n: 2 };
+
+        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &mut ());
+        assert!(result.is_ok());
+        assert!(status.message().contains("Gaussian"));
+    }
+
+    #[test]
+    fn test_global_step_runs() {
+        let mut ess = ESS::new(Rng::with_seed(7));
+        let walkers = make_walkers(100, 2);
+        let cfg = ESSConfig::default()
+            .with_walkers(walkers)
+            .with_moves(vec![ESSMove::global(1.0, Some(1.0), Some(0.001), Some(3))]);
+        let mut status = EnsembleStatus::default();
+        let mut f = Rosenbrock { n: 2 };
+
+        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &mut ());
+        assert!(result.is_ok());
+        assert!(status.message().contains("Global"));
+    }
+
+    #[test]
     fn test_kmeans_two_clusters() {
         let mut rng = Rng::with_seed(0);
-        let data = DMatrix::from_rows(&[
-            DVector::from_vec(vec![0.0]).transpose(),
-            DVector::from_vec(vec![10.0]).transpose(),
-        ]);
+
+        let points_a = vec![
+            DVector::from_vec(vec![0.0, 0.1]).transpose(),
+            DVector::from_vec(vec![0.2, -0.1]).transpose(),
+            DVector::from_vec(vec![-0.1, 0.0]).transpose(),
+        ];
+        let points_b = vec![
+            DVector::from_vec(vec![10.0, 10.1]).transpose(),
+            DVector::from_vec(vec![9.8, 9.9]).transpose(),
+            DVector::from_vec(vec![10.2, 9.9]).transpose(),
+        ];
+
+        let mut rows = Vec::new();
+        rows.extend(points_a.iter().cloned());
+        rows.extend(points_b.iter().cloned());
+        let data = DMatrix::from_rows(&rows);
+
         let labels = super::kmeans(2, &data, &mut rng);
-        assert_eq!(labels.len(), 2);
-        assert!(labels[0] != labels[1]); // points should be in separate clusters
+        assert_eq!(labels.len(), 6);
+
+        assert_eq!(labels[0], labels[1]);
+        assert_eq!(labels[1], labels[2]);
+        assert_eq!(labels[3], labels[4]);
+        assert_eq!(labels[4], labels[5]);
+        assert_ne!(labels[0], labels[3]);
+    }
+
+    #[test]
+    fn test_dpgm_recovers_means_covariances_two_blobs() {
+        use crate::utils::SampleFloat;
+
+        let mu_a = DVector::from_vec(vec![0.0, 0.0]);
+        let mu_b = DVector::from_vec(vec![3.0, -2.0]);
+        let cov_a = DMatrix::from_row_slice(2, 2, &[0.20, 0.05, 0.05, 0.10]);
+        let cov_b = DMatrix::from_row_slice(2, 2, &[0.30, -0.04, -0.04, 0.50]);
+
+        let n_a = 80usize;
+        let n_b = 70usize;
+        let mut rng = Rng::with_seed(0);
+
+        let mut positions: Vec<Walker> = Vec::with_capacity(n_a + n_b);
+        for _ in 0..n_a {
+            let x = rng.mv_normal(&mu_a, &cov_a);
+            positions.push(Walker::new(x));
+        }
+        for _ in 0..n_b {
+            let x = rng.mv_normal(&mu_b, &cov_b);
+            positions.push(Walker::new(x));
+        }
+
+        let mut status = EnsembleStatus::default();
+        status.walkers = positions;
+
+        let mut rng2 = Rng::with_seed(0);
+        let res = super::dpgm(2, &status, &mut rng2);
+
+        assert_eq!(res.labels.len(), n_a + n_b);
+        assert_eq!(res.means.len(), 2);
+        assert_eq!(res.covariances.len(), 2);
+        assert_eq!(res.covariances[0].nrows(), 2);
+        assert_eq!(res.covariances[0].ncols(), 2);
+
+        let d0_a = (&res.means[0] - &mu_a).norm();
+        let d1_a = (&res.means[1] - &mu_a).norm();
+        let (idx_a, idx_b) = if d0_a <= d1_a { (0, 1) } else { (1, 0) };
+
+        assert!((&res.means[idx_a] - &mu_a).norm() < 0.25);
+        assert!((&res.means[idx_b] - &mu_b).norm() < 0.25);
+
+        let cov_a_hat = &res.covariances[idx_a];
+        let cov_b_hat = &res.covariances[idx_b];
+        for i in 0..2 {
+            let a_true = cov_a[(i, i)];
+            let a_est = cov_a_hat[(i, i)];
+            assert!((a_est - a_true).abs() / a_true < 0.35);
+
+            let b_true = cov_b[(i, i)];
+            let b_est = cov_b_hat[(i, i)];
+            assert!((b_est - b_true).abs() / b_true < 0.35);
+        }
+        assert!((cov_a_hat[(0, 1)] - cov_a[(0, 1)]).abs() < 0.1);
+        assert!((cov_b_hat[(0, 1)] - cov_b[(0, 1)]).abs() < 0.1);
+
+        let count_a = res.labels[..n_a].iter().filter(|&&l| l == idx_a).count();
+        let count_b = res.labels[n_a..].iter().filter(|&&l| l == idx_b).count();
+        assert!(count_a as Float > 0.9 * n_a as Float);
+        assert!(count_b as Float > 0.9 * n_b as Float);
     }
 }

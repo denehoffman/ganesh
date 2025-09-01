@@ -102,7 +102,8 @@ impl EnsembleStatus {
         self.walkers
             .iter()
             .map(|walker| walker.get_latest().read().x.clone())
-            .sum()
+            .sum::<DVector<Float>>()
+            .unscale(self.walkers.len() as Float)
     }
     /// Get the average position of all [`Walker`]s except for the one at the provided `index`
     pub fn mean_compliment(&self, index: usize) -> DVector<Float> {
