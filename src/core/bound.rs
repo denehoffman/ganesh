@@ -14,7 +14,7 @@ use crate::{utils::SampleFloat, Float};
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
 /// bounded algorithms directly, or by some unbounded algorithms using parameter space
 /// transformations.
-#[derive(Default, Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Bound {
     #[default]
     /// `(-inf, +inf)`
@@ -319,5 +319,105 @@ impl Deref for Bounds {
 impl DerefMut for Bounds {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_bounds() -> Bounds {
+        vec![
+            Bound::LowerBound(0.0),
+            Bound::UpperBound(10.0),
+            Bound::LowerAndUpperBound(-1.0, 1.0),
+            Bound::NoBound,
+        ]
+        .into()
+    }
+
+    #[test]
+    fn test_bound_contains_and_excess() {
+        let b1 = Bound::LowerBound(0.0);
+        assert!(b1.contains(1.0));
+        assert!(!b1.contains(-1.0));
+        assert_eq!(b1.bound_excess(-1.0), -1.0);
+
+        let b2 = Bound::UpperBound(5.0);
+        assert!(b2.contains(4.0));
+        assert!(!b2.contains(6.0));
+        assert_eq!(b2.bound_excess(6.0), 1.0);
+
+        let b3 = Bound::LowerAndUpperBound(-1.0, 1.0);
+        assert!(b3.contains(0.0));
+        assert!(!b3.contains(2.0));
+    }
+
+    #[test]
+    fn test_bound_lower_upper_at_bound() {
+        let b = Bound::LowerAndUpperBound(-2.0, 3.0);
+        assert_eq!(b.lower(), -2.0);
+        assert_eq!(b.upper(), 3.0);
+        assert!(b.at_bound(-2.0));
+        assert!(b.at_bound(3.0));
+        assert!(!b.at_bound(0.0));
+    }
+
+    #[test]
+    fn test_bound_transformations() {
+        let b = Bound::LowerAndUpperBound(0.0, 2.0);
+        let val = 1.0;
+        let bounded = b.to_bounded(val);
+        let unbounded = b.to_unbounded(bounded);
+        assert!((val - unbounded).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_boundable_random_and_is_in() {
+        let mut rng = Rng::with_seed(0);
+        let bounds: Bounds = vec![
+            Bound::LowerAndUpperBound(-1.0, 1.0),
+            Bound::LowerAndUpperBound(0.0, 5.0),
+            Bound::LowerAndUpperBound(10.0, 20.0),
+        ]
+        .into();
+
+        let v: Vec<Float> = Boundable::random_vector_in(&bounds, &mut rng);
+        let d: DVector<Float> = Boundable::random_vector_in(&bounds, &mut rng);
+
+        assert_eq!(v.len(), bounds.len());
+        assert_eq!(d.len(), bounds.len());
+
+        assert!(v.is_in(&bounds));
+        assert!(d.is_in(&bounds));
+    }
+
+    #[test]
+    fn test_boundable_excess_constrain_unconstrain() {
+        let bounds = sample_bounds();
+        let v: Vec<Float> = vec![-1.0, 11.0, 0.0, 5.0];
+        let d: DVector<Float> = v.clone().into();
+
+        let v_excess = v.excess_from(&bounds);
+        let d_excess = d.excess_from(&bounds);
+        assert!(v_excess.iter().any(|x| *x != 0.0));
+        assert!(d_excess.iter().any(|x| *x != 0.0));
+
+        let v_constrained = v.constrain_to(Some(&bounds));
+        let d_constrained = d.constrain_to(Some(&bounds));
+        assert!(v_constrained.is_in(&bounds));
+        assert!(d_constrained.is_in(&bounds));
+
+        let v_unconstrained = v_constrained.unconstrain_from(Some(&bounds));
+        let d_unconstrained = d_constrained.unconstrain_from(Some(&bounds));
+        assert_eq!(v_unconstrained.len(), v.len());
+        assert_eq!(d_unconstrained.len(), d.len());
+    }
+
+    #[test]
+    fn test_bounds_container() {
+        let b = Bound::LowerBound(0.0);
+        let bounds: Bounds = vec![b].into();
+        assert_eq!(bounds.into_inner(), vec![b]);
     }
 }

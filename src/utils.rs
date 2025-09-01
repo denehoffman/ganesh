@@ -97,3 +97,150 @@ impl SampleFloat for Rng {
         self.f32_normal(mu, sigma)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fastrand::Rng;
+
+    #[test]
+    fn test_pseudo_inverse() {
+        let hessian = DMatrix::<Float>::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 4.0]);
+        let cov = hessian_to_covariance(&hessian);
+        assert!(cov.is_some());
+        let cov = cov.unwrap();
+        let expected = hessian.pseudo_inverse(Float::cbrt(Float::EPSILON)).unwrap();
+        assert!(cov.relative_eq(&expected, Float::EPSILON, Float::EPSILON));
+    }
+
+    #[test]
+    fn test_single_weight() {
+        let mut rng = Rng::with_seed(0);
+        let weights = vec![1.0];
+        assert_eq!(rng.choice_weighted(&weights), Some(0));
+    }
+
+    #[test]
+    fn test_two_equal_weights_deterministic() {
+        let mut rng = Rng::with_seed(0);
+        let weights = vec![1.0, 1.0];
+        let first = rng.choice_weighted(&weights);
+        let second = rng.choice_weighted(&weights);
+        assert_eq!(first, Some(1));
+        assert_eq!(second, Some(0));
+    }
+
+    #[test]
+    fn test_weighted_three_choices_deterministic() {
+        let mut rng = Rng::with_seed(0);
+        let weights = vec![1.0, 2.0, 3.0];
+
+        let first = rng.choice_weighted(&weights);
+        let second = rng.choice_weighted(&weights);
+        let third = rng.choice_weighted(&weights);
+
+        assert_eq!(first, Some(2));
+        assert_eq!(second, Some(0));
+        assert_eq!(third, Some(0));
+    }
+
+    #[test]
+    fn test_large_number_of_trials_reproducible_distribution() {
+        let mut rng = Rng::with_seed(0);
+        let weights = vec![1.0, 2.0, 3.0];
+        let mut counts = [0; 3];
+        for _ in 0..10_000 {
+            counts[rng.choice_weighted(&weights).unwrap()] += 1;
+        }
+        assert_eq!(counts, [1705, 3244, 5051]);
+    }
+
+    #[test]
+    fn test_empty_weights() {
+        let mut rng = Rng::with_seed(0);
+        let weights: Vec<Float> = vec![];
+        assert_eq!(rng.choice_weighted(&weights), None);
+    }
+
+    #[test]
+    fn test_zero_weights() {
+        let mut rng = Rng::with_seed(0);
+        let weights = vec![0.0, 0.0, 0.0];
+        assert_eq!(rng.choice_weighted(&weights), Some(0));
+    }
+
+    #[test]
+    fn test_output_dimension_matches_mu() {
+        let mut rng = Rng::with_seed(0);
+        let mu = DVector::from_vec(vec![0.0, 0.0, 0.0]);
+        let cov = DMatrix::identity(3, 3);
+        let sample = rng.mv_normal(&mu, &cov);
+        assert_eq!(sample.len(), mu.len());
+    }
+
+    #[test]
+    fn test_identity_covariance_zero_mean_is_standard_normal() {
+        let mut rng = Rng::with_seed(0);
+        let mu = DVector::from_vec(vec![0.0, 0.0]);
+        let cov = DMatrix::identity(2, 2);
+
+        let sample1 = rng.mv_normal(&mu, &cov);
+        let sample2 = rng.mv_normal(&mu, &cov);
+
+        assert_eq!(
+            sample1,
+            DVector::from_vec(vec![1.0059485396074146, -0.7239261169514642])
+        );
+        assert_eq!(
+            sample2,
+            DVector::from_vec(vec![-0.7517197959276235, -0.48053731558299817])
+        );
+    }
+
+    #[test]
+    fn test_mean_shift_applied() {
+        let mut rng = Rng::with_seed(0);
+        let mu = DVector::from_vec(vec![10.0, -5.0]);
+        let cov = DMatrix::identity(2, 2);
+
+        let sample = rng.mv_normal(&mu, &cov);
+        assert_eq!(
+            sample,
+            DVector::from_vec(vec![11.005948539607415, -5.723926116951464])
+        );
+    }
+
+    #[test]
+    fn test_empirical_covariance_matches_target() {
+        let mut rng = Rng::with_seed(0);
+        let mu = DVector::from_vec(vec![0.0, 0.0]);
+        let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.8, 0.8, 1.0]);
+
+        let n_samples = 50_000;
+        let mut samples = Vec::with_capacity(n_samples);
+        for _ in 0..n_samples {
+            samples.push(rng.mv_normal(&mu, &cov));
+        }
+        let mean: DVector<Float> = samples.iter().sum::<DVector<Float>>() / (n_samples as Float);
+        let mut emp_cov = DMatrix::<Float>::zeros(2, 2);
+        for x in &samples {
+            let diff = x - &mean;
+            emp_cov += &diff * diff.transpose();
+        }
+        emp_cov /= n_samples as Float;
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((emp_cov[(i, j)] - cov[(i, j)]).abs() < 0.05);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Covariance matrix not positive definite")]
+    fn test_non_positive_definite_triggers_expect() {
+        let mut rng = Rng::with_seed(42);
+        let mu = DVector::from_vec(vec![0.0, 0.0]);
+        let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, -1.0]);
+        let _ = rng.mv_normal(&mu, &cov);
+    }
+}

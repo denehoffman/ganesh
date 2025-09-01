@@ -122,11 +122,6 @@ impl<I> From<I> for Point<I> {
         }
     }
 }
-// impl<'a> From<&'a Point> for &'a Vec<Float> {
-//     fn from(value: &'a Point) -> Self {
-//         value.x.data.as_vec()
-//     }
-// }
 impl From<&[Float]> for Point<DVector<Float>> {
     fn from(value: &[Float]) -> Self {
         Self {
@@ -143,16 +138,113 @@ impl From<Vec<Float>> for Point<DVector<Float>> {
         }
     }
 }
-// impl<'a> From<&'a Point> for &'a [Float] {
-//     fn from(value: &'a Point) -> Self {
-//         value.x.data.as_slice()
-//     }
-// }
 impl<I> PartialOrd for Point<I>
 where
     I: PartialEq,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.fx.partial_cmp(&other.fx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use super::*;
+    use crate::{core::Bound, test_functions::Rosenbrock};
+
+    #[test]
+    fn test_destructure_and_fx_checked() {
+        let p = Point {
+            x: vec![1.0, 2.0],
+            fx: 5.0,
+        };
+        let (x, fx) = p.clone().destructure();
+        assert_eq!(x, vec![1.0, 2.0]);
+        assert_eq!(fx, 5.0);
+        assert_eq!(p.fx_checked(), 5.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Point value requested before evaluation")]
+    fn test_fx_checked_panics_if_nan() {
+        let p: Point<Vec<Float>> = Point {
+            x: vec![1.0],
+            fx: Float::NAN,
+        };
+        let _ = p.fx_checked();
+    }
+
+    #[test]
+    fn test_evaluate_sets_fx_once() {
+        let f = Rosenbrock { n: 2 };
+        let mut p: Point<DVector<Float>> = Point::from(vec![1.0, 1.0]);
+        assert!(p.fx.is_nan());
+        p.evaluate(&f, &mut ()).unwrap();
+        assert_eq!(p.fx, 0.0);
+        p.evaluate(&f, &mut ()).unwrap();
+        assert_eq!(p.fx, 0.0);
+    }
+
+    #[test]
+    fn test_log_density_sets_fx_once() {
+        let f = Rosenbrock { n: 2 };
+        let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
+        assert!(p.fx.is_nan());
+        p.log_density(&f, &mut ()).unwrap();
+        assert_eq!(p.fx, 0.0);
+        p.log_density(&f, &mut ()).unwrap();
+        assert_eq!(p.fx, 0.0);
+    }
+
+    #[test]
+    fn test_total_cmp_and_partial_cmp() {
+        let p1 = Point {
+            x: vec![1.0],
+            fx: 1.0,
+        };
+        let p2 = Point {
+            x: vec![2.0],
+            fx: 2.0,
+        };
+        assert_eq!(p1.total_cmp(&p2), Ordering::Less);
+        assert_eq!(p1.partial_cmp(&p2), Some(Ordering::Less));
+    }
+
+    #[test]
+    fn test_set_position_resets_fx() {
+        let mut p = Point {
+            x: vec![1.0],
+            fx: 5.0,
+        };
+        p.set_position(vec![2.0]);
+        assert_eq!(p.x, vec![2.0]);
+        assert!(p.fx.is_nan());
+    }
+
+    #[test]
+    fn test_evaluate_bounded_and_constrain_to() {
+        let f = Rosenbrock { n: 2 };
+        let bounds: Bounds = vec![
+            Bound::LowerAndUpperBound(-2.0, 2.0),
+            Bound::LowerAndUpperBound(-2.0, 2.0),
+        ]
+        .into();
+        let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
+        p.evaluate_bounded(&f, Some(&bounds), &mut ()).unwrap();
+        assert_eq!(p.fx, 1.0);
+
+        let constrained = p.constrain_to(Some(&bounds));
+        assert_eq!(constrained.fx, p.fx);
+        assert!(constrained.x.len() == p.x.len());
+    }
+
+    #[test]
+    fn test_from_and_display() {
+        let p: Point<DVector<Float>> = Point::from(vec![1.0, 2.0]);
+        let s = format!("{}", p);
+        assert!(s.contains("x:"));
+        assert!(s.contains("f(x):"));
     }
 }
