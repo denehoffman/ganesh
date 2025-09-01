@@ -322,7 +322,6 @@ pub fn maybe_warn(msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
     use std::sync::atomic::Ordering;
 
     fn reset_globals() {
@@ -350,6 +349,8 @@ mod tests {
     }
 
     // TODO: figure out how to get these tests to work with code coverage
+    //
+    // use std::env;
     //
     // #[test]
     // fn test_env_var_respected_disable() {
