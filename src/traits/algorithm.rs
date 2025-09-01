@@ -114,7 +114,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     where
         Self: Sized,
     {
-        Callbacks::default()
+        Callbacks::empty()
     }
 }
 

@@ -201,11 +201,6 @@ where
         ControlFlow::Continue(())
     }
 }
-impl<A, P, S, U, E> Default for Callbacks<A, P, S, U, E> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
 
 /// A [`Callback`] which terminates the algorithm after a number of steps.
 pub struct MaxSteps(pub usize);
