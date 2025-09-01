@@ -887,3 +887,112 @@ fn dpgm(n_components: usize, ensemble: &EnsembleStatus, rng: &mut Rng) -> DPGMRe
         covariances,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_functions::Rosenbrock;
+
+    fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
+        (0..n_walkers)
+            .map(|i| DVector::from_element(dim, i as Float + 1.0))
+            .collect()
+    }
+
+    #[test]
+    fn test_essmove_constructors() {
+        let d = ESSMove::differential(0.5);
+        assert!(matches!(d.0, ESSMove::Differential));
+        assert_eq!(d.1, 0.5);
+
+        let g = ESSMove::gaussian(1.0);
+        assert!(matches!(g.0, ESSMove::Gaussian));
+
+        let gl = ESSMove::global(2.0, None, None, None);
+        if let ESSMove::Global {
+            scale,
+            rescale_cov,
+            n_components,
+        } = gl.0
+        {
+            assert_eq!(scale, 1.0);
+            assert_eq!(rescale_cov, 0.001);
+            assert_eq!(n_components, 5);
+        } else {
+            panic!("expected Global");
+        }
+        assert_eq!(gl.1, 2.0);
+    }
+
+    #[test]
+    fn test_essconfig_defaults_and_builders() {
+        let cfg = ESSConfig::default();
+        assert!(cfg.bounds.is_none());
+        assert_eq!(cfg.walkers.len(), 0);
+        assert_eq!(cfg.n_adaptive, 0);
+        assert_eq!(cfg.max_steps, 10000);
+        assert_eq!(cfg.mu, 1.0);
+
+        let moves = vec![ESSMove::differential(1.0)];
+        let walkers = make_walkers(3, 2);
+        let cfg = cfg
+            .with_moves(&moves)
+            .with_walkers(walkers.clone())
+            .with_n_adaptive(5)
+            .with_max_steps(42)
+            .with_mu(3.14);
+
+        assert_eq!(cfg.moves.len(), 1);
+        assert_eq!(cfg.walkers.len(), 3);
+        assert_eq!(cfg.n_adaptive, 5);
+        assert_eq!(cfg.max_steps, 42);
+        assert!((cfg.mu - 3.14).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_ess_initialize_and_summarize() {
+        let rng = Rng::with_seed(0);
+        let mut ess = ESS::new(rng);
+        let walkers = make_walkers(3, 2);
+        let cfg = ESSConfig::default().with_walkers(walkers.clone());
+        let mut status = EnsembleStatus::default();
+        let mut f = Rosenbrock { n: 2 };
+
+        ess.initialize(cfg.clone(), &mut f, &mut status, &mut ())
+            .unwrap();
+        assert_eq!(status.walkers.len(), 3);
+
+        let summary = ess.summarize(0, &f, &status, &()).unwrap();
+        assert_eq!(summary.bounds, cfg.bounds);
+        assert_eq!(summary.dimension, status.dimension());
+    }
+
+    #[test]
+    fn test_ess_step_runs() {
+        let rng = Rng::with_seed(0);
+        let mut ess = ESS::new(rng);
+        let walkers = make_walkers(3, 2);
+        let cfg = ESSConfig::default()
+            .with_walkers(walkers)
+            .with_moves(vec![ESSMove::differential(1.0)]);
+        let mut status = EnsembleStatus::default();
+        let mut f = Rosenbrock { n: 2 };
+        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
+
+        let result = ess.step(0, &mut f, &mut status, &mut ());
+        assert!(result.is_ok());
+        assert!(status.message().contains("Differential"));
+    }
+
+    #[test]
+    fn test_kmeans_two_clusters() {
+        let mut rng = Rng::with_seed(0);
+        let data = DMatrix::from_rows(&[
+            DVector::from_vec(vec![0.0]).transpose(),
+            DVector::from_vec(vec![10.0]).transpose(),
+        ]);
+        let labels = super::kmeans(2, &data, &mut rng);
+        assert_eq!(labels.len(), 2);
+        assert!(labels[0] != labels[1]); // points should be in separate clusters
+    }
+}

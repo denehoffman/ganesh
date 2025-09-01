@@ -318,3 +318,64 @@ pub fn maybe_warn(msg: &str) {
         eprintln!("Warning: {msg}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::sync::atomic::Ordering;
+
+    fn reset_globals() {
+        WARNINGS_ENABLED.store(true, Ordering::Relaxed);
+        WARNINGS_SET_BY_ENV.store(false, Ordering::Relaxed);
+        WARNINGS_OVERRIDE.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_default_should_warn_and_overrides() {
+        reset_globals();
+        assert!(should_warn());
+        disable_warnings();
+        assert!(!should_warn());
+        enable_warnings();
+        // this mimics a dependency trying to enable warnings after a user manually disables them
+        assert!(!should_warn());
+
+        reset_globals();
+        enable_warnings();
+        assert!(should_warn());
+        disable_warnings();
+        // this mimics a dependency trying to disable warnings after a user manually enables them
+        assert!(should_warn());
+    }
+
+    #[test]
+    fn test_env_var_respected_disable() {
+        reset_globals();
+        env::set_var("GANESH_WARNINGS", "0");
+        enable_warnings();
+        assert!(!should_warn());
+        env::remove_var("GANESH_WARNINGS");
+    }
+
+    #[test]
+    fn test_env_var_respected_enable() {
+        reset_globals();
+        env::set_var("GANESH_WARNINGS", "1");
+        disable_warnings();
+        assert!(should_warn());
+        env::remove_var("GANESH_WARNINGS");
+    }
+
+    #[test]
+    fn test_maybe_warn_branches() {
+        reset_globals();
+        maybe_warn("this should print");
+        assert!(should_warn());
+
+        reset_globals();
+        disable_warnings();
+        maybe_warn("this should not print");
+        assert!(!should_warn());
+    }
+}

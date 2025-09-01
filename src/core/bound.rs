@@ -292,7 +292,7 @@ impl Boundable for DVector<Float> {
 }
 
 /// A struct that contains a list of [`Bound`]s.
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Bounds(Vec<Bound>);
 
 impl Bounds {

@@ -244,3 +244,83 @@ where
         })
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_functions::Rosenbrock;
+    use crate::traits::Algorithm;
+
+    fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
+        (0..n_walkers)
+            .map(|i| DVector::from_element(dim, i as Float + 1.0))
+            .collect()
+    }
+
+    #[test]
+    fn test_aies_config_builders() {
+        let walkers = make_walkers(3, 2);
+        let moves = vec![AIESMove::stretch(0.5), AIESMove::walk(0.5)];
+
+        let config = AIESConfig::default()
+            .with_walkers(walkers.clone())
+            .with_moves(moves.clone());
+
+        assert_eq!(config.walkers.len(), walkers.len());
+        assert_eq!(config.moves.len(), moves.len());
+    }
+
+    #[test]
+    fn test_aiesmove_updates_message() {
+        let mut rng = Rng::with_seed(0);
+        let problem = Rosenbrock { n: 2 };
+        let walkers = make_walkers(3, 2);
+        let mut status = EnsembleStatus::default();
+
+        AIESMove::Stretch { a: 2.0 }
+            .step(&problem, &mut (), &mut status, &mut rng)
+            .unwrap();
+        assert!(status.message().contains("Stretch Move"));
+
+        AIESMove::Walk
+            .step(&problem, &mut (), &mut status, &mut rng)
+            .unwrap();
+        assert!(status.message().contains("Walk Move"));
+    }
+
+    #[test]
+    fn test_aies_initialize_and_summarize() {
+        let rng = Rng::with_seed(0);
+        let mut aies = AIES::new(rng);
+
+        let walkers = make_walkers(3, 2);
+        let config = AIESConfig::default().with_walkers(walkers.clone());
+        let mut problem = Rosenbrock { n: 2 };
+        let mut status = EnsembleStatus::default();
+
+        aies.initialize(config.clone(), &mut problem, &mut status, &mut ())
+            .unwrap();
+        assert_eq!(status.walkers.len(), walkers.len());
+
+        let summary = aies.summarize(0, &mut problem, &status, &()).unwrap();
+        assert_eq!(summary.dimension, status.dimension());
+    }
+
+    #[test]
+    fn test_aies_step_runs() {
+        let rng = Rng::with_seed(0);
+        let mut aies = AIES::new(rng);
+        let mut problem = Rosenbrock { n: 2 };
+
+        let walkers = make_walkers(3, 2);
+        let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
+        let config = AIESConfig::default()
+            .with_walkers(walkers.clone())
+            .with_moves(moves);
+
+        let mut status = EnsembleStatus::default();
+        aies.initialize(config, &mut problem, &mut status, &mut ())
+            .unwrap();
+
+        assert!(aies.step(0, &mut problem, &mut status, &mut ()).is_ok());
+    }
+}
