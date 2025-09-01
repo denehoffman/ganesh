@@ -1,4 +1,4 @@
-/// Module containing the [`AbortSignal`] trait.
+/// Module containing the [`AbortSignal`] trait and some useful implementations.
 pub mod abort_signal;
 /// Module containing the [`Algorithm`] and [`Bounded`] traits.
 pub mod algorithm;
@@ -11,7 +11,7 @@ pub mod linesearch;
 /// Module containing the [`Status`] trait and its implementations.
 pub mod status;
 
-pub use abort_signal::AbortSignal;
+pub use abort_signal::{AbortSignal, AtomicAbortSignal, CtrlCAbortSignal};
 pub use algorithm::{Algorithm, Bounded};
 pub use callback::{Callback, Callbacks, DebugObserver, MaxSteps, Observer, Terminator};
 pub use cost_function::{CostFunction, Gradient, LogDensity};
