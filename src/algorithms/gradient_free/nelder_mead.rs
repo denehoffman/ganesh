@@ -808,7 +808,7 @@ mod tests {
         },
         core::Point,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callbacks, DebugObserver},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Callbacks},
         Float,
     };
 
