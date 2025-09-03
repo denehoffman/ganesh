@@ -302,3 +302,52 @@ where
         ControlFlow::Continue(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{
+        algorithms::mcmc::{AutocorrelationTerminator, ESSConfig, ESSMove, ESS},
+        test_functions::Rosenbrock,
+        traits::*,
+    };
+    use crate::{utils::SampleFloat, Float};
+    use approx::assert_relative_eq;
+    use fastrand::Rng;
+    use nalgebra::DVector;
+
+    #[test]
+    fn test_autocorrelation_terminator() {
+        let mut problem = Rosenbrock { n: 2 };
+        let mut rng = Rng::new();
+        rng.seed(9301690130845527930);
+        let x0: Vec<DVector<Float>> = (0..5)
+            .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
+            .collect();
+        let aco = AutocorrelationTerminator::default()
+            .with_n_check(20)
+            .with_discard(0.55)
+            .with_sokal_window(7.1)
+            .with_terminate(true)
+            .with_dtau_threshold(0.05)
+            .with_n_taus_threshold(51)
+            .with_verbose(false)
+            .build();
+        let mut sampler = ESS::new(rng);
+        let result = sampler
+            .process(
+                &mut problem,
+                &mut (),
+                ESSConfig::default()
+                    .with_walkers(x0.clone())
+                    .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
+                Callbacks::empty().with_terminator(aco.clone()),
+            )
+            .unwrap();
+        assert_relative_eq!(
+            *aco.lock().taus.last().unwrap(),
+            2.792546534660792,
+            epsilon = Float::EPSILON
+        );
+    }
+}
