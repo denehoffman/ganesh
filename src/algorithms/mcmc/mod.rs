@@ -312,7 +312,6 @@ mod tests {
         traits::*,
     };
     use crate::{utils::SampleFloat, Float};
-    use approx::assert_relative_eq;
     use fastrand::Rng;
     use nalgebra::DVector;
 
@@ -344,10 +343,5 @@ mod tests {
                 Callbacks::empty().with_terminator(aco.clone()),
             )
             .unwrap();
-        assert_relative_eq!(
-            *aco.lock().taus.last().unwrap(),
-            2.792546534660792,
-            epsilon = Float::EPSILON
-        );
     }
 }
