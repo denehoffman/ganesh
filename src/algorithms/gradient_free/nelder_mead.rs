@@ -808,7 +808,7 @@ mod tests {
         },
         core::Point,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callbacks},
+        traits::{callback::MaxSteps, Algorithm, Bounded, Callbacks, DebugObserver},
         Float,
     };
 
@@ -957,14 +957,11 @@ mod tests {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // Make the relative f criterion trivially true (ratio <= 2, so 2.0 forces termination).
         let cfg = NelderMeadConfig::default()
-            .with_x0([2.0, 2.0])
-            .with_eps_f_rel(2.0);
+            .with_x0([0.5, -0.5])
+            .with_eps_f_rel(0.01); // helps ensure quick convergence
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadFTerminator::Amoeba)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -978,14 +975,9 @@ mod tests {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // Make |f_h - f_l| <= eps_f_abs always hold.
-        let cfg = NelderMeadConfig::default()
-            .with_x0([2.0, -2.0])
-            .with_eps_f_abs(1.0e9);
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadFTerminator::Absolute)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Absolute);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -999,14 +991,9 @@ mod tests {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // Make stddev(f_i) <= eps_f_abs always hold.
-        let cfg = NelderMeadConfig::default()
-            .with_x0([0.0, 0.0])
-            .with_eps_f_abs(1.0e9);
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadFTerminator::StdDev)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::StdDev);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -1015,21 +1002,14 @@ mod tests {
         assert_eq!(result.message, "term_f = STDDEV");
     }
 
-    // ---------- X-terminators ----------
-
     #[test]
     fn terminates_with_x_diameter() {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // Max ∞-norm <= eps_x_abs will be true with a huge eps.
-        let cfg = NelderMeadConfig::default()
-            .with_x0([3.0, 3.0])
-            .with_eps_x_abs(1.0e9);
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadXTerminator::Diameter)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Diameter);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -1043,14 +1023,9 @@ mod tests {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // (max L1 distance)/max(1, ||x_l||_1) <= eps_x_rel: force with a huge eps.
-        let cfg = NelderMeadConfig::default()
-            .with_x0([-1.0, 2.0])
-            .with_eps_x_rel(1.0e9);
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadXTerminator::Higham)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Higham);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -1060,18 +1035,29 @@ mod tests {
     }
 
     #[test]
+    fn terminates_with_x_rowan() {
+        let mut solver = NelderMead::default();
+        let mut problem = Rosenbrock { n: 2 };
+
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
+
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Rowan);
+
+        let result = solver
+            .process(&mut problem, &mut (), cfg, callbacks)
+            .unwrap();
+        assert!(result.converged);
+        assert_eq!(result.message, "term_x = ROWAN");
+    }
+
+    #[test]
     fn terminates_with_x_singer() {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
 
-        // At initialization, volume_current == volume_initial; LV_current <= eps * LV_init holds for eps >= 1.
-        let cfg = NelderMeadConfig::default()
-            .with_x0([0.5, -0.5])
-            .with_eps_x_rel(1.0);
+        let cfg = NelderMeadConfig::default().with_x0([0.5, -0.5]);
 
-        let callbacks = Callbacks::empty()
-            .with_terminator(NelderMeadXTerminator::Singer)
-            .with_terminator(MaxSteps(1000));
+        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Singer);
 
         let result = solver
             .process(&mut problem, &mut (), cfg, callbacks)
@@ -1079,8 +1065,6 @@ mod tests {
         assert!(result.converged);
         assert_eq!(result.message, "term_x = SINGER");
     }
-
-    // ---------- Simplex behaviors ----------
 
     #[test]
     fn simplex_total_centroid_matches_mean() {
@@ -1150,8 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn expansion_method_switch_is_accepted() {
-        // Just ensure GreedyExpansion path is valid; convergence still happens on Rosenbrock.
+    fn expansion_and_construction_method_switches_are_accepted() {
         let mut solver = NelderMead::default();
         let mut problem = Rosenbrock { n: 2 };
         let result = solver
@@ -1159,9 +1142,11 @@ mod tests {
                 &mut problem,
                 &mut (),
                 NelderMeadConfig::default()
-                    .with_x0([-1.5, 1.5])
-                    .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
-                NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),
+                    .with_expansion_method(SimplexExpansionMethod::GreedyExpansion)
+                    .with_construction_method(SimplexConstructionMethod::Custom {
+                        simplex: vec![vec![0.5, -0.5], vec![1.5, -0.5], vec![0.5, 0.5]],
+                    }),
+                NelderMead::default_callbacks(),
             )
             .unwrap();
         assert!(result.converged);
