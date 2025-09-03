@@ -1,10 +1,9 @@
-#![allow(dead_code, unused_variables)]
 use crate::{
     core::Point,
     traits::{Algorithm, LogDensity, Terminator},
-    Float,
+    DVector, Float,
 };
-use nalgebra::{Complex, DVector};
+use nalgebra::Complex;
 use parking_lot::{Mutex, RwLock};
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
@@ -61,8 +60,7 @@ impl Walker {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
         func: &dyn LogDensity<U, E, Input = DVector<Float>>,
@@ -163,8 +161,7 @@ pub fn integrated_autocorrelation_times(
 /// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
 /// use ganesh::test_functions::Rosenbrock;
-/// use nalgebra::DVector;
-/// use ganesh::{utils::SampleFloat, Float};
+/// use ganesh::{core::{utils::SampleFloat, Callbacks}, Float, DVector};
 /// use ganesh::traits::*;
 /// use approx::assert_relative_eq;
 ///
@@ -263,10 +260,10 @@ where
     fn check_for_termination(
         &mut self,
         current_step: usize,
-        algorithm: &mut A,
-        problem: &P,
+        _algorithm: &mut A,
+        _problem: &P,
         status: &mut EnsembleStatus,
-        user_data: &U,
+        _user_data: &U,
     ) -> ControlFlow<()> {
         if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(
@@ -305,15 +302,13 @@ where
 
 #[cfg(test)]
 mod tests {
-
+    use super::*;
     use crate::{
-        algorithms::mcmc::{AutocorrelationTerminator, ESSConfig, ESSMove, ESS},
+        core::{utils::SampleFloat, Callbacks},
         test_functions::Rosenbrock,
-        traits::*,
+        DVector,
     };
-    use crate::{utils::SampleFloat, Float};
     use fastrand::Rng;
-    use nalgebra::DVector;
 
     #[test]
     fn test_autocorrelation_terminator() {
@@ -338,10 +333,18 @@ mod tests {
                 &mut problem,
                 &mut (),
                 ESSConfig::default()
-                    .with_walkers(x0.clone())
+                    .with_walkers(x0)
                     .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
                 Callbacks::empty().with_terminator(aco.clone()),
             )
             .unwrap();
+        println!(
+            "Walker 0 Final Position: {}",
+            result.chain[0].last().unwrap()
+        );
+        println!(
+            "Autocorrelation Time at Termination: {}",
+            aco.lock().taus.last().unwrap()
+        )
     }
 }

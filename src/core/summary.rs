@@ -1,11 +1,9 @@
-use std::fmt::Display;
-
-use nalgebra::DVector;
+use crate::{
+    core::bound::{Bound, Bounds},
+    DVector, Float,
+};
 use serde::{Deserialize, Serialize};
-
-use crate::Float;
-
-use super::{Bound, Bounds};
+use std::fmt::Display;
 
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -194,9 +192,10 @@ impl MCMCSummary {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_minimization_result() {
-        use super::*;
         let result = MinimizationSummary {
             bounds: None,
             parameter_names: None,

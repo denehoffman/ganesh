@@ -1,18 +1,15 @@
-use std::sync::Arc;
-
-use fastrand::Rng;
-use nalgebra::DVector;
-use parking_lot::RwLock;
-
 use crate::{
-    algorithms::mcmc::Walker,
-    core::{Bounds, MCMCSummary, Point},
+    algorithms::mcmc::{EnsembleStatus, Walker},
+    core::{
+        utils::{RandChoice, SampleFloat},
+        Bounds, MCMCSummary, Point,
+    },
     traits::{Algorithm, Bounded, LogDensity, Status},
-    utils::{RandChoice, SampleFloat},
-    Float,
+    DVector, Float,
 };
-
-use super::ensemble_status::EnsembleStatus;
+use fastrand::Rng;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// A move used by the the [`AIES`] algorithm
 ///
@@ -205,7 +202,7 @@ where
 
     fn step(
         &mut self,
-        current_step: usize,
+        _current_step: usize,
         problem: &mut P,
         status: &mut EnsembleStatus,
         user_data: &mut U,
@@ -227,10 +224,10 @@ where
 
     fn summarize(
         &self,
-        current_step: usize,
-        func: &P,
+        _current_step: usize,
+        _func: &P,
         status: &EnsembleStatus,
-        user_data: &U,
+        _user_data: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
             bounds: self.config.bounds.clone(),
@@ -248,7 +245,6 @@ where
 mod tests {
     use super::*;
     use crate::test_functions::Rosenbrock;
-    use crate::traits::Algorithm;
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
@@ -273,7 +269,6 @@ mod tests {
     fn test_aiesmove_updates_message() {
         let mut rng = Rng::with_seed(0);
         let problem = Rosenbrock { n: 2 };
-        let walkers = make_walkers(3, 2);
         let mut status = EnsembleStatus::default();
 
         AIESMove::Stretch { a: 2.0 }
@@ -297,11 +292,11 @@ mod tests {
         let mut problem = Rosenbrock { n: 2 };
         let mut status = EnsembleStatus::default();
 
-        aies.initialize(config.clone(), &mut problem, &mut status, &mut ())
+        aies.initialize(config, &mut problem, &mut status, &mut ())
             .unwrap();
         assert_eq!(status.walkers.len(), walkers.len());
 
-        let summary = aies.summarize(0, &mut problem, &status, &()).unwrap();
+        let summary = aies.summarize(0, &problem, &status, &()).unwrap();
         assert_eq!(summary.dimension, status.dimension());
     }
 
@@ -314,7 +309,7 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
         let config = AIESConfig::default()
-            .with_walkers(walkers.clone())
+            .with_walkers(walkers)
             .with_moves(moves);
 
         let mut status = EnsembleStatus::default();

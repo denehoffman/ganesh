@@ -1,20 +1,17 @@
-use crate::traits::callback::Callbacks;
 use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
-use crate::Float;
 use crate::{
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
-    core::{Bound, Bounds, MinimizationSummary},
+    core::{Bound, Bounds, Callbacks, MinimizationSummary},
+    DMatrix, DVector, Float,
 };
-use nalgebra::{DMatrix, DVector};
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 
-/// A terminator for the [`LBFGSB`] [`Algorithm`]
+/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
 ///
 /// This causes termination when the change in the function evaluation becomes smaller
 /// than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// of the [`Engine`](`crate::core::Engine`) will be set as converged with the message "GRADIENT
-/// CONVERGED".
+/// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
 impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
@@ -39,12 +36,11 @@ where
     }
 }
 
-/// A terminator for the [`LBFGSB`] [`Algorithm`]
+/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
 ///
 /// This causes termination when the magnitude of the
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// of the [`Engine`](`crate::core::Engine`) will be set as converged with the message "GRADIENT
-/// CONVERGED".
+/// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
 impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
@@ -68,7 +64,7 @@ where
     }
 }
 
-/// A terminator which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
+/// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
 pub struct LBFGSBInfNormGTerminator;
 impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
 where
@@ -616,12 +612,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        algorithms::gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        test_functions::Rosenbrock,
-        traits::{Algorithm, Bounded, MaxSteps},
-        Float,
-    };
+    use super::*;
+    use crate::{core::MaxSteps, test_functions::Rosenbrock};
     use approx::assert_relative_eq;
 
     #[test]

@@ -6,8 +6,9 @@ use serde::{de::DeserializeOwned, Serialize};
 /// different status information than the ones implemented in this crate.
 pub trait Status: Clone + Default + Serialize + DeserializeOwned {
     /// Resets the status to its default state. This is called at the beginning of every
-    /// [`Engine`](crate::core::Engine) run. Only members that are not persistent between runs should be reset.
-    /// For example, the initial parameters of the minimization should not be reset.
+    /// [`Algorithm::process`](crate::traits::Algorithm::process) run. Only members that are
+    /// not persistent between runs should be reset. For example, the initial parameters of
+    /// a minimization should not be reset.
     fn reset(&mut self);
     /// Returns the convergence flag of the minimization.
     fn converged(&self) -> bool;

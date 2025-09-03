@@ -1,20 +1,17 @@
+use crate::{
+    algorithms::mcmc::{integrated_autocorrelation_times, Walker},
+    core::Point,
+    traits::{LogDensity, Status},
+    DMatrix, DVector, Float,
+};
+use fastrand::Rng;
+use nalgebra::RowDVector;
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-
-use fastrand::Rng;
-use nalgebra::{DMatrix, DVector, RowDVector};
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    core::Point,
-    traits::{LogDensity, Status},
-    Float,
-};
-
-use super::{integrated_autocorrelation_times, Walker};
 
 /// A collection of [`Walker`]s
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -63,8 +60,8 @@ impl EnsembleStatus {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
+    /// Returns an `Err(E)` if the evaluation fails. See
+    /// [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
         func: &dyn LogDensity<U, E, Input = DVector<Float>>,

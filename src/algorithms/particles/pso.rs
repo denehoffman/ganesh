@@ -1,17 +1,11 @@
-use std::cmp::Ordering;
-
-use fastrand::Rng;
-use nalgebra::DVector;
-
 use crate::{
-    algorithms::particles::Swarm,
-    core::{Bounds, MinimizationSummary},
+    algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
+    core::{utils::generate_random_vector, Bounds, MinimizationSummary},
     traits::{Algorithm, Bounded, CostFunction, Status},
-    utils::generate_random_vector,
-    Float,
+    DVector, Float,
 };
-
-use super::{SwarmStatus, SwarmTopology, SwarmUpdateMethod};
+use fastrand::Rng;
+use std::cmp::Ordering;
 
 /// The internal configuration struct for the [`PSO`] algorithm.
 #[derive(Clone)]
@@ -285,40 +279,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
-
-    use fastrand::Rng;
-
+    use super::*;
     use crate::{
-        algorithms::particles::{
-            pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
-        },
-        traits::{
-            callback::{Callbacks, MaxSteps},
-            Algorithm, CostFunction,
-        },
-        DVector, Float, PI,
+        algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
+        core::{Callbacks, MaxSteps},
+        test_functions::Rastrigin,
     };
 
     #[test]
     fn test_pso() {
-        // Define the function to sample (a multimodal distribution)
-        struct Function;
-        // Implement Rastrigin function
-        impl CostFunction for Function {
-            type Input = DVector<Float>;
-            fn evaluate(
-                &self,
-                x: &DVector<Float>,
-                _user_data: &mut (),
-            ) -> Result<Float, Infallible> {
-                #[allow(clippy::suboptimal_flops)]
-                Ok(10.0
-                    + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
-                    + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))
-            }
-        }
-
+        let mut problem = Rastrigin { n: 2 };
         // Create and seed a random number generator
         let mut rng = Rng::new();
         rng.seed(0);
@@ -334,7 +304,7 @@ mod tests {
         // Run the particle swarm optimizer
         let result = solver
             .process(
-                &mut Function,
+                &mut problem,
                 &mut (),
                 PSOConfig::default()
                     .with_c1(0.1)

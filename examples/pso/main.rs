@@ -1,14 +1,11 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::particles::{pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO},
-    traits::{callback::MaxSteps, Algorithm, Callbacks, CostFunction},
+    core::{Callbacks, MaxSteps},
+    traits::{Algorithm, CostFunction},
     DVector, Float, PI,
 };
-use std::convert::Infallible;
-use std::error::Error;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
+use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)

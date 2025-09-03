@@ -1,7 +1,5 @@
-use nalgebra::{DMatrix, DVector};
+use crate::{traits::Status, DMatrix, DVector, Float};
 use serde::{Deserialize, Serialize};
-
-use crate::{traits::Status, Float};
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -82,7 +80,7 @@ impl GradientStatus {
     }
     /// Updates the [`GradientStatus::hess`] field and computes [`GradientStatus::cov`] and [`GradientStatus::err`].
     pub fn with_hess(&mut self, hessian: &DMatrix<Float>) {
-        use crate::utils::hessian_to_covariance;
+        use crate::core::utils::hessian_to_covariance;
         self.hess = Some(hessian.clone());
         let covariance = hessian_to_covariance(hessian);
         if let Some(cov_mat) = &covariance {

@@ -1,7 +1,6 @@
 use crate::{
-    core::{bound::Bounds, Point, SimulatedAnnealingSummary},
-    traits::{callback::Callbacks, Algorithm, Bounded, CostFunction, Status, Terminator},
-    utils::SampleFloat,
+    core::{utils::SampleFloat, Bounds, Callbacks, Point, SimulatedAnnealingSummary},
+    traits::{Algorithm, Bounded, CostFunction, Status, Terminator},
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -221,22 +220,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
-
-    use approx::assert_relative_eq;
-    use nalgebra::DVector;
-
+    use super::*;
     use crate::{
-        algorithms::gradient_free::{
-            simulated_annealing::SimulatedAnnealingConfig, SimulatedAnnealing,
-        },
-        core::{bound::Boundable, Bounds},
+        core::MaxSteps,
         test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, CostFunction, Gradient},
-        Float,
+        traits::{Boundable, Gradient},
+        DVector,
     };
-
-    use super::{SimulatedAnnealingGenerator, SimulatedAnnealingStatus};
+    use approx::assert_relative_eq;
+    use std::fmt::Debug;
 
     pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E>>);
     impl<U, E> GradientAnnealingProblem<U, E> {

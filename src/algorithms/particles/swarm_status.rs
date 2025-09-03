@@ -1,8 +1,10 @@
+use crate::{
+    algorithms::particles::{Swarm, SwarmBoundaryMethod},
+    core::Point,
+    traits::Status,
+    DVector, Float,
+};
 use serde::{Deserialize, Serialize};
-
-use crate::{core::Point, traits::Status, DVector, Float};
-
-use super::{swarm::SwarmBoundaryMethod, Swarm};
 
 /// A status for particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize, Default)]

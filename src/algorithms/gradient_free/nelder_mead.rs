@@ -1,10 +1,9 @@
-use super::GradientFreeStatus;
 use crate::{
-    core::{bound::Boundable, Bounds, MinimizationSummary, Point},
-    traits::{callback::Callbacks, Algorithm, Bounded, CostFunction, Terminator},
-    Float,
+    algorithms::gradient_free::GradientFreeStatus,
+    core::{Bounds, Callbacks, MinimizationSummary, Point},
+    traits::{Algorithm, Boundable, Bounded, CostFunction, Terminator},
+    DMatrix, DVector, Float,
 };
-use nalgebra::{DMatrix, DVector};
 use std::{fmt::Debug, ops::ControlFlow};
 
 /// Gives a method for constructing a simplex.
@@ -796,23 +795,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
-
+    use super::*;
+    use crate::{core::MaxSteps, test_functions::Rosenbrock};
     use approx::assert_relative_eq;
-    use nalgebra::DVector;
-
-    use crate::{
-        algorithms::gradient_free::nelder_mead::{
-            NelderMeadConfig, NelderMeadFTerminator, NelderMeadXTerminator, Simplex,
-            SimplexConstructionMethod, SimplexExpansionMethod,
-        },
-        core::Point,
-        test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded, Callbacks},
-        Float,
-    };
-
-    use super::NelderMead;
+    use std::convert::Infallible;
 
     #[test]
     fn test_nelder_mead() {

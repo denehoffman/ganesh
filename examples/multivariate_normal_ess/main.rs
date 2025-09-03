@@ -1,18 +1,11 @@
-use std::convert::Infallible;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
-
 use fastrand::Rng;
-use ganesh::algorithms::mcmc::ess::ESSConfig;
-use ganesh::algorithms::mcmc::ESS;
-use ganesh::algorithms::mcmc::{AutocorrelationTerminator, ESSMove};
-use ganesh::traits::callback::MaxSteps;
-use ganesh::traits::{Algorithm, Callbacks, LogDensity};
-use ganesh::utils::SampleFloat;
-use ganesh::Float;
-use nalgebra::{DMatrix, DVector};
-use std::error::Error;
+use ganesh::{
+    algorithms::mcmc::{ess::ESSConfig, AutocorrelationTerminator, ESSMove, ESS},
+    core::{utils::SampleFloat, Callbacks, MaxSteps},
+    traits::{Algorithm, LogDensity},
+    DMatrix, DVector, Float,
+};
+use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multinormal distribution)

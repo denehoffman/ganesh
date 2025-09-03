@@ -1,10 +1,9 @@
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{bound::Boundable, Bounds},
-    traits::{Gradient, LineSearch},
-    Float,
+    core::Bounds,
+    traits::{Boundable, Gradient, LineSearch},
+    DVector, Float,
 };
-use nalgebra::DVector;
 
 /// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
 /// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).

@@ -1,10 +1,23 @@
+/// Useful implementations of [`AbortSignal`](`crate::traits::AbortSignal`).
+pub mod abort_signals;
+pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
+
 /// [`Bound`] type for binding variables to a range.
 pub mod bound;
+pub use bound::{Bound, Bounds};
+
+/// [`Callbacks`] and some other implementors of [`Callback`](`crate::traits::Callback`),
+/// [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
+pub mod callbacks;
+pub use callbacks::{Callbacks, DebugObserver, MaxSteps};
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
+pub use point::Point;
+
 /// Summary types for the result of the minimization.
 pub mod summary;
-
-pub use bound::{Bound, Bounds};
-pub use point::Point;
 pub use summary::{MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary};
+
+/// Utility functions.
+pub mod utils;

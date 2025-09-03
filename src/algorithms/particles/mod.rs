@@ -1,11 +1,18 @@
+use crate::{
+    core::Point,
+    traits::{Algorithm, Observer},
+    DVector, Float,
+};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
 /// Implementation of Particle Swarm Optimization (PSO) algorithm
 pub mod pso;
-use parking_lot::Mutex;
 pub use pso::{PSOConfig, PSO};
 
 /// [`Swarm`] type for swarm-based optimizers.
 pub mod swarm;
-use serde::{Deserialize, Serialize};
 pub use swarm::{
     Swarm, SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmTopology,
     SwarmUpdateMethod, SwarmVelocityInitializer,
@@ -14,13 +21,6 @@ pub use swarm::{
 /// [`SwarmStatus`] type for swarm-based optimizers.
 pub mod swarm_status;
 pub use swarm_status::SwarmStatus;
-
-use crate::{
-    core::Point,
-    traits::{Algorithm, Observer},
-    DVector, Float,
-};
-use std::sync::Arc;
 
 /// An [`Observer`] which stores the swarm particles' history as well as the
 /// history of global best positions.

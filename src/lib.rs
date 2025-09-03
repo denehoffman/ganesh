@@ -1,10 +1,4 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
-//!
-//! <div class="warning">
-//!
-//! This crate is still in an early development phase, and the API is not stable. It can (and likely will) be subject to breaking changes before the 1.0.0 version release (and hopefully not many after that).
-//!
-//! </div>
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](crate::traits::Gradient) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
 //!
 //! # Table of Contents
 //! - [Key Features](#key-features)
@@ -19,6 +13,7 @@
 //! * Algorithms that are simple to use with sensible defaults.
 //! * Traits which make developing future algorithms simple and consistent.
 //! * A simple interface that lets new users get started quickly.
+//! * The first (and possibly only) pure Rust implementation of the [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB) algorithm.
 //!
 //! ## Quick Start
 //!
@@ -99,18 +94,18 @@
 //!
 //! At the moment, `ganesh` contains the following [`Algorithm`](`crate::traits::Algorithm`)s:
 //! - Gradient descent/quasi-Newton:
-//!   - [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`)
+//!   - [`L-BFGS-B`](`crate::algorithms::gradient::LBFGSB`)
 //!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic [`CostFunction`](crate::traits::CostFunction)s)
 //! - Gradient-free:
-//!   - [`NelderMead`](`crate::algorithms::gradient_free::NelderMead`)
-//!   - [`SimulatedAnnealing`](`crate::algorithms::gradient_free::SimulatedAnnealing`)
+//!   - [`Nelder-Mead`](`crate::algorithms::gradient_free::NelderMead`)
+//!   - [`Simulated Annealing`](`crate::algorithms::gradient_free::SimulatedAnnealing`)
 //! - Markov Chain Monte Carlo (MCMC):
 //!   - [`AIES`](`crate::algorithms::mcmc::AIES`)
 //!   - [`ESS`](`crate::algorithms::mcmc::ESS`)
 //! - Swarms:
 //!   - [`PSO`](`crate::algorithms::particles::PSO`) (a basic form of particle swarm optimization)
 //!
-//! All algorithms are written in pure Rust, including `L-BFGS-B` which is typically a binding to
+//! All algorithms are written in pure Rust, including `L-BFGS-B`, which is typically a binding to
 //! `FORTRAN` code in other crates.
 //!
 //! ## Examples
@@ -124,7 +119,7 @@
 //! ```
 //!
 //! ## Bounds
-//! All [`Algorithm`]s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::gradient::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! All [`Algorithm`](`crate::traits::Algorithm`)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`crate::algorithms::gradient::lbfgsb::LBFGSB`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
 //! ```math
@@ -214,26 +209,17 @@
     missing_docs
 )]
 
-/// Module containing minimization algorithms
+/// Module containing core functionality.
 pub mod core;
 
-/// Module containing all traits
+/// Module containing all traits.
 pub mod traits;
 
-/// Module containing various minimization algorithms
+/// Module containing various minimization algorithms.
 pub mod algorithms;
 
-/// Module containing standard functions for testing algorithms
+/// Module containing standard functions for testing algorithms.
 pub mod test_functions;
-
-/// Module containing various utilities
-pub mod utils;
-
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// Re-export the `nalgebra` crate
-pub use nalgebra;
-use parking_lot::Once;
 
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(not(feature = "f32"))]
@@ -243,7 +229,9 @@ pub type Float = f64;
 #[cfg(feature = "f32")]
 pub type Float = f32;
 
-pub use nalgebra::DVector;
+/// Re-export some useful `nalgebra` types for convenience.
+pub use nalgebra;
+pub use nalgebra::{DMatrix, DVector};
 
 /// The mathematical constant $`\pi`$.
 #[cfg(not(feature = "f32"))]
@@ -252,133 +240,3 @@ pub const PI: Float = std::f64::consts::PI;
 /// The mathematical constant $`\pi`$.
 #[cfg(feature = "f32")]
 pub const PI: Float = std::f32::consts::PI;
-
-static WARNINGS_ENABLED: AtomicBool = AtomicBool::new(true);
-static WARNINGS_SET_BY_ENV: AtomicBool = AtomicBool::new(false);
-static WARNINGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
-static INIT: Once = Once::new();
-
-fn init_env_override() {
-    INIT.call_once(|| {
-        if let Ok(val) = std::env::var("GANESH_WARNINGS") {
-            if val == "0" {
-                WARNINGS_SET_BY_ENV.store(true, Ordering::Relaxed);
-                WARNINGS_ENABLED.store(false, Ordering::Relaxed);
-            }
-            if val == "1" {
-                WARNINGS_SET_BY_ENV.store(true, Ordering::Relaxed);
-                WARNINGS_ENABLED.store(true, Ordering::Relaxed);
-            }
-        }
-    });
-}
-
-fn try_set_warnings_override(value: bool) {
-    init_env_override();
-    if WARNINGS_SET_BY_ENV.load(Ordering::Relaxed) {
-        return;
-    }
-    let already_set = WARNINGS_OVERRIDE.swap(true, Ordering::Relaxed);
-    if !already_set {
-        WARNINGS_ENABLED.store(value, Ordering::Relaxed);
-    }
-}
-
-/// A method which can force-enable warnings which may be disabled by dependencies.
-///
-/// This method will still not enable warnings if the environment variable `GANESH_WARNINGS=0`.
-pub fn enable_warnings() {
-    try_set_warnings_override(true);
-}
-
-/// A method which can force-disable warnings which may be enabled by dependencies.
-///
-/// This method will still not disable warnings if the environment variable `GANESH_WARNINGS=1`.
-pub fn disable_warnings() {
-    try_set_warnings_override(false);
-}
-
-/// Returns `true` if warnings are enabled.
-///
-/// Warnings are enabled by default and can be disabled either by setting the environment variable
-/// `GANESH_WARNINGS=0` or by calling [`disable_warnings`] first. The first call of
-/// [`enable_warnings`] will ensure warnings are enabled, overriding any subsequent calls to
-/// [`disable_warnings`]. Setting `GANESH_WARNINGS=1` will force-enable warnings regardless of any
-/// calls to [`disable_warnings`]. In all cases, the environment variable takes precedence.
-pub fn should_warn() -> bool {
-    init_env_override();
-    WARNINGS_ENABLED.load(Ordering::Relaxed)
-}
-
-/// Conditionally warns the user (warns by default).
-///
-/// See [`should_warn`] for details on how to conditionally enable and disable warnings.
-pub fn maybe_warn(msg: &str) {
-    if should_warn() {
-        eprintln!("Warning: {msg}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::Ordering;
-
-    fn reset_globals() {
-        WARNINGS_ENABLED.store(true, Ordering::Relaxed);
-        WARNINGS_SET_BY_ENV.store(false, Ordering::Relaxed);
-        WARNINGS_OVERRIDE.store(false, Ordering::Relaxed);
-    }
-
-    #[test]
-    fn test_default_should_warn_and_overrides() {
-        reset_globals();
-        assert!(should_warn());
-        disable_warnings();
-        assert!(!should_warn());
-        enable_warnings();
-        // this mimics a dependency trying to enable warnings after a user manually disables them
-        assert!(!should_warn());
-
-        reset_globals();
-        enable_warnings();
-        assert!(should_warn());
-        disable_warnings();
-        // this mimics a dependency trying to disable warnings after a user manually enables them
-        assert!(should_warn());
-    }
-
-    // TODO: figure out how to get these tests to work with code coverage
-    //
-    // use std::env;
-    //
-    // #[test]
-    // fn test_env_var_respected_disable() {
-    //     reset_globals();
-    //     env::set_var("GANESH_WARNINGS", "0");
-    //     enable_warnings();
-    //     assert!(!should_warn());
-    //     env::remove_var("GANESH_WARNINGS");
-    // }
-    //
-    // #[test]
-    // fn test_env_var_respected_enable() {
-    //     reset_globals();
-    //     env::set_var("GANESH_WARNINGS", "1");
-    //     disable_warnings();
-    //     assert!(should_warn());
-    //     env::remove_var("GANESH_WARNINGS");
-    // }
-
-    #[test]
-    fn test_maybe_warn_branches() {
-        reset_globals();
-        maybe_warn("this should print");
-        assert!(should_warn());
-
-        reset_globals();
-        disable_warnings();
-        maybe_warn("this should not print");
-        assert!(!should_warn());
-    }
-}

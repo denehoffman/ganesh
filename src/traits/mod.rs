@@ -1,19 +1,27 @@
-/// Module containing the [`AbortSignal`] trait and some useful implementations.
+/// Module containing the [`AbortSignal`] trait.
 pub mod abort_signal;
+pub use abort_signal::AbortSignal;
+
 /// Module containing the [`Algorithm`] and [`Bounded`] traits.
 pub mod algorithm;
-/// Module containing the [`Callback`] trait and its implementations.
+pub use algorithm::{Algorithm, Bounded};
+
+/// Module containing the [`Callback`] trait.
 pub mod callback;
+pub use callback::{Callback, Observer, Terminator};
+
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
+pub use cost_function::{CostFunction, Gradient, LogDensity};
+
 /// Module containing various line-search methods.
 pub mod linesearch;
-/// Module containing the [`Status`] trait and its implementations.
-pub mod status;
-
-pub use abort_signal::{AbortSignal, AtomicAbortSignal, CtrlCAbortSignal};
-pub use algorithm::{Algorithm, Bounded};
-pub use callback::{Callback, Callbacks, DebugObserver, MaxSteps, Observer, Terminator};
-pub use cost_function::{CostFunction, Gradient, LogDensity};
 pub use linesearch::LineSearch;
+
+/// Module containing the [`Status`] trait.
+pub mod status;
 pub use status::Status;
+
+/// Module containing the [`Boundable`] trait.
+pub mod boundable;
+pub use boundable::Boundable;

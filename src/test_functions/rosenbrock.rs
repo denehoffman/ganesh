@@ -1,7 +1,8 @@
+use crate::{
+    traits::{CostFunction, Gradient, LogDensity},
+    DVector, Float,
+};
 use std::convert::Infallible;
-
-use crate::traits::{CostFunction, Gradient, LogDensity};
-use crate::{DVector, Float};
 
 /// The Rosenbrock function, a non-convex function with a single minimum.
 ///
@@ -40,6 +41,7 @@ impl LogDensity for Rosenbrock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_rosenbrock_evaluate_at_minimum() {
         let f = Rosenbrock { n: 2 };

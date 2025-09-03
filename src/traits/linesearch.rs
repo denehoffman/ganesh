@@ -1,11 +1,9 @@
-use dyn_clone::DynClone;
-use nalgebra::DVector;
-
 use crate::{
     core::Bounds,
     traits::{Gradient, Status},
-    Float,
+    DVector, Float,
 };
+use dyn_clone::DynClone;
 
 /// A trait which defines the methods for a line search algorithm.
 ///
@@ -21,7 +19,8 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See
+    /// [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more
     /// information.
     #[allow(clippy::too_many_arguments)]
     fn search(

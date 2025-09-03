@@ -1,19 +1,16 @@
-// https://arxiv.org/abs/2002.06212
-use std::sync::Arc;
-
-use fastrand::Rng;
-use nalgebra::{Cholesky, DMatrix, DVector};
-use parking_lot::RwLock;
-
 use crate::{
-    algorithms::mcmc::Walker,
-    core::{Bounds, MCMCSummary, Point},
+    algorithms::mcmc::{EnsembleStatus, Walker},
+    core::{
+        utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
+        Bounds, MCMCSummary, Point,
+    },
     traits::{Algorithm, Bounded, LogDensity, Status},
-    utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
-    Float, PI,
+    DMatrix, DVector, Float, PI,
 };
-
-use super::ensemble_status::EnsembleStatus;
+use fastrand::Rng;
+use nalgebra::Cholesky;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// A move used by the [`ESS`] algorithm
 ///
@@ -97,7 +94,6 @@ impl ESSMove {
         }
         let mut n_expand = 0;
         let mut n_contract = 0;
-        let n = ensemble.walkers[0].get_latest().read().x.len();
         let mut dpgm_result = None;
         for (i, walker) in ensemble.iter().enumerate() {
             let x_k = walker.get_latest();
@@ -121,7 +117,6 @@ impl ESSMove {
                     // W = ⅀ Zₗ(Xₗ - X̅ₛ)
                     //   Xₗ∈S
                     let x_s = ensemble.mean_compliment(i);
-                    let n_s = ensemble.len();
                     ensemble
                         .iter_compliment(i)
                         .map(|x_l| (&x_l.read().x - &x_s).scale(rng.normal(0.0, 1.0)))
@@ -349,10 +344,10 @@ where
 
     fn summarize(
         &self,
-        current_step: usize,
-        problem: &P,
+        _current_step: usize,
+        _problem: &P,
         status: &EnsembleStatus,
-        user_data: &U,
+        _user_data: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
             bounds: self.config.bounds.clone(),
@@ -792,9 +787,9 @@ fn dpgm(n_components: usize, ensemble: &EnsembleStatus, rng: &mut Rng) -> DPGMRe
         &mean_precision,
     );
     let mut lower_bound = Float::NEG_INFINITY;
-    for iiter in 1..=100 {
+    for _ in 1..=100 {
         let prev_lower_bound = lower_bound;
-        let (log_prob_norm, log_resp) = e_step(
+        let (_, log_resp) = e_step(
             &data,
             &means,
             &precisions_cholesky,
@@ -864,9 +859,9 @@ fn dpgm(n_components: usize, ensemble: &EnsembleStatus, rng: &mut Rng) -> DPGMRe
     }
     let mut weights = tmp0.component_mul(&DVector::from_vec(prod_vec));
     weights /= weights.sum();
-    let precisions: Vec<DMatrix<Float>> = (0..n_components)
-        .map(|k| &precisions_cholesky[k] * precisions_cholesky[k].transpose())
-        .collect();
+    // let precisions: Vec<DMatrix<Float>> = (0..n_components)
+    //     .map(|k| &precisions_cholesky[k] * precisions_cholesky[k].transpose())
+    //     .collect();
     let (_, log_resp) = e_step(
         &data,
         &means,
@@ -937,16 +932,16 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let cfg = cfg
             .with_moves(&moves)
-            .with_walkers(walkers.clone())
+            .with_walkers(walkers)
             .with_n_adaptive(5)
             .with_max_steps(42)
-            .with_mu(3.14);
+            .with_mu(4.1);
 
         assert_eq!(cfg.moves.len(), 1);
         assert_eq!(cfg.walkers.len(), 3);
         assert_eq!(cfg.n_adaptive, 5);
         assert_eq!(cfg.max_steps, 42);
-        assert!((cfg.mu - 3.14).abs() < 1e-12);
+        assert!((cfg.mu - 4.1).abs() < 1e-12);
     }
 
     #[test]
@@ -954,7 +949,7 @@ mod tests {
         let rng = Rng::with_seed(0);
         let mut ess = ESS::new(rng);
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::default().with_walkers(walkers.clone());
+        let cfg = ESSConfig::default().with_walkers(walkers);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
@@ -1020,12 +1015,12 @@ mod tests {
     fn test_kmeans_two_clusters() {
         let mut rng = Rng::with_seed(0);
 
-        let points_a = vec![
+        let points_a = [
             DVector::from_vec(vec![0.0, 0.1]).transpose(),
             DVector::from_vec(vec![0.2, -0.1]).transpose(),
             DVector::from_vec(vec![-0.1, 0.0]).transpose(),
         ];
-        let points_b = vec![
+        let points_b = [
             DVector::from_vec(vec![10.0, 10.1]).transpose(),
             DVector::from_vec(vec![9.8, 9.9]).transpose(),
             DVector::from_vec(vec![10.2, 9.9]).transpose(),
@@ -1047,8 +1042,9 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_dpgm_recovers_means_covariances_two_blobs() {
-        use crate::utils::SampleFloat;
+        use crate::core::utils::SampleFloat;
 
         let mu_a = DVector::from_vec(vec![0.0, 0.0]);
         let mu_b = DVector::from_vec(vec![3.0, -2.0]);

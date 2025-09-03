@@ -1,18 +1,14 @@
+use crate::{DMatrix, DVector, Float};
 use std::convert::Infallible;
-
-use nalgebra::{DMatrix, DVector};
-
-use crate::Float;
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
 /// Such a function may also take a `user_data: &mut U` field which can be used to pass external
-/// arguments to the function during minimization, or can be modified by the function itself.
+/// arguments to the function during minimization or can be modified by the function itself.
 ///
-/// The `CostFunction` trait takes a generic `U` representing the type of user data/arguments
+/// The [`CostFunction`] trait takes a generic `U` representing the type of user data/arguments
 /// and a generic `E` representing any possible errors that might be returned during function
 /// execution.
-///
 pub trait CostFunction<U = (), E = Infallible> {
     /// The input space consumed by the cost function.
     type Input;
@@ -28,12 +24,11 @@ pub trait CostFunction<U = (), E = Infallible> {
 /// A trait which defines the gradient of a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
 /// Such a function may also take a `user_data: &mut U` field which can be used to pass external
-/// arguments to the function during minimization, or can be modified by the function itself.
+/// arguments to the function during minimization or can be modified by the function itself.
 ///
-/// The `Gradient` trait takes a  generic `U` representing the type of user data/arguments
+/// The [`Gradient`] trait takes a  generic `U` representing the type of user data/arguments
 /// and a generic `E` representing any possible errors that might be returned during function
 /// execution.
-///
 pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<Float>> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
@@ -96,6 +91,15 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     }
 }
 
+/// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$ representing the natural
+/// logarithm of a probability density function.
+///
+/// Such a function may also take a `user_data: &mut U` field which can be used to pass external
+/// arguments to the function during sampling or can be modified by the function itself.
+///
+/// The [`LogDensity`] trait takes a generic `U` representing the type of user data/arguments
+/// and a generic `E` representing any possible errors that might be returned during function
+/// execution.
 pub trait LogDensity<U = (), E = Infallible> {
     /// The input space consumed by the log-density function
     type Input;
@@ -110,14 +114,12 @@ pub trait LogDensity<U = (), E = Infallible> {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
-
-    use approx::assert_relative_eq;
-
     use crate::{
         traits::{CostFunction, Gradient},
         DVector, Float,
     };
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
 
     struct TestFunction;
     impl CostFunction for TestFunction {
@@ -155,14 +157,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cost_function_covariance_and_std() -> Result<(), Infallible> {
-        use crate::utils::hessian_to_covariance;
+    fn test_cost_function_covariance_and_std() {
+        use crate::core::utils::hessian_to_covariance;
         let x: DVector<Float> = DVector::from_vec(vec![1.0, 2.0]);
-        let hessian = TestFunction.hessian(&x, &mut ())?;
-        #[allow(clippy::unwrap_used)]
+        let hessian = TestFunction.hessian(&x, &mut ()).unwrap();
         let cov = hessian_to_covariance(&hessian).unwrap();
         assert_relative_eq!(cov[(0, 0)], 0.5, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(cov[(1, 1)], 0.5, epsilon = Float::EPSILON.cbrt());
-        Ok(())
     }
 }

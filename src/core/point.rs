@@ -1,14 +1,10 @@
-use std::fmt::{Debug, Display};
-
-use serde::{Deserialize, Serialize};
-
 use crate::{
-    core::bound::Boundable,
-    traits::{CostFunction, LogDensity},
+    core::bound::Bounds,
+    traits::{Boundable, CostFunction, LogDensity},
     DVector, Float,
 };
-
-use super::Bounds;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Display};
 
 /// Describes a point in parameter space that can be used in [`Algorithm`](`crate::traits::Algorithm`)s.
 #[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
@@ -149,10 +145,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
-
     use super::*;
     use crate::{core::Bound, test_functions::Rosenbrock};
+    use std::cmp::Ordering;
 
     #[test]
     fn test_destructure_and_fx_checked() {

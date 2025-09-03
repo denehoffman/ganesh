@@ -1,14 +1,12 @@
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{bound::Boundable, Bounds, MinimizationSummary},
-    maybe_warn,
-    traits::{callback::Callbacks, Algorithm, Bounded, Gradient, Terminator},
-    Float,
+    core::{utils::maybe_warn, Bounds, Callbacks, MinimizationSummary},
+    traits::{Algorithm, Boundable, Bounded, Gradient, Terminator},
+    DVector, Float,
 };
-use nalgebra::DVector;
 use std::ops::ControlFlow;
 
-/// A [`Callback`] which terminates the [`Adam`] algorithm if the Exponential Moving Average (EMA)
+/// A [`Terminator`] which terminates the [`Adam`] algorithm if the Exponential Moving Average (EMA)
 /// loss does not improve in the number of steps defined by the [`AdamConfig`] `patience`
 /// parameter.
 pub struct AdamEMATerminator;
@@ -240,13 +238,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Adam;
-    use crate::{
-        algorithms::gradient::adam::AdamConfig,
-        test_functions::Rosenbrock,
-        traits::{callback::MaxSteps, Algorithm, Bounded},
-        Float,
-    };
+    use super::*;
+    use crate::{core::MaxSteps, test_functions::Rosenbrock};
     use approx::assert_relative_eq;
 
     #[test]

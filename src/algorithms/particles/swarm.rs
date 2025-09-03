@@ -1,15 +1,14 @@
-use std::cmp::Ordering;
-
-use fastrand::Rng;
-use nalgebra::DVector;
-use serde::{Deserialize, Serialize};
-
 use crate::{
-    core::{bound::Boundable, Bounds, Point},
-    traits::CostFunction,
-    utils::{generate_random_vector_in_limits, SampleFloat},
-    Float,
+    core::{
+        utils::{generate_random_vector_in_limits, SampleFloat},
+        Bounds, Point,
+    },
+    traits::{Boundable, CostFunction},
+    DVector, Float,
 };
+use fastrand::Rng;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 /// A swarm of particles used in particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize, Default)]

@@ -28,13 +28,7 @@
 
 <!-- cargo-rdme start -->
 
-`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. The user needs to implement the `CostFunction` trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Users can optionally provide a gradient function to speed up some algorithms, but a default central finite-difference implementation is provided so that all algorithms will work out of the box.
-
-<div class="warning">
-
-This crate is still in an early development phase, and the API is not stable. It can (and likely will) be subject to breaking changes before the 1.0.0 version release (and hopefully not many after that).
-
-</div>
+`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the `CostFunction` trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the `Gradient` trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
 
 # Table of Contents
 - [Key Features](#key-features)
@@ -49,6 +43,7 @@ This crate is still in an early development phase, and the API is not stable. It
 * Algorithms that are simple to use with sensible defaults.
 * Traits which make developing future algorithms simple and consistent.
 * A simple interface that lets new users get started quickly.
+* The first (and possibly only) pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
 
 ## Quick Start
 
@@ -56,14 +51,15 @@ This crate provides some common test functions in the [`test_functions`](https:/
 
 ```rust
 use ganesh::traits::*;
-use ganesh::{core::Engine, Float};
+use ganesh::{Float, DVector};
 use std::convert::Infallible;
 
 pub struct Rosenbrock {
     pub n: usize,
 }
-impl CostFunction<(), Infallible> for Rosenbrock {
-    fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+impl CostFunction for Rosenbrock {
+    type Input = DVector<Float>;
+    fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
             .sum())
@@ -72,18 +68,19 @@ impl CostFunction<(), Infallible> for Rosenbrock {
 ```
 To minimize this function, we could consider using the Nelder-Mead algorithm:
 ```rust
-use ganesh::algorithms::gradient_free::NelderMead;
+use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 use ganesh::traits::*;
-use ganesh::{core::Engine, Float};
+use ganesh::{Float, DVector};
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
-    let problem = Rosenbrock { n: 2 };
-    let nm = NelderMead::default();
-    let mut m = Engine::new(nm);
-    m.configure(|c| c.with_x0([2.0, 2.0]));
-    m.process(&problem)?;
-    println!("{}", m.result);
+    let mut problem = Rosenbrock { n: 2 };
+    let mut nm = NelderMead::default();
+    let result = nm.process(&mut problem,
+                            &mut (),
+                            NelderMeadConfig::default().with_x0([2.0, 2.0]),
+                            NelderMead::default_callbacks())?;
+    println!("{}", result);
     Ok(())
 }
 ```
@@ -116,19 +113,18 @@ This should output
 
 At the moment, `ganesh` contains the following `Algorithm`s:
 - Gradient descent/quasi-Newton:
-  - `LBFGSB`
-  - `ConjugateGradient`
+  - `L-BFGS-B`
   - `Adam` (for stochastic `CostFunction`s)
 - Gradient-free:
-  - `NelderMead`
-  - `SimulatedAnnealing`
+  - `Nelder-Mead`
+  - `Simulated Annealing`
 - Markov Chain Monte Carlo (MCMC):
   - `AIES`
   - `ESS`
 - Swarms:
   - `PSO` (a basic form of particle swarm optimization)
 
-All algorithms are written in pure Rust, including `L-BFGS-B` which is typically a binding to
+All algorithms are written in pure Rust, including `L-BFGS-B`, which is typically a binding to
 `FORTRAN` code in other crates.
 
 ## Examples
@@ -142,7 +138,7 @@ cargo r -r --example <example_name>
 ```
 
 ## Bounds
-All [`Algorithm`]s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](`algorithms::gradient::lbfgsb`). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+All `Algorithm`s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 
 Upper and lower bounds:
 ```math
