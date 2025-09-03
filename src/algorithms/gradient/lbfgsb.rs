@@ -617,25 +617,15 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        algorithms::gradient::lbfgsb::LBFGSBConfig,
+        algorithms::gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
         test_functions::Rosenbrock,
         traits::{Algorithm, Bounded, MaxSteps},
         Float,
     };
     use approx::assert_relative_eq;
-    use std::convert::Infallible;
-
-    use super::LBFGSB;
 
     #[test]
-    #[allow(unused_variables)]
-    fn test_problem_constructor() {
-        #[allow(clippy::box_default)]
-        let solver: LBFGSB<(), Infallible> = LBFGSB::default();
-    }
-
-    #[test]
-    fn test_lbfgsb() -> Result<(), Infallible> {
+    fn test_lbfgsb() {
         let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
         let starting_values = vec![
@@ -647,20 +637,21 @@ mod tests {
             [0.0, 0.0],
         ];
         for starting_value in starting_values {
-            let result = solver.process(
-                &mut problem,
-                &mut (),
-                LBFGSBConfig::default().with_x0(starting_value),
-                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
-            )?;
+            let result = solver
+                .process(
+                    &mut problem,
+                    &mut (),
+                    LBFGSBConfig::default().with_x0(starting_value),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
-        Ok(())
     }
 
     #[test]
-    fn test_bounded_lbfgsb() -> Result<(), Infallible> {
+    fn test_bounded_lbfgsb() {
         let mut solver = LBFGSB::default();
         let mut problem = Rosenbrock { n: 2 };
         let starting_values = vec![
@@ -672,17 +663,18 @@ mod tests {
             [0.0, 0.0],
         ];
         for starting_value in starting_values {
-            let result = solver.process(
-                &mut problem,
-                &mut (),
-                LBFGSBConfig::default()
-                    .with_x0(starting_value)
-                    .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
-            )?;
+            let result = solver
+                .process(
+                    &mut problem,
+                    &mut (),
+                    LBFGSBConfig::default()
+                        .with_x0(starting_value)
+                        .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
-        Ok(())
     }
 }

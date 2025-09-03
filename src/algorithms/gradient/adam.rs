@@ -240,6 +240,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::Adam;
     use crate::{
         algorithms::gradient::adam::AdamConfig,
         test_functions::Rosenbrock,
@@ -247,12 +248,9 @@ mod tests {
         Float,
     };
     use approx::assert_relative_eq;
-    use std::convert::Infallible;
-
-    use super::Adam;
 
     #[test]
-    fn test_adam() -> Result<(), Infallible> {
+    fn test_adam() {
         let mut solver = Adam::default();
         let mut problem = Rosenbrock { n: 2 };
         let starting_values = vec![
@@ -264,20 +262,21 @@ mod tests {
             [0.0, 0.0],
         ];
         for starting_value in starting_values {
-            let result = solver.process(
-                &mut problem,
-                &mut (),
-                AdamConfig::default().with_x0(starting_value),
-                Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-            )?;
+            let result = solver
+                .process(
+                    &mut problem,
+                    &mut (),
+                    AdamConfig::default().with_x0(starting_value),
+                    Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
+                )
+                .unwrap();
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
-        Ok(())
     }
 
     #[test]
-    fn test_bounded_adam() -> Result<(), Infallible> {
+    fn test_bounded_adam() {
         let mut solver = Adam::default();
         let mut problem = Rosenbrock { n: 2 };
         let starting_values = vec![
@@ -289,17 +288,18 @@ mod tests {
             [0.0, 0.0],
         ];
         for starting_value in starting_values {
-            let result = solver.process(
-                &mut problem,
-                &mut (),
-                AdamConfig::default()
-                    .with_x0(starting_value)
-                    .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-            )?;
+            let result = solver
+                .process(
+                    &mut problem,
+                    &mut (),
+                    AdamConfig::default()
+                        .with_x0(starting_value)
+                        .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
+                )
+                .unwrap();
             assert!(result.converged);
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
-        Ok(())
     }
 }
