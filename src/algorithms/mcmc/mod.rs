@@ -158,7 +158,7 @@ pub fn integrated_autocorrelation_times(
 ///
 /// # Usage:
 ///
-/// ```ignore
+/// ```rust
 /// use fastrand::Rng;
 /// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
 /// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
@@ -166,6 +166,7 @@ pub fn integrated_autocorrelation_times(
 /// use nalgebra::DVector;
 /// use ganesh::{utils::SampleFloat, Float};
 /// use ganesh::traits::*;
+/// use approx::assert_relative_eq;
 ///
 /// let mut problem = Rosenbrock { n: 2 };
 /// let mut rng = Rng::new();
@@ -181,9 +182,8 @@ pub fn integrated_autocorrelation_times(
 /// let mut sampler = ESS::new(rng);
 /// let result = sampler.process(&mut problem, &mut (),
 /// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
-/// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco)).unwrap();
-/// println!("{:?}", result.dimension);
-/// // ^ This will print autocorrelation messages for every 20 steps
+/// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco.clone())).unwrap();
+/// assert_relative_eq!(*aco.lock().taus.last().unwrap(), 1.828738045618272, epsilon = Float::EPSILON);
 /// ```
 pub struct AutocorrelationTerminator {
     n_check: usize,
