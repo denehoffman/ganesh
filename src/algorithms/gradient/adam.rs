@@ -2,7 +2,7 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{utils::maybe_warn, Bounds, Callbacks, MinimizationSummary},
     traits::{Algorithm, Boundable, Bounded, Gradient, Terminator},
-    DVector, Float,
+    DMatrix, DVector, Float,
 };
 use std::ops::ControlFlow;
 
@@ -204,9 +204,9 @@ where
         status: &GradientStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
-        let result = MinimizationSummary {
-            x0: self.config.x0.iter().cloned().collect(),
-            x: status.x.iter().cloned().collect(),
+        Ok(MinimizationSummary {
+            x0: self.config.x0.clone(),
+            x: status.x.clone(),
             fx: status.fx,
             bounds: self.config.bounds.clone(),
             converged: status.converged,
@@ -216,11 +216,13 @@ where
             parameter_names: None,
             std: status
                 .err
-                .as_ref()
-                .map(|e| e.iter().cloned().collect())
-                .unwrap_or_else(|| vec![0.0; status.x.len()]),
-        };
-        Ok(result)
+                .clone()
+                .unwrap_or_else(|| DVector::from_element(status.x.len(), 0.0)),
+            covariance: status
+                .cov
+                .clone()
+                .unwrap_or_else(|| DMatrix::identity(status.x.len(), status.x.len())),
+        })
     }
 
     fn reset(&mut self) {

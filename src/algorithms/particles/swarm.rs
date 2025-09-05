@@ -324,32 +324,39 @@ impl SwarmParticle {
         user_data: &mut U,
         bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
-    ) -> Result<(), E> {
+    ) -> Result<usize, E> {
         let new_position = self.position.x.clone() + self.velocity.clone();
+        let mut evals = 0;
         if let Some(bounds) = bounds {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
                     self.position.set_position(new_position);
-                    if self.position.x.is_in(bounds) {
+                    if !self.position.x.is_in(bounds) {
                         self.position.fx = Float::INFINITY;
+                    } else {
+                        self.position.evaluate(func, user_data)?;
+                        evals += 1;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
                     let bounds_excess = new_position.excess_from(bounds);
                     self.position.set_position(new_position - bounds_excess);
                     self.position.evaluate(func, user_data)?;
+                    evals += 1;
                 }
                 SwarmBoundaryMethod::Transform => {
                     self.position.set_position(new_position);
                     self.position
                         .evaluate_bounded(func, Some(bounds), user_data)?;
+                    evals += 1;
                 }
             }
         } else {
             self.position.set_position(new_position);
             self.position.evaluate(func, user_data)?;
+            evals += 1;
         }
-        Ok(())
+        Ok(evals)
     }
     /// Convert the particle's coordinates from the unbounded space to the bounded space using a
     /// nonlinear transformation.

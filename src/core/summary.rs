@@ -1,6 +1,6 @@
 use crate::{
     core::bound::{Bound, Bounds},
-    DVector, Float,
+    DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -15,11 +15,11 @@ pub struct MinimizationSummary {
     /// A message that can be set by minimization algorithms.
     pub message: String,
     /// The initial parameters of the minimization.
-    pub x0: Vec<Float>,
+    pub x0: DVector<Float>,
     /// The current parameters of the minimization.
-    pub x: Vec<Float>,
+    pub x: DVector<Float>,
     /// The standard deviations of the parameters at the end of the fit.
-    pub std: Vec<Float>,
+    pub std: DVector<Float>,
     /// The current value of the minimization problem function at [`MinimizationSummary::x`].
     pub fx: Float,
     /// The number of function evaluations.
@@ -28,6 +28,8 @@ pub struct MinimizationSummary {
     pub gradient_evals: usize,
     /// Flag that says whether or not the fit is in a converged state.
     pub converged: bool,
+    /// Covariance of fit parameters.
+    pub covariance: DMatrix<Float>,
 }
 
 impl MinimizationSummary {
@@ -193,6 +195,7 @@ impl MCMCSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::{dmatrix, dvector};
 
     #[test]
     fn test_minimization_result() {
@@ -200,13 +203,14 @@ mod tests {
             bounds: None,
             parameter_names: None,
             message: "Success".to_string(),
-            x0: vec![1.0, 2.0, 3.0],
-            x: vec![1.0, 2.0, 3.0],
-            std: vec![0.1, 0.2, 0.3],
+            x0: dvector![1.0, 2.0, 3.0],
+            x: dvector![1.0, 2.0, 3.0],
+            std: dvector![0.1, 0.2, 0.3],
             fx: 3.0,
             cost_evals: 10,
             gradient_evals: 5,
             converged: true,
+            covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         };
         println!("{}", result);
     }

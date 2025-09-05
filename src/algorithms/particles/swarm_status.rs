@@ -17,6 +17,9 @@ pub struct SwarmStatus {
     pub message: String,
     /// The swarm
     pub swarm: Swarm,
+    /// The number of function evaluations (approximately, this is left up to individual
+    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
+    pub n_f_evals: usize,
 }
 
 impl SwarmStatus {

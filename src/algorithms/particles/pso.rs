@@ -2,7 +2,7 @@ use crate::{
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{utils::generate_random_vector, Bounds, MinimizationSummary},
     traits::{Algorithm, Bounded, CostFunction, Status},
-    DVector, Float,
+    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use std::cmp::Ordering;
@@ -166,7 +166,7 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(self.config.c2);
-            particle.update_position(
+            status.n_f_evals += particle.update_position(
                 func,
                 user_data,
                 self.config.bounds.as_ref(),
@@ -195,7 +195,7 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(self.config.c2);
-            particle.update_position(
+            status.n_f_evals += particle.update_position(
                 func,
                 user_data,
                 self.config.bounds.as_ref(),
@@ -261,19 +261,19 @@ where
         status: &SwarmStatus,
         _user_data: &U,
     ) -> Result<Self::Summary, E> {
-        let result = MinimizationSummary {
-            x0: vec![0.0; status.gbest.x.len()],
-            x: status.gbest.x.iter().cloned().collect(),
+        Ok(MinimizationSummary {
+            x0: DVector::from_element(status.gbest.x.len(), 0.0),
+            x: status.gbest.x.clone(),
             fx: status.gbest.fx,
             bounds: self.config.bounds.clone(),
             converged: status.converged,
-            cost_evals: 0,
+            cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),
             parameter_names: None,
-            std: vec![0.0; status.gbest.x.len()],
-        };
-        Ok(result)
+            std: DVector::from_element(status.gbest.x.len(), 0.0),
+            covariance: DMatrix::identity(status.gbest.x.len(), status.gbest.x.len()),
+        })
     }
 }
 
