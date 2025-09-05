@@ -177,6 +177,12 @@ impl Bound {
     }
 }
 
+impl From<&Bound> for Bound {
+    fn from(value: &Bound) -> Self {
+        value.clone()
+    }
+}
+
 /// A struct that contains a list of [`Bound`]s.
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Bounds(Vec<Bound>);
