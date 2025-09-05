@@ -14,14 +14,14 @@ use std::ops::ControlFlow;
 /// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBFTerminator;
-impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBFTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBFTerminator
 where
     P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
-        algorithm: &mut LBFGSB<U, E>,
+        algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
         _user_data: &U,
@@ -43,14 +43,14 @@ where
 /// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
 pub struct LBFGSBGTerminator;
-impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBGTerminator
 where
     P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
-        algorithm: &mut LBFGSB<U, E>,
+        algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
         _user_data: &U,
@@ -66,14 +66,14 @@ where
 
 /// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
 pub struct LBFGSBInfNormGTerminator;
-impl<P, U, E> Terminator<LBFGSB<U, E>, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
 where
     P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
-        algorithm: &mut LBFGSB<U, E>,
+        algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
         _user_data: &U,
@@ -99,18 +99,19 @@ pub enum LBFGSBErrorMode {
 
 /// The internal configuration struct for the [`LBFGSB`] algorithm.
 #[derive(Clone)]
-pub struct LBFGSBConfig<U, E> {
+pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
     eps_f_abs: Float,
     eps_g_abs: Float,
     tol_g_abs: Float,
-    line_search: Box<dyn LineSearch<GradientStatus, U, E>>,
+    /// The line search algorithm used by the [`LBFGSB`] algorithm.
+    pub line_search: StrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
 }
-impl<U, E> Default for LBFGSBConfig<U, E> {
+impl Default for LBFGSBConfig {
     fn default() -> Self {
         Self {
             x0: DVector::zeros(0),
@@ -118,19 +119,19 @@ impl<U, E> Default for LBFGSBConfig<U, E> {
             eps_f_abs: Float::sqrt(Float::EPSILON),
             eps_g_abs: Float::cbrt(Float::EPSILON),
             tol_g_abs: Float::cbrt(Float::EPSILON),
-            line_search: Box::<StrongWolfeLineSearch>::default(),
+            line_search: StrongWolfeLineSearch::default(),
             m: 10,
             max_step: 1e8,
             error_mode: Default::default(),
         }
     }
 }
-impl<U, E> Bounded for LBFGSBConfig<U, E> {
+impl Bounded for LBFGSBConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
 }
-impl<U, E> LBFGSBConfig<U, E> {
+impl LBFGSBConfig {
     /// Set the starting position of the algorithm.
     pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
         let x0 = x0.into_iter().collect::<Vec<Float>>();
@@ -168,17 +169,6 @@ impl<U, E> LBFGSBConfig<U, E> {
         self.tol_g_abs = tol;
         self
     }
-    /// Set the line search local method for local optimization of step size. Defaults to a line
-    /// search which satisfies the strong Wolfe conditions, [`StrongWolfeLineSearch`]. Note that in
-    /// general, this should only use [`LineSearch`] algorithms which satisfy the Wolfe conditions.
-    /// Using the Armijo condition alone will lead to slower convergence.
-    pub fn with_line_search<LS: LineSearch<GradientStatus, U, E> + 'static>(
-        mut self,
-        line_search: LS,
-    ) -> Self {
-        self.line_search = Box::new(line_search);
-        self
-    }
     /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
     pub const fn with_memory_limit(mut self, limit: usize) -> Self {
@@ -202,7 +192,7 @@ impl<U, E> LBFGSBConfig<U, E> {
 /// [^1]: [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
-pub struct LBFGSB<U, E> {
+pub struct LBFGSB {
     x: DVector<Float>,
     g: DVector<Float>,
     l: DVector<Float>,
@@ -214,10 +204,10 @@ pub struct LBFGSB<U, E> {
     f_previous: Float,
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
-    config: LBFGSBConfig<U, E>,
+    config: LBFGSBConfig,
 }
 
-impl<U, E> Default for LBFGSB<U, E> {
+impl Default for LBFGSB {
     fn default() -> Self {
         Self {
             x: Default::default(),
@@ -236,7 +226,7 @@ impl<U, E> Default for LBFGSB<U, E> {
     }
 }
 
-impl<U, E> LBFGSB<U, E> {
+impl LBFGSB {
     /// For Equation 6.1
     fn get_inf_norm_projected_gradient(&self) -> Float {
         let x_minus_g = &self.x - &self.g;
@@ -443,12 +433,12 @@ impl<U, E> LBFGSB<U, E> {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB<U, E>
+impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB
 where
     P: Gradient<U, E>,
 {
     type Summary = MinimizationSummary;
-    type Config = LBFGSBConfig<U, E>;
+    type Config = LBFGSBConfig;
     fn initialize(
         &mut self,
         config: Self::Config,
