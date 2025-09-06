@@ -50,6 +50,12 @@ impl From<(Option<Float>, Option<Float>)> for Bound {
         }
     }
 }
+impl From<&Self> for Bound {
+    fn from(value: &Self) -> Self {
+        *value
+    }
+}
+
 impl Bound {
     /// Get a value in the uniform distribution between `lower` and `upper`.
     #[cfg(not(feature = "f32"))]
@@ -174,12 +180,6 @@ impl Bound {
             Self::LowerAndUpperBound(lb, ub) => Float::asin(2.0 * (val - lb) / (ub - lb) - 1.0),
             Self::NoBound => val,
         }
-    }
-}
-
-impl From<&Bound> for Bound {
-    fn from(value: &Bound) -> Self {
-        value.clone()
     }
 }
 
