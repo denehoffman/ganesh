@@ -46,7 +46,7 @@ mod tests {
     fn test_rosenbrock_evaluate_at_minimum() {
         let f = Rosenbrock { n: 2 };
         let x = DVector::from_vec(vec![1.0, 1.0]);
-        let val = f.evaluate(&x, &mut ()).unwrap();
+        let val = f.evaluate(&x, &()).unwrap();
         assert_eq!(val, 0.0); // global minimum
     }
 
@@ -54,7 +54,7 @@ mod tests {
     fn test_rosenbrock_evaluate_known_point() {
         let f = Rosenbrock { n: 2 };
         let x = DVector::from_vec(vec![0.0, 0.0]);
-        let val = f.evaluate(&x, &mut ()).unwrap();
+        let val = f.evaluate(&x, &()).unwrap();
         // f(0,0) = 100*(0-0)^2 + (1-0)^2 = 1
         assert_eq!(val, 1.0);
     }
@@ -63,7 +63,7 @@ mod tests {
     fn test_rosenbrock_evaluate_three_dimensions() {
         let f = Rosenbrock { n: 3 };
         let x = DVector::from_vec(vec![1.0, 1.0, 1.0]);
-        let val = f.evaluate(&x, &mut ()).unwrap();
+        let val = f.evaluate(&x, &()).unwrap();
         // two terms, each zero at (1,1), so total = 0
         assert_eq!(val, 0.0);
     }
@@ -76,7 +76,7 @@ mod tests {
         // note there is an additional minus sign to flip the sign
         // of the Rosenbrock function to provide a maximum rather than
         // a minimum
-        let val = f.log_density(&x, &mut ()).unwrap();
+        let val = f.log_density(&x, &()).unwrap();
         assert!(val.is_infinite() && val.is_sign_positive());
     }
 
@@ -84,7 +84,7 @@ mod tests {
     fn test_rosenbrock_log_density_known_point() {
         let f = Rosenbrock { n: 2 };
         let x = DVector::from_vec(vec![0.0, 0.0]);
-        let val = f.log_density(&x, &mut ()).unwrap();
+        let val = f.log_density(&x, &()).unwrap();
         // f(0,0) = 1, so log_density = -ln(1) = 0
         assert_eq!(val, 0.0);
     }
@@ -94,8 +94,8 @@ mod tests {
         let f = Rosenbrock { n: 2 };
         let x1 = DVector::from_vec(vec![0.0, 0.0]); // cost = 1, log_density = 0
         let x2 = DVector::from_vec(vec![2.0, 2.0]); // higher cost, lower log_density
-        let ld1 = f.log_density(&x1, &mut ()).unwrap();
-        let ld2 = f.log_density(&x2, &mut ()).unwrap();
+        let ld1 = f.log_density(&x1, &()).unwrap();
+        let ld2 = f.log_density(&x2, &()).unwrap();
         assert!(ld2 < ld1);
     }
 }

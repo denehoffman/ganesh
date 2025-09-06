@@ -33,12 +33,11 @@ fn bench_derivatives(c: &mut Criterion) {
     for &n in &[16usize, 64, 256] {
         group.bench_with_input(BenchmarkId::new("gradient", n), &n, |b, &n| {
             let f = Rosenbrock;
-            let mut ud = ();
             let mut rng = fastrand::Rng::with_seed(0);
             b.iter_batched(
                 || random_x_with(&mut rng, n),
                 |x| {
-                    let g = f.gradient(black_box(&x), black_box(&mut ud)).unwrap();
+                    let g = f.gradient(&x, &()).unwrap();
                     black_box(g);
                 },
                 BatchSize::SmallInput,
@@ -47,12 +46,11 @@ fn bench_derivatives(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("hessian", n), &n, |b, &n| {
             let f = Rosenbrock;
-            let mut ud = ();
             let mut rng = fastrand::Rng::with_seed(0);
             b.iter_batched(
                 || random_x_with(&mut rng, n),
                 |x| {
-                    let h = f.hessian(black_box(&x), black_box(&mut ud)).unwrap();
+                    let h = f.hessian(&x, &()).unwrap();
                     black_box(h);
                 },
                 BatchSize::SmallInput,

@@ -272,12 +272,12 @@ mod tests {
         let mut status = EnsembleStatus::default();
 
         AIESMove::Stretch { a: 2.0 }
-            .step(&problem, &mut (), &mut status, &mut rng)
+            .step(&problem, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Stretch Move"));
 
         AIESMove::Walk
-            .step(&problem, &mut (), &mut status, &mut rng)
+            .step(&problem, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Walk Move"));
     }
@@ -292,7 +292,7 @@ mod tests {
         let mut problem = Rosenbrock { n: 2 };
         let mut status = EnsembleStatus::default();
 
-        aies.initialize(config, &mut problem, &mut status, &mut ())
+        aies.initialize(config, &mut problem, &mut status, &())
             .unwrap();
         assert_eq!(status.walkers.len(), walkers.len());
 
@@ -313,9 +313,9 @@ mod tests {
             .with_moves(moves);
 
         let mut status = EnsembleStatus::default();
-        aies.initialize(config, &mut problem, &mut status, &mut ())
+        aies.initialize(config, &mut problem, &mut status, &())
             .unwrap();
 
-        assert!(aies.step(0, &mut problem, &mut status, &mut ()).is_ok());
+        assert!(aies.step(0, &mut problem, &mut status, &()).is_ok());
     }
 }

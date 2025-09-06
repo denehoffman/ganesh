@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run a maximum of 8000 steps of the MCMC algorithm
     let result = sampler.process(
         &mut problem,
-        &mut (),
+        &(),
         ESSConfig::default().with_walkers(x0.clone()).with_moves([
             ESSMove::gaussian(0.1),
             ESSMove::global(0.7, None, Some(0.5), Some(4)),

@@ -953,7 +953,7 @@ mod tests {
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg.clone(), &mut f, &mut status, &mut ())
+        ess.initialize(cfg.clone(), &mut f, &mut status, &())
             .unwrap();
         assert_eq!(status.walkers.len(), 3);
 
@@ -972,9 +972,9 @@ mod tests {
             .with_moves(vec![ESSMove::differential(1.0)]);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
-        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
+        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
 
-        let result = ess.step(0, &mut f, &mut status, &mut ());
+        let result = ess.step(0, &mut f, &mut status, &());
         assert!(result.is_ok());
         assert!(status.message().contains("Differential"));
     }
@@ -989,8 +989,8 @@ mod tests {
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &mut ());
+        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &());
         assert!(result.is_ok());
         assert!(status.message().contains("Gaussian"));
     }
@@ -1005,8 +1005,8 @@ mod tests {
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg, &mut f, &mut status, &mut ()).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &mut ());
+        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &());
         assert!(result.is_ok());
         assert!(status.message().contains("Global"));
     }

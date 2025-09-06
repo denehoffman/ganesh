@@ -260,7 +260,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     AdamConfig::default().with_x0(starting_value),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
@@ -286,7 +286,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     AdamConfig::default()
                         .with_x0(starting_value)
                         .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),

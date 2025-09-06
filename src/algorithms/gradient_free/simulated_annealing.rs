@@ -302,7 +302,7 @@ mod tests {
         let result = solver
             .process(
                 &mut problem,
-                &mut (),
+                &(),
                 SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3)
                     .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
                 SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),

@@ -623,7 +623,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     LBFGSBConfig::default().with_x0(starting_value),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
@@ -649,7 +649,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     LBFGSBConfig::default()
                         .with_x0(starting_value)
                         .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),

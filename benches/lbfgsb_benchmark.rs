@@ -18,7 +18,7 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
                     (problem, solver, base_cfg.clone(), cbs)
                 },
                 |(mut problem, mut solver, cfg, cbs)| {
-                    let result = solver.process(&mut problem, &mut (), cfg, cbs).unwrap();
+                    let result = solver.process(&mut problem, &(), cfg, cbs).unwrap();
                     black_box(result);
                 },
                 BatchSize::SmallInput,

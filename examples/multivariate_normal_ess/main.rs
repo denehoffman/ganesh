@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             x: &DVector<Float>,
             args: &DMatrix<Float>,
         ) -> Result<Float, Infallible> {
-            Ok(-0.5 * x.dot(&(&*args * x)))
+            Ok(-0.5 * x.dot(&(args * x)))
         }
     }
     let mut problem = Problem;
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate a random (inverse) covariance matrix (scaling on off-diagonals makes for
     // nicer-looking results)
-    let mut cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
+    let cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
     println!("Σ⁻¹ = \n{}", cov_inv);
 
     let aco = AutocorrelationTerminator::default()
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run a maximum of 1000 steps of the MCMC algorithm
     let result = sampler.process(
         &mut problem,
-        &mut cov_inv,
+        &cov_inv,
         ESSConfig::default().with_walkers(x0.clone()).with_moves([
             ESSMove::gaussian(0.1),
             ESSMove::global(0.7, None, Some(0.5), Some(4)),

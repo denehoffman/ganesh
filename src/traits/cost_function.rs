@@ -134,14 +134,14 @@ mod tests {
     #[test]
     fn test_cost_function() {
         let x: DVector<Float> = DVector::from_vec(vec![1.0, 2.0]);
-        let y = TestFunction.evaluate(&x, &mut ()).unwrap();
+        let y = TestFunction.evaluate(&x, &()).unwrap();
         assert_eq!(y, 6.0);
     }
 
     #[test]
     fn test_cost_function_gradient() {
         let x: DVector<Float> = DVector::from_vec(vec![1.0, 2.0]);
-        let dy = TestFunction.gradient(&x, &mut ()).unwrap();
+        let dy = TestFunction.gradient(&x, &()).unwrap();
         assert_relative_eq!(dy[0], 2.0, epsilon = Float::EPSILON.sqrt());
         assert_relative_eq!(dy[1], 4.0, epsilon = Float::EPSILON.sqrt());
     }
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn test_cost_function_hessian() {
         let x: DVector<Float> = DVector::from_vec(vec![1.0, 2.0]);
-        let hessian = TestFunction.hessian(&x, &mut ()).unwrap();
+        let hessian = TestFunction.hessian(&x, &()).unwrap();
         assert_relative_eq!(hessian[(0, 0)], 2.0, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(hessian[(1, 1)], 2.0, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(hessian[(0, 1)], 0.0, epsilon = Float::EPSILON.cbrt());
@@ -160,7 +160,7 @@ mod tests {
     fn test_cost_function_covariance_and_std() {
         use crate::core::utils::hessian_to_covariance;
         let x: DVector<Float> = DVector::from_vec(vec![1.0, 2.0]);
-        let hessian = TestFunction.hessian(&x, &mut ()).unwrap();
+        let hessian = TestFunction.hessian(&x, &()).unwrap();
         let cov = hessian_to_covariance(&hessian).unwrap();
         assert_relative_eq!(cov[(0, 0)], 0.5, epsilon = Float::EPSILON.cbrt());
         assert_relative_eq!(cov[(1, 1)], 0.5, epsilon = Float::EPSILON.cbrt());

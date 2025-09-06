@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pso = PSO::new(2, rng);
     let result = pso.process(
         &mut problem,
-        &mut (),
+        &(),
         PSOConfig::default()
             .with_c1(0.1)
             .with_c2(0.1)

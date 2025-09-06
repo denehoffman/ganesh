@@ -176,9 +176,9 @@ mod tests {
         let f = Rosenbrock { n: 2 };
         let mut p: Point<DVector<Float>> = Point::from(vec![1.0, 1.0]);
         assert!(p.fx.is_nan());
-        p.evaluate(&f, &mut ()).unwrap();
+        p.evaluate(&f, &()).unwrap();
         assert_eq!(p.fx, 0.0);
-        p.evaluate(&f, &mut ()).unwrap();
+        p.evaluate(&f, &()).unwrap();
         assert_eq!(p.fx, 0.0);
     }
 
@@ -187,9 +187,9 @@ mod tests {
         let f = Rosenbrock { n: 2 };
         let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
         assert!(p.fx.is_nan());
-        p.log_density(&f, &mut ()).unwrap();
+        p.log_density(&f, &()).unwrap();
         assert_eq!(p.fx, 0.0);
-        p.log_density(&f, &mut ()).unwrap();
+        p.log_density(&f, &()).unwrap();
         assert_eq!(p.fx, 0.0);
     }
 
@@ -227,7 +227,7 @@ mod tests {
         ]
         .into();
         let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
-        p.evaluate_bounded(&f, Some(&bounds), &mut ()).unwrap();
+        p.evaluate_bounded(&f, Some(&bounds), &()).unwrap();
         assert_eq!(p.fx, 1.0);
 
         let constrained = p.constrain_to(Some(&bounds));

@@ -124,7 +124,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     fn process_default(
         &mut self,
         problem: &mut P,
-        user_data: &mut U,
+        user_data: &U,
         config: Self::Config,
     ) -> Result<Self::Summary, E>
     where

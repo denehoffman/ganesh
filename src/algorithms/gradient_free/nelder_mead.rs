@@ -817,7 +817,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     NelderMeadConfig::default().with_x0(starting_value),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
@@ -843,7 +843,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     NelderMeadConfig::default()
                         .with_x0(starting_value)
                         .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
@@ -871,7 +871,7 @@ mod tests {
             let result = solver
                 .process(
                     &mut problem,
-                    &mut (),
+                    &(),
                     NelderMeadConfig::default()
                         .with_x0(starting_value)
                         .with_adaptive(2),
@@ -950,9 +950,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = AMOEBA");
     }
@@ -966,9 +964,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Absolute);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = ABSOLUTE");
     }
@@ -982,9 +978,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::StdDev);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = STDDEV");
     }
@@ -998,9 +992,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Diameter);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = DIAMETER");
     }
@@ -1014,9 +1006,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Higham);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = HIGHAM");
     }
@@ -1030,9 +1020,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Rowan);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = ROWAN");
     }
@@ -1046,9 +1034,7 @@ mod tests {
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Singer);
 
-        let result = solver
-            .process(&mut problem, &mut (), cfg, callbacks)
-            .unwrap();
+        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = SINGER");
     }
@@ -1085,10 +1071,9 @@ mod tests {
     fn orthogonal_simplex_panics_in_1d() {
         let method = SimplexConstructionMethod::Orthogonal { simplex_size: 1.0 };
         let problem = Rosenbrock { n: 1 };
-        let mut user = ();
         // x0 has dimension 1 → should panic inside generate
         let _ = method
-            .generate::<_, Infallible>(&problem, &[0.0], None, &mut user)
+            .generate::<_, Infallible>(&problem, &[0.0], None, &())
             .unwrap();
     }
 
@@ -1098,9 +1083,8 @@ mod tests {
             simplex: vec![vec![2.0, 2.0], vec![1.0, 1.0], vec![0.0, 0.0]],
         };
         let problem = Rosenbrock { n: 2 };
-        let mut user = ();
         let simplex = method
-            .generate::<_, Infallible>(&problem, &[99.0, 99.0], None, &mut user)
+            .generate::<_, Infallible>(&problem, &[99.0, 99.0], None, &())
             .unwrap();
 
         // Global min at (1,1) for Rosenbrock
@@ -1127,7 +1111,7 @@ mod tests {
         let result = solver
             .process(
                 &mut problem,
-                &mut (),
+                &(),
                 NelderMeadConfig::default()
                     .with_expansion_method(SimplexExpansionMethod::GreedyExpansion)
                     .with_construction_method(SimplexConstructionMethod::Custom {
@@ -1202,7 +1186,7 @@ mod tests {
         let result = solver
             .process(
                 &mut problem,
-                &mut (),
+                &(),
                 NelderMeadConfig::default()
                     .with_x0([-3.0, 3.0])
                     .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
