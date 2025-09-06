@@ -57,6 +57,16 @@ pub struct SimulatedAnnealingConfig {
     /// The minimum temperature for the simulated annealing algorithm.
     pub min_temperature: Float,
 }
+impl Default for SimulatedAnnealingConfig {
+    fn default() -> Self {
+        Self {
+            bounds: Default::default(),
+            initial_temperature: 1.0,
+            cooling_rate: 0.999,
+            min_temperature: 1e-3,
+        }
+    }
+}
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
     pub const fn new(
