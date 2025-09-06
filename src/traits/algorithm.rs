@@ -12,7 +12,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
     /// The configuration struct for the algorithm.
-    type Config: Default;
+    type Config;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -121,17 +121,16 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// # Errors
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
-    fn process_default<C>(&mut self, problem: &mut P, user_data: &mut U) -> Result<Self::Summary, E>
+    fn process_default(
+        &mut self,
+        problem: &mut P,
+        user_data: &mut U,
+        config: Self::Config,
+    ) -> Result<Self::Summary, E>
     where
-        C: Into<Callbacks<Self, P, S, U, E>>,
         Self: Sized,
     {
-        self.process(
-            problem,
-            user_data,
-            Default::default(),
-            Self::default_callbacks(),
-        )
+        self.process(problem, user_data, config, Self::default_callbacks())
     }
 
     /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].
