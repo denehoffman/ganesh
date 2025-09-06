@@ -486,7 +486,7 @@ where
 
     fn step(
         &mut self,
-        _i_step: usize,
+        _current_step: usize,
         problem: &mut P,
         status: &mut GradientStatus,
         user_data: &mut U,
