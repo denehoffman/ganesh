@@ -12,7 +12,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
     /// The configuration struct for the algorithm.
-    type Config;
+    type Config: Default;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -107,6 +107,31 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         }
         self.postprocessing(problem, &mut status, user_data)?;
         self.summarize(current_step, problem, &status, user_data)
+    }
+
+    /// Process the given problem using this [`Algorithm`].
+    ///
+    /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
+    /// terminating if any of the [`Algorithm::default_callbacks`] return
+    /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
+    /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
+    /// summary of the [`Algorithm`]'s state. This method is similar to [`Algorithm::process`],
+    /// except it uses the default callbacks and configuration for the algorithm.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
+    fn process_default<C>(&mut self, problem: &mut P, user_data: &mut U) -> Result<Self::Summary, E>
+    where
+        C: Into<Callbacks<Self, P, S, U, E>>,
+        Self: Sized,
+    {
+        self.process(
+            problem,
+            user_data,
+            Default::default(),
+            Self::default_callbacks(),
+        )
     }
 
     /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].
