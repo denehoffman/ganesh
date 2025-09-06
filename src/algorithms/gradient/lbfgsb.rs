@@ -24,7 +24,7 @@ where
         algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.f).abs() < algorithm.config.eps_f_abs {
             status.set_converged();
@@ -53,7 +53,7 @@ where
         algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if algorithm.g.dot(&algorithm.g).sqrt() < algorithm.config.eps_g_abs {
             status.set_converged();
@@ -76,7 +76,7 @@ where
         algorithm: &mut LBFGSB,
         _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if algorithm.get_inf_norm_projected_gradient() < algorithm.config.tol_g_abs {
             status.set_converged();
@@ -444,7 +444,7 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         self.f_previous = Float::INFINITY;
@@ -474,9 +474,9 @@ where
                 x0[i]
             }
         });
-        self.g = problem.gradient(&self.x, user_data)?;
+        self.g = problem.gradient(&self.x, args)?;
         status.inc_n_g_evals();
-        self.f = problem.evaluate(&self.x, user_data)?;
+        self.f = problem.evaluate(&self.x, args)?;
         status.with_position((self.x.clone(), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
@@ -489,7 +489,7 @@ where
         _current_step: usize,
         problem: &mut P,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d);
@@ -499,7 +499,7 @@ where
             Some(max_step),
             problem,
             None,
-            user_data,
+            args,
             status,
         )?;
         if valid {
@@ -537,11 +537,11 @@ where
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         match self.config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = problem.hessian(&self.x, user_data)?;
+                let hessian = problem.hessian(&self.x, args)?;
                 status.with_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}
@@ -554,7 +554,7 @@ where
         _current_step: usize,
         _problem: &P,
         status: &GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
             x0: self.config.x0.clone(),

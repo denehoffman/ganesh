@@ -24,7 +24,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         config: Self::Config,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -37,7 +37,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         current_step: usize,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E>;
 
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
@@ -47,7 +47,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     #[allow(unused_variables)]
-    fn postprocessing(&mut self, problem: &P, status: &mut S, user_data: &mut U) -> Result<(), E> {
+    fn postprocessing(&mut self, problem: &P, status: &mut S, args: &U) -> Result<(), E> {
         Ok(())
     }
 
@@ -62,7 +62,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         current_step: usize,
         problem: &P,
         status: &S,
-        user_data: &U,
+        args: &U,
     ) -> Result<Self::Summary, E>;
 
     /// Reset the algorithm to its initial state.
@@ -82,7 +82,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     fn process<C>(
         &mut self,
         problem: &mut P,
-        user_data: &mut U,
+        args: &U,
         config: Self::Config,
         callbacks: C,
     ) -> Result<Self::Summary, E>
@@ -92,21 +92,21 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     {
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
-        self.initialize(config, problem, &mut status, user_data)?;
+        self.initialize(config, problem, &mut status, args)?;
         let mut current_step = 0;
         loop {
-            self.step(current_step, problem, &mut status, user_data)?;
+            self.step(current_step, problem, &mut status, args)?;
 
             if cbs
-                .callback(current_step, self, problem, &mut status, user_data)
+                .callback(current_step, self, problem, &mut status, args)
                 .is_break()
             {
                 break;
             }
             current_step += 1;
         }
-        self.postprocessing(problem, &mut status, user_data)?;
-        self.summarize(current_step, problem, &status, user_data)
+        self.postprocessing(problem, &mut status, args)?;
+        self.summarize(current_step, problem, &status, args)
     }
 
     /// Process the given problem using this [`Algorithm`].

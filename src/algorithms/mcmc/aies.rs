@@ -38,7 +38,7 @@ impl AIESMove {
     fn step<P, U, E>(
         &self,
         problem: &P,
-        user_data: &mut U,
+        args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
@@ -81,7 +81,7 @@ impl AIESMove {
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal =
                         Point::from(&x_l.read().x - (&x_k.read().x - &x_l.read().x).scale(z));
-                    proposal.log_density(problem, user_data)?;
+                    proposal.log_density(problem, args)?;
                     // The acceptance probability should then be (in an n-dimensional problem),
                     //
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
@@ -113,7 +113,7 @@ impl AIESMove {
                     let mut proposal = Point::from(&x_k.read().x + w);
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
-                    proposal.log_density(problem, user_data)?;
+                    proposal.log_density(problem, args)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
                     let r = proposal.fx_checked() - x_k.read().fx_checked();
                     (proposal, r)
@@ -193,11 +193,11 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut EnsembleStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         status.walkers = self.config.walkers.clone();
-        status.log_density_latest(problem, user_data)
+        status.log_density_latest(problem, args)
     }
 
     fn step(
@@ -205,7 +205,7 @@ where
         _current_step: usize,
         problem: &mut P,
         status: &mut EnsembleStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
@@ -219,7 +219,7 @@ where
             )
             .unwrap_or(0);
         let step_type = self.config.moves[step_type_index].0;
-        step_type.step(problem, user_data, status, &mut self.rng)
+        step_type.step(problem, args, status, &mut self.rng)
     }
 
     fn summarize(
@@ -227,7 +227,7 @@ where
         _current_step: usize,
         _func: &P,
         status: &EnsembleStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
             bounds: self.config.bounds.clone(),

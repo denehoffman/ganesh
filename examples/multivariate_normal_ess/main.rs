@@ -10,16 +10,16 @@ use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multinormal distribution)
     struct Problem;
-    // Implement Function (user_data is the inverse of the covariance matrix)
+    // Implement Function (args is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
     impl LogDensity<DMatrix<Float>> for Problem {
         type Input = DVector<Float>;
         fn log_density(
             &self,
             x: &DVector<Float>,
-            user_data: &mut DMatrix<Float>,
+            args: &DMatrix<Float>,
         ) -> Result<Float, Infallible> {
-            Ok(-0.5 * x.dot(&(&*user_data * x)))
+            Ok(-0.5 * x.dot(&(&*args * x)))
         }
     }
     let mut problem = Problem;

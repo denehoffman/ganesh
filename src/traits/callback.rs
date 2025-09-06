@@ -12,7 +12,7 @@ pub trait Callback<A, P, S, U = (), E = Infallible> {
         algorithm: &mut A,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> ControlFlow<()>;
 }
 
@@ -26,10 +26,10 @@ where
         algorithm: &mut A,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> ControlFlow<()> {
         self.lock()
-            .callback(current_step, algorithm, problem, status, user_data)
+            .callback(current_step, algorithm, problem, status, args)
     }
 }
 
@@ -44,7 +44,7 @@ pub trait Terminator<A, P, S, U, E> {
         algorithm: &mut A,
         problem: &P,
         status: &mut S,
-        user_data: &U,
+        args: &U,
     ) -> ControlFlow<()>;
 }
 
@@ -58,10 +58,10 @@ where
         algorithm: &mut A,
         problem: &P,
         status: &mut S,
-        user_data: &U,
+        args: &U,
     ) -> ControlFlow<()> {
         self.lock()
-            .check_for_termination(current_step, algorithm, problem, status, user_data)
+            .check_for_termination(current_step, algorithm, problem, status, args)
     }
 }
 
@@ -76,7 +76,7 @@ pub trait Observer<A, P, S, U, E> {
         algorithm: &A,
         problem: &P,
         status: &S,
-        user_data: &U,
+        args: &U,
     );
 }
 
@@ -90,9 +90,9 @@ where
         algorithm: &A,
         problem: &P,
         status: &S,
-        user_data: &U,
+        args: &U,
     ) {
         self.lock()
-            .observe(current_step, algorithm, problem, status, user_data)
+            .observe(current_step, algorithm, problem, status, args)
     }
 }

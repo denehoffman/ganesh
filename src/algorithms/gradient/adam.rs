@@ -20,7 +20,7 @@ where
         algorithm: &mut Adam,
         _problem: &P,
         status: &mut GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         let prev_ema_loss = algorithm.ema_loss;
         algorithm.ema_loss = algorithm
@@ -155,7 +155,7 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         if self.config.bounds.is_some() {
@@ -164,7 +164,7 @@ where
         let bounds = self.config.bounds.as_ref();
         self.x = self.config.x0.unconstrain_from(bounds);
         self.g = DVector::zeros(self.x.len());
-        self.f = problem.evaluate(&self.x.constrain_to(bounds), user_data)?;
+        self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
         status.with_position((self.x.constrain_to(bounds), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
@@ -177,10 +177,10 @@ where
         i_step: usize,
         problem: &mut P,
         status: &mut GradientStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let bounds = self.config.bounds.as_ref();
-        self.g = problem.gradient(&self.x.constrain_to(bounds), user_data)?;
+        self.g = problem.gradient(&self.x.constrain_to(bounds), args)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(self.config.beta_1) + self.g.scale(1.0 - self.config.beta_1);
         self.v = self.v.scale(self.config.beta_2)
@@ -191,7 +191,7 @@ where
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + self.config.epsilon));
-        self.f = problem.evaluate(&self.x.constrain_to(bounds), user_data)?;
+        self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
         status.inc_n_f_evals();
         status.with_position((self.x.constrain_to(bounds), self.f));
         Ok(())
@@ -202,7 +202,7 @@ where
         _current_step: usize,
         _problem: &P,
         status: &GradientStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
             x0: self.config.x0.clone(),

@@ -58,7 +58,7 @@ impl Swarm {
         dimension: usize,
         bounds: Option<&Bounds>,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.bounds = bounds.cloned();
         let mut particle_positions =
@@ -85,7 +85,7 @@ impl Swarm {
                     position,
                     velocity,
                     func,
-                    user_data,
+                    args,
                     self.bounds.as_ref(),
                     self.boundary_method,
                 )
@@ -292,15 +292,15 @@ impl SwarmParticle {
         position: Point<DVector<Float>>,
         velocity: DVector<Float>,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
         bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
     ) -> Result<Self, E> {
         let mut position = position;
         if matches!(boundary_method, SwarmBoundaryMethod::Transform) {
-            position.evaluate_bounded(func, bounds, user_data)?;
+            position.evaluate_bounded(func, bounds, args)?;
         } else {
-            position.evaluate(func, user_data)?;
+            position.evaluate(func, args)?;
         }
         Ok(Self {
             position: position.clone(),
@@ -321,7 +321,7 @@ impl SwarmParticle {
     pub fn update_position<U, E>(
         &mut self,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
         bounds: Option<&Bounds>,
         boundary_method: SwarmBoundaryMethod,
     ) -> Result<usize, E> {
@@ -334,26 +334,26 @@ impl SwarmParticle {
                     if !self.position.x.is_in(bounds) {
                         self.position.fx = Float::INFINITY;
                     } else {
-                        self.position.evaluate(func, user_data)?;
+                        self.position.evaluate(func, args)?;
                         evals += 1;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
                     let bounds_excess = new_position.excess_from(bounds);
                     self.position.set_position(new_position - bounds_excess);
-                    self.position.evaluate(func, user_data)?;
+                    self.position.evaluate(func, args)?;
                     evals += 1;
                 }
                 SwarmBoundaryMethod::Transform => {
                     self.position.set_position(new_position);
                     self.position
-                        .evaluate_bounded(func, Some(bounds), user_data)?;
+                        .evaluate_bounded(func, Some(bounds), args)?;
                     evals += 1;
                 }
             }
         } else {
             self.position.set_position(new_position);
-            self.position.evaluate(func, user_data)?;
+            self.position.evaluate(func, args)?;
             evals += 1;
         }
         Ok(evals)

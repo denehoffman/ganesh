@@ -33,14 +33,14 @@ impl SimplexConstructionMethod {
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         x0: &[Float],
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<Simplex, E> {
         match self {
             Self::Orthogonal { simplex_size } => {
                 let mut points = Vec::default();
                 let mut point_0 =
                     Point::from(DVector::from_column_slice(x0).unconstrain_from(bounds));
-                point_0.evaluate_bounded(func, bounds, user_data)?;
+                point_0.evaluate_bounded(func, bounds, args)?;
                 points.push(point_0.clone());
                 let dim = point_0.x.len();
                 assert!(
@@ -51,7 +51,7 @@ impl SimplexConstructionMethod {
                     let mut point_i = point_0.clone();
                     point_i.x[i] += *simplex_size;
                     point_i.fx = Float::NAN;
-                    point_i.evaluate_bounded(func, bounds, user_data)?;
+                    point_i.evaluate_bounded(func, bounds, args)?;
                     points.push(point_i);
                 }
                 Ok(Simplex::new(&points))
@@ -66,7 +66,7 @@ impl SimplexConstructionMethod {
                         .map(|x| {
                             let mut point_i =
                                 Point::from(DVector::from_column_slice(x).unconstrain_from(bounds));
-                            point_i.evaluate_bounded(func, bounds, user_data)?;
+                            point_i.evaluate_bounded(func, bounds, args)?;
                             Ok(point_i)
                         })
                         .collect::<Result<Vec<Point<DVector<Float>>>, E>>()?,
@@ -220,7 +220,7 @@ where
         algorithm: &mut NelderMead,
         _problem: &P,
         status: &mut GradientFreeStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         let simplex = &algorithm.config.simplex;
         match self {
@@ -314,7 +314,7 @@ where
         algorithm: &mut NelderMead,
         _problem: &P,
         status: &mut GradientFreeStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         let simplex = &algorithm.config.simplex;
         match self {
@@ -595,14 +595,14 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut GradientFreeStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         self.config.simplex = self.config.construction_method.generate(
             problem,
             self.config.x0.as_slice(),
             self.config.bounds.as_ref(),
-            user_data,
+            args,
         )?;
         status.with_position(
             self.config
@@ -617,7 +617,7 @@ where
         _current_step: usize,
         problem: &mut P,
         status: &mut GradientFreeStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let bounds = self.config.bounds.as_ref();
         let h = self.config.simplex.worst();
@@ -625,7 +625,7 @@ where
         let l = self.config.simplex.best();
         let c = &self.config.simplex.corrected_centroid();
         let mut xr = Point::from(c + (c - &h.x).scale(self.config.alpha));
-        xr.evaluate_bounded(problem, bounds, user_data)?;
+        xr.evaluate_bounded(problem, bounds, args)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -645,7 +645,7 @@ where
             // accept the expanded point x_e regardless (greedy expansion), or we should do one
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xe = Point::from(c + (&xr.x - c).scale(self.config.beta));
-            xe.evaluate_bounded(problem, bounds, user_data)?;
+            xe.evaluate_bounded(problem, bounds, args)?;
             status.inc_n_f_evals();
             self.config.simplex.insert_sorted(
                 0,
@@ -684,7 +684,7 @@ where
             if &xr < h {
                 // Try to contract outside if x_r < h
                 let mut xc = Point::from(c + (&xr.x - c).scale(self.config.gamma));
-                xc.evaluate_bounded(problem, bounds, user_data)?;
+                xc.evaluate_bounded(problem, bounds, args)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
@@ -711,7 +711,7 @@ where
             } else {
                 // Contract inside if h <= x_r
                 let mut xc = Point::from(c + (&h.x - c).scale(self.config.gamma));
-                xc.evaluate_bounded(problem, bounds, user_data)?;
+                xc.evaluate_bounded(problem, bounds, args)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
@@ -738,7 +738,7 @@ where
         let l_clone = l.clone();
         for p in self.config.simplex.points.iter_mut().skip(1) {
             *p = Point::from(&l_clone.x + (&p.x - &l_clone.x).scale(self.config.delta));
-            p.evaluate_bounded(problem, bounds, user_data)?;
+            p.evaluate_bounded(problem, bounds, args)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -761,7 +761,7 @@ where
         _current_step: usize,
         _func: &P,
         status: &GradientFreeStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<MinimizationSummary, E> {
         Ok(MinimizationSummary {
             x0: self.config.x0.clone(),

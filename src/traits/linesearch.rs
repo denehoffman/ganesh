@@ -12,7 +12,7 @@ use dyn_clone::DynClone;
 pub trait LineSearch<S: Status, U, E>: DynClone {
     /// The search method takes the current position of the minimizer, `x`, the search direction
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
-    /// objective function `user_data`, and returns a [`Result`] containing the tuple,
+    /// objective function `args`, and returns a [`Result`] containing the tuple,
     /// `(valid, step_size, func(x + step_size * p), grad(x + step_size * p))`. Returns a [`None`]
     /// [`Result`] if the algorithm fails to find improvement. Passing `bounds` usually implies a
     /// bounds transform is intented.
@@ -30,7 +30,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
         max_step: Option<Float>,
         problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
         status: &mut S,
     ) -> Result<(bool, Float, Float, DVector<Float>), E>;
 }

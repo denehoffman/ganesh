@@ -129,19 +129,19 @@ impl PSO {
         &mut self,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let swarm = &status.swarm;
         match swarm.update_method {
-            SwarmUpdateMethod::Synchronous => self.update_sync(status, func, user_data),
-            SwarmUpdateMethod::Asynchronous => self.update_async(status, func, user_data),
+            SwarmUpdateMethod::Synchronous => self.update_sync(status, func, args),
+            SwarmUpdateMethod::Asynchronous => self.update_async(status, func, args),
         }
     }
     fn update_sync<U, E>(
         &mut self,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         for particle in &mut status.swarm.particles {
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
@@ -168,7 +168,7 @@ impl PSO {
                     .scale(self.config.c2);
             status.n_f_evals += particle.update_position(
                 func,
-                user_data,
+                args,
                 self.config.bounds.as_ref(),
                 status.swarm.boundary_method,
             )?;
@@ -179,7 +179,7 @@ impl PSO {
         &mut self,
         status: &mut SwarmStatus,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
             .map(|i| self.nbest(i, status))
@@ -197,7 +197,7 @@ impl PSO {
                     .scale(self.config.c2);
             status.n_f_evals += particle.update_position(
                 func,
-                user_data,
+                args,
                 self.config.bounds.as_ref(),
                 status.swarm.boundary_method,
             )?;
@@ -223,7 +223,7 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut SwarmStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         status.swarm = self.config.swarm.clone();
@@ -232,7 +232,7 @@ where
             self.dimension,
             self.config.bounds.as_ref(),
             problem,
-            user_data,
+            args,
         )?;
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
@@ -249,9 +249,9 @@ where
         _current_step: usize,
         problem: &mut P,
         status: &mut SwarmStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
-        self.update(status, problem, user_data)
+        self.update(status, problem, args)
     }
 
     fn summarize(
@@ -259,7 +259,7 @@ where
         _current_step: usize,
         _func: &P,
         status: &SwarmStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
             x0: DVector::from_element(status.gbest.x.len(), 0.0),

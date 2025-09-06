@@ -16,7 +16,7 @@ pub struct Rosenbrock {
 }
 impl CostFunction for Rosenbrock {
     type Input = DVector<Float>;
-    fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
+    fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -28,7 +28,7 @@ impl Gradient for Rosenbrock {}
 impl LogDensity for Rosenbrock {
     type Input = DVector<Float>;
 
-    fn log_density(&self, x: &Self::Input, _user_data: &mut ()) -> Result<Float, Infallible> {
+    fn log_density(&self, x: &Self::Input, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok(-Float::ln(
             (0..(self.n - 1))

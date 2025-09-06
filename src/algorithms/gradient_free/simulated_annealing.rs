@@ -20,7 +20,7 @@ where
         algorithm: &mut SimulatedAnnealing,
         _problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if status.temperature < algorithm.config.min_temperature {
             return ControlFlow::Break(());
@@ -36,14 +36,14 @@ pub trait SimulatedAnnealingGenerator<U, E>: CostFunction<U, E> {
         &mut self,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
-        user_data: &mut U,
+        args: &U,
     ) -> Self::Input;
     /// Generates a new state based on the current state, cost function and the status.
     fn generate(
         &mut self,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
-        user_data: &mut U,
+        args: &U,
     ) -> Self::Input;
 }
 
@@ -160,12 +160,12 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut SimulatedAnnealingStatus<I>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         let bounds = self.config.bounds.as_ref();
-        let x0 = problem.initial(bounds, status, user_data);
-        let fx0 = problem.evaluate(&x0, user_data)?;
+        let x0 = problem.initial(bounds, status, args);
+        let fx0 = problem.evaluate(&x0, args)?;
         status.temperature = self.config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
         status.initial = status.current.clone();
@@ -179,10 +179,10 @@ where
         _current_step: usize,
         problem: &mut P,
         status: &mut SimulatedAnnealingStatus<I>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
-        let x = problem.generate(self.config.bounds.as_ref(), status, user_data);
-        let fx = problem.evaluate(&x, user_data)?;
+        let x = problem.generate(self.config.bounds.as_ref(), status, args);
+        let fx = problem.evaluate(&x, args)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
@@ -207,7 +207,7 @@ where
         _current_step: usize,
         _problem: &P,
         status: &SimulatedAnnealingStatus<I>,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(SimulatedAnnealingSummary {
             bounds: self.config.bounds.clone(),
@@ -252,21 +252,17 @@ mod tests {
     impl<U, E> CostFunction<U, E> for GradientAnnealingProblem<U, E> {
         type Input = DVector<Float>;
 
-        fn evaluate(&self, x: &Self::Input, user_data: &mut U) -> Result<Float, E> {
-            self.0.evaluate(x, user_data)
+        fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
+            self.0.evaluate(x, args)
         }
     }
     impl<U, E> Gradient<U, E> for GradientAnnealingProblem<U, E> {
-        fn gradient(&self, x: &Self::Input, user_data: &mut U) -> Result<DVector<Float>, E> {
-            self.0.gradient(x, user_data)
+        fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
+            self.0.gradient(x, args)
         }
 
-        fn hessian(
-            &self,
-            x: &Self::Input,
-            user_data: &mut U,
-        ) -> Result<nalgebra::DMatrix<Float>, E> {
-            self.0.hessian(x, user_data)
+        fn hessian(&self, x: &Self::Input, args: &U) -> Result<nalgebra::DMatrix<Float>, E> {
+            self.0.hessian(x, args)
         }
     }
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for GradientAnnealingProblem<U, E>
@@ -277,11 +273,11 @@ mod tests {
             &mut self,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus<Self::Input>,
-            user_data: &mut U,
+            args: &U,
         ) -> Self::Input {
             #[allow(clippy::expect_used)]
             let g = self
-                .gradient(&status.current.x, user_data)
+                .gradient(&status.current.x, args)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
             x.constrain_to(bounds)
@@ -291,7 +287,7 @@ mod tests {
             &mut self,
             bounds: Option<&Bounds>,
             _status: &mut SimulatedAnnealingStatus<Self::Input>,
-            _user_data: &mut U,
+            _args: &U,
         ) -> Self::Input {
             #[allow(clippy::expect_used)]
             DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds)

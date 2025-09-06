@@ -70,22 +70,22 @@ impl StrongWolfeLineSearch {
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate(&x.constrain_to(bounds), user_data)
+        func.evaluate(&x.constrain_to(bounds), args)
     }
     fn g_eval<U, E>(
         &self,
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(&x.constrain_to(bounds), user_data)
+        func.gradient(&x.constrain_to(bounds), args)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
@@ -93,7 +93,7 @@ impl StrongWolfeLineSearch {
         func: &dyn Gradient<U, E>,
         x0: &DVector<Float>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
         f0: Float,
         g0: &DVector<Float>,
         p: &DVector<Float>,
@@ -108,14 +108,14 @@ impl StrongWolfeLineSearch {
         loop {
             let alpha_i = (alpha_lo + alpha_hi) / 2.0;
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(func, &x, bounds, user_data, status)?;
+            let f_i = self.f_eval(func, &x, bounds, args, status)?;
             let x_lo = x0 + p.scale(alpha_lo);
-            let f_lo = self.f_eval(func, &x_lo, bounds, user_data, status)?;
+            let f_lo = self.f_eval(func, &x_lo, bounds, args, status)?;
             let valid = if (f_i > (self.c1 * alpha_i).mul_add(dphi0, f0)) || (f_i >= f_lo) {
                 alpha_hi = alpha_i;
                 false
             } else {
-                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
+                let g_i = self.g_eval(func, &x, bounds, args, status)?;
                 let dphi = g_i.dot(p);
                 if Float::abs(dphi) <= -self.c2 * dphi0 {
                     return Ok((true, alpha_i, f_i, g_i));
@@ -128,7 +128,7 @@ impl StrongWolfeLineSearch {
             };
             i += 1;
             if i > self.max_zoom {
-                let g_i = self.g_eval(func, &x, bounds, user_data, status)?;
+                let g_i = self.g_eval(func, &x, bounds, args, status)?;
                 return Ok((valid, alpha_i, f_i, g_i));
             }
         }
@@ -143,11 +143,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         max_step: Option<Float>,
         problem: &dyn Gradient<U, E>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
         status: &mut GradientStatus,
     ) -> Result<(bool, Float, Float, DVector<Float>), E> {
-        let f0 = self.f_eval(problem, x0, bounds, user_data, status)?;
-        let g0 = self.g_eval(problem, x0, bounds, user_data, status)?;
+        let f0 = self.f_eval(problem, x0, bounds, args, status)?;
+        let g0 = self.g_eval(problem, x0, bounds, args, status)?;
         let alpha_max = max_step.map_or(1.0, |alpha_max| alpha_max);
         let mut alpha_im1 = 0.0;
         let mut alpha_i = 1.0;
@@ -156,20 +156,20 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         let mut i = 0;
         loop {
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(problem, &x, bounds, user_data, status)?;
+            let f_i = self.f_eval(problem, &x, bounds, args, status)?;
             if (f_i > self.c1.mul_add(dphi0, f0)) || (i > 1 && f_i >= f_im1) {
                 return self.zoom(
-                    problem, x0, bounds, user_data, f0, &g0, p, alpha_im1, alpha_i, status,
+                    problem, x0, bounds, args, f0, &g0, p, alpha_im1, alpha_i, status,
                 );
             }
-            let g_i = self.g_eval(problem, &x, bounds, user_data, status)?;
+            let g_i = self.g_eval(problem, &x, bounds, args, status)?;
             let dphi = g_i.dot(p);
             if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
                 return Ok((true, alpha_i, f_i, g_i));
             }
             if dphi >= 0.0 {
                 return self.zoom(
-                    problem, x0, bounds, user_data, f0, &g0, p, alpha_i, alpha_im1, status,
+                    problem, x0, bounds, args, f0, &g0, p, alpha_i, alpha_im1, status,
                 );
             }
             alpha_im1 = alpha_i;

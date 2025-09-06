@@ -24,7 +24,7 @@ where
         _algorithm: &mut A,
         _problem: &mut P,
         _status: &mut S,
-        _user_data: &mut U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if self.is_aborted() {
             self.reset();

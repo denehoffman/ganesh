@@ -29,10 +29,10 @@ impl<I> Point<I> {
     pub fn evaluate<U, E>(
         &mut self,
         func: &dyn CostFunction<U, E, Input = I>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.evaluate(&self.x, user_data)?;
+            self.fx = func.evaluate(&self.x, args)?;
         }
         Ok(())
     }
@@ -45,10 +45,10 @@ impl<I> Point<I> {
     pub fn log_density<U, E>(
         &mut self,
         func: &dyn LogDensity<U, E, Input = I>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.log_density(&self.x, user_data)?;
+            self.fx = func.log_density(&self.x, args)?;
         }
         Ok(())
     }
@@ -88,10 +88,10 @@ where
         &mut self,
         func: &dyn CostFunction<U, E, Input = I>,
         bounds: Option<&Bounds>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         if self.fx.is_nan() {
-            self.fx = func.evaluate(&self.x.constrain_to(bounds), user_data)?;
+            self.fx = func.evaluate(&self.x.constrain_to(bounds), args)?;
         }
         Ok(())
     }

@@ -65,10 +65,10 @@ impl EnsembleStatus {
     pub fn log_density_latest<U, E>(
         &mut self,
         func: &dyn LogDensity<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
-            walker.log_density_latest(func, user_data)?;
+            walker.log_density_latest(func, args)?;
         }
         Ok(())
     }

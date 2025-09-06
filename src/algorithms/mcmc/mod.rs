@@ -64,9 +64,9 @@ impl Walker {
     pub fn log_density_latest<U, E>(
         &mut self,
         func: &dyn LogDensity<U, E, Input = DVector<Float>>,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
-        self.get_latest().write().log_density(func, user_data)
+        self.get_latest().write().log_density(func, args)
     }
     /// Add a new position to the [`Walker`]'s history
     pub fn push(&mut self, position: Arc<RwLock<Point<DVector<Float>>>>) {
@@ -271,7 +271,7 @@ where
         _algorithm: &mut A,
         _problem: &P,
         status: &mut EnsembleStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(

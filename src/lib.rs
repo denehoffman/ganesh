@@ -29,7 +29,7 @@
 //! }
 //! impl CostFunction for Rosenbrock {
 //!     type Input = DVector<Float>;
-//!     fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
+//!     fn evaluate(&self, x: &DVector<Float>, _args: &mut ()) -> Result<Float, Infallible> {
 //!         Ok((0..(self.n - 1))
 //!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //!             .sum())
@@ -48,7 +48,7 @@
 //! # }
 //! # impl CostFunction for Rosenbrock {
 //! #     type Input = DVector<Float>;
-//! #     fn evaluate(&self, x: &DVector<Float>, _user_data: &mut ()) -> Result<Float, Infallible> {
+//! #     fn evaluate(&self, x: &DVector<Float>, _args: &mut ()) -> Result<Float, Infallible> {
 //! #         Ok((0..(self.n - 1))
 //! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
 //! #             .sum())

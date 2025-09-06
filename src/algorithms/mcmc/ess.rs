@@ -66,7 +66,7 @@ impl ESSMove {
         max_steps: usize,
         mu: &mut Float,
         problem: &P,
-        user_data: &mut U,
+        args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
@@ -154,17 +154,17 @@ impl ESSMove {
             // L <- -U
             let mut l = -rng.float();
             let mut p_l = Point::from(&x_k.read().x + eta.scale(l));
-            p_l.log_density(problem, user_data)?;
+            p_l.log_density(problem, args)?;
             // R <- L + 1
             let mut r = l + 1.0;
             let mut p_r = Point::from(&x_k.read().x + eta.scale(r));
-            p_r.log_density(problem, user_data)?;
+            p_r.log_density(problem, args)?;
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k.read().x + eta.scale(l));
-                p_l.log_density(problem, user_data)?;
+                p_l.log_density(problem, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -173,7 +173,7 @@ impl ESSMove {
                 // R <- R + 1
                 r += 1.0;
                 p_r.set_position(&x_k.read().x + eta.scale(r));
-                p_r.log_density(problem, user_data)?;
+                p_r.log_density(problem, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -183,7 +183,7 @@ impl ESSMove {
                 let xprime = rng.range(l, r);
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k.read().x + eta.scale(xprime));
-                p_yprime.log_density(problem, user_data)?;
+                p_yprime.log_density(problem, args)?;
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
@@ -200,7 +200,7 @@ impl ESSMove {
             };
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
             let mut proposal = Point::from(&x_k.read().x + eta.scale(xprime));
-            proposal.log_density(problem, user_data)?;
+            proposal.log_density(problem, args)?;
             positions.push(Arc::new(RwLock::new(proposal)))
         }
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
@@ -304,11 +304,11 @@ where
         config: Self::Config,
         problem: &mut P,
         status: &mut EnsembleStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         self.config = config;
         status.walkers = self.config.walkers.clone();
-        status.log_density_latest(problem, user_data)
+        status.log_density_latest(problem, args)
     }
 
     fn step(
@@ -316,7 +316,7 @@ where
         current_step: usize,
         problem: &mut P,
         status: &mut EnsembleStatus,
-        user_data: &mut U,
+        args: &U,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
@@ -336,7 +336,7 @@ where
             self.config.max_steps,
             &mut self.config.mu,
             problem,
-            user_data,
+            args,
             status,
             &mut self.rng,
         )
@@ -347,7 +347,7 @@ where
         _current_step: usize,
         _problem: &P,
         status: &EnsembleStatus,
-        _user_data: &U,
+        _args: &U,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
             bounds: self.config.bounds.clone(),

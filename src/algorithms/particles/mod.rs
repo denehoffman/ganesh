@@ -51,7 +51,7 @@ where
         _algorithm: &A,
         _problem: &P,
         status: &SwarmStatus,
-        _user_data: &U,
+        _args: &U,
     ) {
         self.history.push(status.swarm.particles.clone());
         self.best_history.push(status.get_best());

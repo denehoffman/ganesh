@@ -13,21 +13,21 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
         algorithm: &mut A,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> ControlFlow<()> {
         match self {
             Self::Callback(callback) => {
-                callback.callback(current_step, algorithm, problem, status, user_data)
+                callback.callback(current_step, algorithm, problem, status, args)
             }
             Self::Terminator(terminator) => terminator.check_for_termination(
                 current_step,
                 algorithm,
                 problem,
                 status,
-                user_data,
+                args,
             ),
             Self::Observer(observer) => {
-                observer.observe(current_step, algorithm, problem, status, user_data);
+                observer.observe(current_step, algorithm, problem, status, args);
                 ControlFlow::Continue(())
             }
         }
@@ -85,11 +85,11 @@ where
         algorithm: &mut A,
         problem: &mut P,
         status: &mut S,
-        user_data: &mut U,
+        args: &U,
     ) -> ControlFlow<()> {
         if self.0.iter_mut().any(|callback| {
             callback
-                .callback(current_step, algorithm, problem, status, user_data)
+                .callback(current_step, algorithm, problem, status, args)
                 .is_break()
         }) {
             return ControlFlow::Break(());
@@ -112,7 +112,7 @@ impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
         _algorithm: &mut A,
         _problem: &P,
         _status: &mut S,
-        _user_data: &U,
+        _args: &U,
     ) -> ControlFlow<()> {
         if current_step >= self.0 {
             return ControlFlow::Break(());
@@ -150,7 +150,7 @@ where
         _algorithm: &A,
         _problem: &P,
         status: &S,
-        _user_data: &U,
+        _args: &U,
     ) {
         println!("Step: {}\n{:#?}", current_step, status);
     }
