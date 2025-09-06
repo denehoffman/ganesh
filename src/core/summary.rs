@@ -5,6 +5,26 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+/// A trait used with the associated [`Summary`](`crate::traits::Algorithm`) type to set parameter names.
+pub trait HasParameterNames: Sized {
+    /// A mutable reference to the parameter names.
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>>;
+    /// Set the names associated with each parameter.
+    fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        *self.get_parameter_names_mut() = Some(
+            parameter_names
+                .into_iter()
+                .map(|s| s.as_ref().to_string())
+                .collect(),
+        );
+        self
+    }
+}
+
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MinimizationSummary {
@@ -32,10 +52,25 @@ pub struct MinimizationSummary {
     pub covariance: DMatrix<Float>,
 }
 
+impl HasParameterNames for MinimizationSummary {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
+    }
+}
+
 impl MinimizationSummary {
     /// Set the names associated with each parameter.
-    pub fn with_parameter_names(mut self, parameter_names: &[String]) -> Self {
-        self.parameter_names = Some(parameter_names.to_vec());
+    pub fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.parameter_names = Some(
+            parameter_names
+                .into_iter()
+                .map(|s| s.as_ref().to_string())
+                .collect(),
+        );
         self
     }
 }
@@ -184,11 +219,9 @@ pub struct MCMCSummary {
     pub dimension: (usize, usize, usize),
 }
 
-impl MCMCSummary {
-    /// Set the names associated with each parameter.
-    pub fn with_parameter_names(mut self, parameter_names: &[String]) -> Self {
-        self.parameter_names = Some(parameter_names.to_vec());
-        self
+impl HasParameterNames for MCMCSummary {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
