@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_verbose(true)
         .build();
 
-    let mut sampler = ESS::new(rng);
+    let mut sampler = ESS::default();
 
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
     // and Gaussian steps the other 10%
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = sampler.process(
         &mut problem,
         &cov_inv,
-        ESSConfig::default().with_walkers(x0.clone()).with_moves([
+        ESSConfig::new(x0.clone()).with_moves([
             ESSMove::gaussian(0.1),
             ESSMove::global(0.7, None, Some(0.5), Some(4)),
             ESSMove::differential(0.2),

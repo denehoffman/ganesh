@@ -176,9 +176,9 @@ pub fn integrated_autocorrelation_times(
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
-/// let mut sampler = ESS::new(rng);
+/// let mut sampler = ESS::new(Some(1));
 /// let result = sampler.process(&mut problem, &(),
-/// ESSConfig::default().with_walkers(x0.clone()).with_moves([ESSMove::gaussian(0.1),
+/// ESSConfig::new(x0.clone()).with_moves([ESSMove::gaussian(0.1),
 /// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco.clone())).unwrap();
 ///
 /// println!(
@@ -335,14 +335,12 @@ mod tests {
             .with_n_taus_threshold(51)
             .with_verbose(false)
             .build();
-        let mut sampler = ESS::new(rng);
+        let mut sampler = ESS::new(Some(1));
         let result = sampler
             .process(
                 &mut problem,
                 &(),
-                ESSConfig::default()
-                    .with_walkers(x0)
-                    .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
+                ESSConfig::new(x0).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
                 Callbacks::empty().with_terminator(aco.clone()),
             )
             .unwrap();

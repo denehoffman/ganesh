@@ -11,12 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// A swarm of particles used in particle swarm optimization and similar methods.
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Swarm {
     /// The internal boundaries used by the swarm
     pub bounds: Option<Bounds>,
-    /// The number of particles
-    pub n_particles: usize,
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
     /// The topology used by the swarm
@@ -32,6 +30,18 @@ pub struct Swarm {
 }
 
 impl Swarm {
+    /// Create a new [`Swarm`] from a [`SwarmPositionInitializer`].
+    pub fn new(position_initializer: SwarmPositionInitializer) -> Self {
+        Self {
+            bounds: None,
+            particles: Vec::default(),
+            topology: SwarmTopology::default(),
+            update_method: SwarmUpdateMethod::default(),
+            boundary_method: SwarmBoundaryMethod::default(),
+            position_initializer,
+            velocity_initializer: SwarmVelocityInitializer::default(),
+        }
+    }
     /// Get list of the particles in the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
     pub fn get_particles(&self) -> Vec<SwarmParticle> {
@@ -55,18 +65,17 @@ impl Swarm {
     pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
-        dimension: usize,
         bounds: Option<&Bounds>,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         args: &U,
     ) -> Result<(), E> {
         self.bounds = bounds.cloned();
-        let mut particle_positions =
-            self.position_initializer
-                .init_positions(rng, dimension, self.n_particles);
-        let mut particle_velocities =
-            self.velocity_initializer
-                .init_velocities(rng, dimension, self.n_particles);
+        let mut particle_positions = self.position_initializer.init_positions(rng);
+        let mut particle_velocities = self.velocity_initializer.init_velocities(
+            rng,
+            self.position_initializer.get_dimension(),
+            self.position_initializer.get_n_particles(),
+        );
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
@@ -93,11 +102,6 @@ impl Swarm {
             .collect::<Result<Vec<SwarmParticle>, E>>()?;
         Ok(())
     }
-    /// Sets the number of particles in the swarm.
-    pub const fn with_n_particles(&mut self, value: usize) -> &mut Self {
-        self.n_particles = value;
-        self
-    }
     /// Sets the topology used by the swarm (default = [`SwarmTopology::Global`]).
     pub const fn with_topology(&mut self, value: SwarmTopology) -> &mut Self {
         self.topology = value;
@@ -114,14 +118,6 @@ impl Swarm {
         velocity_initializer: SwarmVelocityInitializer,
     ) -> &mut Self {
         self.velocity_initializer = velocity_initializer;
-        self
-    }
-    /// Set the [`PSO`](super::PSO)'s [`SwarmPositionInitializer`].
-    pub fn with_position_initializer(
-        &mut self,
-        position_initializer: SwarmPositionInitializer,
-    ) -> &mut Self {
-        self.position_initializer = position_initializer;
         self
     }
     /// Set the [`SwarmBoundaryMethod`] for the [`PSO`](super::PSO).
@@ -190,46 +186,79 @@ pub enum SwarmUpdateMethod {
 /// Methods to initialize the positions of particles in a swarm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SwarmPositionInitializer {
-    /// Start all particles at the origin. Needs the number of dimensions to initialize the particles.
-    Zero,
     /// Random distribution within the given limits for each dimension
-    RandomInLimits(Vec<(Float, Float)>),
+    RandomInLimits {
+        /// The boundaries for particle generation.
+        ///
+        /// Note that these need not be the same as the bounds of the problem, but probably
+        /// shouldn't exceed them.
+        bounds: Vec<(Float, Float)>,
+        /// The number of particles to generate.
+        n_particles: usize,
+    },
     /// Custom distribution from a given vector of positions
     Custom(Vec<DVector<Float>>),
     /// Latin Hypercube sampling within the given limits for each dimension
-    LatinHypercube(Vec<(Float, Float)>),
-}
-impl Default for SwarmPositionInitializer {
-    fn default() -> Self {
-        Self::Zero
-    }
+    LatinHypercube {
+        /// The boundaries for particle generation.
+        ///
+        /// Note that these need not be the same as the bounds of the problem, but probably
+        /// shouldn't exceed them.
+        bounds: Vec<(Float, Float)>,
+        /// The number of particles to generate.
+        n_particles: usize,
+    },
 }
 impl SwarmPositionInitializer {
+    fn get_dimension(&self) -> usize {
+        match self {
+            Self::RandomInLimits {
+                bounds,
+                n_particles: _,
+            } => bounds.len(),
+            Self::Custom(positions) => positions[0].len(),
+            Self::LatinHypercube {
+                bounds,
+                n_particles: _,
+            } => bounds.len(),
+        }
+    }
+    fn get_n_particles(&self) -> usize {
+        match self {
+            Self::RandomInLimits {
+                bounds: _,
+                n_particles,
+            } => *n_particles,
+            Self::Custom(positions) => positions.len(),
+            Self::LatinHypercube {
+                bounds: _,
+                n_particles,
+            } => *n_particles,
+        }
+    }
     /// Initialize the positions of the particles in the swarm
     /// using the given random number generator and dimension.
-    pub fn init_positions(
-        &self,
-        rng: &mut Rng,
-        dimension: usize,
-        n_particles: usize,
-    ) -> Vec<Point<DVector<Float>>> {
+    pub fn init_positions(&self, rng: &mut Rng) -> Vec<Point<DVector<Float>>> {
         match self {
-            Self::Zero => (0..n_particles)
-                .map(|_| DVector::zeros(dimension).into())
-                .collect(),
-            Self::RandomInLimits(limits) => (0..n_particles)
-                .map(|_| generate_random_vector_in_limits(limits, rng).into())
+            Self::RandomInLimits {
+                bounds,
+                n_particles,
+            } => (0..*n_particles)
+                .map(|_| generate_random_vector_in_limits(bounds, rng).into())
                 .collect(),
             Self::Custom(positions) => positions.iter().map(|p| p.clone().into()).collect(),
-            Self::LatinHypercube(limits) => {
-                let dimension = limits.len();
-                let mut lhs_matrix = vec![vec![0.0; dimension]; n_particles];
-                for (d, limit) in limits.iter().enumerate().take(dimension) {
-                    let mut bins: Vec<usize> = (0..n_particles).collect();
+            Self::LatinHypercube {
+                bounds,
+                n_particles,
+            } => {
+                let dimension = bounds.len();
+                let mut lhs_matrix = vec![vec![0.0; dimension]; *n_particles];
+                for (d, limit) in bounds.iter().enumerate().take(dimension) {
+                    let mut bins: Vec<usize> = (0..*n_particles).collect();
                     rng.shuffle(&mut bins);
                     for (i, &bin) in bins.iter().enumerate() {
                         let (min, max) = limit;
-                        let bin_size = (max - min) / n_particles as Float;
+                        let bin_size = (max - min) / *n_particles as Float;
                         let lower = min + bin as Float * bin_size;
                         let upper = lower + bin_size;
                         lhs_matrix[i][d] = rng.range(lower, upper);
@@ -346,8 +375,7 @@ impl SwarmParticle {
                 }
                 SwarmBoundaryMethod::Transform => {
                     self.position.set_position(new_position);
-                    self.position
-                        .evaluate_bounded(func, Some(bounds), args)?;
+                    self.position.evaluate_bounded(func, Some(bounds), args)?;
                     evals += 1;
                 }
             }

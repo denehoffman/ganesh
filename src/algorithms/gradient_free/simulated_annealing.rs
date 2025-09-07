@@ -7,7 +7,17 @@ use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
 
 /// A temperature-activated terminator for [`SimulatedAnnealing`].
-pub struct SimulatedAnnealingTerminator;
+pub struct SimulatedAnnealingTerminator {
+    /// The minimum temperature for the simulated annealing algorithm.
+    pub min_temperature: Float,
+}
+impl Default for SimulatedAnnealingTerminator {
+    fn default() -> Self {
+        Self {
+            min_temperature: 1e-3,
+        }
+    }
+}
 impl<P, U, E, I> Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E>
     for SimulatedAnnealingTerminator
 where
@@ -17,12 +27,12 @@ where
     fn check_for_termination(
         &mut self,
         _current_step: usize,
-        algorithm: &mut SimulatedAnnealing,
+        _algorithm: &mut SimulatedAnnealing,
         _problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         _args: &U,
     ) -> ControlFlow<()> {
-        if status.temperature < algorithm.config.min_temperature {
+        if status.temperature < self.min_temperature {
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
@@ -54,8 +64,6 @@ pub struct SimulatedAnnealingConfig {
     pub initial_temperature: Float,
     /// The cooling rate for the simulated annealing algorithm.
     pub cooling_rate: Float,
-    /// The minimum temperature for the simulated annealing algorithm.
-    pub min_temperature: Float,
 }
 impl Default for SimulatedAnnealingConfig {
     fn default() -> Self {
@@ -63,22 +71,16 @@ impl Default for SimulatedAnnealingConfig {
             bounds: Default::default(),
             initial_temperature: 1.0,
             cooling_rate: 0.999,
-            min_temperature: 1e-3,
         }
     }
 }
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub const fn new(
-        initial_temperature: Float,
-        cooling_rate: Float,
-        min_temperature: Float,
-    ) -> Self {
+    pub const fn new(initial_temperature: Float, cooling_rate: Float) -> Self {
         Self {
             bounds: None,
             initial_temperature,
             cooling_rate,
-            min_temperature,
         }
     }
 }
@@ -86,11 +88,6 @@ impl Bounded for SimulatedAnnealingConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
-}
-/// A struct for the simulated annealing algorithm.
-pub struct SimulatedAnnealing {
-    config: SimulatedAnnealingConfig,
-    rng: fastrand::Rng,
 }
 
 /// A struct for the status of the simulated annealing algorithm.
@@ -136,11 +133,15 @@ where
     }
 }
 
+/// A struct for the simulated annealing algorithm.
+pub struct SimulatedAnnealing {
+    rng: fastrand::Rng,
+}
+
 impl SimulatedAnnealing {
     /// Creates a new instance of the simulated annealing algorithm.
-    pub fn new(config: SimulatedAnnealingConfig, seed: Option<u64>) -> Self {
+    pub fn new(seed: Option<u64>) -> Self {
         Self {
-            config,
             rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
         }
     }
@@ -157,16 +158,15 @@ where
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        self.config = config;
-        let bounds = self.config.bounds.as_ref();
+        let bounds = config.bounds.as_ref();
         let x0 = problem.initial(bounds, status, args);
         let fx0 = problem.evaluate(&x0, args)?;
-        status.temperature = self.config.initial_temperature;
+        status.temperature = config.initial_temperature;
         status.current = Point { x: x0, fx: fx0 };
         status.initial = status.current.clone();
         status.best = status.current.clone();
@@ -180,13 +180,14 @@ where
         problem: &mut P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        let x = problem.generate(self.config.bounds.as_ref(), status, args);
+        let x = problem.generate(config.bounds.as_ref(), status, args);
         let fx = problem.evaluate(&x, args)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx };
-        status.temperature *= self.config.cooling_rate;
+        status.temperature *= config.cooling_rate;
         status.iteration += 1;
 
         let acceptance_probability = if status.current.fx < status.best.fx {
@@ -208,9 +209,10 @@ where
         _problem: &P,
         status: &SimulatedAnnealingStatus<I>,
         _args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(SimulatedAnnealingSummary {
-            bounds: self.config.bounds.clone(),
+            bounds: config.bounds.clone(),
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
@@ -224,7 +226,7 @@ where
     where
         Self: Sized,
     {
-        Callbacks::empty().with_terminator(SimulatedAnnealingTerminator)
+        Callbacks::empty().with_terminator(SimulatedAnnealingTerminator::default())
     }
 }
 
@@ -296,15 +298,13 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let mut solver =
-            SimulatedAnnealing::new(SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3), Some(0));
+        let mut solver = SimulatedAnnealing::new(Some(0));
         let mut problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 });
         let result = solver
             .process(
                 &mut problem,
                 &(),
-                SimulatedAnnealingConfig::new(1.0, 0.999, 1e-3)
-                    .with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
+                SimulatedAnnealingConfig::new(1.0, 0.999).with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
                 SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),
             )
             .unwrap();

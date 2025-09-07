@@ -9,7 +9,7 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("LBFGSB");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let base_cfg = LBFGSBConfig::default().with_x0(vec![5.0; *ndim]);
+            let base_cfg = LBFGSBConfig::new(vec![5.0; *ndim]);
             b.iter_batched(
                 || {
                     let problem = Rosenbrock { n: *ndim };

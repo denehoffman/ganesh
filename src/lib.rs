@@ -59,7 +59,7 @@
 //!     let mut nm = NelderMead::default();
 //!     let result = nm.process(&mut problem,
 //!                             &(),
-//!                             NelderMeadConfig::default().with_x0([2.0, 2.0]),
+//!                             NelderMeadConfig::new([2.0, 2.0]),
 //!                             NelderMead::default_callbacks())?;
 //!     println!("{}", result);
 //!     Ok(())

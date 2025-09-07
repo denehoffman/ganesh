@@ -9,7 +9,7 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Nelder Mead");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let base_cfg = NelderMeadConfig::default().with_x0(vec![5.0; *ndim]);
+            let base_cfg = NelderMeadConfig::new(vec![5.0; *ndim]);
             b.iter_batched(
                 || {
                     let problem = Rosenbrock { n: *ndim };
@@ -28,9 +28,7 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
             BenchmarkId::new("Rosenbrock (adaptive)", n),
             &n,
             |b, ndim| {
-                let base_cfg = NelderMeadConfig::default()
-                    .with_x0(vec![5.0; *ndim])
-                    .with_adaptive(*ndim);
+                let base_cfg = NelderMeadConfig::new(vec![5.0; *ndim]).with_adaptive(*ndim);
                 b.iter_batched(
                     || {
                         let problem = Rosenbrock { n: *ndim };

@@ -131,7 +131,7 @@ impl AIESMove {
 }
 
 /// The internal configuration struct for the [`AIES`] algorithm.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AIESConfig {
     bounds: Option<Bounds>,
     walkers: Vec<Walker>,
@@ -143,17 +143,22 @@ impl Bounded for AIESConfig {
     }
 }
 impl AIESConfig {
-    /// Set the moves for the [`AIES`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> Self {
-        self.moves = moves.as_ref().to_vec();
-        self
-    }
-    /// Set the initial positions of the walkers
+    /// Create a new configuratione with the initial positions of the walkers.
+    ///
+    /// This sets the default move list to use a [`AIESMove::Stretch`] move 100% of the time.
     ///
     /// # See Also
     /// [`Walker::new`]
-    pub fn with_walkers(mut self, x0: Vec<DVector<Float>>) -> Self {
-        self.walkers = x0.into_iter().map(Walker::new).collect();
+    pub fn new(x0: Vec<DVector<Float>>) -> Self {
+        Self {
+            bounds: Default::default(),
+            walkers: x0.into_iter().map(Walker::new).collect(),
+            moves: vec![AIESMove::stretch(1.0)],
+        }
+    }
+    /// Set the moves for the [`AIES`] algorithm to use.
+    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> Self {
+        self.moves = moves.as_ref().to_vec();
         self
     }
 }
@@ -165,19 +170,22 @@ impl AIESConfig {
 /// [^1]: Goodman, J., & Weare, J. (2010). Ensemble samplers with affine invariance. In Communications in Applied Mathematics and Computational Science (Vol. 5, Issue 1, pp. 65–80). Mathematical Sciences Publishers. <https://doi.org/10.2140/camcos.2010.5.65>
 #[derive(Clone)]
 pub struct AIES {
-    config: AIESConfig,
     rng: Rng,
+}
+impl Default for AIES {
+    fn default() -> Self {
+        Self::new(Some(0))
+    }
 }
 
 /// A [`AIESMove`] coupled with a weight
 pub type WeightedAIESMove = (AIESMove, Float);
 
 impl AIES {
-    /// Create a new Affine Invariant Ensemble Sampler
-    pub fn new(rng: Rng) -> Self {
+    /// Create a new Affine Invariant Ensemble Sampler with the given seed.
+    pub fn new(seed: Option<u64>) -> Self {
         Self {
-            config: AIESConfig::default(),
-            rng,
+            rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
         }
     }
 }
@@ -190,13 +198,12 @@ where
     type Config = AIESConfig;
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut EnsembleStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        self.config = config;
-        status.walkers = self.config.walkers.clone();
+        status.walkers = config.walkers.clone();
         status.log_density_latest(problem, args)
     }
 
@@ -206,19 +213,13 @@ where
         problem: &mut P,
         status: &mut EnsembleStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(
-                &self
-                    .config
-                    .moves
-                    .iter()
-                    .map(|s| s.1)
-                    .collect::<Vec<Float>>(),
-            )
+            .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
-        let step_type = self.config.moves[step_type_index].0;
+        let step_type = config.moves[step_type_index].0;
         step_type.step(problem, args, status, &mut self.rng)
     }
 
@@ -228,9 +229,10 @@ where
         _func: &P,
         status: &EnsembleStatus,
         _args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: self.config.bounds.clone(),
+            bounds: config.bounds.clone(),
             parameter_names: None,
             message: status.message().to_string(),
             chain: status.get_chain(None, None),
@@ -257,9 +259,7 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(0.5), AIESMove::walk(0.5)];
 
-        let config = AIESConfig::default()
-            .with_walkers(walkers.clone())
-            .with_moves(moves.clone());
+        let config = AIESConfig::new(walkers.clone()).with_moves(moves.clone());
 
         assert_eq!(config.walkers.len(), walkers.len());
         assert_eq!(config.moves.len(), moves.len());
@@ -284,38 +284,36 @@ mod tests {
 
     #[test]
     fn test_aies_initialize_and_summarize() {
-        let rng = Rng::with_seed(0);
-        let mut aies = AIES::new(rng);
+        let mut aies = AIES::default();
 
         let walkers = make_walkers(3, 2);
-        let config = AIESConfig::default().with_walkers(walkers.clone());
+        let config = AIESConfig::new(walkers.clone());
         let mut problem = Rosenbrock { n: 2 };
         let mut status = EnsembleStatus::default();
 
-        aies.initialize(config, &mut problem, &mut status, &())
+        aies.initialize(&mut problem, &mut status, &(), &config)
             .unwrap();
         assert_eq!(status.walkers.len(), walkers.len());
 
-        let summary = aies.summarize(0, &problem, &status, &()).unwrap();
+        let summary = aies.summarize(0, &problem, &status, &(), &config).unwrap();
         assert_eq!(summary.dimension, status.dimension());
     }
 
     #[test]
     fn test_aies_step_runs() {
-        let rng = Rng::with_seed(0);
-        let mut aies = AIES::new(rng);
+        let mut aies = AIES::default();
         let mut problem = Rosenbrock { n: 2 };
 
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
-        let config = AIESConfig::default()
-            .with_walkers(walkers)
-            .with_moves(moves);
+        let config = AIESConfig::new(walkers).with_moves(moves);
 
         let mut status = EnsembleStatus::default();
-        aies.initialize(config, &mut problem, &mut status, &())
+        aies.initialize(&mut problem, &mut status, &(), &config)
             .unwrap();
 
-        assert!(aies.step(0, &mut problem, &mut status, &()).is_ok());
+        assert!(aies
+            .step(0, &mut problem, &mut status, &(), &config)
+            .is_ok());
     }
 }

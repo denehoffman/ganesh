@@ -1,6 +1,8 @@
 use fastrand::Rng;
 use ganesh::{
-    algorithms::particles::{pso::PSOConfig, SwarmPositionInitializer, TrackingSwarmObserver, PSO},
+    algorithms::particles::{
+        pso::PSOConfig, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
+    },
     core::{Callbacks, MaxSteps},
     traits::{Algorithm, CostFunction},
     DVector, Float, PI,
@@ -30,22 +32,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a particle swarm optimizer algorithm and set some hyperparameters
     // Run the particle swarm optimizer
-    let mut pso = PSO::new(2, rng);
+    let mut pso = PSO::default();
     let result = pso.process(
         &mut problem,
         &(),
-        PSOConfig::default()
-            .with_c1(0.1)
-            .with_c2(0.1)
-            .with_omega(0.8)
-            .setup_swarm(|swarm| {
-                swarm
-                    .with_position_initializer(SwarmPositionInitializer::RandomInLimits(vec![
-                        (-20.0, 20.0),
-                        (-20.0, 20.0),
-                    ]))
-                    .with_n_particles(50)
-            }),
+        PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
+            n_particles: 50,
+        }))
+        .with_c1(0.1)
+        .with_c2(0.1)
+        .with_omega(0.8),
         Callbacks::empty()
             .with_observer(tracker.clone())
             .with_terminator(MaxSteps(200)),

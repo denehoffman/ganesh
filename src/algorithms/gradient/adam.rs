@@ -9,7 +9,23 @@ use std::ops::ControlFlow;
 /// A [`Terminator`] which terminates the [`Adam`] algorithm if the Exponential Moving Average (EMA)
 /// loss does not improve in the number of steps defined by the [`AdamConfig`] `patience`
 /// parameter.
-pub struct AdamEMATerminator;
+pub struct AdamEMATerminator {
+    /// The value for the slope of the exponential moving average loss decay (default = `0.9`).
+    pub beta_c: Float,
+    /// The minimum change in EMA loss which will increase the patience counter (default = `MACH_EPS^(1/2)`).
+    pub eps_loss: Float,
+    /// The number of allowed iterations with no improvement in the loss (according to an exponential moving average) before the algorithm terminates (default = `1`).
+    pub patience: usize,
+}
+impl Default for AdamEMATerminator {
+    fn default() -> Self {
+        Self {
+            beta_c: 0.9,
+            eps_loss: Float::EPSILON.sqrt(),
+            patience: 1,
+        }
+    }
+}
 impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E> for AdamEMATerminator
 where
     P: Gradient<U, E>,
@@ -23,16 +39,15 @@ where
         _args: &U,
     ) -> ControlFlow<()> {
         let prev_ema_loss = algorithm.ema_loss;
-        algorithm.ema_loss = algorithm
-            .config
+        algorithm.ema_loss = self
             .beta_c
-            .mul_add(prev_ema_loss, (1.0 - algorithm.config.beta_c) * algorithm.f);
-        if (algorithm.ema_loss - prev_ema_loss).abs() < algorithm.config.eps_loss {
+            .mul_add(prev_ema_loss, (1.0 - self.beta_c) * algorithm.f);
+        if (algorithm.ema_loss - prev_ema_loss).abs() < self.eps_loss {
             algorithm.ema_counter += 1;
         } else {
             algorithm.ema_counter = 0;
         }
-        if algorithm.ema_counter >= algorithm.config.patience {
+        if algorithm.ema_counter >= self.patience {
             status.set_converged();
             status.with_message(&format!(
                 "EMA LOSS HAS NOT IMPROVED IN {} STEPS",
@@ -53,16 +68,21 @@ pub struct AdamConfig {
     beta_1: Float,
     beta_2: Float,
     epsilon: Float,
-    beta_c: Float,
-    eps_loss: Float,
-    patience: usize,
 }
 impl AdamConfig {
-    /// Set the starting position of the algorithm.
-    pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
-        let x0 = x0.into_iter().collect::<Vec<Float>>();
-        self.x0 = DVector::from_column_slice(&x0);
-        self
+    /// Create a new configuration by setting the starting position of the algorithm.
+    pub fn new<I>(x0: I) -> Self
+    where
+        I: AsRef<[Float]>,
+    {
+        Self {
+            x0: DVector::from_row_slice(x0.as_ref()),
+            bounds: None,
+            alpha: 0.001,
+            beta_1: 0.9,
+            beta_2: 0.999,
+            epsilon: 1e-8, // NOTE: I think this can be independent of bit precision
+        }
     }
     /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
     pub const fn with_alpha(mut self, value: Float) -> Self {
@@ -91,34 +111,6 @@ impl AdamConfig {
         self.epsilon = value;
         self
     }
-    /// Set the value for the slope of the exponential moving average loss decay (default = `0.9`).
-    ///
-    /// This value can be tuned to specify convergence behavior.
-    pub const fn with_beta_c(mut self, value: Float) -> Self {
-        self.beta_c = value;
-        self
-    }
-    /// Set the number of allowed iterations with no improvement in the loss (according to an
-    /// exponential moving average) before the algorithm terminates (default = `1`).
-    pub const fn with_patience(mut self, value: usize) -> Self {
-        self.patience = value;
-        self
-    }
-}
-impl Default for AdamConfig {
-    fn default() -> Self {
-        Self {
-            x0: DVector::zeros(0),
-            bounds: None,
-            alpha: 0.001,
-            beta_1: 0.9,
-            beta_2: 0.999,
-            epsilon: 1e-8, // NOTE: I think this can be independent of bit precision
-            beta_c: 0.9,
-            eps_loss: Float::EPSILON.sqrt(),
-            patience: 1,
-        }
-    }
 }
 impl Bounded for AdamConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
@@ -134,7 +126,6 @@ impl Bounded for AdamConfig {
 /// [^1]: [D. P. Kingma and J. Ba, “Adam: A Method for Stochastic Optimization,” 2014, arXiv. doi: 10.48550/ARXIV.1412.6980.](https://doi.org/10.48550/ARXIV.1412.6980)
 #[derive(Clone, Default)]
 pub struct Adam {
-    config: AdamConfig,
     x: DVector<Float>,
     f: Float,
     g: DVector<Float>,
@@ -152,17 +143,16 @@ where
 
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut GradientStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        self.config = config;
-        if self.config.bounds.is_some() {
+        if config.bounds.is_some() {
             maybe_warn("The Adam optimizer has experimental support for bounded parameters, but it may be unstable and fail to converge!");
         }
-        let bounds = self.config.bounds.as_ref();
-        self.x = self.config.x0.unconstrain_from(bounds);
+        let bounds = config.bounds.as_ref();
+        self.x = config.x0.unconstrain_from(bounds);
         self.g = DVector::zeros(self.x.len());
         self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
         status.with_position((self.x.constrain_to(bounds), self.f));
@@ -178,19 +168,20 @@ where
         problem: &mut P,
         status: &mut GradientStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        let bounds = self.config.bounds.as_ref();
+        let bounds = config.bounds.as_ref();
         self.g = problem.gradient(&self.x.constrain_to(bounds), args)?;
         status.inc_n_g_evals();
-        self.m = self.m.scale(self.config.beta_1) + self.g.scale(1.0 - self.config.beta_1);
-        self.v = self.v.scale(self.config.beta_2)
-            + self.g.map(|gi| gi.powi(2)).scale(1.0 - self.config.beta_2);
-        let alpha_t = self.config.alpha * (1.0 - self.config.beta_2.powi(i_step as i32 + 1)).sqrt()
-            / (1.0 - self.config.beta_1.powi(i_step as i32 + 1));
+        self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
+        self.v =
+            self.v.scale(config.beta_2) + self.g.map(|gi| gi.powi(2)).scale(1.0 - config.beta_2);
+        let alpha_t = config.alpha * (1.0 - config.beta_2.powi(i_step as i32 + 1)).sqrt()
+            / (1.0 - config.beta_1.powi(i_step as i32 + 1));
         self.x -= self
             .m
             .scale(alpha_t)
-            .component_div(&self.v.map(|vi| vi.sqrt() + self.config.epsilon));
+            .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
         self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
         status.inc_n_f_evals();
         status.with_position((self.x.constrain_to(bounds), self.f));
@@ -203,12 +194,13 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: self.config.x0.clone(),
+            x0: config.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
-            bounds: self.config.bounds.clone(),
+            bounds: config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
@@ -234,7 +226,7 @@ where
     where
         Self: Sized,
     {
-        Callbacks::empty().with_terminator(AdamEMATerminator)
+        Callbacks::empty().with_terminator(AdamEMATerminator::default())
     }
 }
 
@@ -261,7 +253,7 @@ mod tests {
                 .process(
                     &mut problem,
                     &(),
-                    AdamConfig::default().with_x0(starting_value),
+                    AdamConfig::new(starting_value),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -287,9 +279,7 @@ mod tests {
                 .process(
                     &mut problem,
                     &(),
-                    AdamConfig::default()
-                        .with_x0(starting_value)
-                        .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    AdamConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();

@@ -228,17 +228,25 @@ impl Bounded for ESSConfig {
     }
 }
 impl ESSConfig {
-    /// Set the moves for the [`ESS`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> Self {
-        self.moves = moves.as_ref().to_vec();
-        self
-    }
-    /// Set the initial positions of the walkers
+    /// Create a new configuratione with the initial positions of the walkers.
+    ///
+    /// This sets the default move list to use a [`ESSMove::Differential`] move 100% of the time.
     ///
     /// # See Also
     /// [`Walker::new`]
-    pub fn with_walkers(mut self, x0: Vec<DVector<Float>>) -> Self {
-        self.walkers = x0.into_iter().map(Walker::new).collect();
+    pub fn new(x0: Vec<DVector<Float>>) -> Self {
+        Self {
+            bounds: None,
+            walkers: x0.into_iter().map(Walker::new).collect(),
+            moves: vec![ESSMove::differential(1.0)],
+            n_adaptive: 0,
+            max_steps: 10000,
+            mu: 1.0,
+        }
+    }
+    /// Set the moves for the [`ESS`] algorithm to use.
+    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> Self {
+        self.moves = moves.as_ref().to_vec();
         self
     }
     /// Set the number of adaptive moves to perform at the start of sampling (default: `0`)
@@ -257,18 +265,6 @@ impl ESSConfig {
         self
     }
 }
-impl Default for ESSConfig {
-    fn default() -> Self {
-        Self {
-            bounds: None,
-            walkers: Vec::default(),
-            moves: Vec::default(),
-            n_adaptive: 0,
-            max_steps: 10000,
-            mu: 1.0,
-        }
-    }
-}
 
 /// The Ensemble Slice Sampler
 ///
@@ -277,19 +273,24 @@ impl Default for ESSConfig {
 /// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
 #[derive(Clone)]
 pub struct ESS {
-    config: ESSConfig,
     rng: Rng,
+    mu: Float,
+}
+impl Default for ESS {
+    fn default() -> Self {
+        Self::new(Some(0))
+    }
 }
 
 /// A [`ESSMove`] coupled with a weight
 pub type WeightedESSMove = (ESSMove, Float);
 
 impl ESS {
-    /// Create a new Ensemble Slice Sampler from a list of weighted [`ESSMove`]s
-    pub fn new(rng: Rng) -> Self {
+    /// Create a new Ensemble Slice Sampler with the given seed.
+    pub fn new(seed: Option<u64>) -> Self {
         Self {
-            config: ESSConfig::default(),
-            rng,
+            rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
+            mu: 1.0,
         }
     }
 }
@@ -301,13 +302,13 @@ where
     type Config = ESSConfig;
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut EnsembleStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        self.config = config;
-        status.walkers = self.config.walkers.clone();
+        status.walkers = config.walkers.clone();
+        self.mu = config.mu;
         status.log_density_latest(problem, args)
     }
 
@@ -317,24 +318,18 @@ where
         problem: &mut P,
         status: &mut EnsembleStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
         let step_type_index = self
             .rng
-            .choice_weighted(
-                &self
-                    .config
-                    .moves
-                    .iter()
-                    .map(|s| s.1)
-                    .collect::<Vec<Float>>(),
-            )
+            .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
-        let step_type = self.config.moves[step_type_index].0;
+        let step_type = config.moves[step_type_index].0;
         step_type.step(
             current_step,
-            self.config.n_adaptive,
-            self.config.max_steps,
-            &mut self.config.mu,
+            config.n_adaptive,
+            config.max_steps,
+            &mut self.mu,
             problem,
             args,
             status,
@@ -348,9 +343,10 @@ where
         _problem: &P,
         status: &EnsembleStatus,
         _args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: self.config.bounds.clone(),
+            bounds: config.bounds.clone(),
             parameter_names: None,
             message: status.message().to_string(),
             chain: status.get_chain(None, None),
@@ -921,24 +917,23 @@ mod tests {
 
     #[test]
     fn test_essconfig_defaults_and_builders() {
-        let cfg = ESSConfig::default();
+        let walkers = make_walkers(3, 2);
+        let cfg = ESSConfig::new(walkers);
+        assert_eq!(cfg.walkers.len(), 3);
+        assert_eq!(cfg.moves.len(), 1);
         assert!(cfg.bounds.is_none());
-        assert_eq!(cfg.walkers.len(), 0);
         assert_eq!(cfg.n_adaptive, 0);
         assert_eq!(cfg.max_steps, 10000);
         assert_eq!(cfg.mu, 1.0);
 
-        let moves = vec![ESSMove::differential(1.0)];
-        let walkers = make_walkers(3, 2);
+        let moves = vec![ESSMove::gaussian(1.0), ESSMove::differential(1.0)];
         let cfg = cfg
             .with_moves(&moves)
-            .with_walkers(walkers)
             .with_n_adaptive(5)
             .with_max_steps(42)
             .with_mu(4.1);
 
-        assert_eq!(cfg.moves.len(), 1);
-        assert_eq!(cfg.walkers.len(), 3);
+        assert_eq!(cfg.moves.len(), 2);
         assert_eq!(cfg.n_adaptive, 5);
         assert_eq!(cfg.max_steps, 42);
         assert!((cfg.mu - 4.1).abs() < 1e-12);
@@ -946,67 +941,63 @@ mod tests {
 
     #[test]
     fn test_ess_initialize_and_summarize() {
-        let rng = Rng::with_seed(0);
-        let mut ess = ESS::new(rng);
+        let mut ess = ESS::default();
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::default().with_walkers(walkers);
+        let cfg = ESSConfig::new(walkers);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg.clone(), &mut f, &mut status, &())
-            .unwrap();
+        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
         assert_eq!(status.walkers.len(), 3);
 
-        let summary = ess.summarize(0, &f, &status, &()).unwrap();
+        let summary = ess.summarize(0, &f, &status, &(), &cfg).unwrap();
         assert_eq!(summary.bounds, cfg.bounds);
         assert_eq!(summary.dimension, status.dimension());
     }
 
     #[test]
     fn test_differential_step_runs() {
-        let rng = Rng::with_seed(0);
-        let mut ess = ESS::new(rng);
+        let mut ess = ESS::default();
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::default()
-            .with_walkers(walkers)
-            .with_moves(vec![ESSMove::differential(1.0)]);
+        let cfg = ESSConfig::new(walkers);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
-        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
+        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
 
-        let result = ess.step(0, &mut f, &mut status, &());
+        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Differential"));
     }
 
     #[test]
     fn test_gaussian_step_runs() {
-        let mut ess = ESS::new(Rng::with_seed(100));
+        let mut ess = ESS::default();
         let walkers = make_walkers(6, 2);
-        let cfg = ESSConfig::default()
-            .with_walkers(walkers)
-            .with_moves(vec![ESSMove::gaussian(1.0)]);
+        let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::gaussian(1.0)]);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &());
+        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Gaussian"));
     }
 
     #[test]
     fn test_global_step_runs() {
-        let mut ess = ESS::new(Rng::with_seed(7));
+        let mut ess = ESS::default();
         let walkers = make_walkers(100, 2);
-        let cfg = ESSConfig::default()
-            .with_walkers(walkers)
-            .with_moves(vec![ESSMove::global(1.0, Some(1.0), Some(0.001), Some(3))]);
+        let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::global(
+            1.0,
+            Some(1.0),
+            Some(0.001),
+            Some(3),
+        )]);
         let mut status = EnsembleStatus::default();
         let mut f = Rosenbrock { n: 2 };
 
-        ess.initialize(cfg, &mut f, &mut status, &()).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &());
+        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Global"));
     }

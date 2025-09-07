@@ -1,5 +1,5 @@
 use crate::{
-    algorithms::particles::{Swarm, SwarmBoundaryMethod},
+    algorithms::particles::{Swarm, SwarmBoundaryMethod, SwarmPositionInitializer},
     core::Point,
     traits::Status,
     DVector, Float,
@@ -7,7 +7,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 /// A status for particle swarm optimization and similar methods.
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SwarmStatus {
     /// The global best position found by all particles (in unbounded space)
     pub gbest: Point<DVector<Float>>,
@@ -20,6 +20,17 @@ pub struct SwarmStatus {
     /// The number of function evaluations (approximately, this is left up to individual
     /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
     pub n_f_evals: usize,
+}
+impl Default for SwarmStatus {
+    fn default() -> Self {
+        Self {
+            gbest: Default::default(),
+            converged: Default::default(),
+            message: Default::default(),
+            swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::default())),
+            n_f_evals: Default::default(),
+        }
+    }
 }
 
 impl SwarmStatus {

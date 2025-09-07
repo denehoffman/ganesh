@@ -21,10 +21,10 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut S,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
     /// the max number of steps have been taken.
@@ -38,6 +38,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         problem: &mut P,
         status: &mut S,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E>;
 
     /// Runs any steps needed by the [`Algorithm`] after termination or convergence. This will run
@@ -47,7 +48,13 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     #[allow(unused_variables)]
-    fn postprocessing(&mut self, problem: &P, status: &mut S, args: &U) -> Result<(), E> {
+    fn postprocessing(
+        &mut self,
+        problem: &P,
+        status: &mut S,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
         Ok(())
     }
 
@@ -63,6 +70,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         problem: &P,
         status: &S,
         args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E>;
 
     /// Reset the algorithm to its initial state.
@@ -92,10 +100,10 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     {
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
-        self.initialize(config, problem, &mut status, args)?;
+        self.initialize(problem, &mut status, args, &config)?;
         let mut current_step = 0;
         loop {
-            self.step(current_step, problem, &mut status, args)?;
+            self.step(current_step, problem, &mut status, args, &config)?;
 
             if cbs
                 .callback(current_step, self, problem, &mut status, args)
@@ -105,8 +113,8 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
             }
             current_step += 1;
         }
-        self.postprocessing(problem, &mut status, args)?;
-        self.summarize(current_step, problem, &status, args)
+        self.postprocessing(problem, &mut status, args, &config)?;
+        self.summarize(current_step, problem, &status, args, &config)
     }
 
     /// Process the given problem using this [`Algorithm`].

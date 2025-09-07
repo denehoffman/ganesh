@@ -13,7 +13,17 @@ use std::ops::ControlFlow;
 /// than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
 /// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
-pub struct LBFGSBFTerminator;
+pub struct LBFGSBFTerminator {
+    /// The absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBFTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::sqrt(Float::EPSILON),
+        }
+    }
+}
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBFTerminator
 where
     P: Gradient<U, E>,
@@ -26,7 +36,7 @@ where
         status: &mut GradientStatus,
         _args: &U,
     ) -> ControlFlow<()> {
-        if (algorithm.f_previous - algorithm.f).abs() < algorithm.config.eps_f_abs {
+        if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
             status.set_converged();
             status.with_message("F_EVAL CONVERGED");
             return ControlFlow::Break(());
@@ -42,7 +52,17 @@ where
 /// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
 /// will be set as converged with the message "GRADIENT CONVERGED".
 #[derive(Clone)]
-pub struct LBFGSBGTerminator;
+pub struct LBFGSBGTerminator {
+    /// The absolute g-convergence tolerance (default = `MACH_EPS^(1/3)`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBGTerminator
 where
     P: Gradient<U, E>,
@@ -55,7 +75,7 @@ where
         status: &mut GradientStatus,
         _args: &U,
     ) -> ControlFlow<()> {
-        if algorithm.g.dot(&algorithm.g).sqrt() < algorithm.config.eps_g_abs {
+        if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
             status.set_converged();
             status.with_message("GRADIENT CONVERGED");
             return ControlFlow::Break(());
@@ -65,7 +85,17 @@ where
 }
 
 /// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
-pub struct LBFGSBInfNormGTerminator;
+pub struct LBFGSBInfNormGTerminator {
+    /// The value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will successfully terminate the algorithm (default = `1e-5`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBInfNormGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
 where
     P: Gradient<U, E>,
@@ -78,7 +108,7 @@ where
         status: &mut GradientStatus,
         _args: &U,
     ) -> ControlFlow<()> {
-        if algorithm.get_inf_norm_projected_gradient() < algorithm.config.tol_g_abs {
+        if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
             status.set_converged();
             status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
             return ControlFlow::Break(());
@@ -102,29 +132,11 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
-    eps_f_abs: Float,
-    eps_g_abs: Float,
-    tol_g_abs: Float,
     /// The line search algorithm used by the [`LBFGSB`] algorithm.
     pub line_search: StrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
-}
-impl Default for LBFGSBConfig {
-    fn default() -> Self {
-        Self {
-            x0: DVector::zeros(0),
-            bounds: None,
-            eps_f_abs: Float::sqrt(Float::EPSILON),
-            eps_g_abs: Float::cbrt(Float::EPSILON),
-            tol_g_abs: Float::cbrt(Float::EPSILON),
-            line_search: StrongWolfeLineSearch::default(),
-            m: 10,
-            max_step: 1e8,
-            error_mode: Default::default(),
-        }
-    }
 }
 impl Bounded for LBFGSBConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
@@ -132,42 +144,19 @@ impl Bounded for LBFGSBConfig {
     }
 }
 impl LBFGSBConfig {
-    /// Set the starting position of the algorithm.
-    pub fn with_x0<I: IntoIterator<Item = Float>>(mut self, x0: I) -> Self {
-        let x0 = x0.into_iter().collect::<Vec<Float>>();
-        self.x0 = DVector::from_column_slice(&x0);
-        self
-    }
-    /// Set the absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\epsilon <= 0`$.
-    pub fn with_eps_f_abs(mut self, value: Float) -> Self {
-        assert!(value > 0.0);
-        self.eps_f_abs = value;
-        self
-    }
-    /// Set the absolute g-convergence tolerance (default = `MACH_EPS^(1/3)`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\epsilon <= 0`$.
-    pub fn with_eps_g_abs(mut self, value: Float) -> Self {
-        assert!(value > 0.0);
-        self.eps_g_abs = value;
-        self
-    }
-    /// Set the value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will
-    /// successfully terminate the algorithm (default = `1e-5`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\varepsilon <= 0`$.
-    pub fn with_tol_g_abs(mut self, tol: Float) -> Self {
-        assert!(tol > 0.0);
-        self.tol_g_abs = tol;
-        self
+    /// Create a new configuration by setting the starting position of the algorithm.
+    pub fn new<I>(x0: I) -> Self
+    where
+        I: AsRef<[Float]>,
+    {
+        Self {
+            x0: DVector::from_row_slice(x0.as_ref()),
+            bounds: None,
+            line_search: StrongWolfeLineSearch::default(),
+            m: 10,
+            max_step: 1e8,
+            error_mode: Default::default(),
+        }
     }
     /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
@@ -204,7 +193,7 @@ pub struct LBFGSB {
     f_previous: Float,
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
-    config: LBFGSBConfig,
+    line_search: StrongWolfeLineSearch,
 }
 
 impl Default for LBFGSB {
@@ -221,7 +210,7 @@ impl Default for LBFGSB {
             f_previous: Float::INFINITY,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
-            config: LBFGSBConfig::default(),
+            line_search: StrongWolfeLineSearch::default(),
         }
     }
 }
@@ -418,8 +407,8 @@ impl LBFGSB {
         };
         x_bar - &self.x
     }
-    fn compute_max_step(&self, d: &DVector<Float>) -> Float {
-        let mut max_step = self.config.max_step;
+    fn compute_max_step(&self, d: &DVector<Float>, max_step: Float) -> Float {
+        let mut max_step = max_step;
         for i in 0..self.x.len() {
             max_step = if d[i] > 0.0 {
                 Float::min(max_step, (self.u[i] - self.x[i]) / d[i])
@@ -441,18 +430,18 @@ where
     type Config = LBFGSBConfig;
     fn initialize(
         &mut self,
-        config: Self::Config,
         problem: &mut P,
         status: &mut GradientStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        self.config = config;
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
-        let x0 = self.config.x0.as_ref();
+        self.line_search = config.line_search.clone();
+        let x0 = config.x0.as_ref();
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &self.config.bounds {
+        if let Some(bounds_vec) = &config.bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
                 match bound {
                     Bound::NoBound => {}
@@ -490,18 +479,13 @@ where
         problem: &mut P,
         status: &mut GradientStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
-        let max_step = self.compute_max_step(&d);
-        let (valid, alpha, f_kp1, g_kp1) = self.config.line_search.search(
-            &self.x,
-            &d,
-            Some(max_step),
-            problem,
-            None,
-            args,
-            status,
-        )?;
+        let max_step = self.compute_max_step(&d, config.max_step);
+        let (valid, alpha, f_kp1, g_kp1) =
+            self.line_search
+                .search(&self.x, &d, Some(max_step), problem, None, args, status)?;
         if valid {
             let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
@@ -512,7 +496,7 @@ where
                 self.s_store.push_back(dx.clone());
                 self.y_store.push_back(dg);
                 self.theta = yy / sy;
-                if self.s_store.len() > self.config.m {
+                if self.s_store.len() > config.m {
                     self.s_store.pop_front();
                     self.y_store.pop_front();
                 }
@@ -538,8 +522,9 @@ where
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        config: &Self::Config,
     ) -> Result<(), E> {
-        match self.config.error_mode {
+        match config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
                 let hessian = problem.hessian(&self.x, args)?;
                 status.with_hess(&hessian);
@@ -555,12 +540,13 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: self.config.x0.clone(),
+            x0: config.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
-            bounds: self.config.bounds.clone(),
+            bounds: config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
@@ -595,9 +581,9 @@ where
         Self: Sized,
     {
         Callbacks::empty()
-            .with_terminator(LBFGSBFTerminator)
-            .with_terminator(LBFGSBGTerminator)
-            .with_terminator(LBFGSBInfNormGTerminator)
+            .with_terminator(LBFGSBFTerminator::default())
+            .with_terminator(LBFGSBGTerminator::default())
+            .with_terminator(LBFGSBInfNormGTerminator::default())
     }
 }
 
@@ -624,7 +610,7 @@ mod tests {
                 .process(
                     &mut problem,
                     &(),
-                    LBFGSBConfig::default().with_x0(starting_value),
+                    LBFGSBConfig::new(starting_value),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
@@ -650,9 +636,7 @@ mod tests {
                 .process(
                     &mut problem,
                     &(),
-                    LBFGSBConfig::default()
-                        .with_x0(starting_value)
-                        .with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    LBFGSBConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();

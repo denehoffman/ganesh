@@ -19,13 +19,9 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
             Self::Callback(callback) => {
                 callback.callback(current_step, algorithm, problem, status, args)
             }
-            Self::Terminator(terminator) => terminator.check_for_termination(
-                current_step,
-                algorithm,
-                problem,
-                status,
-                args,
-            ),
+            Self::Terminator(terminator) => {
+                terminator.check_for_termination(current_step, algorithm, problem, status, args)
+            }
             Self::Observer(observer) => {
                 observer.observe(current_step, algorithm, problem, status, args);
                 ControlFlow::Continue(())
@@ -134,7 +130,7 @@ impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
 ///
 /// let mut problem = Rosenbrock { n: 2 };
 /// let mut nm = NelderMead::default();
-/// let result = nm.process(&mut problem, &mut (), NelderMeadConfig::default().with_x0([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
+/// let result = nm.process(&mut problem, &mut (), NelderMeadConfig::new([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(result.converged);
 /// ```
