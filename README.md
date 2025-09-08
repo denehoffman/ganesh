@@ -59,7 +59,7 @@ pub struct Rosenbrock {
 }
 impl CostFunction for Rosenbrock {
     type Input = DVector<Float>;
-    fn evaluate(&self, x: &DVector<Float>, _args: &mut ()) -> Result<Float, Infallible> {
+    fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
             .sum())
@@ -77,8 +77,8 @@ fn main() -> Result<(), Infallible> {
     let mut problem = Rosenbrock { n: 2 };
     let mut nm = NelderMead::default();
     let result = nm.process(&mut problem,
-                            &mut (),
-                            NelderMeadConfig::default().with_x0([2.0, 2.0]),
+                            &(),
+                            NelderMeadConfig::new([2.0, 2.0]),
                             NelderMead::default_callbacks())?;
     println!("{}", result);
     Ok(())
