@@ -15,7 +15,7 @@ pub struct Point<I> {
     pub fx: Float,
 }
 impl<I> Point<I> {
-    /// Convert the [`Point`] into a [`Vec`]-`Float` tuple.
+    /// Convert the [`Point`] into a `I`-`Float` tuple.
     pub fn destructure(self) -> (I, Float) {
         let fx = self.fx_checked();
         (self.x, fx)
