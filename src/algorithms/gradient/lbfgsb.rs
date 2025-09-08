@@ -1,6 +1,8 @@
+use crate::algorithms::line_search::StrongWolfeLineSearch;
+use crate::traits::linesearch::LineSearchOutput;
 use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
 use crate::{
-    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
+    algorithms::gradient::GradientStatus,
     core::{Bound, Bounds, Callbacks, MinimizationSummary},
     DMatrix, DVector, Float,
 };
@@ -133,7 +135,7 @@ pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
     /// The line search algorithm used by the [`LBFGSB`] algorithm.
-    pub line_search: StrongWolfeLineSearch,
+    line_search: StrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
@@ -162,6 +164,11 @@ impl LBFGSBConfig {
     /// while sacrificing memory usage (default = `10`).
     pub const fn with_memory_limit(mut self, limit: usize) -> Self {
         self.m = limit;
+        self
+    }
+    /// Set the line search algorithm to use (default = [`StrongWolfeLineSearch::default`]).
+    pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {
+        self.line_search = line_search;
         self
     }
     /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
@@ -483,10 +490,14 @@ where
     ) -> Result<(), E> {
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d, config.max_step);
-        let (valid, alpha, f_kp1, g_kp1) =
-            self.line_search
-                .search(&self.x, &d, Some(max_step), problem, None, args, status)?;
-        if valid {
+        if let Ok(LineSearchOutput {
+            alpha,
+            fx: f_kp1,
+            g: g_kp1,
+        }) = self
+            .line_search
+            .search(&self.x, &d, Some(max_step), problem, None, args, status)?
+        {
             let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
             let dg = &grad_kp1_vec - &self.g;
@@ -590,7 +601,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::MaxSteps, test_functions::Rosenbrock};
+    use crate::{
+        algorithms::line_search::HagerZhangLineSearch, core::MaxSteps, test_functions::Rosenbrock,
+    };
     use approx::assert_relative_eq;
 
     #[test]
@@ -611,6 +624,33 @@ mod tests {
                     &mut problem,
                     &(),
                     LBFGSBConfig::new(starting_value),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
+    }
+    #[test]
+    fn test_lbfgsb_hager_zhang() {
+        let mut solver = LBFGSB::default();
+        let mut problem = Rosenbrock { n: 2 };
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver
+                .process(
+                    &mut problem,
+                    &(),
+                    LBFGSBConfig::new(starting_value).with_line_search(
+                        StrongWolfeLineSearch::HagerZhang(HagerZhangLineSearch::default()),
+                    ),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();

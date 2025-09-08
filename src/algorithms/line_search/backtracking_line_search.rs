@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{Boundable, Gradient, LineSearch},
+    traits::{linesearch::LineSearchOutput, Boundable, Gradient, LineSearch},
     DVector, Float,
 };
 
@@ -30,16 +30,16 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
-    ) -> Result<(bool, Float, Float, DVector<Float>), E> {
+    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
-        let phi = |alpha: Float, ud: &U, st: &mut GradientStatus| -> Result<Float, E> {
+        let phi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
-            problem.evaluate(&(x + p.scale(alpha)).constrain_to(bounds), ud)
+            problem.evaluate(&(x + p.scale(alpha)).constrain_to(bounds), args)
         };
-        let dphi = |alpha: Float, ud: &U, st: &mut GradientStatus| -> Result<Float, E> {
+        let dphi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
             Ok(problem
-                .gradient(&(x + p.scale(alpha)).constrain_to(bounds), ud)?
+                .gradient(&(x + p.scale(alpha)).constrain_to(bounds), args)?
                 .dot(p))
         };
         let phi_0 = phi(0.0, args, status)?;
@@ -50,7 +50,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
             if armijo {
                 let g_alpha_i =
                     problem.gradient(&(x + p.scale(alpha_i)).constrain_to(bounds), args)?;
-                return Ok((true, alpha_i, phi_alpha_i, g_alpha_i));
+                return Ok(Ok(LineSearchOutput {
+                    alpha: alpha_i,
+                    fx: phi_alpha_i,
+                    g: g_alpha_i,
+                }));
             }
             alpha_i *= self.rho;
             phi_alpha_i = phi(alpha_i, args, status)?;

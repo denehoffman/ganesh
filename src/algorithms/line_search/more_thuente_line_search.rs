@@ -1,23 +1,26 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{Boundable, Gradient, LineSearch},
+    traits::{linesearch::LineSearchOutput, Boundable, Gradient, LineSearch},
     DVector, Float,
 };
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical
-/// Optimization"[^1] (pages 60-61). This algorithm upholds the strong Wolfe conditions.
+/// Optimization"[^1] (pages 60-61). This algorithm upholds the strong Wolfe conditions. This is
+/// the algorithm described by Moré and Thuente in [^2].
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
+///
+/// [^2]: [J. J. Moré and D. J. Thuente, "Line search algorithms with guaranteed sufficient decrease," ACM Trans. Math. Softw., vol. 20, no. 3, pp. 286–307, Sept. 1994, doi: 10.1145/192115.192132.](https://doi.org/10.1145/192115.192132)
 #[derive(Clone)]
-pub struct StrongWolfeLineSearch {
+pub struct MoreThuenteLineSearch {
     max_iters: usize,
     max_zoom: usize,
     c1: Float,
     c2: Float,
 }
 
-impl Default for StrongWolfeLineSearch {
+impl Default for MoreThuenteLineSearch {
     fn default() -> Self {
         Self {
             max_iters: 100,
@@ -28,7 +31,7 @@ impl Default for StrongWolfeLineSearch {
     }
 }
 
-impl StrongWolfeLineSearch {
+impl MoreThuenteLineSearch {
     /// Set the maximum allowed iterations of the algorithm (defaults to 100).
     pub const fn with_max_iterations(mut self, max_iters: usize) -> Self {
         self.max_iters = max_iters;
@@ -64,7 +67,7 @@ impl StrongWolfeLineSearch {
     }
 }
 
-impl StrongWolfeLineSearch {
+impl MoreThuenteLineSearch {
     fn f_eval<U, E>(
         &self,
         func: &dyn Gradient<U, E>,
@@ -100,7 +103,7 @@ impl StrongWolfeLineSearch {
         alpha_lo: Float,
         alpha_hi: Float,
         status: &mut GradientStatus,
-    ) -> Result<(bool, Float, Float, DVector<Float>), E> {
+    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let mut alpha_lo = alpha_lo;
         let mut alpha_hi = alpha_hi;
         let dphi0 = g0.dot(p);
@@ -118,7 +121,11 @@ impl StrongWolfeLineSearch {
                 let g_i = self.g_eval(func, &x, bounds, args, status)?;
                 let dphi = g_i.dot(p);
                 if Float::abs(dphi) <= -self.c2 * dphi0 {
-                    return Ok((true, alpha_i, f_i, g_i));
+                    return Ok(Ok(LineSearchOutput {
+                        alpha: alpha_i,
+                        fx: f_i,
+                        g: g_i,
+                    }));
                 }
                 if dphi * (alpha_hi - alpha_lo) >= 0.0 {
                     alpha_hi = alpha_lo;
@@ -129,13 +136,25 @@ impl StrongWolfeLineSearch {
             i += 1;
             if i > self.max_zoom {
                 let g_i = self.g_eval(func, &x, bounds, args, status)?;
-                return Ok((valid, alpha_i, f_i, g_i));
+                if valid {
+                    return Ok(Ok(LineSearchOutput {
+                        alpha: alpha_i,
+                        fx: f_i,
+                        g: g_i,
+                    }));
+                } else {
+                    return Ok(Err(LineSearchOutput {
+                        alpha: alpha_i,
+                        fx: f_i,
+                        g: g_i,
+                    }));
+                }
             }
         }
     }
 }
 
-impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
+impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
     fn search(
         &mut self,
         x0: &DVector<Float>,
@@ -145,10 +164,10 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
-    ) -> Result<(bool, Float, Float, DVector<Float>), E> {
+    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let f0 = self.f_eval(problem, x0, bounds, args, status)?;
         let g0 = self.g_eval(problem, x0, bounds, args, status)?;
-        let alpha_max = max_step.map_or(1.0, |alpha_max| alpha_max);
+        let alpha_max = max_step.unwrap_or(1.0); // TODO: 1e5?
         let mut alpha_im1 = 0.0;
         let mut alpha_i = 1.0;
         let mut f_im1 = f0;
@@ -165,7 +184,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
             let g_i = self.g_eval(problem, &x, bounds, args, status)?;
             let dphi = g_i.dot(p);
             if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
-                return Ok((true, alpha_i, f_i, g_i));
+                return Ok(Ok(LineSearchOutput {
+                    alpha: alpha_i,
+                    fx: f_i,
+                    g: g_i,
+                }));
             }
             if dphi >= 0.0 {
                 return self.zoom(
@@ -177,7 +200,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
             alpha_i += 0.8 * (alpha_max - alpha_i);
             i += 1;
             if i > self.max_iters {
-                return Ok((false, alpha_i, f_i, g_i));
+                return Ok(Err(LineSearchOutput {
+                    alpha: alpha_i,
+                    fx: f_i,
+                    g: g_i,
+                }));
             }
         }
     }
