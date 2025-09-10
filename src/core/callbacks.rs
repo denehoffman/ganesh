@@ -114,9 +114,9 @@ impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::core::DebugObserver;
 ///
-/// let mut problem = Rosenbrock { n: 2 };
+/// let problem = Rosenbrock { n: 2 };
 /// let mut nm = NelderMead::default();
-/// let result = nm.process(&mut problem, &mut (), NelderMeadConfig::new([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
+/// let result = nm.process(&problem, &(), NelderMeadConfig::new([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(result.converged);
 /// ```

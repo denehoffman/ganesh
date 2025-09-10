@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_pso() {
-        let mut problem = Rastrigin { n: 2 };
+        let problem = Rastrigin { n: 2 };
         // Create and seed a random number generator
         let mut rng = Rng::new();
         rng.seed(0);
@@ -294,7 +294,7 @@ mod tests {
         // Run the particle swarm optimizer
         let result = solver
             .process(
-                &mut problem,
+                &problem,
                 &(),
                 PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
                     bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],

@@ -165,10 +165,10 @@ pub fn integrated_autocorrelation_times(
 /// use ganesh::traits::*;
 /// use approx::assert_relative_eq;
 ///
-/// let mut problem = Rosenbrock { n: 2 };
+/// let problem = Rosenbrock { n: 2 };
 /// let mut rng = Rng::new();
 /// // Use a seed that will converge in a reasonable amount of time
-/// rng.seed(9301690130845527930);
+/// rng.seed(0);
 /// let x0: Vec<DVector<Float>> = (0..5)
 ///     .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
 ///     .collect();
@@ -177,7 +177,7 @@ pub fn integrated_autocorrelation_times(
 ///     .with_verbose(true)
 ///     .build();
 /// let mut sampler = ESS::new(Some(1));
-/// let result = sampler.process(&mut problem, &(),
+/// let result = sampler.process(&problem, &(),
 /// ESSConfig::new(x0.clone()).with_moves([ESSMove::gaussian(0.1),
 /// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco.clone())).unwrap();
 ///
@@ -320,9 +320,9 @@ mod tests {
 
     #[test]
     fn test_autocorrelation_terminator() {
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let mut rng = Rng::new();
-        rng.seed(9301690130845527930);
+        rng.seed(0);
         let x0: Vec<DVector<Float>> = (0..5)
             .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
             .collect();
@@ -338,7 +338,7 @@ mod tests {
         let mut sampler = ESS::new(Some(1));
         let result = sampler
             .process(
-                &mut problem,
+                &problem,
                 &(),
                 ESSConfig::new(x0).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
                 Callbacks::empty().with_terminator(aco.clone()),

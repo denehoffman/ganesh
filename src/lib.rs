@@ -55,9 +55,9 @@
 //! #     }
 //! # }
 //! fn main() -> Result<(), Infallible> {
-//!     let mut problem = Rosenbrock { n: 2 };
+//!     let problem = Rosenbrock { n: 2 };
 //!     let mut nm = NelderMead::default();
-//!     let result = nm.process(&mut problem,
+//!     let result = nm.process(&problem,
 //!                             &(),
 //!                             NelderMeadConfig::new([2.0, 2.0]),
 //!                             NelderMead::default_callbacks())?;
