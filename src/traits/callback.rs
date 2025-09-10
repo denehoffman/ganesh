@@ -1,37 +1,5 @@
 use parking_lot::Mutex;
-use std::{convert::Infallible, ops::ControlFlow, sync::Arc};
-
-/// A trait for all kinds of callbacks used in [`Algorithm`](`crate::traits::Algorithm`)s.
-///
-/// These can be implemented for different kinds of [`Algorithm`](`crate::traits::Algorithm`)s (`A`), problems (`P`), [`Status`](`crate::traits::Status`)es (`S`), and user data (`U`). These are the least restrictive of all callbacks, able to mutate any of their inputs aside from the current step.
-pub trait Callback<A, P, S, U = (), E = Infallible> {
-    /// A callback method which is called on each step of an [`Algorithm`](`crate::traits::Algorithm`).
-    fn callback(
-        &mut self,
-        current_step: usize,
-        algorithm: &mut A,
-        problem: &mut P,
-        status: &mut S,
-        args: &U,
-    ) -> ControlFlow<()>;
-}
-
-impl<C, A, P, S, U, E> Callback<A, P, S, U, E> for Arc<Mutex<C>>
-where
-    C: Callback<A, P, S, U, E>,
-{
-    fn callback(
-        &mut self,
-        current_step: usize,
-        algorithm: &mut A,
-        problem: &mut P,
-        status: &mut S,
-        args: &U,
-    ) -> ControlFlow<()> {
-        self.lock()
-            .callback(current_step, algorithm, problem, status, args)
-    }
-}
+use std::{ops::ControlFlow, sync::Arc};
 
 /// A trait for all kinds of terminators used in [`Algorithm`](`crate::traits::Algorithm`)s.
 ///
@@ -70,28 +38,14 @@ where
 /// These can be implemented for different kinds of [`Algorithm`](`crate::traits::Algorithm`)s (`A`), problems (`P`), [`Status`](`crate::traits::Status`)es (`S`), and user data (`U`). This is the most restrictive type of callback and is not able to mutate any of its inputs aside from itself.
 pub trait Observer<A, P, S, U, E> {
     /// An observation method which is called on each step of an [`Algorithm`](`crate::traits::Algorithm`).
-    fn observe(
-        &mut self,
-        current_step: usize,
-        algorithm: &A,
-        problem: &P,
-        status: &S,
-        args: &U,
-    );
+    fn observe(&mut self, current_step: usize, algorithm: &A, problem: &P, status: &S, args: &U);
 }
 
 impl<O, A, P, S, U, E> Observer<A, P, S, U, E> for Arc<Mutex<O>>
 where
     O: Observer<A, P, S, U, E>,
 {
-    fn observe(
-        &mut self,
-        current_step: usize,
-        algorithm: &A,
-        problem: &P,
-        status: &S,
-        args: &U,
-    ) {
+    fn observe(&mut self, current_step: usize, algorithm: &A, problem: &P, status: &S, args: &U) {
         self.lock()
             .observe(current_step, algorithm, problem, status, args)
     }

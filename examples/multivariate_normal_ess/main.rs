@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(-0.5 * x.dot(&(args * x)))
         }
     }
-    let mut problem = Problem;
+    let problem = Problem;
 
     // Create and seed a random number generator
     let mut rng = Rng::new();
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // and Gaussian steps the other 10%
     // Run a maximum of 1000 steps of the MCMC algorithm
     let result = sampler.process(
-        &mut problem,
+        &problem,
         &cov_inv,
         ESSConfig::new(x0.clone()).with_moves([
             ESSMove::gaussian(0.1),

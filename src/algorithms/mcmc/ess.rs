@@ -302,7 +302,7 @@ where
     type Config = ESSConfig;
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut EnsembleStatus,
         args: &U,
         config: &Self::Config,
@@ -315,7 +315,7 @@ where
     fn step(
         &mut self,
         current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut EnsembleStatus,
         args: &U,
         config: &Self::Config,
@@ -945,9 +945,9 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let cfg = ESSConfig::new(walkers);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
+        let f = Rosenbrock { n: 2 };
 
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
         assert_eq!(status.walkers.len(), 3);
 
         let summary = ess.summarize(0, &f, &status, &(), &cfg).unwrap();

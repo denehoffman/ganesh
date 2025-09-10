@@ -603,7 +603,7 @@ where
     type Config = NelderMeadConfig;
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientFreeStatus,
         args: &U,
         config: &Self::Config,
@@ -619,7 +619,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientFreeStatus,
         args: &U,
         config: &Self::Config,
@@ -795,7 +795,7 @@ mod tests {
     #[test]
     fn test_nelder_mead() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -807,7 +807,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     NelderMeadConfig::new(starting_value),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
@@ -821,7 +821,7 @@ mod tests {
     #[test]
     fn test_bounded_nelder_mead() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -833,7 +833,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     NelderMeadConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
@@ -847,7 +847,7 @@ mod tests {
     #[test]
     fn test_adaptive_nelder_mead() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -859,7 +859,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     NelderMeadConfig::new(starting_value).with_adaptive(2),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
@@ -929,14 +929,14 @@ mod tests {
     #[test]
     fn terminates_with_f_amoeba() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
         let callbacks =
             Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba { eps_rel: 0.01 });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = AMOEBA");
     }
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn terminates_with_f_absolute() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -952,7 +952,7 @@ mod tests {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = ABSOLUTE");
     }
@@ -960,7 +960,7 @@ mod tests {
     #[test]
     fn terminates_with_f_stddev() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -968,7 +968,7 @@ mod tests {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_f = STDDEV");
     }
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn terminates_with_x_diameter() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -984,7 +984,7 @@ mod tests {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = DIAMETER");
     }
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn terminates_with_x_higham() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -1000,7 +1000,7 @@ mod tests {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = HIGHAM");
     }
@@ -1008,7 +1008,7 @@ mod tests {
     #[test]
     fn terminates_with_x_rowan() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -1016,7 +1016,7 @@ mod tests {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = ROWAN");
     }
@@ -1024,7 +1024,7 @@ mod tests {
     #[test]
     fn terminates_with_x_singer() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let cfg = NelderMeadConfig::new([0.5, -0.5]);
 
@@ -1032,7 +1032,7 @@ mod tests {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&mut problem, &(), cfg, callbacks).unwrap();
+        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
         assert!(result.converged);
         assert_eq!(result.message, "term_x = SINGER");
     }
@@ -1108,10 +1108,10 @@ mod tests {
     #[test]
     fn expansion_and_construction_method_switches_are_accepted() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let result = solver
             .process(
-                &mut problem,
+                &problem,
                 &(),
                 NelderMeadConfig::custom(vec![
                     dvector![0.5, -0.5],
@@ -1162,10 +1162,10 @@ mod tests {
     #[test]
     fn check_bounds_and_num_gradient_evals() {
         let mut solver = NelderMead::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let result = solver
             .process(
-                &mut problem,
+                &problem,
                 &(),
                 NelderMeadConfig::new([-3.0, 3.0]).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),

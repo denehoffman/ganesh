@@ -1,6 +1,6 @@
 use crate::{
     core::{Bound, Bounds, Callbacks},
-    traits::{Callback, Status},
+    traits::{Status, Terminator},
 };
 use std::convert::Infallible;
 
@@ -21,7 +21,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut S,
         args: &U,
         config: &Self::Config,
@@ -35,7 +35,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     fn step(
         &mut self,
         current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut S,
         args: &U,
         config: &Self::Config,
@@ -89,7 +89,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn process<C>(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         args: &U,
         config: Self::Config,
         callbacks: C,
@@ -106,7 +106,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
             self.step(current_step, problem, &mut status, args, &config)?;
 
             if cbs
-                .callback(current_step, self, problem, &mut status, args)
+                .check_for_termination(current_step, self, problem, &mut status, args)
                 .is_break()
             {
                 break;
@@ -131,7 +131,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
     fn process_default(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         user_data: &U,
         config: Self::Config,
     ) -> Result<Self::Summary, E>

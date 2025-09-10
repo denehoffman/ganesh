@@ -5,8 +5,9 @@ use crate::{
     DVector, Float,
 };
 
-/// The line search algorithm from Hager and Zhang (2006)[^1]. This is intended to be used with a
-/// conjugate gradient algorithm, but as it satisfies the strong Wolfe conditions, it can be used
+/// The line search algorithm from Hager and Zhang (2006)[^1].
+///
+/// This is intended to be used with a conjugate gradient algorithm, but as it satisfies the strong Wolfe conditions, it can be used
 /// with the [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`) algorithm as well, although it tends to result in more function/gradient
 /// evaluations than the [`MoreThuenteLineSearch`](`crate::algorithms::line_search::MoreThuenteLineSearch`).
 ///
@@ -151,7 +152,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         };
         let dphi = |dphi_vec: &DVector<Float>| -> Float { dphi_vec.dot(p) };
         let secant = |a: Float, dphi_a: Float, b: Float, dphi_b: Float| -> Float {
-            (a * dphi_b - b * dphi_a) / (dphi_b - dphi_a)
+            a.mul_add(dphi_b, -(b * dphi_a)) / (dphi_b - dphi_a)
         };
         let phi_0 = phi(0.0, status)?;
         let g_0 = dphi_vec(0.0, status)?;
@@ -166,19 +167,19 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
                 let dphi_c = dphi(&dphi_vec(c, st)?);
                 if dphi_c >= 0.0 {
                     // U1
-                    return Ok((a, c));
+                    Ok((a, c))
                 } else {
                     let phi_c = phi(c, st)?;
                     if phi_c <= phi_0 + epsilon_k {
                         // U2
-                        return Ok((c, b));
+                        Ok((c, b))
                     } else {
                         // U3
                         let mut a_hat = a;
                         let mut b_hat = c;
                         let mut i = 0;
                         loop {
-                            let d = (1.0 - self.theta) * a_hat + self.theta * b_hat;
+                            let d = (1.0 - self.theta).mul_add(a_hat, self.theta * b_hat);
                             let dphi_d = dphi(&dphi_vec(d, st)?);
                             if dphi_d >= 0.0 || i >= self.max_bisects {
                                 // U3a
@@ -207,12 +208,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
             let c = secant(a, dphi_a, b, dphi_b);
             let (a_star, b_star) = update(a, b, c, st)?;
             if c == a_star {
-                return update(
+                update(
                     a_star,
                     b_star,
                     secant(a, dphi_a, a_star, dphi(&dphi_vec(a_star, st)?)),
                     st,
-                );
+                )
             } else if c == b_star {
                 return update(
                     a_star,
@@ -237,7 +238,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         // T2: 4.1 & phi(a_k) <= phi(0) + e_k
         // 4.1: (2 delta - 1) phi'(0) >= phi'(a_k) >= sigma phi'(0)
         let check_t2 = |phi_alpha: Float, dphi_alpha: Float| -> bool {
-            let c1 = (2.0 * self.delta - 1.0) * dphi_0 >= dphi_alpha;
+            let c1 = Float::mul_add(2.0, self.delta, -1.0) * dphi_0 >= dphi_alpha;
             let c2 = dphi_alpha >= self.sigma * dphi_0;
             let c3 = phi_alpha <= phi_0 + epsilon_k;
             c1 && c2 && c3

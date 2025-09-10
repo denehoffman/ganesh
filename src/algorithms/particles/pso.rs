@@ -213,7 +213,7 @@ where
     type Config = PSOConfig;
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut SwarmStatus,
         args: &U,
         config: &Self::Config,
@@ -235,7 +235,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut SwarmStatus,
         args: &U,
         config: &Self::Config,

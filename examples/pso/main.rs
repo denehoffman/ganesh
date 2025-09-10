@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))
         }
     }
-    let mut problem = Problem;
+    let problem = Problem;
 
     // Create and seed a random number generator
     let mut rng = Rng::new();
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run the particle swarm optimizer
     let mut pso = PSO::default();
     let result = pso.process(
-        &mut problem,
+        &problem,
         &(),
         PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
             bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],

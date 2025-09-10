@@ -198,7 +198,7 @@ where
     type Config = AIESConfig;
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut EnsembleStatus,
         args: &U,
         config: &Self::Config,
@@ -210,7 +210,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut EnsembleStatus,
         args: &U,
         config: &Self::Config,
@@ -288,10 +288,10 @@ mod tests {
 
         let walkers = make_walkers(3, 2);
         let config = AIESConfig::new(walkers.clone());
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let mut status = EnsembleStatus::default();
 
-        aies.initialize(&mut problem, &mut status, &(), &config)
+        aies.initialize(&problem, &mut status, &(), &config)
             .unwrap();
         assert_eq!(status.walkers.len(), walkers.len());
 
@@ -302,18 +302,16 @@ mod tests {
     #[test]
     fn test_aies_step_runs() {
         let mut aies = AIES::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
 
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
         let config = AIESConfig::new(walkers).with_moves(moves);
 
         let mut status = EnsembleStatus::default();
-        aies.initialize(&mut problem, &mut status, &(), &config)
+        aies.initialize(&problem, &mut status, &(), &config)
             .unwrap();
 
-        assert!(aies
-            .step(0, &mut problem, &mut status, &(), &config)
-            .is_ok());
+        assert!(aies.step(0, &problem, &mut status, &(), &config).is_ok());
     }
 }

@@ -1,4 +1,4 @@
-use crate::traits::{Algorithm, Callback, Status};
+use crate::traits::{Algorithm, Status, Terminator};
 use std::ops::ControlFlow;
 
 /// A trait for abort signals.
@@ -12,17 +12,17 @@ pub trait AbortSignal {
     fn reset(&self);
 }
 
-impl<T, A, P, S, U, E> Callback<A, P, S, U, E> for T
+impl<T, A, P, S, U, E> Terminator<A, P, S, U, E> for T
 where
     T: AbortSignal,
     A: Algorithm<P, S, U, E>,
     S: Status,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         _current_step: usize,
         _algorithm: &mut A,
-        _problem: &mut P,
+        _problem: &P,
         _status: &mut S,
         _args: &U,
     ) -> ControlFlow<()> {

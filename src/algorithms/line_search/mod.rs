@@ -27,7 +27,7 @@ pub enum StrongWolfeLineSearch {
 }
 impl Default for StrongWolfeLineSearch {
     fn default() -> Self {
-        StrongWolfeLineSearch::MoreThuente(Default::default())
+        Self::MoreThuente(Default::default())
     }
 }
 impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
@@ -42,10 +42,10 @@ impl<U, E> LineSearch<GradientStatus, U, E> for StrongWolfeLineSearch {
         status: &mut GradientStatus,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         match self {
-            StrongWolfeLineSearch::MoreThuente(more_thuente_line_search) => {
+            Self::MoreThuente(more_thuente_line_search) => {
                 more_thuente_line_search.search(x, p, max_step, problem, bounds, args, status)
             }
-            StrongWolfeLineSearch::HagerZhang(hager_zhang_line_search) => {
+            Self::HagerZhang(hager_zhang_line_search) => {
                 hager_zhang_line_search.search(x, p, max_step, problem, bounds, args, status)
             }
         }

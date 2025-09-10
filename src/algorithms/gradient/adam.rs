@@ -143,7 +143,7 @@ where
 
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientStatus,
         args: &U,
         config: &Self::Config,
@@ -165,7 +165,7 @@ where
     fn step(
         &mut self,
         i_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientStatus,
         args: &U,
         config: &Self::Config,
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_adam() {
         let mut solver = Adam::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -251,7 +251,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     AdamConfig::new(starting_value),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_bounded_adam() {
         let mut solver = Adam::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -277,7 +277,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     AdamConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),

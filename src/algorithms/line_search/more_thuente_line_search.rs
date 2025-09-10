@@ -6,8 +6,9 @@ use crate::{
 };
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical
-/// Optimization"[^1] (pages 60-61). This algorithm upholds the strong Wolfe conditions. This is
-/// the algorithm described by Moré and Thuente in [^2].
+/// Optimization"[^1] (pages 60-61).
+///
+/// This algorithm upholds the strong Wolfe conditions. This is the algorithm originally described by Moré and Thuente in [^2].
 ///
 /// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
 ///

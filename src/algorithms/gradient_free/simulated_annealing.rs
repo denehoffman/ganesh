@@ -43,14 +43,14 @@ where
 pub trait SimulatedAnnealingGenerator<U, E>: CostFunction<U, E> {
     /// Returns the initial state of the algorithm.
     fn initial(
-        &mut self,
+        &self,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
         args: &U,
     ) -> Self::Input;
     /// Generates a new state based on the current state, cost function and the status.
     fn generate(
-        &mut self,
+        &self,
         bounds: Option<&Bounds>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
         args: &U,
@@ -158,7 +158,7 @@ where
     #[allow(clippy::expect_used)]
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
         config: &Self::Config,
@@ -177,7 +177,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
         config: &Self::Config,
@@ -272,7 +272,7 @@ mod tests {
         Self: Gradient<U, E>,
     {
         fn generate(
-            &mut self,
+            &self,
             bounds: Option<&Bounds>,
             status: &mut SimulatedAnnealingStatus<Self::Input>,
             args: &U,
@@ -286,7 +286,7 @@ mod tests {
         }
 
         fn initial(
-            &mut self,
+            &self,
             bounds: Option<&Bounds>,
             _status: &mut SimulatedAnnealingStatus<Self::Input>,
             _args: &U,
@@ -299,10 +299,10 @@ mod tests {
     #[test]
     fn test_simulated_annealing() {
         let mut solver = SimulatedAnnealing::new(Some(0));
-        let mut problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 });
+        let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 });
         let result = solver
             .process(
-                &mut problem,
+                &problem,
                 &(),
                 SimulatedAnnealingConfig::new(1.0, 0.999).with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
                 SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),

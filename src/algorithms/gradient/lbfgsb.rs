@@ -437,7 +437,7 @@ where
     type Config = LBFGSBConfig;
     fn initialize(
         &mut self,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientStatus,
         args: &U,
         config: &Self::Config,
@@ -483,7 +483,7 @@ where
     fn step(
         &mut self,
         _current_step: usize,
-        problem: &mut P,
+        problem: &P,
         status: &mut GradientStatus,
         args: &U,
         config: &Self::Config,
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn test_lbfgsb() {
         let mut solver = LBFGSB::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -621,7 +621,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     LBFGSBConfig::new(starting_value),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn test_lbfgsb_hager_zhang() {
         let mut solver = LBFGSB::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -646,7 +646,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     LBFGSBConfig::new(starting_value).with_line_search(
                         StrongWolfeLineSearch::HagerZhang(HagerZhangLineSearch::default()),
@@ -662,7 +662,7 @@ mod tests {
     #[test]
     fn test_bounded_lbfgsb() {
         let mut solver = LBFGSB::default();
-        let mut problem = Rosenbrock { n: 2 };
+        let problem = Rosenbrock { n: 2 };
         let starting_values = vec![
             [-2.0, 2.0],
             [2.0, 2.0],
@@ -674,7 +674,7 @@ mod tests {
         for starting_value in starting_values {
             let result = solver
                 .process(
-                    &mut problem,
+                    &problem,
                     &(),
                     LBFGSBConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),

@@ -17,8 +17,8 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
                     let cbs = NelderMead::default_callbacks();
                     (problem, solver, base_cfg.clone(), cbs)
                 },
-                |(mut problem, mut solver, cfg, cbs)| {
-                    let result = solver.process(&mut problem, &(), cfg, cbs).unwrap();
+                |(problem, mut solver, cfg, cbs)| {
+                    let result = solver.process(&problem, &(), cfg, cbs).unwrap();
                     black_box(result);
                 },
                 BatchSize::SmallInput,
@@ -36,8 +36,8 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
                         let cbs = NelderMead::default_callbacks();
                         (problem, solver, base_cfg.clone(), cbs)
                     },
-                    |(mut problem, mut solver, cfg, cbs)| {
-                        let result = solver.process(&mut problem, &(), cfg, cbs).unwrap();
+                    |(problem, mut solver, cfg, cbs)| {
+                        let result = solver.process(&problem, &(), cfg, cbs).unwrap();
                         black_box(result);
                     },
                     BatchSize::SmallInput,

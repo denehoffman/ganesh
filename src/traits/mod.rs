@@ -6,9 +6,9 @@ pub use abort_signal::AbortSignal;
 pub mod algorithm;
 pub use algorithm::{Algorithm, Bounded};
 
-/// Module containing the [`Callback`] trait.
+/// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
-pub use callback::{Callback, Observer, Terminator};
+pub use callback::{Observer, Terminator};
 
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;

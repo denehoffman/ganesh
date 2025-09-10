@@ -1,8 +1,7 @@
-use crate::traits::{Algorithm, Callback, Observer, Status, Terminator};
+use crate::traits::{Algorithm, Observer, Status, Terminator};
 use std::{fmt::Debug, ops::ControlFlow};
 
 enum CallbackLike<A, P, S, U, E> {
-    Callback(Box<dyn Callback<A, P, S, U, E>>),
     Terminator(Box<dyn Terminator<A, P, S, U, E>>),
     Observer(Box<dyn Observer<A, P, S, U, E>>),
 }
@@ -11,14 +10,11 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
         &mut self,
         current_step: usize,
         algorithm: &mut A,
-        problem: &mut P,
+        problem: &P,
         status: &mut S,
         args: &U,
     ) -> ControlFlow<()> {
         match self {
-            Self::Callback(callback) => {
-                callback.callback(current_step, algorithm, problem, status, args)
-            }
             Self::Terminator(terminator) => {
                 terminator.check_for_termination(current_step, algorithm, problem, status, args)
             }
@@ -36,16 +32,6 @@ impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
     /// Create an empty set of [`Callback`]s.
     pub const fn empty() -> Self {
         Self(Vec::new())
-    }
-    /// Return the set of [`Callbacks`] with an additional [`Callback`] added.
-    pub fn with_callback<C>(mut self, callback: C) -> Self
-    where
-        C: Callback<A, P, S, U, E> + 'static,
-        A: Algorithm<P, S, U, E>,
-        S: Status,
-    {
-        self.0.push(CallbackLike::Callback(Box::new(callback)));
-        self
     }
 
     /// Return the set of [`Callbacks`] with an additional [`Terminator`] added.
@@ -70,16 +56,16 @@ impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
         self
     }
 }
-impl<A, P, S, U, E> Callback<A, P, S, U, E> for Callbacks<A, P, S, U, E>
+impl<A, P, S, U, E> Terminator<A, P, S, U, E> for Callbacks<A, P, S, U, E>
 where
     A: Algorithm<P, S, U, E>,
     S: Status,
 {
-    fn callback(
+    fn check_for_termination(
         &mut self,
         current_step: usize,
         algorithm: &mut A,
-        problem: &mut P,
+        problem: &P,
         status: &mut S,
         args: &U,
     ) -> ControlFlow<()> {
