@@ -1,4 +1,9 @@
-use crate::{core::Bounds, DVector, Float};
+use std::borrow::Cow;
+
+use crate::{
+    core::{Bound, Bounds},
+    DVector, Float,
+};
 use fastrand::Rng;
 
 /// A trait for types which can be constrained to a set of [`Bounds`].
@@ -10,10 +15,24 @@ pub trait Boundable {
     /// Returns the signed amount that [`self`] exceeds the given [`Bounds`].
     fn excess_from(&self, bounds: &Bounds) -> Self;
     /// Transform [`self`] to an instance constrained inside the given [`Bounds`].
-    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self;
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Cow<Self>
+    where
+        Self: Clone;
     /// Transform [`self`] from an instance constrained inside the given [`Bounds`] to an
     /// unconstrained instance.
-    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self;
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Cow<Self>
+    where
+        Self: Clone;
+    /// Transform a pair of [`Boundable`]s into a set of [`Bounds`].
+    fn pack(lower: &Self, upper: &Self) -> Bounds;
+    /// Unpack a set of [`Bounds`] into a pair of [`Boundable`]s (lower, upper).
+    fn unpack(bounds: &Bounds) -> (Self, Self)
+    where
+        Self: Sized;
+    /// Restrict a [`Boundable`] by clipping it within a set of [`Bounds`].
+    fn clip_to(&self, bounds: Option<&Bounds>) -> Cow<Self>
+    where
+        Self: Clone;
 }
 impl Boundable for Vec<Float> {
     fn random_vector_in(bounds: &Bounds, rng: &mut Rng) -> Self {
@@ -35,26 +54,60 @@ impl Boundable for Vec<Float> {
             .collect()
     }
 
-    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self {
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
         bounds.map_or_else(
-            || self.clone(),
+            || Cow::Borrowed(self),
             |bounds| {
-                self.iter()
-                    .zip(bounds.iter())
-                    .map(|(val, bound)| bound.to_bounded(*val))
-                    .collect()
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.to_bounded(*val))
+                        .collect(),
+                )
             },
         )
     }
 
-    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self {
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Cow<Self> {
         bounds.map_or_else(
-            || self.clone(),
+            || Cow::Borrowed(self),
             |bounds| {
-                self.iter()
-                    .zip(bounds.iter())
-                    .map(|(val, bound)| bound.to_unbounded(*val))
-                    .collect()
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.to_unbounded(*val))
+                        .collect(),
+                )
+            },
+        )
+    }
+
+    fn pack(lower: &Self, upper: &Self) -> Bounds {
+        lower
+            .into_iter()
+            .zip(upper.into_iter())
+            .map(|(l, u)| Bound::from((l, u)))
+            .collect::<Vec<Bound>>()
+            .into()
+    }
+
+    fn unpack(bounds: &Bounds) -> (Self, Self) {
+        (
+            bounds.iter().map(|b| b.lower()).collect(),
+            bounds.iter().map(|b| b.upper()).collect(),
+        )
+    }
+
+    fn clip_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
+        bounds.map_or_else(
+            || Cow::Borrowed(self),
+            |bounds| {
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.clip_value(*val))
+                        .collect(),
+                )
             },
         )
     }
@@ -85,28 +138,63 @@ impl Boundable for DVector<Float> {
             .into()
     }
 
-    fn constrain_to(&self, bounds: Option<&Bounds>) -> Self {
+    fn constrain_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
         bounds.map_or_else(
-            || self.clone(),
+            || Cow::Borrowed(self),
             |bounds| {
-                self.iter()
-                    .zip(bounds.iter())
-                    .map(|(val, bound)| bound.to_bounded(*val))
-                    .collect::<Vec<_>>()
-                    .into()
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.to_bounded(*val))
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
             },
         )
     }
 
-    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Self {
+    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Cow<Self> {
         bounds.map_or_else(
-            || self.clone(),
+            || Cow::Borrowed(self),
             |bounds| {
-                self.iter()
-                    .zip(bounds.iter())
-                    .map(|(val, bound)| bound.to_unbounded(*val))
-                    .collect::<Vec<_>>()
-                    .into()
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.to_unbounded(*val))
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
+            },
+        )
+    }
+
+    fn pack(lower: &Self, upper: &Self) -> Bounds {
+        lower
+            .into_iter()
+            .zip(upper.into_iter())
+            .map(|(l, u)| Bound::from((*l, *u)))
+            .collect::<Vec<Bound>>()
+            .into()
+    }
+
+    fn unpack(bounds: &Bounds) -> (Self, Self) {
+        (
+            DVector::from_vec(bounds.iter().map(|b| b.lower()).collect()),
+            DVector::from_vec(bounds.iter().map(|b| b.upper()).collect()),
+        )
+    }
+
+    fn clip_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
+        bounds.map_or_else(
+            || Cow::Borrowed(self),
+            |bounds| {
+                Cow::Owned(
+                    self.iter()
+                        .zip(bounds.iter())
+                        .map(|(val, bound)| bound.clip_value(*val))
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
             },
         )
     }

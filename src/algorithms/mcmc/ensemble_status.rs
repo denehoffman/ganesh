@@ -1,7 +1,7 @@
 use crate::{
     algorithms::mcmc::{integrated_autocorrelation_times, Walker},
     core::Point,
-    traits::{LogDensity, Status},
+    traits::{LogDensity, Status, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -94,22 +94,37 @@ impl EnsembleStatus {
             .map(|&j| self.walkers[j].clone())
             .collect()
     }
-    /// Get the average position of all [`Walker`]s
-    pub fn mean(&self) -> DVector<Float> {
+    /// Get the average position of all [`Walker`]s in interior coordinates
+    pub fn interior_mean<T>(&self, transform: Option<&T>) -> DVector<Float>
+    where
+        T: Transform<DVector<Float>> + Clone,
+    {
         self.walkers
             .iter()
-            .map(|walker| walker.get_latest().read().x.clone())
+            .map(|walker| {
+                transform
+                    .exterior_to_interior(&walker.get_latest().read().x)
+                    .into_owned()
+            })
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
-    /// Get the average position of all [`Walker`]s except for the one at the provided `index`
-    pub fn mean_compliment(&self, index: usize) -> DVector<Float> {
+    /// Get the average position of all [`Walker`]s except for the one at the provided `index` in
+    /// interior coordinates
+    pub fn interior_mean_compliment<T>(&self, index: usize, transform: Option<&T>) -> DVector<Float>
+    where
+        T: Transform<DVector<Float>> + Clone,
+    {
         self.walkers
             .iter()
             .enumerate()
             .filter_map(|(i, walker)| {
                 if i != index {
-                    Some(walker.get_latest().read().x.clone())
+                    Some(
+                        transform
+                            .exterior_to_interior(&walker.get_latest().read().x)
+                            .into_owned(),
+                    )
                 } else {
                     None
                 }
@@ -176,11 +191,18 @@ impl EnsembleStatus {
 
     /// Returns a matrix with the latest position of each walker in the ensemble with dimensions
     /// `(n_walkers, n_variables)`
-    pub fn get_latest_position_matrix(&self) -> DMatrix<Float> {
+    pub fn get_latest_interior_position_matrix<T>(&self, transform: Option<&T>) -> DMatrix<Float>
+    where
+        T: Transform<DVector<Float>> + Clone,
+    {
         let position: Vec<RowDVector<Float>> = self
             .walkers
             .iter()
-            .map(|walker| walker.get_latest().read().x.clone().transpose())
+            .map(|walker| {
+                transform
+                    .exterior_to_interior(&walker.get_latest().read().x)
+                    .transpose()
+            })
             .collect::<Vec<RowDVector<Float>>>();
         DMatrix::from_rows(position.as_slice())
     }

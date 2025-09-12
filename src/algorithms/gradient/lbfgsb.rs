@@ -1,6 +1,6 @@
 use crate::algorithms::line_search::StrongWolfeLineSearch;
 use crate::traits::linesearch::LineSearchOutput;
-use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
+use crate::traits::{Algorithm, Gradient, LineSearch, SupportsBounds, Terminator};
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{Bound, Bounds, Callbacks, MinimizationSummary},
@@ -26,7 +26,7 @@ impl Default for LBFGSBFTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBFTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
 where
     P: Gradient<U, E>,
 {
@@ -37,6 +37,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
             status.set_converged();
@@ -65,7 +66,7 @@ impl Default for LBFGSBGTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
 where
     P: Gradient<U, E>,
 {
@@ -76,6 +77,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
             status.set_converged();
@@ -98,7 +100,7 @@ impl Default for LBFGSBInfNormGTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
 where
     P: Gradient<U, E>,
 {
@@ -109,6 +111,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
             status.set_converged();
@@ -134,13 +137,12 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
-    /// The line search algorithm used by the [`LBFGSB`] algorithm.
     line_search: StrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
 }
-impl Bounded for LBFGSBConfig {
+impl SupportsBounds for LBFGSBConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
@@ -587,7 +589,7 @@ where
         self.s_store = VecDeque::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {

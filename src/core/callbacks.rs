@@ -1,11 +1,15 @@
 use crate::traits::{Algorithm, Observer, Status, Terminator};
 use std::{fmt::Debug, ops::ControlFlow};
 
-enum CallbackLike<A, P, S, U, E> {
-    Terminator(Box<dyn Terminator<A, P, S, U, E>>),
-    Observer(Box<dyn Observer<A, P, S, U, E>>),
+enum CallbackLike<A, P, S, U, E, C> {
+    Terminator(Box<dyn Terminator<A, P, S, U, E, C>>),
+    Observer(Box<dyn Observer<A, P, S, U, E, C>>),
 }
-impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
+impl<A, P, S, U, E, C> CallbackLike<A, P, S, U, E, C>
+where
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status,
+{
     fn callback(
         &mut self,
         current_step: usize,
@@ -13,13 +17,19 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
         problem: &P,
         status: &mut S,
         args: &U,
+        config: &C,
     ) -> ControlFlow<()> {
         match self {
-            Self::Terminator(terminator) => {
-                terminator.check_for_termination(current_step, algorithm, problem, status, args)
-            }
+            Self::Terminator(terminator) => terminator.check_for_termination(
+                current_step,
+                algorithm,
+                problem,
+                status,
+                args,
+                config,
+            ),
             Self::Observer(observer) => {
-                observer.observe(current_step, algorithm, problem, status, args);
+                observer.observe(current_step, algorithm, problem, status, args, config);
                 ControlFlow::Continue(())
             }
         }
@@ -27,8 +37,8 @@ impl<A, P, S, U, E> CallbackLike<A, P, S, U, E> {
 }
 
 /// A set of [`Callback`]s which can be used as an input to [`Algorithm::process`].
-pub struct Callbacks<A, P, S, U, E>(Vec<CallbackLike<A, P, S, U, E>>);
-impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
+pub struct Callbacks<A, P, S, U, E, C>(Vec<CallbackLike<A, P, S, U, E, C>>);
+impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C> {
     /// Create an empty set of [`Callback`]s.
     pub const fn empty() -> Self {
         Self(Vec::new())
@@ -37,8 +47,8 @@ impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
     /// Return the set of [`Callbacks`] with an additional [`Terminator`] added.
     pub fn with_terminator<T>(mut self, terminator: T) -> Self
     where
-        T: Terminator<A, P, S, U, E> + 'static,
-        A: Algorithm<P, S, U, E>,
+        T: Terminator<A, P, S, U, E, C> + 'static,
+        A: Algorithm<P, S, U, E, Config = C>,
         S: Status,
     {
         self.0.push(CallbackLike::Terminator(Box::new(terminator)));
@@ -48,17 +58,17 @@ impl<A, P, S, U, E> Callbacks<A, P, S, U, E> {
     /// Return the set of [`Callbacks`] with an additional [`Observer`] added.
     pub fn with_observer<O>(mut self, observer: O) -> Self
     where
-        O: Observer<A, P, S, U, E> + 'static,
-        A: Algorithm<P, S, U, E>,
+        O: Observer<A, P, S, U, E, C> + 'static,
+        A: Algorithm<P, S, U, E, Config = C>,
         S: Status,
     {
         self.0.push(CallbackLike::Observer(Box::new(observer)));
         self
     }
 }
-impl<A, P, S, U, E> Terminator<A, P, S, U, E> for Callbacks<A, P, S, U, E>
+impl<A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for Callbacks<A, P, S, U, E, C>
 where
-    A: Algorithm<P, S, U, E>,
+    A: Algorithm<P, S, U, E, Config = C>,
     S: Status,
 {
     fn check_for_termination(
@@ -68,10 +78,11 @@ where
         problem: &P,
         status: &mut S,
         args: &U,
+        config: &C,
     ) -> ControlFlow<()> {
         if self.0.iter_mut().any(|callback| {
             callback
-                .callback(current_step, algorithm, problem, status, args)
+                .callback(current_step, algorithm, problem, status, args, config)
                 .is_break()
         }) {
             return ControlFlow::Break(());
@@ -87,7 +98,11 @@ impl Default for MaxSteps {
         Self(4000)
     }
 }
-impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
+impl<A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for MaxSteps
+where
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status,
+{
     fn check_for_termination(
         &mut self,
         current_step: usize,
@@ -95,6 +110,7 @@ impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
         _problem: &P,
         _status: &mut S,
         _args: &U,
+        _config: &C,
     ) -> ControlFlow<()> {
         if current_step >= self.0 {
             return ControlFlow::Break(());
@@ -121,9 +137,10 @@ impl<A, P, S, U, E> Terminator<A, P, S, U, E> for MaxSteps {
 /// assert!(result.converged);
 /// ```
 pub struct DebugObserver;
-impl<A, P, S, U, E> Observer<A, P, S, U, E> for DebugObserver
+impl<A, P, S, U, E, C> Observer<A, P, S, U, E, C> for DebugObserver
 where
-    S: Debug,
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status + Debug,
     U: Debug,
 {
     fn observe(
@@ -133,6 +150,7 @@ where
         _problem: &P,
         status: &S,
         _args: &U,
+        _config: &C,
     ) {
         println!("Step: {}\n{:#?}", current_step, status);
     }

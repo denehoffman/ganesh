@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{utils::maybe_warn, Bounds, Callbacks, MinimizationSummary},
-    traits::{Algorithm, Boundable, Bounded, Gradient, Terminator},
+    core::{Callbacks, MinimizationSummary},
+    traits::{algorithm::SupportsTransform, Algorithm, Gradient, Terminator, Transform},
     DMatrix, DVector, Float,
 };
 use std::ops::ControlFlow;
@@ -26,7 +26,7 @@ impl Default for AdamEMATerminator {
         }
     }
 }
-impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E> for AdamEMATerminator
+impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E, AdamConfig> for AdamEMATerminator
 where
     P: Gradient<U, E>,
 {
@@ -37,6 +37,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &AdamConfig,
     ) -> ControlFlow<()> {
         let prev_ema_loss = algorithm.ema_loss;
         algorithm.ema_loss = self
@@ -63,7 +64,7 @@ where
 #[derive(Clone)]
 pub struct AdamConfig {
     x0: DVector<Float>,
-    bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform<DVector<Float>>>>,
     alpha: Float,
     beta_1: Float,
     beta_2: Float,
@@ -77,7 +78,7 @@ impl AdamConfig {
     {
         Self {
             x0: DVector::from_row_slice(x0.as_ref()),
-            bounds: None,
+            transform: None,
             alpha: 0.001,
             beta_1: 0.9,
             beta_2: 0.999,
@@ -112,9 +113,9 @@ impl AdamConfig {
         self
     }
 }
-impl Bounded for AdamConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
+impl SupportsTransform<DVector<Float>> for AdamConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+        &mut self.transform
     }
 }
 
@@ -148,14 +149,11 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        if config.bounds.is_some() {
-            maybe_warn("The Adam optimizer has experimental support for bounded parameters, but it may be unstable and fail to converge!");
-        }
-        let bounds = config.bounds.as_ref();
-        self.x = config.x0.unconstrain_from(bounds);
+        let transform = config.transform.as_ref();
+        self.x = transform.exterior_to_interior(&config.x0).into_owned();
         self.g = DVector::zeros(self.x.len());
-        self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
-        status.with_position((self.x.constrain_to(bounds), self.f));
+        self.f = problem.evaluate(&config.x0, args)?;
+        status.with_position((config.x0.clone(), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
@@ -170,8 +168,8 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let bounds = config.bounds.as_ref();
-        self.g = problem.gradient(&self.x.constrain_to(bounds), args)?;
+        let transform = config.transform.as_ref();
+        self.g = problem.gradient(&transform.interior_to_exterior(&self.x), args)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
         self.v =
@@ -182,9 +180,10 @@ where
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
-        self.f = problem.evaluate(&self.x.constrain_to(bounds), args)?;
+        let x_ext = transform.interior_to_exterior(&self.x);
+        self.f = problem.evaluate(&x_ext, args)?;
         status.inc_n_f_evals();
-        status.with_position((self.x.constrain_to(bounds), self.f));
+        status.with_position((x_ext.into_owned(), self.f));
         Ok(())
     }
 
@@ -200,7 +199,7 @@ where
             x0: config.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
-            bounds: config.bounds.clone(),
+            bounds: None,
             converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
@@ -222,7 +221,7 @@ where
         self.ema_counter = 0;
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -233,7 +232,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::MaxSteps, test_functions::Rosenbrock};
+    use crate::{
+        core::{Bounds, MaxSteps},
+        test_functions::Rosenbrock,
+    };
     use approx::assert_relative_eq;
 
     #[test]
@@ -279,7 +281,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    AdamConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    AdamConfig::new(starting_value)
+                        .with_transform(Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();

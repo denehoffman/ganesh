@@ -4,7 +4,7 @@ pub use abort_signal::AbortSignal;
 
 /// Module containing the [`Algorithm`] and [`Bounded`] traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, Bounded};
+pub use algorithm::{Algorithm, SupportsBounds};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
@@ -25,3 +25,7 @@ pub use status::Status;
 /// Module containing the [`Boundable`] trait.
 pub mod boundable;
 pub use boundable::Boundable;
+
+/// Module containing the [`Transform`] trait.
+pub mod transform;
+pub use transform::Transform;

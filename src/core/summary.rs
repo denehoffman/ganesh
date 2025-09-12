@@ -1,5 +1,5 @@
 use crate::{
-    core::bound::{Bound, Bounds},
+    core::transforms::{Bound, Bounds},
     DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
@@ -217,6 +217,48 @@ pub struct MCMCSummary {
     pub converged: bool,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
+}
+
+impl MCMCSummary {
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
+        let burn = burn.unwrap_or(0);
+        let thin = thin.unwrap_or(1);
+        self.chain
+            .iter()
+            .map(|walker| {
+                walker
+                    .iter()
+                    .skip(burn)
+                    .enumerate()
+                    .filter_map(|(i, position)| {
+                        if i % thin == 0 {
+                            Some(position.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
+        let chain = self.get_chain(burn, thin);
+        chain.into_iter().flatten().collect()
+    }
 }
 
 impl HasParameterNames for MCMCSummary {

@@ -1,6 +1,6 @@
 use crate::{
     core::{utils::SampleFloat, Bounds, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{Algorithm, Bounded, CostFunction, Status, Terminator},
+    traits::{Algorithm, CostFunction, Status, SupportsBounds, Terminator},
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,8 @@ impl Default for SimulatedAnnealingTerminator {
         }
     }
 }
-impl<P, U, E, I> Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E>
+impl<P, U, E, I>
+    Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E, SimulatedAnnealingConfig>
     for SimulatedAnnealingTerminator
 where
     P: SimulatedAnnealingGenerator<U, E, Input = I>,
@@ -31,6 +32,7 @@ where
         _problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         _args: &U,
+        _config: &SimulatedAnnealingConfig,
     ) -> ControlFlow<()> {
         if status.temperature < self.min_temperature {
             return ControlFlow::Break(());
@@ -84,7 +86,7 @@ impl SimulatedAnnealingConfig {
         }
     }
 }
-impl Bounded for SimulatedAnnealingConfig {
+impl SupportsBounds for SimulatedAnnealingConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
     }
@@ -167,7 +169,10 @@ where
         let x0 = problem.initial(bounds, status, args);
         let fx0 = problem.evaluate(&x0, args)?;
         status.temperature = config.initial_temperature;
-        status.current = Point { x: x0, fx: fx0 };
+        status.current = Point {
+            x: x0,
+            fx: Some(fx0),
+        };
         status.initial = status.current.clone();
         status.best = status.current.clone();
         status.iteration = 0;
@@ -186,14 +191,14 @@ where
         let fx = problem.evaluate(&x, args)?;
         status.cost_evals += 1;
 
-        status.current = Point { x, fx };
+        status.current = Point { x, fx: Some(fx) };
         status.temperature *= config.cooling_rate;
         status.iteration += 1;
 
         let acceptance_probability = if status.current.fx < status.best.fx {
             1.0
         } else {
-            let d_fx = status.current.fx - status.best.fx;
+            let d_fx = status.current.fx_checked() - status.best.fx_checked();
             (-d_fx / status.temperature).exp()
         };
 
@@ -216,13 +221,13 @@ where
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
-            fx: status.best.fx,
+            fx: status.best.fx_checked(),
             cost_evals: status.cost_evals,
             converged: status.converged,
         })
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -282,7 +287,7 @@ mod tests {
                 .gradient(&status.current.x, args)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
-            x.constrain_to(bounds)
+            x.constrain_to(bounds).into_owned()
         }
 
         fn initial(
@@ -292,7 +297,7 @@ mod tests {
             _args: &U,
         ) -> Self::Input {
             #[allow(clippy::expect_used)]
-            DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds)
+            DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds).into_owned()
         }
     }
 

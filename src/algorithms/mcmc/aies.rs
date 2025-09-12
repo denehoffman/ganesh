@@ -2,9 +2,9 @@ use crate::{
     algorithms::mcmc::{EnsembleStatus, Walker},
     core::{
         utils::{RandChoice, SampleFloat},
-        Bounds, MCMCSummary, Point,
+        MCMCSummary, Point,
     },
-    traits::{Algorithm, Bounded, LogDensity, Status},
+    traits::{algorithm::SupportsTransform, Algorithm, LogDensity, Status, Transform},
     DVector, Float,
 };
 use fastrand::Rng;
@@ -35,15 +35,17 @@ impl AIESMove {
     pub const fn walk(weight: Float) -> WeightedAIESMove {
         (Self::Walk, weight)
     }
-    fn step<P, U, E>(
+    fn step<P, T, U, E>(
         &self,
         problem: &P,
+        transform: Option<&T>,
         args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
         P: LogDensity<U, E, Input = DVector<Float>>,
+        T: Transform<DVector<Float>> + Clone,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -79,9 +81,13 @@ impl AIESMove {
                     let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
                     let x_l = &ensemble.get_compliment_walker(i, rng).get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
-                    let mut proposal =
-                        Point::from(&x_l.read().x - (&x_k.read().x - &x_l.read().x).scale(z));
-                    proposal.log_density(problem, args)?;
+                    let mut proposal = Point::from(
+                        transform.exterior_to_interior(&x_l.read().x).as_ref()
+                            - (transform.exterior_to_interior(&x_k.read().x).as_ref()
+                                - transform.exterior_to_interior(&x_l.read().x).as_ref())
+                            .scale(z),
+                    );
+                    proposal.log_density_transformed(problem, transform, args)?;
                     // The acceptance probability should then be (in an n-dimensional problem),
                     //
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
@@ -105,22 +111,28 @@ impl AIESMove {
                     //
                     // W = ⅀ Zₗ(Xₗ - X̅ₛ)
                     //   Xₗ∈S
-                    let x_s = ensemble.mean_compliment(i);
+                    let x_s = ensemble.interior_mean_compliment(i, transform);
                     let w = ensemble
                         .iter_compliment(i)
-                        .map(|x_l| (&x_l.read().x - &x_s).scale(rng.normal(0.0, 1.0)))
+                        .map(|x_l| {
+                            (transform.exterior_to_interior(&x_l.read().x).as_ref() - &x_s)
+                                .scale(rng.normal(0.0, 1.0))
+                        })
                         .sum::<DVector<Float>>();
-                    let mut proposal = Point::from(&x_k.read().x + w);
+                    let mut proposal =
+                        Point::from(transform.exterior_to_interior(&x_k.read().x).as_ref() + w);
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
-                    proposal.log_density(problem, args)?;
+                    proposal.log_density_transformed(problem, transform, args)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
                     let r = proposal.fx_checked() - x_k.read().fx_checked();
                     (proposal, r)
                 }
             };
             if r > rng.float().ln() {
-                positions.push(Arc::new(RwLock::new(proposal)))
+                positions.push(Arc::new(RwLock::new(
+                    proposal.interior_to_exterior(transform),
+                )))
             } else {
                 positions.push(x_k)
             }
@@ -133,13 +145,13 @@ impl AIESMove {
 /// The internal configuration struct for the [`AIES`] algorithm.
 #[derive(Clone)]
 pub struct AIESConfig {
-    bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform<DVector<Float>>>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedAIESMove>,
 }
-impl Bounded for AIESConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
+impl SupportsTransform<DVector<Float>> for AIESConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+        &mut self.transform
     }
 }
 impl AIESConfig {
@@ -151,7 +163,7 @@ impl AIESConfig {
     /// [`Walker::new`]
     pub fn new(x0: Vec<DVector<Float>>) -> Self {
         Self {
-            bounds: Default::default(),
+            transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![AIESMove::stretch(1.0)],
         }
@@ -220,7 +232,13 @@ where
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
         let step_type = config.moves[step_type_index].0;
-        step_type.step(problem, args, status, &mut self.rng)
+        step_type.step(
+            problem,
+            config.transform.as_ref(),
+            args,
+            status,
+            &mut self.rng,
+        )
     }
 
     fn summarize(
@@ -229,10 +247,10 @@ where
         _func: &P,
         status: &EnsembleStatus,
         _args: &U,
-        config: &Self::Config,
+        _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: config.bounds.clone(),
+            bounds: None,
             parameter_names: None,
             message: status.message().to_string(),
             chain: status.get_chain(None, None),
@@ -246,7 +264,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_functions::Rosenbrock;
+    use crate::{core::Bounds, test_functions::Rosenbrock};
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
@@ -272,12 +290,12 @@ mod tests {
         let mut status = EnsembleStatus::default();
 
         AIESMove::Stretch { a: 2.0 }
-            .step(&problem, &(), &mut status, &mut rng)
+            .step::<_, Bounds, _, _>(&problem, None, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Stretch Move"));
 
         AIESMove::Walk
-            .step(&problem, &(), &mut status, &mut rng)
+            .step::<_, Bounds, _, _>(&problem, None, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Walk Move"));
     }

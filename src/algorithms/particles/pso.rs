@@ -1,7 +1,9 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{utils::generate_random_vector, Bounds, MinimizationSummary},
-    traits::{Algorithm, Bounded, CostFunction, Status},
+    traits::{
+        algorithm::SupportsTransform, Algorithm, CostFunction, Status, SupportsBounds, Transform,
+    },
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -12,6 +14,7 @@ use std::cmp::Ordering;
 pub struct PSOConfig {
     swarm: Swarm,
     bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform<DVector<Float>>>>,
     omega: Float,
     c1: Float,
     c2: Float,
@@ -22,6 +25,7 @@ impl PSOConfig {
         Self {
             swarm,
             bounds: None,
+            transform: None,
             omega: 0.8,
             c1: 0.1,
             c2: 0.1,
@@ -61,9 +65,14 @@ impl PSOConfig {
         self
     }
 }
-impl Bounded for PSOConfig {
+impl SupportsBounds for PSOConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
+    }
+}
+impl SupportsTransform<DVector<Float>> for PSOConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+        &mut self.transform
     }
 }
 
@@ -162,6 +171,7 @@ impl PSO {
                 func,
                 args,
                 config.bounds.as_ref(),
+                config.transform.as_ref(),
                 status.swarm.boundary_method,
             )?;
         }
@@ -192,6 +202,7 @@ impl PSO {
                 func,
                 args,
                 config.bounds.as_ref(),
+                config.transform.as_ref(),
                 status.swarm.boundary_method,
             )?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
@@ -254,7 +265,7 @@ where
         Ok(MinimizationSummary {
             x0: DVector::from_element(status.gbest.x.len(), 0.0),
             x: status.gbest.x.clone(),
-            fx: status.gbest.fx,
+            fx: status.gbest.fx_checked(),
             bounds: config.bounds.clone(),
             converged: status.converged,
             cost_evals: status.n_f_evals,
