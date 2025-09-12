@@ -13,6 +13,14 @@ pub trait Transform<I: Clone>: DynClone {
     fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
     /// Transform a set of internal parameters to an equivalent set of external parameters.
     fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
+    /// Transform a set of external parameters to an equivalent owned set of internal parameters.
+    fn into_internal<'a>(&'a self, x: &'a I) -> I {
+        self.to_internal(x).into_owned()
+    }
+    /// Transform a set of internal parameters to an equivalent owned set of external parameters.
+    fn into_external<'a>(&'a self, x: &'a I) -> I {
+        self.to_external(x).into_owned()
+    }
 
     /// Combine this transform with another one, such that the resulting transform applies them in
     /// sequence ()

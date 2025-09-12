@@ -627,4 +627,14 @@ mod tests {
             _ => panic!("Expected LowerAndUpperBound"),
         }
     }
+
+    #[test]
+    fn test_into_transforms() {
+        let id = Identity;
+        let val = DVector::from(vec![7.0]);
+        let res_int = id.into_internal(&val);
+        let res_ext = id.into_external(&val);
+        assert_eq!(res_int, DVector::from(vec![7.0]));
+        assert_eq!(res_ext, DVector::from(vec![7.0]));
+    }
 }
