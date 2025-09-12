@@ -117,7 +117,7 @@ impl SimplexConstructionMethod {
                 orthogonal_zero_step,
             } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(transform.exterior_to_interior(&x0).into_owned());
+                let mut point_0 = Point::from(transform.to_internal(&x0).into_owned());
                 point_0.evaluate_transformed(func, transform, args)?;
                 points.push(point_0.clone());
                 let dim = point_0.x.len();
@@ -149,7 +149,7 @@ impl SimplexConstructionMethod {
             }
             Self::Orthogonal { x0, simplex_size } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(transform.exterior_to_interior(&x0).into_owned());
+                let mut point_0 = Point::from(transform.to_internal(&x0).into_owned());
                 point_0.evaluate_transformed(func, transform, args)?;
                 points.push(point_0.clone());
                 let dim = point_0.x.len();
@@ -183,8 +183,7 @@ impl SimplexConstructionMethod {
                     &simplex
                         .iter()
                         .map(|x| {
-                            let mut point_i =
-                                Point::from(transform.exterior_to_interior(&x).into_owned());
+                            let mut point_i = Point::from(transform.to_internal(&x).into_owned());
                             // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
                             if let Some(bounds) = bounds {
                                 point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
@@ -263,7 +262,7 @@ impl Simplex {
     {
         let best = self.best();
         (
-            transform.interior_to_exterior(&best.x).into_owned(),
+            transform.to_external(&best.x).into_owned(),
             best.fx_checked(),
         )
     }

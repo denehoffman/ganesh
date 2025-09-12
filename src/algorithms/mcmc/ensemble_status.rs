@@ -94,8 +94,8 @@ impl EnsembleStatus {
             .map(|&j| self.walkers[j].clone())
             .collect()
     }
-    /// Get the average position of all [`Walker`]s in interior coordinates
-    pub fn interior_mean<T>(&self, transform: Option<&T>) -> DVector<Float>
+    /// Get the average position of all [`Walker`]s in internal coordinates
+    pub fn internal_mean<T>(&self, transform: Option<&T>) -> DVector<Float>
     where
         T: Transform<DVector<Float>> + Clone,
     {
@@ -103,15 +103,15 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 transform
-                    .exterior_to_interior(&walker.get_latest().read().x)
+                    .to_internal(&walker.get_latest().read().x)
                     .into_owned()
             })
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
     /// Get the average position of all [`Walker`]s except for the one at the provided `index` in
-    /// interior coordinates
-    pub fn interior_mean_compliment<T>(&self, index: usize, transform: Option<&T>) -> DVector<Float>
+    /// internal coordinates
+    pub fn internal_mean_compliment<T>(&self, index: usize, transform: Option<&T>) -> DVector<Float>
     where
         T: Transform<DVector<Float>> + Clone,
     {
@@ -122,7 +122,7 @@ impl EnsembleStatus {
                 if i != index {
                     Some(
                         transform
-                            .exterior_to_interior(&walker.get_latest().read().x)
+                            .to_internal(&walker.get_latest().read().x)
                             .into_owned(),
                     )
                 } else {
@@ -191,7 +191,7 @@ impl EnsembleStatus {
 
     /// Returns a matrix with the latest position of each walker in the ensemble with dimensions
     /// `(n_walkers, n_variables)`
-    pub fn get_latest_interior_position_matrix<T>(&self, transform: Option<&T>) -> DMatrix<Float>
+    pub fn get_latest_internal_position_matrix<T>(&self, transform: Option<&T>) -> DMatrix<Float>
     where
         T: Transform<DVector<Float>> + Clone,
     {
@@ -200,7 +200,7 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 transform
-                    .exterior_to_interior(&walker.get_latest().read().x)
+                    .to_internal(&walker.get_latest().read().x)
                     .transpose()
             })
             .collect::<Vec<RowDVector<Float>>>();

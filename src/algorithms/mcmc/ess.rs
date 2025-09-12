@@ -106,8 +106,8 @@ impl ESSMove {
                     let s = &ensemble.get_compliment_walkers(i, 2, rng);
                     let x_l = s[0].get_latest();
                     let x_m = s[1].get_latest();
-                    let eta = (transform.exterior_to_interior(&x_l.read().x).as_ref()
-                        - transform.exterior_to_interior(&x_m.read().x).as_ref())
+                    let eta = (transform.to_internal(&x_l.read().x).as_ref()
+                        - transform.to_internal(&x_m.read().x).as_ref())
                     .scale(*mu);
                     eta
                 }
@@ -120,11 +120,11 @@ impl ESSMove {
                     //
                     // W = ⅀ Zₗ(Xₗ - X̅ₛ)
                     //   Xₗ∈S
-                    let x_s = ensemble.interior_mean_compliment(i, transform);
+                    let x_s = ensemble.internal_mean_compliment(i, transform);
                     ensemble
                         .iter_compliment(i)
                         .map(|x_l| {
-                            (transform.exterior_to_interior(&x_l.read().x).as_ref() - &x_s)
+                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>()
@@ -157,21 +157,21 @@ impl ESSMove {
             };
             // Y ~ U(0, f(Xₖ(t)))
             let y = x_k.read().fx_checked() + rng.float().ln();
-            let x_k_interior = transform.exterior_to_interior(&x_k.read().x).into_owned();
+            let x_k_internal = transform.to_internal(&x_k.read().x).into_owned();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
-            let mut p_l = Point::from(&x_k_interior + eta.scale(l));
+            let mut p_l = Point::from(&x_k_internal + eta.scale(l));
             p_l.log_density_transformed(problem, transform, args)?;
             // R <- L + 1
             let mut r = l + 1.0;
-            let mut p_r = Point::from(&x_k_interior + eta.scale(r));
+            let mut p_r = Point::from(&x_k_internal + eta.scale(r));
             p_r.log_density_transformed(problem, transform, args)?;
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
-                p_l.set_position(&x_k_interior + eta.scale(l));
+                p_l.set_position(&x_k_internal + eta.scale(l));
                 p_l.log_density_transformed(problem, transform, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
@@ -180,7 +180,7 @@ impl ESSMove {
             while y < p_r.fx_checked() && n_expand < max_steps {
                 // R <- R + 1
                 r += 1.0;
-                p_r.set_position(&x_k_interior + eta.scale(r));
+                p_r.set_position(&x_k_internal + eta.scale(r));
                 p_r.log_density_transformed(problem, transform, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
@@ -190,7 +190,7 @@ impl ESSMove {
                 // X' ~ U(L, R)
                 let xprime = rng.range(l, r);
                 // Y' <- f(X'ηₖ + Xₖ(t))
-                let mut p_yprime = Point::from(&x_k_interior + eta.scale(xprime));
+                let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
                 p_yprime.log_density_transformed(problem, transform, args)?;
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
@@ -207,11 +207,9 @@ impl ESSMove {
                 n_contract += 1;
             };
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
-            let mut proposal = Point::from(x_k_interior + eta.scale(xprime));
+            let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
             proposal.log_density_transformed(problem, transform, args)?;
-            positions.push(Arc::new(RwLock::new(
-                proposal.interior_to_exterior(transform),
-            )))
+            positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
         }
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
         if step <= n_adaptive {
@@ -776,10 +774,10 @@ where
     T: Transform<DVector<Float>> + Clone,
 {
     let (n_walkers, _, n_parameters) = ensemble.dimension();
-    let data = ensemble.get_latest_interior_position_matrix(transform);
+    let data = ensemble.get_latest_internal_position_matrix(transform);
     let weight_concentration_prior = 1.0 / n_components as Float;
     let mean_precision_prior = 1.0;
-    let mean_prior = ensemble.interior_mean(transform);
+    let mean_prior = ensemble.internal_mean(transform);
     let degrees_of_freedom_prior = n_parameters as Float;
     let covariance_prior = cov(&data.transpose());
 

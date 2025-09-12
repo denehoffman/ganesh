@@ -241,8 +241,8 @@ impl Bounds {
         I: Boundable + Clone,
     {
         let (l, u) = I::unpack(self);
-        let l_int = transform.exterior_to_interior(&l);
-        let u_int = transform.exterior_to_interior(&u);
+        let l_int = transform.to_internal(&l);
+        let u_int = transform.to_internal(&u);
         I::pack(l_int.as_ref(), u_int.as_ref())
     }
 }
@@ -290,11 +290,11 @@ impl<T> Transform<T> for Bounds
 where
     T: Boundable + Clone,
 {
-    fn exterior_to_interior<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
+    fn to_internal<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
         x.unconstrain_from(Some(self))
     }
 
-    fn interior_to_exterior<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
+    fn to_external<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
         x.constrain_to(Some(self))
     }
 }
@@ -357,7 +357,7 @@ impl SymmetricPositiveSemidefiniteTransform {
     }
 }
 impl Transform<DVector<Float>> for SymmetricPositiveSemidefiniteTransform {
-    fn exterior_to_interior(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
+    fn to_internal(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
         let cov = self.unpack(&x);
         #[allow(clippy::expect_used)]
         let chol = cov
@@ -368,29 +368,29 @@ impl Transform<DVector<Float>> for SymmetricPositiveSemidefiniteTransform {
         let mut k = 0;
         for i in 0..self.dim {
             for j in 0..=i {
-                let exterior = l[(i, j)];
-                let interior = if i == j {
-                    (exterior.exp_m1()).ln()
+                let external = l[(i, j)];
+                let internal = if i == j {
+                    (external.exp_m1()).ln()
                 } else {
-                    exterior
+                    external
                 };
-                output[self.indices[k]] = interior;
+                output[self.indices[k]] = internal;
                 k += 1;
             }
         }
         Cow::Owned(output)
     }
 
-    fn interior_to_exterior(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
+    fn to_external(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
         let mut l = DMatrix::zeros(self.dim, self.dim);
         let mut k = 0;
         for i in 0..self.dim {
             for j in 0..=i {
-                let interior = x[self.indices[k]];
+                let internal = x[self.indices[k]];
                 l[(i, j)] = if i == j {
-                    interior.exp().ln_1p()
+                    internal.exp().ln_1p()
                 } else {
-                    interior
+                    internal
                 };
                 k += 1;
             }
@@ -502,14 +502,14 @@ mod tests {
         assert_eq!(bounds.into_inner(), vec![b]);
     }
 
-    /// A simple offset transform: adds +1.0 on `exterior_to_interior`, subtracts 1.0 on `interior_to_exterior`.
+    /// A simple offset transform: adds +1.0 on `external_to_internal`, subtracts 1.0 on `internal_to_external`.
     #[derive(Clone)]
     struct Offset;
     impl Transform<DVector<Float>> for Offset {
-        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x.add_scalar(1.0))
         }
-        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x.add_scalar(-1.0))
         }
     }
@@ -518,22 +518,22 @@ mod tests {
     #[derive(Clone)]
     struct Identity;
     impl Transform<DVector<Float>> for Identity {
-        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Borrowed(x)
         }
-        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Borrowed(x)
         }
     }
 
-    /// A scaling transform: multiplies by `factor` on `exterior_to_interior`, divides on `interior_to_exterior`.
+    /// A scaling transform: multiplies by `factor` on `external_to_internal`, divides on `internal_to_external`.
     #[derive(Clone)]
     struct Scale(Float);
     impl Transform<DVector<Float>> for Scale {
-        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x * self.0)
         }
-        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x / self.0)
         }
     }
@@ -542,35 +542,35 @@ mod tests {
     fn identity_roundtrip_borrowed() {
         let id = Identity;
         let val = DVector::from(vec![10.0]);
-        let res_interior = id.exterior_to_interior(&val);
-        assert!(matches!(res_interior, Cow::Borrowed(_)));
-        assert_eq!(res_interior[0], 10.0);
+        let res_internal = id.to_internal(&val);
+        assert!(matches!(res_internal, Cow::Borrowed(_)));
+        assert_eq!(res_internal[0], 10.0);
 
-        let res_exterior = id.interior_to_exterior(&val);
-        assert!(matches!(res_exterior, Cow::Borrowed(_)));
-        assert_eq!(res_exterior[0], 10.0);
+        let res_external = id.to_external(&val);
+        assert!(matches!(res_external, Cow::Borrowed(_)));
+        assert_eq!(res_external[0], 10.0);
     }
 
     #[test]
     fn offset_roundtrip_owned() {
         let off = Offset;
         let val = DVector::from(vec![10.0]);
-        let interior = off.exterior_to_interior(&val);
-        assert_eq!(interior[0], 11.0);
+        let internal = off.to_internal(&val);
+        assert_eq!(internal[0], 11.0);
 
-        let exterior = off.interior_to_exterior(&interior);
-        assert_eq!(exterior[0], 10.0);
+        let external = off.to_external(&internal);
+        assert_eq!(external[0], 10.0);
     }
 
     #[test]
     fn scale_roundtrip_owned() {
         let sc = Scale(2.0);
         let val = DVector::from(vec![4.0]);
-        let interior = sc.exterior_to_interior(&val);
-        assert_eq!(interior[0], 8.0);
+        let internal = sc.to_internal(&val);
+        assert_eq!(internal[0], 8.0);
 
-        let exterior = sc.interior_to_exterior(&interior);
-        assert_eq!(exterior[0], 4.0);
+        let external = sc.to_external(&internal);
+        assert_eq!(external[0], 4.0);
     }
 
     #[test]
@@ -580,10 +580,10 @@ mod tests {
         let chain = off.chain(&sc);
 
         let val = DVector::from(vec![3.0]);
-        let res = chain.exterior_to_interior(&val);
+        let res = chain.to_internal(&val);
         assert_eq!(res[0], (3.0 + 1.0) * 2.0);
 
-        let back = chain.interior_to_exterior(&res);
+        let back = chain.to_external(&res);
         assert_eq!(back[0], 3.0);
     }
 
@@ -594,10 +594,10 @@ mod tests {
         let chain = sc.chain(&off);
 
         let val = DVector::from(vec![3.0]);
-        let res = chain.exterior_to_interior(&val);
+        let res = chain.to_internal(&val);
         assert_eq!(res[0], (3.0 * 2.0) + 1.0);
 
-        let back = chain.interior_to_exterior(&res);
+        let back = chain.to_external(&res);
         assert_eq!(back[0], 3.0);
     }
 
@@ -607,7 +607,7 @@ mod tests {
         let chain = id.chain(&id);
 
         let val = DVector::from(vec![7.0]);
-        let res = chain.exterior_to_interior(&val);
+        let res = chain.to_internal(&val);
         assert!(matches!(res, Cow::Borrowed(_)));
         assert_eq!(res[0], 7.0);
     }

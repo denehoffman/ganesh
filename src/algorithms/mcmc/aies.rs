@@ -82,9 +82,9 @@ impl AIESMove {
                     let x_l = &ensemble.get_compliment_walker(i, rng).get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal = Point::from(
-                        transform.exterior_to_interior(&x_l.read().x).as_ref()
-                            - (transform.exterior_to_interior(&x_k.read().x).as_ref()
-                                - transform.exterior_to_interior(&x_l.read().x).as_ref())
+                        transform.to_internal(&x_l.read().x).as_ref()
+                            - (transform.to_internal(&x_k.read().x).as_ref()
+                                - transform.to_internal(&x_l.read().x).as_ref())
                             .scale(z),
                     );
                     proposal.log_density_transformed(problem, transform, args)?;
@@ -111,16 +111,16 @@ impl AIESMove {
                     //
                     // W = ⅀ Zₗ(Xₗ - X̅ₛ)
                     //   Xₗ∈S
-                    let x_s = ensemble.interior_mean_compliment(i, transform);
+                    let x_s = ensemble.internal_mean_compliment(i, transform);
                     let w = ensemble
                         .iter_compliment(i)
                         .map(|x_l| {
-                            (transform.exterior_to_interior(&x_l.read().x).as_ref() - &x_s)
+                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>();
                     let mut proposal =
-                        Point::from(transform.exterior_to_interior(&x_k.read().x).as_ref() + w);
+                        Point::from(transform.to_internal(&x_k.read().x).as_ref() + w);
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
                     proposal.log_density_transformed(problem, transform, args)?;
@@ -130,9 +130,7 @@ impl AIESMove {
                 }
             };
             if r > rng.float().ln() {
-                positions.push(Arc::new(RwLock::new(
-                    proposal.interior_to_exterior(transform),
-                )))
+                positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
             } else {
                 positions.push(x_k)
             }

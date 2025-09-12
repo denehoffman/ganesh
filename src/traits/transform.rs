@@ -2,17 +2,17 @@ use std::borrow::Cow;
 
 use dyn_clone::DynClone;
 
-/// This trait represents coordinate transforms between an interior and exterior parameter space.
+/// This trait represents coordinate transforms between an internal and external parameter space.
 ///
-/// Particularly, we think of exterior parameters as those the user wishes to access, while
-/// interior parameters are often easier to work with inside algorithms. [`Transform`]s may also be
+/// Particularly, we think of external parameters as those the user wishes to access, while
+/// internal parameters are often easier to work with inside algorithms. [`Transform`]s may also be
 /// [`chain`](`Transform::chain`)ed together to form pipelines of transforms (which may not be
 /// commutative).
 pub trait Transform<I: Clone>: DynClone {
-    /// Transform a set of exterior parameters to an equivalent set of interior parameters.
-    fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
-    /// Transform a set of interior parameters to an equivalent set of exterior parameters.
-    fn interior_to_exterior<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
+    /// Transform a set of external parameters to an equivalent set of internal parameters.
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
+    /// Transform a set of internal parameters to an equivalent set of external parameters.
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
 
     /// Combine this transform with another one, such that the resulting transform applies them in
     /// sequence ()
@@ -29,23 +29,23 @@ dyn_clone::clone_trait_object!(<I> Transform<I>);
 
 /// A chain of two [`Transform`]s.
 ///
-/// When going from exterior to interior coordinates, the first transform is applied first. When
-/// going from interior to exterior coordinates, the second transform is applied first.
+/// When going from external to internal coordinates, the first transform is applied first. When
+/// going from internal to external coordinates, the second transform is applied first.
 #[derive(Clone)]
 pub struct TransformChain<I: Clone>(Box<dyn Transform<I>>, Box<dyn Transform<I>>);
 
 impl<I: Clone> Transform<I> for TransformChain<I> {
-    fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        match self.0.exterior_to_interior(x) {
-            Cow::Borrowed(b) => self.1.exterior_to_interior(b),
-            Cow::Owned(o) => Cow::Owned(self.1.exterior_to_interior(&o).into_owned()),
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        match self.0.to_internal(x) {
+            Cow::Borrowed(b) => self.1.to_internal(b),
+            Cow::Owned(o) => Cow::Owned(self.1.to_internal(&o).into_owned()),
         }
     }
 
-    fn interior_to_exterior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        match self.1.interior_to_exterior(x) {
-            Cow::Borrowed(b) => self.0.interior_to_exterior(b),
-            Cow::Owned(o) => Cow::Owned(self.0.interior_to_exterior(&o).into_owned()),
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        match self.1.to_external(x) {
+            Cow::Borrowed(b) => self.0.to_external(b),
+            Cow::Owned(o) => Cow::Owned(self.0.to_external(&o).into_owned()),
         }
     }
 }
@@ -53,22 +53,22 @@ impl<I: Clone, T> Transform<I> for &T
 where
     T: Transform<I>,
 {
-    fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        (*self).exterior_to_interior(x)
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        (*self).to_internal(x)
     }
 
-    fn interior_to_exterior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        (*self).interior_to_exterior(x)
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        (*self).to_external(x)
     }
 }
 
 impl<I: Clone> Transform<I> for Box<dyn Transform<I>> {
-    fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        self.as_ref().exterior_to_interior(x)
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        self.as_ref().to_internal(x)
     }
 
-    fn interior_to_exterior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        self.as_ref().interior_to_exterior(x)
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        self.as_ref().to_external(x)
     }
 }
 
@@ -77,16 +77,16 @@ where
     I: Clone,
     T: Transform<I> + Clone,
 {
-    fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
         match self {
-            Some(t) => t.exterior_to_interior(x),
+            Some(t) => t.to_internal(x),
             None => Cow::Borrowed(x),
         }
     }
 
-    fn interior_to_exterior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
         match self {
-            Some(t) => t.interior_to_exterior(x),
+            Some(t) => t.to_external(x),
             None => Cow::Borrowed(x),
         }
     }

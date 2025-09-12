@@ -70,12 +70,12 @@ impl Swarm {
         );
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
-        particle_positions.iter_mut().for_each(|point| {
-            *point = transform.exterior_to_interior(&point.x).into_owned().into()
-        });
-        particle_velocities.iter_mut().for_each(|velocity| {
-            *velocity = transform.exterior_to_interior(&velocity).into_owned()
-        });
+        particle_positions
+            .iter_mut()
+            .for_each(|point| *point = transform.to_internal(&point.x).into_owned().into());
+        particle_velocities
+            .iter_mut()
+            .for_each(|velocity| *velocity = transform.to_internal(&velocity).into_owned());
         self.particles = particle_positions
             .into_iter()
             .zip(particle_velocities.into_iter())
@@ -338,18 +338,15 @@ impl SwarmParticle {
         T: Transform<DVector<Float>> + Clone,
     {
         let internal_bounds = bounds.clone().map(|b| b.apply(transform));
-        let position_internal = self.position.exterior_to_interior(transform);
-        let velocity_internal = transform.exterior_to_interior(&self.velocity);
+        let position_internal = self.position.to_internal(transform);
+        let velocity_internal = transform.to_internal(&self.velocity);
         let new_position_internal = position_internal.x + velocity_internal.as_ref();
         let mut evals = 0;
         if let Some(internal_bounds) = internal_bounds {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
-                    self.position.set_position(
-                        transform
-                            .interior_to_exterior(&new_position_internal)
-                            .into_owned(),
-                    );
+                    self.position
+                        .set_position(transform.to_external(&new_position_internal).into_owned());
                     if !new_position_internal.is_in(&internal_bounds) {
                         self.position.fx = Some(Float::INFINITY);
                     } else {
@@ -361,7 +358,7 @@ impl SwarmParticle {
                     let bounds_excess = new_position_internal.excess_from(&internal_bounds);
                     self.position.set_position(
                         transform
-                            .interior_to_exterior(&(new_position_internal - bounds_excess))
+                            .to_external(&(new_position_internal - bounds_excess))
                             .into_owned(),
                     );
                     self.position.evaluate(func, args)?;
@@ -369,11 +366,8 @@ impl SwarmParticle {
                 }
             }
         } else {
-            self.position.set_position(
-                transform
-                    .interior_to_exterior(&new_position_internal)
-                    .into_owned(),
-            );
+            self.position
+                .set_position(transform.to_external(&new_position_internal).into_owned());
             self.position.evaluate(func, args)?;
             evals += 1;
         }

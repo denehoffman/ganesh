@@ -150,7 +150,7 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transform = config.transform.as_ref();
-        self.x = transform.exterior_to_interior(&config.x0).into_owned();
+        self.x = transform.to_internal(&config.x0).into_owned();
         self.g = DVector::zeros(self.x.len());
         self.f = problem.evaluate(&config.x0, args)?;
         status.with_position((config.x0.clone(), self.f));
@@ -169,7 +169,7 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transform = config.transform.as_ref();
-        self.g = problem.gradient(&transform.interior_to_exterior(&self.x), args)?;
+        self.g = problem.gradient(&transform.to_external(&self.x), args)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
         self.v =
@@ -180,7 +180,7 @@ where
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
-        let x_ext = transform.interior_to_exterior(&self.x);
+        let x_ext = transform.to_external(&self.x);
         self.f = problem.evaluate(&x_ext, args)?;
         status.inc_n_f_evals();
         status.with_position((x_ext.into_owned(), self.f));

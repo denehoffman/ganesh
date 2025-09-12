@@ -97,7 +97,7 @@ where
         T: Transform<I> + Clone,
     {
         if self.fx.is_none() {
-            self.fx = Some(func.evaluate(&transform.interior_to_exterior(&self.x), args)?);
+            self.fx = Some(func.evaluate(&transform.to_external(&self.x), args)?);
         }
         Ok(())
     }
@@ -119,27 +119,27 @@ where
         T: Transform<I> + Clone,
     {
         if self.fx.is_none() {
-            self.fx = Some(func.log_density(&transform.interior_to_exterior(&self.x), args)?);
+            self.fx = Some(func.log_density(&transform.to_external(&self.x), args)?);
         }
         Ok(())
     }
-    /// Converts the point's `x` from an unbounded space to a bounded one.
-    pub fn interior_to_exterior<T>(&self, transform: Option<&T>) -> Self
+    /// Converts the point's `x` from an internal space to a external one.
+    pub fn to_external<T>(&self, transform: Option<&T>) -> Self
     where
         T: Transform<I> + Clone,
     {
         Self {
-            x: transform.interior_to_exterior(&self.x).into_owned(),
+            x: transform.to_external(&self.x).into_owned(),
             fx: self.fx,
         }
     }
-    /// Converts the point's `x` from a bounded space to an unbounded one.
-    pub fn exterior_to_interior<T>(&self, transform: Option<&T>) -> Self
+    /// Converts the point's `x` from a external space to an internal one.
+    pub fn to_internal<T>(&self, transform: Option<&T>) -> Self
     where
         T: Transform<I> + Clone,
     {
         Self {
-            x: transform.exterior_to_interior(&self.x).into_owned(),
+            x: transform.to_internal(&self.x).into_owned(),
             fx: self.fx,
         }
     }
@@ -276,7 +276,7 @@ mod tests {
         p.evaluate_transformed(&f, Some(&bounds), &()).unwrap();
         assert_eq!(p.fx, Some(1.0));
 
-        let constrained = p.interior_to_exterior(Some(&bounds));
+        let constrained = p.to_external(Some(&bounds));
         assert_eq!(constrained.fx, p.fx);
         assert!(constrained.x.len() == p.x.len());
     }
