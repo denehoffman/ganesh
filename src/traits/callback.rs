@@ -288,7 +288,7 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::gradient::{LBFGSBConfig, LBFGSB},
-        core::MaxSteps,
+        core::{summary::HasParameterNames, MaxSteps},
         test_functions::Rosenbrock,
     };
 
@@ -358,7 +358,8 @@ mod tests {
                     .with_observer(arc_mutex.clone())
                     .with_terminator(MaxSteps(5)),
             )
-            .unwrap();
+            .unwrap()
+            .with_parameter_names(["a", "b"]);
         assert_eq!(rc_refcel.borrow().0, 10); // 5 * 2 = 10 because each is called as both an
                                               // observer and a terminator
         assert_eq!(rc_rwlock.read().0, 10);
@@ -366,6 +367,10 @@ mod tests {
         assert_eq!(arc_refcel.borrow().0, 10);
         assert_eq!(arc_rwlock.read().0, 10);
         assert_eq!(arc_mutex.lock().0, 10);
-        assert_eq!(res.message, "Maximum number of steps reached (5)!")
+        assert_eq!(res.message, "Maximum number of steps reached (5)!");
+        assert_eq!(
+            res.parameter_names,
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
     }
 }

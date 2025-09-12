@@ -58,23 +58,6 @@ impl HasParameterNames for MinimizationSummary {
     }
 }
 
-impl MinimizationSummary {
-    /// Set the names associated with each parameter.
-    pub fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        self.parameter_names = Some(
-            parameter_names
-                .into_iter()
-                .map(|s| s.as_ref().to_string())
-                .collect(),
-        );
-        self
-    }
-}
-
 impl Display for MinimizationSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use tabled::{
