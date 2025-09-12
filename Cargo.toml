@@ -16,10 +16,6 @@ exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 [lib]
 bench = false
 
-[[bin]]
-name = "ganesh"
-bench = false
-
 [dependencies]
 nalgebra = { version = "0.34.0", features = ["serde-serialize"] }
 ctrlc = "3.5.0"
