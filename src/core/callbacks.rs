@@ -108,11 +108,12 @@ where
         current_step: usize,
         _algorithm: &mut A,
         _problem: &P,
-        _status: &mut S,
+        status: &mut S,
         _args: &U,
         _config: &C,
     ) -> ControlFlow<()> {
-        if current_step >= self.0 {
+        if current_step >= self.0.saturating_sub(1) {
+            status.update_message(&format!("Maximum number of steps reached ({})!", self.0));
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
