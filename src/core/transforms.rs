@@ -501,4 +501,130 @@ mod tests {
         let bounds: Bounds = vec![b].into();
         assert_eq!(bounds.into_inner(), vec![b]);
     }
+
+    /// A simple offset transform: adds +1.0 on `exterior_to_interior`, subtracts 1.0 on `interior_to_exterior`.
+    #[derive(Clone)]
+    struct Offset;
+    impl Transform<DVector<Float>> for Offset {
+        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.add_scalar(1.0))
+        }
+        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.add_scalar(-1.0))
+        }
+    }
+
+    /// Identity transform for testing borrowed vs owned behavior.
+    #[derive(Clone)]
+    struct Identity;
+    impl Transform<DVector<Float>> for Identity {
+        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Borrowed(x)
+        }
+        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Borrowed(x)
+        }
+    }
+
+    /// A scaling transform: multiplies by `factor` on `exterior_to_interior`, divides on `interior_to_exterior`.
+    #[derive(Clone)]
+    struct Scale(Float);
+    impl Transform<DVector<Float>> for Scale {
+        fn exterior_to_interior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x * self.0)
+        }
+        fn interior_to_exterior<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x / self.0)
+        }
+    }
+
+    #[test]
+    fn identity_roundtrip_borrowed() {
+        let id = Identity;
+        let val = DVector::from(vec![10.0]);
+        let res_interior = id.exterior_to_interior(&val);
+        assert!(matches!(res_interior, Cow::Borrowed(_)));
+        assert_eq!(res_interior[0], 10.0);
+
+        let res_exterior = id.interior_to_exterior(&val);
+        assert!(matches!(res_exterior, Cow::Borrowed(_)));
+        assert_eq!(res_exterior[0], 10.0);
+    }
+
+    #[test]
+    fn offset_roundtrip_owned() {
+        let off = Offset;
+        let val = DVector::from(vec![10.0]);
+        let interior = off.exterior_to_interior(&val);
+        assert_eq!(interior[0], 11.0);
+
+        let exterior = off.interior_to_exterior(&interior);
+        assert_eq!(exterior[0], 10.0);
+    }
+
+    #[test]
+    fn scale_roundtrip_owned() {
+        let sc = Scale(2.0);
+        let val = DVector::from(vec![4.0]);
+        let interior = sc.exterior_to_interior(&val);
+        assert_eq!(interior[0], 8.0);
+
+        let exterior = sc.interior_to_exterior(&interior);
+        assert_eq!(exterior[0], 4.0);
+    }
+
+    #[test]
+    fn chain_applies_in_sequence_offset_then_scale() {
+        let off = Offset;
+        let sc = Scale(2.0);
+        let chain = off.chain(&sc);
+
+        let val = DVector::from(vec![3.0]);
+        let res = chain.exterior_to_interior(&val);
+        assert_eq!(res[0], (3.0 + 1.0) * 2.0);
+
+        let back = chain.interior_to_exterior(&res);
+        assert_eq!(back[0], 3.0);
+    }
+
+    #[test]
+    fn chain_applies_in_sequence_scale_then_offset() {
+        let sc = Scale(2.0);
+        let off = Offset;
+        let chain = sc.chain(&off);
+
+        let val = DVector::from(vec![3.0]);
+        let res = chain.exterior_to_interior(&val);
+        assert_eq!(res[0], (3.0 * 2.0) + 1.0);
+
+        let back = chain.interior_to_exterior(&res);
+        assert_eq!(back[0], 3.0);
+    }
+
+    #[test]
+    fn chain_with_borrow() {
+        let id = Identity;
+        let chain = id.chain(&id);
+
+        let val = DVector::from(vec![7.0]);
+        let res = chain.exterior_to_interior(&val);
+        assert!(matches!(res, Cow::Borrowed(_)));
+        assert_eq!(res[0], 7.0);
+    }
+
+    #[test]
+    fn apply_scale_flips_bounds() {
+        let b = Bound::LowerAndUpperBound(1.0, 5.0);
+        let bounds = Bounds::from(vec![b]);
+
+        let scaled = bounds.apply(Scale(-1.0));
+        assert_eq!(scaled.len(), 1);
+
+        match &scaled[0] {
+            Bound::LowerAndUpperBound(l, u) => {
+                assert_eq!((*l, *u), (-5.0, -1.0));
+            }
+            _ => panic!("Expected LowerAndUpperBound"),
+        }
+    }
 }

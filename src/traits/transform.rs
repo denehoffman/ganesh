@@ -38,7 +38,6 @@ impl<I: Clone> Transform<I> for TransformChain<I> {
     fn exterior_to_interior<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
         match self.0.exterior_to_interior(x) {
             Cow::Borrowed(b) => self.1.exterior_to_interior(b),
-            // TODO: this shouldn't have to clone
             Cow::Owned(o) => Cow::Owned(self.1.exterior_to_interior(&o).into_owned()),
         }
     }
