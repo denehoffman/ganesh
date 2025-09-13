@@ -75,7 +75,7 @@ impl Swarm {
             .for_each(|point| *point = transform.to_internal(&point.x).into_owned().into());
         particle_velocities
             .iter_mut()
-            .for_each(|velocity| *velocity = transform.to_internal(&velocity).into_owned());
+            .for_each(|velocity| *velocity = transform.to_internal(velocity).into_owned());
         self.particles = particle_positions
             .into_iter()
             .zip(particle_velocities.into_iter())
@@ -337,7 +337,7 @@ impl SwarmParticle {
     where
         T: Transform<DVector<Float>> + Clone,
     {
-        let internal_bounds = bounds.clone().map(|b| b.apply(transform));
+        let internal_bounds = bounds.map(|b| b.apply(transform));
         let position_internal = self.position.to_internal(transform);
         let velocity_internal = transform.to_internal(&self.velocity);
         let new_position_internal = position_internal.x + velocity_internal.as_ref();

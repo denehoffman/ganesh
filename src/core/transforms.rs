@@ -11,6 +11,20 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+/// The trivial identity transform.
+impl<I> Transform<I> for ()
+where
+    I: Clone,
+{
+    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        Cow::Borrowed(x)
+    }
+
+    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
+        Cow::Borrowed(x)
+    }
+}
+
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
 /// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
@@ -79,12 +93,13 @@ impl From<(Option<Float>, Option<Float>)> for Bound {
         }
     }
 }
-impl<B> From<&B> for Bound
+impl<'a, B> From<&'a B> for Bound
 where
-    B: Into<Bound>,
+    B: ?Sized + ToOwned,
+    Self: From<B::Owned>,
 {
-    fn from(value: &B) -> Self {
-        value.into()
+    fn from(value: &'a B) -> Self {
+        Self::from(value.to_owned())
     }
 }
 
@@ -217,10 +232,10 @@ impl Bound {
     /// Clips a value to be within the given bounds.
     pub fn clip_value(&self, val: Float) -> Float {
         match *self {
-            Bound::NoBound => val,
-            Bound::LowerBound(lb) => val.clamp(lb, val),
-            Bound::UpperBound(ub) => val.clamp(val, ub),
-            Bound::LowerAndUpperBound(lb, ub) => val.clamp(lb, ub),
+            Self::NoBound => val,
+            Self::LowerBound(lb) => val.clamp(lb, val),
+            Self::UpperBound(ub) => val.clamp(val, ub),
+            Self::LowerAndUpperBound(lb, ub) => val.clamp(lb, ub),
         }
     }
 }
@@ -257,10 +272,11 @@ where
 }
 impl<B> From<&[B]> for Bounds
 where
-    B: Into<Bound>,
+    [B]: ToOwned<Owned = Vec<B>>,
+    B: Into<Bound> + Clone,
 {
     fn from(value: &[B]) -> Self {
-        Self(value.into_iter().map(Into::into).collect())
+        Self(value.iter().cloned().map(Into::into).collect())
     }
 }
 impl<const N: usize, B> From<[B; N]> for Bounds
@@ -299,31 +315,42 @@ where
     }
 }
 
-/// This transform may be used to ensure algorithms operate on a space of positive-semidefinite matrices.
+/// This transform may be used to ensure algorithms operate on a space of positive-definite matrices.
 ///
 /// Some functions take parameters which form matrices and require that these matrices be
-/// positive-semidefinite. However, most algorithms are agnostic of the structure of such a matrix,
+/// positive-definite. However, most algorithms are agnostic of the structure of such a matrix,
 /// and many do not allow for complex constraints required to ensure this. One solution, given
 /// here, is to provide a set of internal parameters which span the entire real line over which
 /// most algorithms can easily operate along with a transformation which maps these internal
-/// parameters to a space of positive-semidefinite matrices.
+/// parameters to a space of positive-definite matrices.
 ///
 /// The particular mapping requires us to form a lower-triangular matrix $`L`$ such that
 /// $`L_{ii} > 0`$ (the off-diagonals may have any values). Then the matrix $`LL^{\intercal}`$ is
-/// guaranteed to be positive-semidefinite. To ensure the diagonal entries are strictly positive
-/// and non-zero, we apply the softplus transformation to them: $`\ln(1 + e^x)`$.
+/// guaranteed to be positive-definite. To ensure the diagonal entries are strictly positive
+/// and non-zero, we apply the Squareplus[^1] transformation to them parameterized by $`\beta`$
+/// along with the addition of a small positive constant $`\delta`$, whose square is the minimum
+/// allowed value of the diagonal entries of the resulting positive-definite matrix.
+///
+/// [^1]: [J. T. Barron, "Squareplus: A Softplus-Like Algebraic Rectifier," 2021, arXiv. doi: 10.48550/ARXIV.2112.11687.](https://doi.org/10.48550/ARXIV.2112.11687)
 #[derive(Clone)]
-pub struct SymmetricPositiveSemidefiniteTransform {
+pub struct SymmetricPositiveDefiniteTransform {
     dim: usize,
     indices: Vec<usize>,
+    beta: Float,
+    delta: Float,
 }
-impl SymmetricPositiveSemidefiniteTransform {
-    /// Construct a new [`SymmetricPositiveSemidefiniteTransform`] given the indices representing the
+impl SymmetricPositiveDefiniteTransform {
+    /// Construct a new [`SymmetricPositiveDefiniteTransform`] given the indices representing the
     /// parameters of the matrix.
     ///
     /// Note that since we specify symmetric matrices, we expect a total of $`n = d(d+1)/2`$
     /// indices where $`d`$ is the dimension of the matrix. These indices traverse the
     /// lower-triangular part of the matrix in row-major order (left to right, top to bottom).
+    ///
+    /// # Panics
+    ///
+    /// The constructor will panic if the number of indices does not correspond to a whole-number
+    /// dimension.
     pub fn new(indices: &[usize]) -> Self {
         let n = indices.len();
         let dim = (Float::sqrt((8 * n + 1) as Float) as usize - 1) / 2;
@@ -331,7 +358,26 @@ impl SymmetricPositiveSemidefiniteTransform {
         Self {
             dim,
             indices: indices.to_vec(),
+            beta: 8.0,
+            delta: 1e-4,
         }
+    }
+    /// Set the $`\beta`$ parameter in the Squareplus[^1] transform (default = `8.0`).
+    ///
+    /// This parameter may need to be carefully chosen for some problems to ensure that the
+    /// resulting matrices are not singular. The original paper suggests $`\beta = 4`$ or
+    /// $`\beta = 4 \log(2)`$, but $`\beta = 8`$ seems to work well for some test cases.
+    pub fn with_beta(mut self, beta: Float) -> Self {
+        assert!(beta > 0.0);
+        self.beta = beta;
+        self
+    }
+    /// Set the $`delta`$ parameter whose square is added to the diagonal entries of the resulting
+    /// positive-definite matrix (default = `1e-4`).
+    pub fn with_delta(mut self, delta: Float) -> Self {
+        assert!(delta > 0.0);
+        self.delta = delta;
+        self
     }
     fn pack(&self, input: &DMatrix<Float>, output: &mut DVector<Float>) {
         let mut k = 0;
@@ -356,9 +402,9 @@ impl SymmetricPositiveSemidefiniteTransform {
         output
     }
 }
-impl Transform<DVector<Float>> for SymmetricPositiveSemidefiniteTransform {
+impl Transform<DVector<Float>> for SymmetricPositiveDefiniteTransform {
     fn to_internal(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
-        let cov = self.unpack(&x);
+        let cov = self.unpack(x);
         #[allow(clippy::expect_used)]
         let chol = cov
             .cholesky()
@@ -370,7 +416,8 @@ impl Transform<DVector<Float>> for SymmetricPositiveSemidefiniteTransform {
             for j in 0..=i {
                 let external = l[(i, j)];
                 let internal = if i == j {
-                    (external.exp_m1()).ln()
+                    let y = (external - self.delta).max(Float::MIN_POSITIVE);
+                    y - self.beta / (4.0 * y)
                 } else {
                     external
                 };
@@ -388,7 +435,7 @@ impl Transform<DVector<Float>> for SymmetricPositiveSemidefiniteTransform {
             for j in 0..=i {
                 let internal = x[self.indices[k]];
                 l[(i, j)] = if i == j {
-                    internal.exp().ln_1p()
+                    self.delta + ((internal + (internal.mul_add(internal, self.beta)).sqrt()) * 0.5)
                 } else {
                     internal
                 };

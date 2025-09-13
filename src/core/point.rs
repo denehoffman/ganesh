@@ -71,6 +71,7 @@ impl<I> Point<I> {
     ///
     /// This method will panic if the point is unevaluated.
     pub fn fx_checked(&self) -> Float {
+        #[allow(clippy::expect_used)]
         self.fx.expect("Point value requested before evaluation")
     }
 }

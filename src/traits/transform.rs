@@ -14,10 +14,12 @@ pub trait Transform<I: Clone>: DynClone {
     /// Transform a set of internal parameters to an equivalent set of external parameters.
     fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I>;
     /// Transform a set of external parameters to an equivalent owned set of internal parameters.
+    #[allow(clippy::wrong_self_convention)]
     fn into_internal<'a>(&'a self, x: &'a I) -> I {
         self.to_internal(x).into_owned()
     }
     /// Transform a set of internal parameters to an equivalent owned set of external parameters.
+    #[allow(clippy::wrong_self_convention)]
     fn into_external<'a>(&'a self, x: &'a I) -> I {
         self.to_external(x).into_owned()
     }
@@ -86,16 +88,12 @@ where
     T: Transform<I> + Clone,
 {
     fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        match self {
-            Some(t) => t.to_internal(x),
-            None => Cow::Borrowed(x),
-        }
+        self.as_ref()
+            .map_or_else(|| Cow::Borrowed(x), |t| t.to_internal(x))
     }
 
     fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        match self {
-            Some(t) => t.to_external(x),
-            None => Cow::Borrowed(x),
-        }
+        self.as_ref()
+            .map_or_else(|| Cow::Borrowed(x), |t| t.to_external(x))
     }
 }

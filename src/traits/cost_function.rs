@@ -1,5 +1,5 @@
-use crate::{DMatrix, DVector, Float};
-use std::convert::Infallible;
+use crate::{traits::Transform, DMatrix, DVector, Float};
+use std::{convert::Infallible, marker::PhantomData};
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
@@ -41,7 +41,7 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
         let mut grad = DVector::zeros(n);
         let mut xw = x.clone();
         for i in 0..n {
-            let xi = x[i];
+            let xi = xw[i];
             let hi = Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0);
             xw[i] = xi + hi;
             let f_plus = self.evaluate(&xw, args)?;
@@ -61,7 +61,8 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     /// information.
     fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
         let n = x.len();
-        let h: DVector<Float> = x
+        let mut xw = x.clone();
+        let h: DVector<Float> = xw
             .iter()
             .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
             .collect::<Vec<_>>()
@@ -69,7 +70,99 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
         let mut hess = DMatrix::zeros(n, n);
         let mut g_plus = DMatrix::zeros(n, n);
         let mut g_minus = DMatrix::zeros(n, n);
+        // g+ and g- are such that
+        // g+[(i, j)] = g[i](x + h_je_j) and
+        // g-[(i, j)] = g[i](x - h_je_j)
+        for i in 0..x.len() {
+            let xi = xw[i];
+            xw[i] = xi + h[i];
+            g_plus.set_column(i, &self.gradient(&xw, args)?);
+            xw[i] = xi - h[i];
+            g_minus.set_column(i, &self.gradient(&xw, args)?);
+            xw[i] = xi;
+            hess[(i, i)] = (g_plus[(i, i)] - g_minus[(i, i)]) / (2.0 * h[i]);
+            for j in 0..i {
+                hess[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (4.0 * h[j]))
+                    + ((g_plus[(j, i)] - g_minus[(j, i)]) / (4.0 * h[i]));
+                hess[(j, i)] = hess[(i, j)];
+            }
+        }
+        Ok(hess)
+    }
+}
+
+/// A transformation of a given problem where internal coordinates are expected as inputs.
+pub struct TransformedProblem<'a, F, U, E, T> {
+    f: &'a F,
+    t: &'a T,
+    _args: PhantomData<U>,
+    _error: PhantomData<E>,
+}
+
+impl<'a, F, U, E, T> TransformedProblem<'a, F, U, E, T>
+where
+    F: CostFunction<U, E, Input = DVector<Float>>,
+    T: Transform<DVector<Float>>,
+{
+    /// Create a new transformed problem from a given function and transform.
+    ///
+    /// This struct is intended to take internal coordinates as inputs, applying the transform
+    /// before performing any function evaluations. The gradients and hessians returned will also
+    /// be in internal coordinates.
+    pub const fn new(func: &'a F, transform: &'a T) -> Self {
+        Self {
+            f: func,
+            t: transform,
+            _args: PhantomData,
+            _error: PhantomData,
+        }
+    }
+}
+
+impl<'a, F, U, E, T> CostFunction<U, E> for TransformedProblem<'a, F, U, E, T>
+where
+    F: CostFunction<U, E, Input = DVector<Float>>,
+    T: Transform<DVector<Float>>,
+{
+    type Input = DVector<Float>;
+
+    fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
+        self.f.evaluate(&self.t.to_external(x), args)
+    }
+}
+impl<'a, F, U, E, T> Gradient<U, E> for TransformedProblem<'a, F, U, E, T>
+where
+    F: Gradient<U, E, Input = DVector<Float>>,
+    T: Transform<DVector<Float>>,
+{
+    fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
+        let n = x.len();
+        let mut grad = DVector::zeros(n);
         let mut xw = x.clone();
+        for i in 0..n {
+            let xi = xw[i];
+            let hi = Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0);
+            xw[i] = xi + hi;
+            let f_plus = self.evaluate(&xw, args)?;
+            xw[i] = xi - hi;
+            let f_minus = self.evaluate(&xw, args)?;
+            xw[i] = xi;
+            grad[i] = (f_plus - f_minus) / (2.0 * hi);
+        }
+        Ok(grad)
+    }
+
+    fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
+        let n = x.len();
+        let mut xw = x.clone();
+        let h: DVector<Float> = xw
+            .iter()
+            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
+            .collect::<Vec<_>>()
+            .into();
+        let mut hess = DMatrix::zeros(n, n);
+        let mut g_plus = DMatrix::zeros(n, n);
+        let mut g_minus = DMatrix::zeros(n, n);
         // g+ and g- are such that
         // g+[(i, j)] = g[i](x + h_je_j) and
         // g-[(i, j)] = g[i](x - h_je_j)

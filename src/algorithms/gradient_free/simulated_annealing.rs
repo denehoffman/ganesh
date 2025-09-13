@@ -245,6 +245,7 @@ mod tests {
         DVector,
     };
     use approx::assert_relative_eq;
+    use nalgebra::DMatrix;
     use std::fmt::Debug;
 
     pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E>>);
@@ -268,7 +269,7 @@ mod tests {
             self.0.gradient(x, args)
         }
 
-        fn hessian(&self, x: &Self::Input, args: &U) -> Result<nalgebra::DMatrix<Float>, E> {
+        fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
             self.0.hessian(x, args)
         }
     }

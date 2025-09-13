@@ -84,8 +84,8 @@ impl Boundable for Vec<Float> {
 
     fn pack(lower: &Self, upper: &Self) -> Bounds {
         lower
-            .into_iter()
-            .zip(upper.into_iter())
+            .iter()
+            .zip(upper.iter())
             .map(|(l, u)| Bound::from((l, u)))
             .collect::<Vec<Bound>>()
             .into()
@@ -171,7 +171,7 @@ impl Boundable for DVector<Float> {
     fn pack(lower: &Self, upper: &Self) -> Bounds {
         lower
             .into_iter()
-            .zip(upper.into_iter())
+            .zip(upper.iter())
             .map(|(l, u)| Bound::from((*l, *u)))
             .collect::<Vec<Bound>>()
             .into()
@@ -179,8 +179,8 @@ impl Boundable for DVector<Float> {
 
     fn unpack(bounds: &Bounds) -> (Self, Self) {
         (
-            DVector::from_vec(bounds.iter().map(|b| b.lower()).collect()),
-            DVector::from_vec(bounds.iter().map(|b| b.upper()).collect()),
+            Self::from_vec(bounds.iter().map(|b| b.lower()).collect()),
+            Self::from_vec(bounds.iter().map(|b| b.upper()).collect()),
         )
     }
 

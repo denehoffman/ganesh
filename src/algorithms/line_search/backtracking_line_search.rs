@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Boundable, Gradient, LineSearch},
+    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
     DVector, Float,
 };
 
@@ -27,20 +27,18 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         p: &DVector<Float>,
         max_step: Option<Float>,
         problem: &dyn Gradient<U, E>,
-        bounds: Option<&Bounds>,
+        _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
         let phi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_f_evals();
-            problem.evaluate(&(x + p.scale(alpha)).constrain_to(bounds), args)
+            problem.evaluate(&(x + p.scale(alpha)), args)
         };
         let dphi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
             st.inc_n_g_evals();
-            Ok(problem
-                .gradient(&(x + p.scale(alpha)).constrain_to(bounds), args)?
-                .dot(p))
+            Ok(problem.gradient(&(x + p.scale(alpha)), args)?.dot(p))
         };
         let phi_0 = phi(0.0, args, status)?;
         let mut phi_alpha_i = phi(alpha_i, args, status)?;
@@ -48,8 +46,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         loop {
             let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
-                let g_alpha_i =
-                    problem.gradient(&(x + p.scale(alpha_i)).constrain_to(bounds), args)?;
+                let g_alpha_i = problem.gradient(&(x + p.scale(alpha_i)), args)?;
                 return Ok(Ok(LineSearchOutput {
                     alpha: alpha_i,
                     fx: phi_alpha_i,

@@ -1,7 +1,10 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MinimizationSummary},
-    traits::{algorithm::SupportsTransform, Algorithm, Gradient, Terminator, Transform},
+    traits::{
+        algorithm::SupportsTransform, cost_function::TransformedProblem, Algorithm, CostFunction,
+        Gradient, Terminator, Transform,
+    },
     DMatrix, DVector, Float,
 };
 use std::ops::ControlFlow;
@@ -169,7 +172,8 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transform = config.transform.as_ref();
-        self.g = problem.gradient(&transform.to_external(&self.x), args)?;
+        let t_problem = TransformedProblem::new(problem, &transform);
+        self.g = t_problem.gradient(&self.x, args)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
         self.v =
@@ -180,10 +184,9 @@ where
             .m
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
-        let x_ext = transform.to_external(&self.x);
-        self.f = problem.evaluate(&x_ext, args)?;
+        self.f = t_problem.evaluate(&self.x, args)?;
         status.inc_n_f_evals();
-        status.with_position((x_ext.into_owned(), self.f));
+        status.with_position((transform.into_external(&self.x), self.f));
         Ok(())
     }
 

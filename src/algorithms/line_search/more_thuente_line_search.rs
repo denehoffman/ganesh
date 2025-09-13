@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Boundable, Gradient, LineSearch},
+    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
     DVector, Float,
 };
 
@@ -73,30 +73,27 @@ impl MoreThuenteLineSearch {
         &self,
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
-        bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate(&x.constrain_to(bounds), args)
+        func.evaluate(x, args)
     }
     fn g_eval<U, E>(
         &self,
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
-        bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(&x.constrain_to(bounds), args)
+        func.gradient(x, args)
     }
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
         func: &dyn Gradient<U, E>,
         x0: &DVector<Float>,
-        bounds: Option<&Bounds>,
         args: &U,
         f0: Float,
         g0: &DVector<Float>,
@@ -112,14 +109,14 @@ impl MoreThuenteLineSearch {
         loop {
             let alpha_i = (alpha_lo + alpha_hi) / 2.0;
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(func, &x, bounds, args, status)?;
+            let f_i = self.f_eval(func, &x, args, status)?;
             let x_lo = x0 + p.scale(alpha_lo);
-            let f_lo = self.f_eval(func, &x_lo, bounds, args, status)?;
+            let f_lo = self.f_eval(func, &x_lo, args, status)?;
             let valid = if (f_i > (self.c1 * alpha_i).mul_add(dphi0, f0)) || (f_i >= f_lo) {
                 alpha_hi = alpha_i;
                 false
             } else {
-                let g_i = self.g_eval(func, &x, bounds, args, status)?;
+                let g_i = self.g_eval(func, &x, args, status)?;
                 let dphi = g_i.dot(p);
                 if Float::abs(dphi) <= -self.c2 * dphi0 {
                     return Ok(Ok(LineSearchOutput {
@@ -136,7 +133,7 @@ impl MoreThuenteLineSearch {
             };
             i += 1;
             if i > self.max_zoom {
-                let g_i = self.g_eval(func, &x, bounds, args, status)?;
+                let g_i = self.g_eval(func, &x, args, status)?;
                 if valid {
                     return Ok(Ok(LineSearchOutput {
                         alpha: alpha_i,
@@ -162,12 +159,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
         p: &DVector<Float>,
         max_step: Option<Float>,
         problem: &dyn Gradient<U, E>,
-        bounds: Option<&Bounds>,
+        _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
-        let f0 = self.f_eval(problem, x0, bounds, args, status)?;
-        let g0 = self.g_eval(problem, x0, bounds, args, status)?;
+        let f0 = self.f_eval(problem, x0, args, status)?;
+        let g0 = self.g_eval(problem, x0, args, status)?;
         let alpha_max = max_step.unwrap_or(1.0); // TODO: 1e5?
         let mut alpha_im1 = 0.0;
         let mut alpha_i = 1.0;
@@ -176,13 +173,11 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
         let mut i = 0;
         loop {
             let x = x0 + p.scale(alpha_i);
-            let f_i = self.f_eval(problem, &x, bounds, args, status)?;
+            let f_i = self.f_eval(problem, &x, args, status)?;
             if (f_i > self.c1.mul_add(dphi0, f0)) || (i > 1 && f_i >= f_im1) {
-                return self.zoom(
-                    problem, x0, bounds, args, f0, &g0, p, alpha_im1, alpha_i, status,
-                );
+                return self.zoom(problem, x0, args, f0, &g0, p, alpha_im1, alpha_i, status);
             }
-            let g_i = self.g_eval(problem, &x, bounds, args, status)?;
+            let g_i = self.g_eval(problem, &x, args, status)?;
             let dphi = g_i.dot(p);
             if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
                 return Ok(Ok(LineSearchOutput {
@@ -192,9 +187,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
                 }));
             }
             if dphi >= 0.0 {
-                return self.zoom(
-                    problem, x0, bounds, args, f0, &g0, p, alpha_i, alpha_im1, status,
-                );
+                return self.zoom(problem, x0, args, f0, &g0, p, alpha_i, alpha_im1, status);
             }
             alpha_im1 = alpha_i;
             f_im1 = f_i;
