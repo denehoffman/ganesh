@@ -1,6 +1,6 @@
 use crate::{
     core::utils::SampleFloat,
-    traits::{transform::Transform, Boundable},
+    traits::{Boundable, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -10,20 +10,6 @@ use std::{
     fmt::Display,
     ops::{Deref, DerefMut},
 };
-
-/// The trivial identity transform.
-impl<I> Transform<I> for ()
-where
-    I: Clone,
-{
-    fn to_internal<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        Cow::Borrowed(x)
-    }
-
-    fn to_external<'a>(&'a self, x: &'a I) -> Cow<'a, I> {
-        Cow::Borrowed(x)
-    }
-}
 
 /// An enum that describes a bound/limit on a parameter in a minimization.
 ///
@@ -250,15 +236,14 @@ impl Bounds {
         self.0
     }
     /// Applies a coordinate transform to the bounds.
-    pub fn apply<T, I>(&self, transform: T) -> Self
+    pub fn apply<T>(&self, transform: &T) -> Self
     where
-        T: Transform<I>,
-        I: Boundable + Clone,
+        T: Transform,
     {
-        let (l, u) = I::unpack(self);
+        let (l, u) = DVector::unpack(self);
         let l_int = transform.to_internal(&l);
         let u_int = transform.to_internal(&u);
-        I::pack(l_int.as_ref(), u_int.as_ref())
+        DVector::pack(l_int.as_ref(), u_int.as_ref())
     }
 }
 
@@ -302,16 +287,37 @@ impl DerefMut for Bounds {
     }
 }
 
-impl<T> Transform<T> for Bounds
-where
-    T: Boundable + Clone,
-{
-    fn to_internal<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
+impl Transform for Bounds {
+    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        z.constrain_to(Some(self))
+    }
+
+    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
         x.unconstrain_from(Some(self))
     }
 
-    fn to_external<'a>(&'a self, x: &'a T) -> Cow<'a, T> {
-        x.constrain_to(Some(self))
+    fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let mut jac = DMatrix::zeros(self.0.len(), self.0.len());
+        for (i, zi) in z.iter().enumerate() {
+            jac[(i, i)] = match self.0[i] {
+                Bound::NoBound => 1.0,
+                Bound::LowerBound(_) => zi / Float::sqrt(zi.powi(2) + 1.0),
+                Bound::UpperBound(_) => -zi / Float::sqrt(zi.powi(2) + 1.0),
+                Bound::LowerAndUpperBound(lb, ub) => Float::cos(*zi) * (ub - lb) / 2.0,
+            }
+        }
+        jac
+    }
+
+    fn component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+        let mut hess = DMatrix::zeros(self.0.len(), self.0.len());
+        hess[(a, a)] = match self.0[a] {
+            Bound::NoBound => 0.0,
+            Bound::LowerBound(_) => Float::powf(z.index(a).powi(2) + 1.0, 3.0 / 2.0),
+            Bound::UpperBound(_) => -Float::powf(z.index(a).powi(2) + 1.0, 3.0 / 2.0),
+            Bound::LowerAndUpperBound(lb, ub) => -Float::sin(*z.index(a)) * (ub - lb) / 2.0,
+        };
+        hess
     }
 }
 
@@ -401,8 +407,54 @@ impl SymmetricPositiveDefiniteTransform {
         }
         output
     }
+    #[inline]
+    fn softplus(&self, x_int: Float) -> Float {
+        (x_int + Float::sqrt(x_int.mul_add(x_int, self.beta))) * 0.5
+    }
+    #[inline]
+    fn dsoftplus(&self, x_int: Float) -> Float {
+        0.5 * (1.0 + x_int / Float::sqrt(x_int.mul_add(x_int, self.beta)))
+    }
+    #[inline]
+    fn ddsoftplus(&self, x_int: Float) -> Float {
+        self.beta / (2.0 * Float::powf(x_int.mul_add(x_int, self.beta), 3.0 / 2.0))
+    }
+    #[inline]
+    fn k_to_ij(&self, mut k: usize) -> (usize, usize) {
+        for i in 0..self.dim {
+            let row_len = i + 1;
+            if k < row_len {
+                return (i, k);
+            }
+            k -= row_len;
+        }
+        unreachable!("k_to_ij: invalid index {} for dimension {}", k, self.dim);
+    }
+    #[inline]
+    fn build_l(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let mut l = DMatrix::zeros(self.dim, self.dim);
+        for k in 0..self.indices.len() {
+            let (i, j) = self.k_to_ij(k);
+            let p = self.indices[k];
+            let v = z[p];
+            l[(i, j)] = if i == j {
+                self.delta + self.softplus(v)
+            } else {
+                v
+            };
+        }
+        l
+    }
 }
-impl Transform<DVector<Float>> for SymmetricPositiveDefiniteTransform {
+impl Transform for SymmetricPositiveDefiniteTransform {
+    fn to_external(&self, z: &DVector<Float>) -> Cow<DVector<Float>> {
+        let l = self.build_l(z);
+        let cov = &l * l.transpose();
+        let mut out = z.clone();
+        self.pack(&cov, &mut out);
+        Cow::Owned(out)
+    }
+
     fn to_internal(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
         let cov = self.unpack(x);
         #[allow(clippy::expect_used)]
@@ -428,31 +480,131 @@ impl Transform<DVector<Float>> for SymmetricPositiveDefiniteTransform {
         Cow::Owned(output)
     }
 
-    fn to_external(&self, x: &DVector<Float>) -> Cow<DVector<Float>> {
-        let mut l = DMatrix::zeros(self.dim, self.dim);
-        let mut k = 0;
-        for i in 0..self.dim {
-            for j in 0..=i {
-                let internal = x[self.indices[k]];
-                l[(i, j)] = if i == j {
-                    self.delta + ((internal + (internal.mul_add(internal, self.beta)).sqrt()) * 0.5)
-                } else {
-                    internal
-                };
-                k += 1;
+    fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let m = z.len();
+        let n = self.indices.len();
+        let l = self.build_l(z);
+        let mut jac = DMatrix::zeros(m, m);
+
+        let mut pos_to_k = vec![None; m];
+        for k in 0..n {
+            let p = self.indices[k];
+            if p < m {
+                pos_to_k[p] = Some(k);
             }
         }
-        let cov = &l * l.transpose();
-        let mut out = x.clone();
-        self.pack(&cov, &mut out);
-        Cow::Owned(out)
+        for p in 0..m {
+            if let Some(kp) = pos_to_k[p] {
+                let (ri, cj) = self.k_to_ij(kp);
+                let df = if ri == cj { self.dsoftplus(z[p]) } else { 1.0 };
+                let mut dcov = DMatrix::zeros(self.dim, self.dim);
+                for j in 0..self.dim {
+                    dcov[(ri, j)] += df * l[(j, cj)];
+                }
+                for i in 0..self.dim {
+                    dcov[(i, ri)] += df * l[(i, cj)];
+                }
+                let mut dvec = DVector::zeros(n);
+                self.pack(&dcov, &mut dvec);
+                for k in 0..n {
+                    let row_pos = self.indices[k];
+                    jac[(row_pos, p)] = dvec[k];
+                }
+            } else {
+                jac[(p, p)] = 1.0;
+            }
+        }
+        jac
+    }
+
+    fn component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+        let m = z.len();
+        let n = self.indices.len();
+        let mut pos_to_k = vec![None; m];
+        for k in 0..n {
+            let p = self.indices[k];
+            if p < m {
+                pos_to_k[p] = Some(k);
+            }
+        }
+        let Some(k_out) = (if a < m { pos_to_k[a] } else { None }) else {
+            return DMatrix::zeros(m, m); // return 0 if not an index used in the transform
+        };
+        let (i_out, j_out) = self.k_to_ij(k_out);
+        let l = self.build_l(z);
+
+        let mut row = vec![0; n];
+        let mut col = vec![0; n];
+        let mut df = vec![0.0; n];
+        let mut ddf = vec![0.0; n];
+        for k in 0..n {
+            let (r, c) = self.k_to_ij(k);
+            row[k] = r;
+            col[k] = c;
+            let p = self.indices[k];
+            if r == c {
+                df[k] = self.dsoftplus(z[p]);
+                ddf[k] = self.ddsoftplus(z[p]);
+            } else {
+                df[k] = 1.0;
+                ddf[k] = 0.0;
+            }
+        }
+
+        let mut hess_block = DMatrix::zeros(n, n);
+        for p in 0..n {
+            let rp = row[p];
+            let cp = col[p];
+            let df_p = df[p];
+            for q in p..n {
+                let rq = row[q];
+                let cq = col[q];
+                let df_q = df[q];
+                let mut val = 0.0;
+                if cp == cq {
+                    if i_out == rp && j_out == rq {
+                        val += df_p * df_q;
+                    }
+                    if i_out == rq && j_out == rp {
+                        val += df_p * df_q;
+                    }
+                }
+                if p == q && rp == cp {
+                    let ddf_p = ddf[p];
+                    if i_out == rp {
+                        val += ddf_p * l[(j_out, rp)];
+                    }
+                    if j_out == rp {
+                        val += ddf_p * l[(i_out, rp)];
+                    }
+                }
+                hess_block[(p, q)] = val;
+                if p != q {
+                    hess_block[(q, p)] = val;
+                }
+            }
+        }
+        let mut hess = DMatrix::zeros(m, m);
+        for p in 0..n {
+            let rp = self.indices[p];
+            for q in 0..n {
+                let cq = self.indices[q];
+                hess[(rp, cq)] = hess_block[(p, q)];
+            }
+        }
+        hess
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::dvector;
+
     use super::*;
-    use crate::{traits::Boundable, DVector};
+    use crate::{
+        traits::{transform::TransformExt, Boundable},
+        DVector,
+    };
 
     fn sample_bounds() -> Bounds {
         vec![
@@ -510,35 +662,25 @@ mod tests {
         ]
         .into();
 
-        let v: Vec<Float> = Boundable::random_vector_in(&bounds, &mut rng);
         let d: DVector<Float> = Boundable::random_vector_in(&bounds, &mut rng);
 
-        assert_eq!(v.len(), bounds.len());
         assert_eq!(d.len(), bounds.len());
 
-        assert!(v.is_in(&bounds));
         assert!(d.is_in(&bounds));
     }
 
     #[test]
     fn test_boundable_excess_constrain_unconstrain() {
         let bounds = sample_bounds();
-        let v: Vec<Float> = vec![-1.0, 11.0, 0.0, 5.0];
-        let d: DVector<Float> = v.clone().into();
+        let d: DVector<Float> = dvector![-1.0, 11.0, 0.0, 5.0];
 
-        let v_excess = v.excess_from(&bounds);
         let d_excess = d.excess_from(&bounds);
-        assert!(v_excess.iter().any(|x| *x != 0.0));
         assert!(d_excess.iter().any(|x| *x != 0.0));
 
-        let v_constrained = v.constrain_to(Some(&bounds));
         let d_constrained = d.constrain_to(Some(&bounds));
-        assert!(v_constrained.is_in(&bounds));
         assert!(d_constrained.is_in(&bounds));
 
-        let v_unconstrained = v_constrained.unconstrain_from(Some(&bounds));
         let d_unconstrained = d_constrained.unconstrain_from(Some(&bounds));
-        assert_eq!(v_unconstrained.len(), v.len());
         assert_eq!(d_unconstrained.len(), d.len());
     }
 
@@ -552,7 +694,7 @@ mod tests {
     /// A simple offset transform: adds +1.0 on `external_to_internal`, subtracts 1.0 on `internal_to_external`.
     #[derive(Clone)]
     struct Offset;
-    impl Transform<DVector<Float>> for Offset {
+    impl Transform for Offset {
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x.add_scalar(1.0))
         }
@@ -564,7 +706,7 @@ mod tests {
     /// Identity transform for testing borrowed vs owned behavior.
     #[derive(Clone)]
     struct Identity;
-    impl Transform<DVector<Float>> for Identity {
+    impl Transform for Identity {
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Borrowed(x)
         }
@@ -576,7 +718,7 @@ mod tests {
     /// A scaling transform: multiplies by `factor` on `external_to_internal`, divides on `internal_to_external`.
     #[derive(Clone)]
     struct Scale(Float);
-    impl Transform<DVector<Float>> for Scale {
+    impl Transform for Scale {
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x * self.0)
         }
@@ -624,7 +766,7 @@ mod tests {
     fn chain_applies_in_sequence_offset_then_scale() {
         let off = Offset;
         let sc = Scale(2.0);
-        let chain = off.chain(&sc);
+        let chain = sc.compose(off);
 
         let val = DVector::from(vec![3.0]);
         let res = chain.to_internal(&val);
@@ -638,7 +780,7 @@ mod tests {
     fn chain_applies_in_sequence_scale_then_offset() {
         let sc = Scale(2.0);
         let off = Offset;
-        let chain = sc.chain(&off);
+        let chain = off.compose(sc);
 
         let val = DVector::from(vec![3.0]);
         let res = chain.to_internal(&val);
@@ -651,7 +793,7 @@ mod tests {
     #[test]
     fn chain_with_borrow() {
         let id = Identity;
-        let chain = id.chain(&id);
+        let chain = id.clone().compose(id);
 
         let val = DVector::from(vec![7.0]);
         let res = chain.to_internal(&val);
@@ -664,7 +806,7 @@ mod tests {
         let b = Bound::LowerAndUpperBound(1.0, 5.0);
         let bounds = Bounds::from(vec![b]);
 
-        let scaled = bounds.apply(Scale(-1.0));
+        let scaled = bounds.apply(&Scale(-1.0));
         assert_eq!(scaled.len(), 1);
 
         match &scaled[0] {
@@ -679,8 +821,8 @@ mod tests {
     fn test_into_transforms() {
         let id = Identity;
         let val = DVector::from(vec![7.0]);
-        let res_int = id.into_internal(&val);
-        let res_ext = id.into_external(&val);
+        let res_int = id.to_owned_internal(&val);
+        let res_ext = id.to_owned_external(&val);
         assert_eq!(res_int, DVector::from(vec![7.0]));
         assert_eq!(res_ext, DVector::from(vec![7.0]));
     }

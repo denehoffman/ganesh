@@ -33,84 +33,10 @@ pub trait Boundable {
     fn clip_to(&self, bounds: Option<&Bounds>) -> Cow<Self>
     where
         Self: Clone;
-}
-impl Boundable for Vec<Float> {
-    fn random_vector_in(bounds: &Bounds, rng: &mut Rng) -> Self {
-        bounds.iter().map(|b| b.get_uniform(rng)).collect()
-    }
-    fn is_in(&self, bounds: &Bounds) -> bool {
-        for (value, bound) in self.iter().zip(bounds.iter()) {
-            if !bound.contains(*value) {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn excess_from(&self, bounds: &Bounds) -> Self {
-        self.iter()
-            .zip(bounds.iter())
-            .map(|(v, b)| b.bound_excess(*v))
-            .collect()
-    }
-
-    fn constrain_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
-        bounds.map_or_else(
-            || Cow::Borrowed(self),
-            |bounds| {
-                Cow::Owned(
-                    self.iter()
-                        .zip(bounds.iter())
-                        .map(|(val, bound)| bound.to_bounded(*val))
-                        .collect(),
-                )
-            },
-        )
-    }
-
-    fn unconstrain_from(&self, bounds: Option<&Bounds>) -> Cow<Self> {
-        bounds.map_or_else(
-            || Cow::Borrowed(self),
-            |bounds| {
-                Cow::Owned(
-                    self.iter()
-                        .zip(bounds.iter())
-                        .map(|(val, bound)| bound.to_unbounded(*val))
-                        .collect(),
-                )
-            },
-        )
-    }
-
-    fn pack(lower: &Self, upper: &Self) -> Bounds {
-        lower
-            .iter()
-            .zip(upper.iter())
-            .map(|(l, u)| Bound::from((l, u)))
-            .collect::<Vec<Bound>>()
-            .into()
-    }
-
-    fn unpack(bounds: &Bounds) -> (Self, Self) {
-        (
-            bounds.iter().map(|b| b.lower()).collect(),
-            bounds.iter().map(|b| b.upper()).collect(),
-        )
-    }
-
-    fn clip_to(&self, bounds: Option<&Bounds>) -> Cow<Self> {
-        bounds.map_or_else(
-            || Cow::Borrowed(self),
-            |bounds| {
-                Cow::Owned(
-                    self.iter()
-                        .zip(bounds.iter())
-                        .map(|(val, bound)| bound.clip_value(*val))
-                        .collect(),
-                )
-            },
-        )
-    }
+    /// Returns an iterator over the scalar values.
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Float> + 'a>;
+    /// Returns the value at the given index.
+    fn index(&self, i: usize) -> Float;
 }
 
 impl Boundable for DVector<Float> {
@@ -197,5 +123,14 @@ impl Boundable for DVector<Float> {
                 )
             },
         )
+    }
+
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Float> + 'a> {
+        Box::new(self.as_slice().iter())
+    }
+
+    #[inline]
+    fn index(&self, i: usize) -> Float {
+        self[i]
     }
 }

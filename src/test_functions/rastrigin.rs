@@ -1,5 +1,5 @@
 use crate::{
-    traits::{CostFunction, Gradient},
+    traits::{CostFunction, FiniteDifferenceGradient, Gradient},
     DVector, Float, PI,
 };
 use std::convert::Infallible;
@@ -23,4 +23,12 @@ impl CostFunction for Rastrigin {
                 .sum::<Float>())
     }
 }
-impl Gradient for Rastrigin {}
+impl Gradient for Rastrigin {
+    fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
+        self.cfd_gradient(x, args)
+    }
+
+    fn hessian(&self, x: &Self::Input, args: &()) -> Result<nalgebra::DMatrix<Float>, Infallible> {
+        self.cfd_hessian(x, args)
+    }
+}

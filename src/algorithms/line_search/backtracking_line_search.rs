@@ -26,7 +26,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn Gradient<U, E, Input = DVector<Float>>,
         _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,

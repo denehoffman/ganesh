@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 pub struct PSOConfig {
     swarm: Swarm,
     bounds: Option<Bounds>,
-    transform: Option<Box<dyn Transform<DVector<Float>>>>,
+    transform: Option<Box<dyn Transform>>,
     omega: Float,
     c1: Float,
     c2: Float,
@@ -70,8 +70,8 @@ impl SupportsBounds for PSOConfig {
         &mut self.bounds
     }
 }
-impl SupportsTransform<DVector<Float>> for PSOConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+impl SupportsTransform for PSOConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
@@ -171,7 +171,7 @@ impl PSO {
                 func,
                 args,
                 config.bounds.as_ref(),
-                config.transform.as_ref(),
+                &config.transform,
                 status.swarm.boundary_method,
             )?;
         }
@@ -202,7 +202,7 @@ impl PSO {
                 func,
                 args,
                 config.bounds.as_ref(),
-                config.transform.as_ref(),
+                &config.transform,
                 status.swarm.boundary_method,
             )?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
@@ -232,7 +232,7 @@ where
         status.swarm = config.swarm.clone();
         status
             .swarm
-            .initialize(&mut self.rng, config.bounds.as_ref(), problem, args)?;
+            .initialize(&mut self.rng, &config.transform, problem, args)?;
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {

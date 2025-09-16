@@ -12,7 +12,7 @@ pub use callback::{Observer, Terminator};
 
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
-pub use cost_function::{CostFunction, Gradient, LogDensity};
+pub use cost_function::{CostFunction, FiniteDifferenceGradient, Gradient, LogDensity};
 
 /// Module containing various line-search methods.
 pub mod linesearch;
@@ -28,4 +28,4 @@ pub use boundable::Boundable;
 
 /// Module containing the [`Transform`] trait.
 pub mod transform;
-pub use transform::Transform;
+pub use transform::{DiffOps, Transform, TransformExt, TransformedProblem};

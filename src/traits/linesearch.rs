@@ -43,7 +43,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn Gradient<U, E, Input = DVector<Float>>,
         bounds: Option<&Bounds>,
         args: &U,
         status: &mut S,

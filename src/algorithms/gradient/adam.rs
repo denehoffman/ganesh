@@ -2,8 +2,8 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MinimizationSummary},
     traits::{
-        algorithm::SupportsTransform, cost_function::TransformedProblem, Algorithm, CostFunction,
-        Gradient, Terminator, Transform,
+        algorithm::SupportsTransform, Algorithm, CostFunction, Gradient, Terminator, Transform,
+        TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
@@ -31,7 +31,7 @@ impl Default for AdamEMATerminator {
 }
 impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E, AdamConfig> for AdamEMATerminator
 where
-    P: Gradient<U, E>,
+    P: Gradient<U, E, Input = DVector<Float>>,
 {
     fn check_for_termination(
         &mut self,
@@ -67,7 +67,7 @@ where
 #[derive(Clone)]
 pub struct AdamConfig {
     x0: DVector<Float>,
-    transform: Option<Box<dyn Transform<DVector<Float>>>>,
+    transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta_1: Float,
     beta_2: Float,
@@ -116,8 +116,8 @@ impl AdamConfig {
         self
     }
 }
-impl SupportsTransform<DVector<Float>> for AdamConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+impl SupportsTransform for AdamConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
@@ -140,7 +140,7 @@ pub struct Adam {
 }
 impl<P, U, E> Algorithm<P, GradientStatus, U, E> for Adam
 where
-    P: Gradient<U, E>,
+    P: Gradient<U, E, Input = DVector<Float>>,
 {
     type Summary = MinimizationSummary;
     type Config = AdamConfig;
@@ -152,10 +152,10 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let transform = config.transform.as_ref();
-        self.x = transform.to_internal(&config.x0).into_owned();
+        let t_problem = TransformedProblem::new(problem, &config.transform);
+        self.x = t_problem.to_owned_internal(&config.x0);
         self.g = DVector::zeros(self.x.len());
-        self.f = problem.evaluate(&config.x0, args)?;
+        self.f = t_problem.evaluate(&config.x0, args)?;
         status.with_position((config.x0.clone(), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
@@ -171,8 +171,7 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let transform = config.transform.as_ref();
-        let t_problem = TransformedProblem::new(problem, &transform);
+        let t_problem = TransformedProblem::new(problem, &config.transform);
         self.g = t_problem.gradient(&self.x, args)?;
         status.inc_n_g_evals();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
@@ -186,7 +185,7 @@ where
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
         self.f = t_problem.evaluate(&self.x, args)?;
         status.inc_n_f_evals();
-        status.with_position((transform.into_external(&self.x), self.f));
+        status.with_position((t_problem.to_owned_external(&self.x), self.f));
         Ok(())
     }
 
@@ -285,7 +284,7 @@ mod tests {
                     &problem,
                     &(),
                     AdamConfig::new(starting_value)
-                        .with_transform(Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
+                        .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();

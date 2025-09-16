@@ -100,16 +100,13 @@ impl SimplexConstructionMethod {
 }
 
 impl SimplexConstructionMethod {
-    fn generate<T, U, E>(
+    fn generate<U, E>(
         &self,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
-        transform: Option<&T>,
+        transform: &Option<Box<dyn Transform>>,
         bounds: Option<&Bounds>,
         args: &U,
-    ) -> Result<Simplex, E>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    ) -> Result<Simplex, E> {
         match self {
             Self::ScaledOrthogonal {
                 x0,
@@ -256,15 +253,9 @@ impl Simplex {
         let sum = total - &self.points[n - 1].x;
         sum / ((n - 1) as Float)
     }
-    fn best_position<T>(&self, transform: Option<&T>) -> (DVector<Float>, Float)
-    where
-        T: Transform<DVector<Float>>,
-    {
+    fn best_position(&self, transform: &Option<Box<dyn Transform>>) -> (DVector<Float>, Float) {
         let best = self.best();
-        (
-            transform.to_external(&best.x).into_owned(),
-            best.fx_checked(),
-        )
+        (transform.to_owned_external(&best.x), best.fx_checked())
     }
     fn best(&self) -> &Point<DVector<Float>> {
         &self.points[0]
@@ -566,7 +557,7 @@ where
 #[derive(Clone)]
 pub struct NelderMeadConfig {
     bounds: Option<Bounds>,
-    transform: Option<Box<dyn Transform<DVector<Float>>>>,
+    transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta: Float,
     gamma: Float,
@@ -696,8 +687,8 @@ impl SupportsBounds for NelderMeadConfig {
         &mut self.bounds
     }
 }
-impl SupportsTransform<DVector<Float>> for NelderMeadConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+impl SupportsTransform for NelderMeadConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
@@ -749,17 +740,14 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let internal_bounds = config
-            .bounds
-            .clone()
-            .map(|b| b.apply(config.transform.as_ref()));
+        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
         self.simplex = config.construction_method.generate(
             problem,
-            config.transform.as_ref(),
+            &config.transform,
             internal_bounds.as_ref(),
             args,
         )?;
-        status.with_position(self.simplex.best_position(config.transform.as_ref()));
+        status.with_position(self.simplex.best_position(&config.transform));
         Ok(())
     }
 
@@ -771,8 +759,7 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let transform = config.transform.as_ref();
-        let internal_bounds = config.bounds.clone().map(|b| b.apply(transform));
+        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
         let h = self.simplex.worst();
         let s = self.simplex.second_worst();
         let l = self.simplex.best();
@@ -782,7 +769,7 @@ where
                 .clip_to(internal_bounds.as_ref())
                 .into_owned(),
         );
-        xr.evaluate_transformed(problem, transform, args)?;
+        xr.evaluate_transformed(problem, &config.transform, args)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -790,7 +777,7 @@ where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.with_position(self.simplex.best_position(transform));
+            status.with_position(self.simplex.best_position(&config.transform));
             status.with_message("REFLECT");
             self.simplex.scale_volume(config.alpha);
             return Ok(());
@@ -804,7 +791,7 @@ where
                     .clip_to(internal_bounds.as_ref())
                     .into_owned(),
             );
-            xe.evaluate_transformed(problem, transform, args)?;
+            xe.evaluate_transformed(problem, &config.transform, args)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
@@ -819,7 +806,7 @@ where
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            status.with_position(self.simplex.best_position(transform));
+            status.with_position(self.simplex.best_position(&config.transform));
             status.with_message("EXPAND");
             self.simplex.scale_volume(config.alpha * config.beta);
             return Ok(());
@@ -845,14 +832,14 @@ where
                         .clip_to(internal_bounds.as_ref())
                         .into_owned(),
                 );
-                xc.evaluate_transformed(problem, transform, args)?;
+                xc.evaluate_transformed(problem, &config.transform, args)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.with_position(self.simplex.best_position(transform));
+                        status.with_position(self.simplex.best_position(&config.transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -870,14 +857,14 @@ where
                         .clip_to(internal_bounds.as_ref())
                         .into_owned(),
                 );
-                xc.evaluate_transformed(problem, transform, args)?;
+                xc.evaluate_transformed(problem, &config.transform, args)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.with_position(self.simplex.best_position(transform));
+                        status.with_position(self.simplex.best_position(&config.transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -897,7 +884,7 @@ where
                     .clip_to(internal_bounds.as_ref())
                     .into_owned(),
             );
-            p.evaluate_transformed(problem, transform, args)?;
+            p.evaluate_transformed(problem, &config.transform, args)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -906,7 +893,7 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_total_centroid();
-        status.with_position(self.simplex.best_position(transform));
+        status.with_position(self.simplex.best_position(&config.transform));
         status.with_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32));
@@ -1030,7 +1017,7 @@ mod tests {
                     &problem,
                     &(),
                     NelderMeadConfig::new(starting_value)
-                        .with_transform(Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
+                        .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -1270,7 +1257,7 @@ mod tests {
         let problem = Rosenbrock { n: 1 };
         // x0 has dimension 1 → should panic inside generate
         let _ = method
-            .generate::<Bounds, _, Infallible>(&problem, None, None, &())
+            .generate::<_, Infallible>(&problem, &None, None, &())
             .unwrap();
     }
 
@@ -1281,7 +1268,7 @@ mod tests {
         };
         let problem = Rosenbrock { n: 2 };
         let simplex = method
-            .generate::<Bounds, _, Infallible>(&problem, None, None, &())
+            .generate::<_, Infallible>(&problem, &None, None, &())
             .unwrap();
 
         // Global min at (1,1) for Rosenbrock
@@ -1364,7 +1351,7 @@ mod tests {
                 &problem,
                 &(),
                 NelderMeadConfig::new([-3.0, 3.0])
-                    .with_transform(Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
+                    .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),
             )
             .unwrap();

@@ -59,21 +59,20 @@ impl ESSMove {
         )
     }
     #[allow(clippy::too_many_arguments)]
-    fn step<P, T, U, E>(
+    fn step<P, U, E>(
         &self,
         step: usize,
         n_adaptive: usize,
         max_steps: usize,
         mu: &mut Float,
         problem: &P,
-        transform: Option<&T>,
+        transform: &Option<Box<dyn Transform>>,
         args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
         P: LogDensity<U, E, Input = DVector<Float>>,
-        T: Transform<DVector<Float>> + Clone,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -223,7 +222,7 @@ impl ESSMove {
 /// The internal configuration struct for the [`ESS`] algorithm.
 #[derive(Clone)]
 pub struct ESSConfig {
-    transform: Option<Box<dyn Transform<DVector<Float>>>>,
+    transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedESSMove>,
     n_adaptive: usize,
@@ -269,8 +268,8 @@ impl ESSConfig {
     }
 }
 
-impl SupportsTransform<DVector<Float>> for ESSConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+impl SupportsTransform for ESSConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
@@ -340,7 +339,7 @@ where
             config.max_steps,
             &mut self.mu,
             problem,
-            config.transform.as_ref(),
+            &config.transform,
             args,
             status,
             &mut self.rng,
@@ -764,14 +763,13 @@ struct DPGMResult {
 //
 // DPGMResult
 #[allow(clippy::unnecessary_cast)]
-fn dpgm<T>(
+fn dpgm(
     n_components: usize,
     ensemble: &EnsembleStatus,
-    transform: Option<&T>,
+    transform: &Option<Box<dyn Transform>>,
     rng: &mut Rng,
 ) -> DPGMResult
 where
-    T: Transform<DVector<Float>> + Clone,
 {
     let (n_walkers, _, n_parameters) = ensemble.dimension();
     let data = ensemble.get_latest_internal_position_matrix(transform);
@@ -900,7 +898,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::Bounds, test_functions::Rosenbrock};
+    use crate::test_functions::Rosenbrock;
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
@@ -1076,7 +1074,7 @@ mod tests {
         status.walkers = positions;
 
         let mut rng2 = Rng::with_seed(0);
-        let res = super::dpgm::<Bounds>(2, &status, None, &mut rng2);
+        let res = super::dpgm(2, &status, &None, &mut rng2);
 
         assert_eq!(res.labels.len(), n_a + n_b);
         assert_eq!(res.means.len(), 2);

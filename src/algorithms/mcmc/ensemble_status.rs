@@ -95,10 +95,7 @@ impl EnsembleStatus {
             .collect()
     }
     /// Get the average position of all [`Walker`]s in internal coordinates
-    pub fn internal_mean<T>(&self, transform: Option<&T>) -> DVector<Float>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    pub fn internal_mean(&self, transform: &Option<Box<dyn Transform>>) -> DVector<Float> {
         self.walkers
             .iter()
             .map(|walker| {
@@ -111,10 +108,11 @@ impl EnsembleStatus {
     }
     /// Get the average position of all [`Walker`]s except for the one at the provided `index` in
     /// internal coordinates
-    pub fn internal_mean_compliment<T>(&self, index: usize, transform: Option<&T>) -> DVector<Float>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    pub fn internal_mean_compliment(
+        &self,
+        index: usize,
+        transform: &Option<Box<dyn Transform>>,
+    ) -> DVector<Float> {
         self.walkers
             .iter()
             .enumerate()
@@ -191,10 +189,10 @@ impl EnsembleStatus {
 
     /// Returns a matrix with the latest position of each walker in the ensemble with dimensions
     /// `(n_walkers, n_variables)`
-    pub fn get_latest_internal_position_matrix<T>(&self, transform: Option<&T>) -> DMatrix<Float>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    pub fn get_latest_internal_position_matrix(
+        &self,
+        transform: &Option<Box<dyn Transform>>,
+    ) -> DMatrix<Float> {
         let position: Vec<RowDVector<Float>> = self
             .walkers
             .iter()

@@ -35,17 +35,16 @@ impl AIESMove {
     pub const fn walk(weight: Float) -> WeightedAIESMove {
         (Self::Walk, weight)
     }
-    fn step<P, T, U, E>(
+    fn step<P, U, E>(
         &self,
         problem: &P,
-        transform: Option<&T>,
+        transform: &Option<Box<dyn Transform>>,
         args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
         P: LogDensity<U, E, Input = DVector<Float>>,
-        T: Transform<DVector<Float>> + Clone,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -143,12 +142,12 @@ impl AIESMove {
 /// The internal configuration struct for the [`AIES`] algorithm.
 #[derive(Clone)]
 pub struct AIESConfig {
-    transform: Option<Box<dyn Transform<DVector<Float>>>>,
+    transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedAIESMove>,
 }
-impl SupportsTransform<DVector<Float>> for AIESConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<DVector<Float>>>> {
+impl SupportsTransform for AIESConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
@@ -230,13 +229,7 @@ where
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
             .unwrap_or(0);
         let step_type = config.moves[step_type_index].0;
-        step_type.step(
-            problem,
-            config.transform.as_ref(),
-            args,
-            status,
-            &mut self.rng,
-        )
+        step_type.step(problem, &config.transform, args, status, &mut self.rng)
     }
 
     fn summarize(
@@ -288,12 +281,12 @@ mod tests {
         let mut status = EnsembleStatus::default();
 
         AIESMove::Stretch { a: 2.0 }
-            .step::<_, Bounds, _, _>(&problem, None, &(), &mut status, &mut rng)
+            .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Stretch Move"));
 
         AIESMove::Walk
-            .step::<_, Bounds, _, _>(&problem, None, &(), &mut status, &mut rng)
+            .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
         assert!(status.message().contains("Walk Move"));
     }

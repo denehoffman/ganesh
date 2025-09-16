@@ -1,5 +1,5 @@
 use crate::{
-    traits::{CostFunction, Gradient, LogDensity},
+    traits::{CostFunction, FiniteDifferenceGradient, Gradient, LogDensity},
     DVector, Float,
 };
 use std::convert::Infallible;
@@ -23,7 +23,15 @@ impl CostFunction for Rosenbrock {
             .sum())
     }
 }
-impl Gradient for Rosenbrock {}
+impl Gradient for Rosenbrock {
+    fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
+        self.cfd_gradient(x, args)
+    }
+
+    fn hessian(&self, x: &Self::Input, args: &()) -> Result<nalgebra::DMatrix<Float>, Infallible> {
+        self.cfd_hessian(x, args)
+    }
+}
 
 impl LogDensity for Rosenbrock {
     type Input = DVector<Float>;

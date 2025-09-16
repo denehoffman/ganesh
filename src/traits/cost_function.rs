@@ -1,5 +1,5 @@
-use crate::{traits::Transform, DMatrix, DVector, Float};
-use std::{convert::Infallible, marker::PhantomData};
+use crate::{DMatrix, DVector, Float};
+use std::convert::Infallible;
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
@@ -29,29 +29,14 @@ pub trait CostFunction<U = (), E = Infallible> {
 /// The [`Gradient`] trait takes a  generic `U` representing the type of user data/arguments
 /// and a generic `E` representing any possible errors that might be returned during function
 /// execution.
-pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<Float>> {
+pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     /// The evaluation of the gradient at a point `x` with the given arguments/user data.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
-        let n = x.len();
-        let mut grad = DVector::zeros(n);
-        let mut xw = x.clone();
-        for i in 0..n {
-            let xi = xw[i];
-            let hi = Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0);
-            xw[i] = xi + hi;
-            let f_plus = self.evaluate(&xw, args)?;
-            xw[i] = xi - hi;
-            let f_minus = self.evaluate(&xw, args)?;
-            xw[i] = xi;
-            grad[i] = (f_plus - f_minus) / (2.0 * hi);
-        }
-        Ok(grad)
-    }
+    fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
 
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
     ///
@@ -59,83 +44,17 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E, Input = DVector<F
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
-        let n = x.len();
-        let mut xw = x.clone();
-        let h: DVector<Float> = xw
-            .iter()
-            .map(|&xi| Float::cbrt(Float::EPSILON) * (xi.abs() + 1.0))
-            .collect::<Vec<_>>()
-            .into();
-        let mut hess = DMatrix::zeros(n, n);
-        let mut g_plus = DMatrix::zeros(n, n);
-        let mut g_minus = DMatrix::zeros(n, n);
-        // g+ and g- are such that
-        // g+[(i, j)] = g[i](x + h_je_j) and
-        // g-[(i, j)] = g[i](x - h_je_j)
-        for i in 0..x.len() {
-            let xi = xw[i];
-            xw[i] = xi + h[i];
-            g_plus.set_column(i, &self.gradient(&xw, args)?);
-            xw[i] = xi - h[i];
-            g_minus.set_column(i, &self.gradient(&xw, args)?);
-            xw[i] = xi;
-            hess[(i, i)] = (g_plus[(i, i)] - g_minus[(i, i)]) / (2.0 * h[i]);
-            for j in 0..i {
-                hess[(i, j)] = ((g_plus[(i, j)] - g_minus[(i, j)]) / (4.0 * h[j]))
-                    + ((g_plus[(j, i)] - g_minus[(j, i)]) / (4.0 * h[i]));
-                hess[(j, i)] = hess[(i, j)];
-            }
-        }
-        Ok(hess)
-    }
+    fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
 }
-
-/// A transformation of a given problem where internal coordinates are expected as inputs.
-pub struct TransformedProblem<'a, F, U, E, T> {
-    f: &'a F,
-    t: &'a T,
-    _args: PhantomData<U>,
-    _error: PhantomData<E>,
+pub trait FiniteDifferenceGradient<U = (), E = Infallible>: Gradient<U, E> {
+    fn cfd_gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
+    fn cfd_hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
 }
-
-impl<'a, F, U, E, T> TransformedProblem<'a, F, U, E, T>
+impl<T, U, E> FiniteDifferenceGradient<U, E> for T
 where
-    F: CostFunction<U, E, Input = DVector<Float>>,
-    T: Transform<DVector<Float>>,
+    T: Gradient<U, E, Input = DVector<Float>>,
 {
-    /// Create a new transformed problem from a given function and transform.
-    ///
-    /// This struct is intended to take internal coordinates as inputs, applying the transform
-    /// before performing any function evaluations. The gradients and hessians returned will also
-    /// be in internal coordinates.
-    pub const fn new(func: &'a F, transform: &'a T) -> Self {
-        Self {
-            f: func,
-            t: transform,
-            _args: PhantomData,
-            _error: PhantomData,
-        }
-    }
-}
-
-impl<'a, F, U, E, T> CostFunction<U, E> for TransformedProblem<'a, F, U, E, T>
-where
-    F: CostFunction<U, E, Input = DVector<Float>>,
-    T: Transform<DVector<Float>>,
-{
-    type Input = DVector<Float>;
-
-    fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
-        self.f.evaluate(&self.t.to_external(x), args)
-    }
-}
-impl<'a, F, U, E, T> Gradient<U, E> for TransformedProblem<'a, F, U, E, T>
-where
-    F: Gradient<U, E, Input = DVector<Float>>,
-    T: Transform<DVector<Float>>,
-{
-    fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
+    fn cfd_gradient(&self, x: &DVector<Float>, args: &U) -> Result<DVector<Float>, E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let mut xw = x.clone();
@@ -152,7 +71,7 @@ where
         Ok(grad)
     }
 
-    fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
+    fn cfd_hessian(&self, x: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
         let n = x.len();
         let mut xw = x.clone();
         let h: DVector<Float> = xw
@@ -208,10 +127,11 @@ pub trait LogDensity<U = (), E = Infallible> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{CostFunction, Gradient},
+        traits::{CostFunction, FiniteDifferenceGradient, Gradient},
         DVector, Float,
     };
     use approx::assert_relative_eq;
+    use nalgebra::DMatrix;
     use std::convert::Infallible;
 
     struct TestFunction;
@@ -222,7 +142,15 @@ mod tests {
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
-    impl Gradient for TestFunction {}
+    impl Gradient for TestFunction {
+        fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
+            self.cfd_gradient(x, args)
+        }
+
+        fn hessian(&self, x: &Self::Input, args: &()) -> Result<DMatrix<Float>, Infallible> {
+            self.cfd_hessian(x, args)
+        }
+    }
 
     #[test]
     fn test_cost_function() {

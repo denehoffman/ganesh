@@ -1,12 +1,12 @@
 use crate::{
-    traits::{Boundable, CostFunction, LogDensity, Transform},
+    traits::{CostFunction, LogDensity, Transform},
     DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
 /// Describes a point in parameter space that can be used in [`Algorithm`](`crate::traits::Algorithm`)s.
-#[derive(PartialEq, Clone, Default, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Point<I> {
     /// the point's position
     pub x: I,
@@ -76,10 +76,7 @@ impl<I> Point<I> {
     }
 }
 
-impl<I> Point<I>
-where
-    I: Boundable + Clone,
-{
+impl Point<DVector<Float>> {
     /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
     /// This function assumes `x` is an internal vector, but performs a coordinate transform
     /// when evaluating the function.
@@ -90,12 +87,12 @@ where
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate_transformed<T, U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = I>,
-        transform: Option<&T>,
+        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        transform: &Option<T>,
         args: &U,
     ) -> Result<(), E>
     where
-        T: Transform<I> + Clone,
+        T: Transform + Clone,
     {
         if self.fx.is_none() {
             self.fx = Some(func.evaluate(&transform.to_external(&self.x), args)?);
@@ -112,12 +109,12 @@ where
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn log_density_transformed<T, U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E, Input = I>,
-        transform: Option<&T>,
+        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
+        transform: &Option<T>,
         args: &U,
     ) -> Result<(), E>
     where
-        T: Transform<I> + Clone,
+        T: Transform + Clone,
     {
         if self.fx.is_none() {
             self.fx = Some(func.log_density(&transform.to_external(&self.x), args)?);
@@ -125,9 +122,9 @@ where
         Ok(())
     }
     /// Converts the point's `x` from an internal space to a external one.
-    pub fn to_external<T>(&self, transform: Option<&T>) -> Self
+    pub fn to_external<T>(&self, transform: &Option<T>) -> Self
     where
-        T: Transform<I> + Clone,
+        T: Transform + Clone,
     {
         Self {
             x: transform.to_external(&self.x).into_owned(),
@@ -135,9 +132,9 @@ where
         }
     }
     /// Converts the point's `x` from a external space to an internal one.
-    pub fn to_internal<T>(&self, transform: Option<&T>) -> Self
+    pub fn to_internal<T>(&self, transform: &Option<T>) -> Self
     where
-        T: Transform<I> + Clone,
+        T: Transform + Clone,
     {
         Self {
             x: transform.to_internal(&self.x).into_owned(),
@@ -178,10 +175,12 @@ impl From<DVector<Float>> for Point<DVector<Float>> {
         Self { x: value, fx: None }
     }
 }
-impl<I> PartialOrd for Point<I>
-where
-    I: PartialEq,
-{
+impl<I> PartialEq for Point<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.fx == other.fx
+    }
+}
+impl<I> PartialOrd for Point<I> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.fx.partial_cmp(&other.fx)
     }
@@ -194,16 +193,17 @@ mod tests {
         core::{Bound, Bounds},
         test_functions::Rosenbrock,
     };
+    use nalgebra::dvector;
     use std::cmp::Ordering;
 
     #[test]
     fn test_destructure_and_fx_checked() {
         let p = Point {
-            x: vec![1.0, 2.0],
+            x: dvector![1.0, 2.0],
             fx: Some(5.0),
         };
         let (x, fx) = p.clone().destructure();
-        assert_eq!(x, vec![1.0, 2.0]);
+        assert_eq!(x, dvector![1.0, 2.0]);
         assert_eq!(fx, 5.0);
         assert_eq!(p.fx_checked(), 5.0);
     }
@@ -211,8 +211,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "Point value requested before evaluation")]
     fn test_fx_checked_panics_if_nan() {
-        let p: Point<Vec<Float>> = Point {
-            x: vec![1.0],
+        let p = Point {
+            x: dvector![1.0],
             fx: None,
         };
         let _ = p.fx_checked();
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn test_evaluate_sets_fx_once() {
         let f = Rosenbrock { n: 2 };
-        let mut p: Point<DVector<Float>> = Point::from(vec![1.0, 1.0]);
+        let mut p = Point::from(vec![1.0, 1.0]);
         assert!(p.fx.is_none());
         p.evaluate(&f, &()).unwrap();
         assert_eq!(p.fx, Some(0.0));
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_log_density_sets_fx_once() {
         let f = Rosenbrock { n: 2 };
-        let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
+        let mut p = Point::from(vec![0.0, 0.0]);
         assert!(p.fx.is_none());
         p.log_density(&f, &()).unwrap();
         assert_eq!(p.fx, Some(0.0));
@@ -243,11 +243,11 @@ mod tests {
     #[test]
     fn test_total_cmp_and_partial_cmp() {
         let p1 = Point {
-            x: vec![1.0],
+            x: dvector![1.0],
             fx: Some(1.0),
         };
         let p2 = Point {
-            x: vec![2.0],
+            x: dvector![2.0],
             fx: Some(2.0),
         };
         assert_eq!(p1.total_cmp(&p2), Ordering::Less);
@@ -257,11 +257,11 @@ mod tests {
     #[test]
     fn test_set_position_resets_fx() {
         let mut p = Point {
-            x: vec![1.0],
+            x: dvector![1.0],
             fx: Some(5.0),
         };
-        p.set_position(vec![2.0]);
-        assert_eq!(p.x, vec![2.0]);
+        p.set_position(dvector![2.0]);
+        assert_eq!(p.x, dvector![2.0]);
         assert!(p.fx.is_none());
     }
 
@@ -273,18 +273,19 @@ mod tests {
             Bound::LowerAndUpperBound(-2.0, 2.0),
         ]
         .into();
-        let mut p: Point<DVector<Float>> = Point::from(vec![0.0, 0.0]);
-        p.evaluate_transformed(&f, Some(&bounds), &()).unwrap();
+        let mut p = Point::from(vec![0.0, 0.0]);
+        p.evaluate_transformed(&f, &Some(bounds.clone()), &())
+            .unwrap();
         assert_eq!(p.fx, Some(1.0));
 
-        let constrained = p.to_external(Some(&bounds));
+        let constrained = p.to_external(&Some(bounds));
         assert_eq!(constrained.fx, p.fx);
         assert!(constrained.x.len() == p.x.len());
     }
 
     #[test]
     fn test_from_and_display() {
-        let p: Point<DVector<Float>> = Point::from(vec![1.0, 2.0]);
+        let p = Point::from(vec![1.0, 2.0]);
         let s = format!("{}", p);
         assert!(s.contains("x:"));
         assert!(s.contains("f(x):"));

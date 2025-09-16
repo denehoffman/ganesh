@@ -173,18 +173,14 @@ where
 }
 
 /// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter transformations.
-pub trait SupportsTransform<I: Clone>
+pub trait SupportsTransform
 where
     Self: Sized,
 {
     /// A helper method to get the mutable internal [`Bounds`] object.
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform<I>>>;
-    /// Sets all [`Bound`]s used by the [`Algorithm`]. This can be [`None`] for an unbounded problem, or
-    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
-    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
-    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    fn with_transform<T: Transform<I> + 'static>(mut self, transform: T) -> Self {
-        *self.get_transform_mut() = Some(dyn_clone::clone_box(&transform));
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>>;
+    fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
+        *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
         self
     }
 }

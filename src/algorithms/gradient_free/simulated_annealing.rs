@@ -248,11 +248,11 @@ mod tests {
     use nalgebra::DMatrix;
     use std::fmt::Debug;
 
-    pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E>>);
+    pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E, Input = DVector<Float>>>);
     impl<U, E> GradientAnnealingProblem<U, E> {
         pub fn new<P>(problem: P) -> Self
         where
-            P: Gradient<U, E> + 'static,
+            P: Gradient<U, E, Input = DVector<Float>> + 'static,
         {
             Self(Box::new(problem))
         }
@@ -275,7 +275,7 @@ mod tests {
     }
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for GradientAnnealingProblem<U, E>
     where
-        Self: Gradient<U, E>,
+        Self: Gradient<U, E, Input = DVector<Float>>,
     {
         fn generate(
             &self,

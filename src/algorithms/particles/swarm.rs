@@ -52,16 +52,13 @@ impl Swarm {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn initialize<T, U, E>(
+    pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
-        transform: Option<&T>,
+        transform: &Option<Box<dyn Transform>>,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         args: &U,
-    ) -> Result<(), E>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    ) -> Result<(), E> {
         let mut particle_positions = self.position_initializer.init_positions(rng);
         let mut particle_velocities = self.velocity_initializer.init_velocities(
             rng,
@@ -298,16 +295,13 @@ impl SwarmParticle {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn new<T, U, E>(
+    pub fn new<U, E>(
         position: Point<DVector<Float>>,
         velocity: DVector<Float>,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         args: &U,
-        transform: Option<&T>,
-    ) -> Result<Self, E>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+        transform: &Option<Box<dyn Transform>>,
+    ) -> Result<Self, E> {
         let mut position = position;
         position.evaluate_transformed(func, transform, args)?;
         Ok(Self {
@@ -326,17 +320,14 @@ impl SwarmParticle {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    pub fn update_position<T, U, E>(
+    pub fn update_position<U, E>(
         &mut self,
         func: &dyn CostFunction<U, E, Input = DVector<Float>>,
         args: &U,
         bounds: Option<&Bounds>,
-        transform: Option<&T>,
+        transform: &Option<Box<dyn Transform>>,
         boundary_method: SwarmBoundaryMethod,
-    ) -> Result<usize, E>
-    where
-        T: Transform<DVector<Float>> + Clone,
-    {
+    ) -> Result<usize, E> {
         let internal_bounds = bounds.map(|b| b.apply(transform));
         let position_internal = self.position.to_internal(transform);
         let velocity_internal = transform.to_internal(&self.velocity);
