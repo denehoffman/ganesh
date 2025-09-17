@@ -72,7 +72,7 @@ impl ESSMove {
         rng: &mut Rng,
     ) -> Result<(), E>
     where
-        P: LogDensity<U, E, Input = DVector<Float>>,
+        P: LogDensity<U, E>,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -304,7 +304,7 @@ impl ESS {
 }
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
 where
-    P: LogDensity<U, E, Input = DVector<Float>>,
+    P: LogDensity<U, E>,
 {
     type Summary = MCMCSummary;
     type Config = ESSConfig;

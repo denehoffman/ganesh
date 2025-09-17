@@ -31,7 +31,7 @@ impl Default for AdamEMATerminator {
 }
 impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E, AdamConfig> for AdamEMATerminator
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -140,7 +140,7 @@ pub struct Adam {
 }
 impl<P, U, E> Algorithm<P, GradientStatus, U, E> for Adam
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = AdamConfig;

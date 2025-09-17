@@ -63,7 +63,7 @@ impl Walker {
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
         self.get_latest().write().log_density(func, args)

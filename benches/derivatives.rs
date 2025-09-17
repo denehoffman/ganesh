@@ -3,13 +3,12 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use ganesh::{
-    traits::{CostFunction, FiniteDifferenceGradient, Gradient},
+    traits::{CostFunction, Gradient},
     DVector, Float,
 };
 
 struct Rosenbrock;
 impl CostFunction for Rosenbrock {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
         let mut s = 0.0 as Float;
         for i in 0..(x.len() - 1) {
@@ -22,15 +21,7 @@ impl CostFunction for Rosenbrock {
         Ok(s)
     }
 }
-impl Gradient for Rosenbrock {
-    fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
-        self.cfd_gradient(x, args)
-    }
-
-    fn hessian(&self, x: &Self::Input, args: &()) -> Result<ganesh::DMatrix<Float>, Infallible> {
-        self.cfd_hessian(x, args)
-    }
-}
+impl Gradient for Rosenbrock {}
 
 fn random_x_with(rng: &mut fastrand::Rng, n: usize) -> DVector<Float> {
     DVector::from_fn(n, |_, _| rng.f64() as Float * 4.0 - 2.0)

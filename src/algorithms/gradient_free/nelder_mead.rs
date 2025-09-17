@@ -102,7 +102,7 @@ impl SimplexConstructionMethod {
 impl SimplexConstructionMethod {
     fn generate<U, E>(
         &self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         transform: &Option<Box<dyn Transform>>,
         bounds: Option<&Bounds>,
         args: &U,
@@ -352,7 +352,7 @@ impl Default for NelderMeadFTerminator {
 impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
     for NelderMeadFTerminator
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: CostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -470,7 +470,7 @@ impl Default for NelderMeadXTerminator {
 impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
     for NelderMeadXTerminator
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: CostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -729,7 +729,7 @@ pub struct NelderMead {
 }
 impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = NelderMeadConfig;

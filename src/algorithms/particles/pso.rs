@@ -127,7 +127,7 @@ impl PSO {
     fn update<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -140,7 +140,7 @@ impl PSO {
     fn update_sync<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -180,7 +180,7 @@ impl PSO {
     fn update_async<U, E>(
         &mut self,
         status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -218,7 +218,7 @@ impl PSO {
 
 impl<P, U, E> Algorithm<P, SwarmStatus, U, E> for PSO
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: CostFunction<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = PSOConfig;

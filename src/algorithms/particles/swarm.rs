@@ -56,7 +56,7 @@ impl Swarm {
         &mut self,
         rng: &mut Rng,
         transform: &Option<Box<dyn Transform>>,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
     ) -> Result<(), E> {
         let mut particle_positions = self.position_initializer.init_positions(rng);
@@ -298,7 +298,7 @@ impl SwarmParticle {
     pub fn new<U, E>(
         position: Point<DVector<Float>>,
         velocity: DVector<Float>,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         transform: &Option<Box<dyn Transform>>,
     ) -> Result<Self, E> {
@@ -322,7 +322,7 @@ impl SwarmParticle {
     /// information.
     pub fn update_position<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         bounds: Option<&Bounds>,
         transform: &Option<Box<dyn Transform>>,

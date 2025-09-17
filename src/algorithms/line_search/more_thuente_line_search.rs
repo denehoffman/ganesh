@@ -71,7 +71,7 @@ impl MoreThuenteLineSearch {
 impl MoreThuenteLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E, Input = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         args: &U,
         status: &mut GradientStatus,
@@ -81,7 +81,7 @@ impl MoreThuenteLineSearch {
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E, Input = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         args: &U,
         status: &mut GradientStatus,
@@ -92,7 +92,7 @@ impl MoreThuenteLineSearch {
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
-        func: &dyn Gradient<U, E, Input = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         x0: &DVector<Float>,
         args: &U,
         f0: Float,
@@ -158,7 +158,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E, Input = DVector<Float>>,
+        problem: &dyn Gradient<U, E>,
         _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,

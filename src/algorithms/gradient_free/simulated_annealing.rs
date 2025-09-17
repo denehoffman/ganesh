@@ -1,6 +1,6 @@
 use crate::{
     core::{utils::SampleFloat, Bounds, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{Algorithm, CostFunction, Status, SupportsBounds, Terminator},
+    traits::{Algorithm, GenericCostFunction, Status, SupportsBounds, Terminator},
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ where
 }
 
 /// A trait for generating new points in the simulated annealing algorithm.
-pub trait SimulatedAnnealingGenerator<U, E>: CostFunction<U, E> {
+pub trait SimulatedAnnealingGenerator<U, E>: GenericCostFunction<U, E> {
     /// Returns the initial state of the algorithm.
     fn initial(
         &self,
@@ -167,7 +167,7 @@ where
     ) -> Result<(), E> {
         let bounds = config.bounds.as_ref();
         let x0 = problem.initial(bounds, status, args);
-        let fx0 = problem.evaluate(&x0, args)?;
+        let fx0 = problem.evaluate_generic(&x0, args)?;
         status.temperature = config.initial_temperature;
         status.current = Point {
             x: x0,
@@ -188,7 +188,7 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let x = problem.generate(config.bounds.as_ref(), status, args);
-        let fx = problem.evaluate(&x, args)?;
+        let fx = problem.evaluate_generic(&x, args)?;
         status.cost_evals += 1;
 
         status.current = Point { x, fx: Some(fx) };
@@ -241,41 +241,43 @@ mod tests {
     use crate::{
         core::MaxSteps,
         test_functions::Rosenbrock,
-        traits::{Boundable, Gradient},
+        traits::{cost_function::GenericGradient, Boundable},
         DVector,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
     use std::fmt::Debug;
 
-    pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E, Input = DVector<Float>>>);
+    pub struct GradientAnnealingProblem<U, E>(
+        Box<dyn GenericGradient<U, E, Input = DVector<Float>>>,
+    );
     impl<U, E> GradientAnnealingProblem<U, E> {
         pub fn new<P>(problem: P) -> Self
         where
-            P: Gradient<U, E, Input = DVector<Float>> + 'static,
+            P: GenericGradient<U, E, Input = DVector<Float>> + 'static,
         {
             Self(Box::new(problem))
         }
     }
-    impl<U, E> CostFunction<U, E> for GradientAnnealingProblem<U, E> {
+    impl<U, E> GenericCostFunction<U, E> for GradientAnnealingProblem<U, E> {
         type Input = DVector<Float>;
 
-        fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
-            self.0.evaluate(x, args)
+        fn evaluate_generic(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
+            self.0.evaluate_generic(x, args)
         }
     }
-    impl<U, E> Gradient<U, E> for GradientAnnealingProblem<U, E> {
-        fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
-            self.0.gradient(x, args)
+    impl<U, E> GenericGradient<U, E> for GradientAnnealingProblem<U, E> {
+        fn gradient_generic(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
+            self.0.gradient_generic(x, args)
         }
 
-        fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
-            self.0.hessian(x, args)
+        fn hessian_generic(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
+            self.0.hessian_generic(x, args)
         }
     }
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for GradientAnnealingProblem<U, E>
     where
-        Self: Gradient<U, E, Input = DVector<Float>>,
+        Self: GenericGradient<U, E, Input = DVector<Float>>,
     {
         fn generate(
             &self,
@@ -285,7 +287,7 @@ mod tests {
         ) -> Self::Input {
             #[allow(clippy::expect_used)]
             let g = self
-                .gradient(&status.current.x, args)
+                .gradient_generic(&status.current.x, args)
                 .expect("This should never fail");
             let x = &status.current.x - &(status.temperature * 1e0 * g);
             x.constrain_to(bounds).into_owned()

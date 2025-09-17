@@ -44,7 +44,7 @@ impl AIESMove {
         rng: &mut Rng,
     ) -> Result<(), E>
     where
-        P: LogDensity<U, E, Input = DVector<Float>>,
+        P: LogDensity<U, E>,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -201,7 +201,7 @@ impl AIES {
 
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for AIES
 where
-    P: LogDensity<U, E, Input = DVector<Float>>,
+    P: LogDensity<U, E>,
 {
     type Summary = MCMCSummary;
     type Config = AIESConfig;
@@ -255,7 +255,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::Bounds, test_functions::Rosenbrock};
+    use crate::test_functions::Rosenbrock;
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)

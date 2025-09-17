@@ -1,5 +1,5 @@
 use crate::{
-    traits::{CostFunction, FiniteDifferenceGradient, Gradient},
+    traits::{CostFunction, Gradient},
     DVector, Float, PI,
 };
 use std::convert::Infallible;
@@ -14,7 +14,6 @@ pub struct Rastrigin {
     pub n: usize,
 }
 impl CostFunction for Rastrigin {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok(10.0 * self.n as Float
@@ -23,12 +22,4 @@ impl CostFunction for Rastrigin {
                 .sum::<Float>())
     }
 }
-impl Gradient for Rastrigin {
-    fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
-        self.cfd_gradient(x, args)
-    }
-
-    fn hessian(&self, x: &Self::Input, args: &()) -> Result<nalgebra::DMatrix<Float>, Infallible> {
-        self.cfd_hessian(x, args)
-    }
-}
+impl Gradient for Rastrigin {}

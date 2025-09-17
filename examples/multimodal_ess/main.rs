@@ -12,7 +12,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Function (Himmelblau's test function)
     impl LogDensity for Problem {
-        type Input = DVector<Float>;
         fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }

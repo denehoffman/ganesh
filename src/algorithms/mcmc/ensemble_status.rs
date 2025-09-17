@@ -64,7 +64,7 @@ impl EnsembleStatus {
     /// [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {

@@ -1,5 +1,5 @@
 use crate::{
-    traits::{CostFunction, FiniteDifferenceGradient, Gradient, LogDensity},
+    traits::{CostFunction, GenericCostFunction, GenericGradient, Gradient, LogDensity},
     DVector, Float,
 };
 use std::convert::Infallible;
@@ -15,7 +15,6 @@ pub struct Rosenbrock {
     pub n: usize,
 }
 impl CostFunction for Rosenbrock {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok((0..(self.n - 1))
@@ -23,20 +22,30 @@ impl CostFunction for Rosenbrock {
             .sum())
     }
 }
-impl Gradient for Rosenbrock {
-    fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
-        self.cfd_gradient(x, args)
+impl Gradient for Rosenbrock {}
+impl GenericCostFunction for Rosenbrock {
+    type Input = DVector<Float>;
+
+    fn evaluate_generic(&self, x: &Self::Input, args: &()) -> Result<Float, Infallible> {
+        <Self as CostFunction>::evaluate(self, x, args)
+    }
+}
+impl GenericGradient for Rosenbrock {
+    fn gradient_generic(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
+        <Self as Gradient>::gradient(self, x, args)
     }
 
-    fn hessian(&self, x: &Self::Input, args: &()) -> Result<nalgebra::DMatrix<Float>, Infallible> {
-        self.cfd_hessian(x, args)
+    fn hessian_generic(
+        &self,
+        x: &Self::Input,
+        args: &(),
+    ) -> Result<nalgebra::DMatrix<Float>, Infallible> {
+        <Self as Gradient>::hessian(self, x, args)
     }
 }
 
 impl LogDensity for Rosenbrock {
-    type Input = DVector<Float>;
-
-    fn log_density(&self, x: &Self::Input, _args: &()) -> Result<Float, Infallible> {
+    fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok(-Float::ln(
             (0..(self.n - 1))

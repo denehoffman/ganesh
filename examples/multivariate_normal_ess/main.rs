@@ -13,7 +13,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Implement Function (args is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
     impl LogDensity<DMatrix<Float>> for Problem {
-        type Input = DVector<Float>;
         fn log_density(
             &self,
             x: &DVector<Float>,

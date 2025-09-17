@@ -179,6 +179,7 @@ where
 {
     /// A helper method to get the mutable internal [`Bounds`] object.
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>>;
+    /// Set the transformation to apply to the parameter space.
     fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
         *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
         self

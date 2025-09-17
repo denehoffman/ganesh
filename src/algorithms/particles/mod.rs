@@ -43,7 +43,7 @@ impl TrackingSwarmObserver {
 
 impl<P, U, E> Observer<PSO, P, SwarmStatus, U, E, PSOConfig> for TrackingSwarmObserver
 where
-    P: CostFunction<U, E, Input = DVector<Float>>,
+    P: CostFunction<U, E>,
 {
     fn observe(
         &mut self,

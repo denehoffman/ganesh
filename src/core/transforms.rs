@@ -4,6 +4,7 @@ use crate::{
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
+use nalgebra::dmatrix;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
@@ -321,6 +322,176 @@ impl Transform for Bounds {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SphericalTransform {
+    pub i_x: usize,
+    pub i_y: usize,
+    pub i_z: usize,
+}
+impl SphericalTransform {
+    pub fn new(i_x: usize, i_y: usize, i_z: usize) -> Self {
+        // TODO: assert unique
+        Self { i_x, i_y, i_z }
+    }
+    #[inline]
+    fn xyz_from_internal(&self, z: &DVector<Float>) -> (Float, Float, Float) {
+        (z[self.i_x], z[self.i_y], z[self.i_z])
+    }
+    #[inline]
+    fn rtp_from_internal(&self, z: &DVector<Float>) -> (Float, Float, Float) {
+        let (cx, cy, cz) = self.xyz_from_internal(z);
+        let r = (cx * cx + cy * cy + cz * cz).sqrt();
+        let s = (cx * cx + cy * cy).sqrt();
+        let theta = if r > 0.0 { s.atan2(cz) } else { 0.0 };
+        let phi = cy.atan2(cx);
+        (r, theta, phi)
+    }
+    #[inline]
+    fn jacobian_block_from_internal(&self, z: &DVector<Float>) -> [[Float; 3]; 3] {
+        let (cx, cy, cz) = self.xyz_from_internal(z);
+        let r2 = cx * cx + cy * cy + cz * cz;
+        let r = r2.sqrt();
+        let s2 = cx * cx + cy * cy;
+        let s = s2.sqrt();
+        if r <= Float::EPSILON {
+            return [[0.0; 3]; 3];
+        }
+        let dr = [cx / r, cy / r, cz / r];
+        let mut dt = [0.0; 3];
+        if s > Float::EPSILON {
+            dt[0] = cx * cz / r2 / s;
+            dt[1] = cy * cz / r2 / s;
+        }
+        if r2 > 0.0 {
+            dt[2] = -s / r2;
+        }
+        let mut dp = [0.0; 3];
+        if s2 > Float::EPSILON {
+            dp[0] = -cy / s2;
+            dp[1] = cx / s2;
+        }
+        [dr, dt, dp]
+    }
+    fn hessian_block_from_internal_r(&self, z: &DVector<Float>) -> [Float; 6] {
+        let (cx, cy, cz) = self.xyz_from_internal(z);
+        let r2 = cx * cx + cy * cy + cz * cz;
+        let r = r2.sqrt();
+        let r3 = r * r * r;
+        if r <= Float::EPSILON {
+            return [0.0; 6];
+        }
+        let drdxdx = (cy * cy + cz * cz) / r3;
+        let drdxdy = -(cx * cy) / r3;
+        let drdxdz = -(cx * cz) / r3;
+        let drdydy = (cx * cx + cz * cz) / r3;
+        let drdydz = -(cy * cz) / r3;
+        let drdzdz = (cx * cx + cy * cy) / r3;
+        [drdxdx, drdxdy, drdxdz, drdydy, drdydz, drdzdz]
+    }
+    fn hessian_block_from_internal_t(&self, z: &DVector<Float>) -> [Float; 6] {
+        let (cx, cy, cz) = self.xyz_from_internal(z);
+        let r2 = cx * cx + cy * cy + cz * cz;
+        let s2 = cx * cx + cy * cy;
+        let s = s2.sqrt();
+        let r4 = r2 * r2;
+        let s3 = s * s * s;
+        if r4 <= Float::EPSILON {
+            return [0.0; 6];
+        }
+        let dtdxdx = (cz * (cy.powi(4) + cy * cy * cz * cz - cx * cx * cy * cy - 2.0 * cx.powi(4)))
+            / (s3 * r4);
+        let dtdxdy = (-cx * cy * cz * (3.0 * s2 + cz * cz)) / (s3 * r4);
+        let dtdxdz = (cx * (s2 - cz * cz)) / (s * r4);
+        let dtdydy = (cz * (cx.powi(4) + cx * cx * cz * cz - cx * cx * cy * cy - 2.0 * cy.powi(4)))
+            / (s3 * r4);
+        let dtdydz = (cy * (s2 - cz * cz)) / (s * r4);
+        let dtdzdz = (2.0 * s * cz) / r4;
+        [dtdxdx, dtdxdy, dtdxdz, dtdydy, dtdydz, dtdzdz]
+    }
+    fn hessian_block_from_internal_p(&self, z: &DVector<Float>) -> [Float; 6] {
+        let (cx, cy, cz) = self.xyz_from_internal(z);
+        let r2 = cx * cx + cy * cy + cz * cz;
+        let s2 = cx * cx + cy * cy;
+        let r4 = r2 * r2;
+        let s4 = s2 * s2;
+        if r4 <= Float::EPSILON {
+            return [0.0; 6];
+        }
+        let dpdxdx = (2.0 * cx * cy) / s4;
+        let dpdxdy = (cy * cy - cx * cx) / s4;
+        let dpdxdz = 0.0;
+        let dpdydy = -(2.0 * cx * cy) / s4;
+        let dpdydz = 0.0;
+        let dpdzdz = 0.0;
+        [dpdxdx, dpdxdy, dpdxdz, dpdydy, dpdydz, dpdzdz]
+    }
+}
+impl Transform for SphericalTransform {
+    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        let (r, theta, phi) = self.xyz_from_internal(z);
+        let mut out = z.clone();
+        out[self.i_x] = r;
+        out[self.i_y] = theta;
+        out[self.i_z] = phi;
+        Cow::Owned(out)
+    }
+
+    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        let r = x[self.i_x];
+        let theta = x[self.i_y];
+        let phi = x[self.i_z];
+        let (st, ct) = theta.sin_cos();
+        let (sp, cp) = phi.sin_cos();
+        let cx = r * st * cp;
+        let cy = r * st * sp;
+        let cz = r * ct;
+        let mut out = x.clone();
+        out[self.i_x] = cx;
+        out[self.i_y] = cy;
+        out[self.i_z] = cz;
+        Cow::Owned(out)
+    }
+
+    fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let jac = self.jacobian_block_from_internal(z);
+        let mut out = DMatrix::identity(z.len(), z.len());
+        out[(self.i_x, self.i_x)] = jac[0][0];
+        out[(self.i_x, self.i_y)] = jac[0][1];
+        out[(self.i_x, self.i_z)] = jac[0][2];
+        out[(self.i_y, self.i_x)] = jac[1][0];
+        out[(self.i_y, self.i_y)] = jac[1][1];
+        out[(self.i_y, self.i_z)] = jac[1][2];
+        out[(self.i_z, self.i_x)] = jac[2][0];
+        out[(self.i_z, self.i_y)] = jac[2][1];
+        out[(self.i_z, self.i_z)] = jac[2][2];
+        out
+    }
+
+    fn component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+        let mut out = DMatrix::zeros(z.len(), z.len());
+        let hess;
+        if a == self.i_x {
+            hess = self.hessian_block_from_internal_r(z);
+        } else if a == self.i_y {
+            hess = self.hessian_block_from_internal_t(z);
+        } else if a == self.i_z {
+            hess = self.hessian_block_from_internal_p(z);
+        } else {
+            return out;
+        }
+        out[(self.i_x, self.i_x)] = hess[0];
+        out[(self.i_x, self.i_y)] = hess[1];
+        out[(self.i_x, self.i_z)] = hess[2];
+        out[(self.i_y, self.i_x)] = hess[1];
+        out[(self.i_y, self.i_y)] = hess[3];
+        out[(self.i_y, self.i_z)] = hess[4];
+        out[(self.i_z, self.i_x)] = hess[2];
+        out[(self.i_z, self.i_y)] = hess[4];
+        out[(self.i_z, self.i_z)] = hess[5];
+        out
+    }
+}
+
 /// This transform may be used to ensure algorithms operate on a space of positive-definite matrices.
 ///
 /// Some functions take parameters which form matrices and require that these matrices be
@@ -358,6 +529,7 @@ impl SymmetricPositiveDefiniteTransform {
     /// The constructor will panic if the number of indices does not correspond to a whole-number
     /// dimension.
     pub fn new(indices: &[usize]) -> Self {
+        // TODO: assert unique
         let n = indices.len();
         let dim = (Float::sqrt((8 * n + 1) as Float) as usize - 1) / 2;
         assert_eq!(dim * (dim + 1) / 2, n, "Invalid number of indices: {n}! There should be n = d(d+1)/2 indices for a d-dimensional symmetric matrix.");
@@ -373,6 +545,10 @@ impl SymmetricPositiveDefiniteTransform {
     /// This parameter may need to be carefully chosen for some problems to ensure that the
     /// resulting matrices are not singular. The original paper suggests $`\beta = 4`$ or
     /// $`\beta = 4 \log(2)`$, but $`\beta = 8`$ seems to work well for some test cases.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if the user sets $`\beta \leq 0`$.
     pub fn with_beta(mut self, beta: Float) -> Self {
         assert!(beta > 0.0);
         self.beta = beta;
@@ -380,6 +556,9 @@ impl SymmetricPositiveDefiniteTransform {
     }
     /// Set the $`delta`$ parameter whose square is added to the diagonal entries of the resulting
     /// positive-definite matrix (default = `1e-4`).
+    /// # Panics
+    ///
+    /// This will panic if the user sets $`\delta \leq 0`$.
     pub fn with_delta(mut self, delta: Float) -> Self {
         assert!(delta > 0.0);
         self.delta = delta;
@@ -598,11 +777,14 @@ impl Transform for SymmetricPositiveDefiniteTransform {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
+    use approx::assert_relative_eq;
     use nalgebra::dvector;
 
     use super::*;
     use crate::{
-        traits::{transform::TransformExt, Boundable},
+        traits::{transform::TransformExt, Boundable, CostFunction, Gradient, TransformedProblem},
         DVector,
     };
 
@@ -691,15 +873,23 @@ mod tests {
         assert_eq!(bounds.into_inner(), vec![b]);
     }
 
-    /// A simple offset transform: adds +1.0 on `external_to_internal`, subtracts 1.0 on `internal_to_external`.
+    /// A simple offset transform: adds +1.0 on `to_internal`, subtracts 1.0 on `to_external`.
     #[derive(Clone)]
     struct Offset;
     impl Transform for Offset {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.add_scalar(-1.0))
+        }
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x.add_scalar(1.0))
         }
-        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(x.add_scalar(-1.0))
+
+        fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::identity(z.len(), z.len())
+        }
+
+        fn component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
         }
     }
 
@@ -707,11 +897,18 @@ mod tests {
     #[derive(Clone)]
     struct Identity;
     impl Transform for Identity {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Borrowed(x)
+        }
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Borrowed(x)
         }
-        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Borrowed(x)
+        fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::identity(z.len(), z.len())
+        }
+
+        fn component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
         }
     }
 
@@ -719,11 +916,18 @@ mod tests {
     #[derive(Clone)]
     struct Scale(Float);
     impl Transform for Scale {
+        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x / self.0)
+        }
         fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
             Cow::Owned(x * self.0)
         }
-        fn to_external<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(x / self.0)
+        fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::identity(z.len(), z.len()).unscale(self.0)
+        }
+
+        fn component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
         }
     }
 
@@ -825,5 +1029,44 @@ mod tests {
         let res_ext = id.to_owned_external(&val);
         assert_eq!(res_int, DVector::from(vec![7.0]));
         assert_eq!(res_ext, DVector::from(vec![7.0]));
+    }
+
+    struct Quadratic;
+    impl CostFunction for Quadratic {
+        fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
+            Ok(x.map(|xi| xi * xi * 0.5).sum())
+        }
+    }
+    impl Gradient for Quadratic {
+        fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
+            Ok(x.clone())
+        }
+
+        fn hessian(&self, x: &DVector<Float>, _args: &()) -> Result<DMatrix<Float>, Infallible> {
+            Ok(DMatrix::identity(x.len(), x.len()))
+        }
+    }
+
+    #[test]
+    fn test_differential_operations() -> Result<(), Infallible> {
+        let f = Quadratic;
+        let t = SphericalTransform::new(0, 1, 2);
+        let p = TransformedProblem::new(&f, &t);
+        let xyz = dvector![1.0, -1.5, 0.8]; // Cartesian
+        let rtp = t.to_owned_external(&xyz);
+        let f_int = p.evaluate(&xyz, &())?;
+        let f_ext = f.evaluate(&rtp, &())?;
+        assert_relative_eq!(f_int, f_ext);
+
+        let g_int = p.gradient(&xyz, &())?;
+        let g_ext = f.gradient(&rtp, &())?;
+        let g_int_to_ext = p.pushforward_gradient(&xyz, &g_int);
+        assert_relative_eq!(g_int_to_ext, g_ext);
+
+        let h_int = p.hessian(&xyz, &())?;
+        let h_ext = f.hessian(&rtp, &())?;
+        let h_int_to_ext = p.pushforward_hessian(&xyz, &g_int, &h_int);
+        assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
+        Ok(())
     }
 }

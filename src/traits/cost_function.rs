@@ -1,6 +1,50 @@
 use crate::{DMatrix, DVector, Float};
 use std::convert::Infallible;
 
+/// A trait which describes a function $`f(\text{Input}) \to \mathbb{R}`$
+///
+/// Such a function may also take a `args: &mut U` field which can be used to pass external
+/// arguments to the function during minimization or can be modified by the function itself.
+///
+/// The [`GenericCostFunction`] trait takes a generic `U` representing the type of user data/arguments
+/// and a generic `E` representing any possible errors that might be returned during function
+/// execution.
+pub trait GenericCostFunction<U = (), E = Infallible> {
+    /// The input space of the function.
+    type Input;
+    /// The evaluation of the function at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// [`std::convert::Infallible`] if the function evaluation never fails.
+    fn evaluate_generic(&self, x: &Self::Input, args: &U) -> Result<Float, E>;
+}
+/// A trait which defines the gradient of a function $`f(\text{Input}) \to \mathbb{R}`$
+///
+/// Such a function may also take a `args: &mut U` field which can be used to pass external
+/// arguments to the function during minimization or can be modified by the function itself.
+///
+/// The [`GenericGradient`] trait takes a  generic `U` representing the type of user data/arguments
+/// and a generic `E` representing any possible errors that might be returned during function
+/// execution.
+pub trait GenericGradient<U = (), E = Infallible>: GenericCostFunction<U, E> {
+    /// The evaluation of the gradient at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`GenericCostFunction::evaluate_generic`] for more
+    /// information.
+    fn gradient_generic(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`GenericCostFunction::evaluate_generic`] for more
+    /// information.
+    fn hessian_generic(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
+}
+
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
 /// Such a function may also take a `args: &mut U` field which can be used to pass external
@@ -10,17 +54,14 @@ use std::convert::Infallible;
 /// and a generic `E` representing any possible errors that might be returned during function
 /// execution.
 pub trait CostFunction<U = (), E = Infallible> {
-    /// The input space consumed by the cost function.
-    type Input;
     /// The evaluation of the function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// [`std::convert::Infallible`] if the function evaluation never fails.
-    fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E>;
+    fn evaluate(&self, x: &DVector<Float>, args: &U) -> Result<Float, E>;
 }
-
 /// A trait which defines the gradient of a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
 ///
 /// Such a function may also take a `args: &mut U` field which can be used to pass external
@@ -36,25 +77,7 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
     ///
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
     /// information.
-    fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
-
-    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
-    /// information.
-    fn hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
-}
-pub trait FiniteDifferenceGradient<U = (), E = Infallible>: Gradient<U, E> {
-    fn cfd_gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
-    fn cfd_hessian(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
-}
-impl<T, U, E> FiniteDifferenceGradient<U, E> for T
-where
-    T: Gradient<U, E, Input = DVector<Float>>,
-{
-    fn cfd_gradient(&self, x: &DVector<Float>, args: &U) -> Result<DVector<Float>, E> {
+    fn gradient(&self, x: &DVector<Float>, args: &U) -> Result<DVector<Float>, E> {
         let n = x.len();
         let mut grad = DVector::zeros(n);
         let mut xw = x.clone();
@@ -71,7 +94,13 @@ where
         Ok(grad)
     }
 
-    fn cfd_hessian(&self, x: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
+    /// The evaluation of the hessian at a point `x` with the given arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
+    fn hessian(&self, x: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
         let n = x.len();
         let mut xw = x.clone();
         let h: DVector<Float> = xw
@@ -113,44 +142,32 @@ where
 /// and a generic `E` representing any possible errors that might be returned during function
 /// execution.
 pub trait LogDensity<U = (), E = Infallible> {
-    /// The input space consumed by the log-density function
-    type Input;
     /// The log of the evaluation of the density function at a point `x` with the given arguments/user data.
     ///
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
     /// [`std::convert::Infallible`] if the function evaluation never fails.
-    fn log_density(&self, x: &Self::Input, args: &U) -> Result<Float, E>;
+    fn log_density(&self, x: &DVector<Float>, args: &U) -> Result<Float, E>;
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{CostFunction, FiniteDifferenceGradient, Gradient},
+        traits::{CostFunction, Gradient},
         DVector, Float,
     };
     use approx::assert_relative_eq;
-    use nalgebra::DMatrix;
     use std::convert::Infallible;
 
     struct TestFunction;
     impl CostFunction for TestFunction {
-        type Input = DVector<Float>;
         fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
             #[allow(clippy::suboptimal_flops)]
             Ok(x[0].powi(2) + x[1].powi(2) + 1.0)
         }
     }
-    impl Gradient for TestFunction {
-        fn gradient(&self, x: &Self::Input, args: &()) -> Result<DVector<Float>, Infallible> {
-            self.cfd_gradient(x, args)
-        }
-
-        fn hessian(&self, x: &Self::Input, args: &()) -> Result<DMatrix<Float>, Infallible> {
-            self.cfd_hessian(x, args)
-        }
-    }
+    impl Gradient for TestFunction {}
 
     #[test]
     fn test_cost_function() {

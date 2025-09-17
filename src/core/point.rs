@@ -19,38 +19,6 @@ impl<I> Point<I> {
         let fx = self.fx_checked();
         (self.x, fx)
     }
-    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
-    pub fn evaluate<U, E>(
-        &mut self,
-        func: &dyn CostFunction<U, E, Input = I>,
-        args: &U,
-    ) -> Result<(), E> {
-        if self.fx.is_none() {
-            self.fx = Some(func.evaluate(&self.x, args)?);
-        }
-        Ok(())
-    }
-    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
-    /// `std::convert::Infallible` if the function evaluation never fails.
-    pub fn log_density<U, E>(
-        &mut self,
-        func: &dyn LogDensity<U, E, Input = I>,
-        args: &U,
-    ) -> Result<(), E> {
-        if self.fx.is_none() {
-            self.fx = Some(func.log_density(&self.x, args)?);
-        }
-        Ok(())
-    }
     /// Compare two points by their `fx` value.
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (&self.fx, &other.fx) {
@@ -75,8 +43,31 @@ impl<I> Point<I> {
         self.fx.expect("Point value requested before evaluation")
     }
 }
-
 impl Point<DVector<Float>> {
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn evaluate<U, E>(&mut self, func: &dyn CostFunction<U, E>, args: &U) -> Result<(), E> {
+        if self.fx.is_none() {
+            self.fx = Some(func.evaluate(&self.x, args)?);
+        }
+        Ok(())
+    }
+    /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if the evaluation fails. Users should implement this trait to return a
+    /// `std::convert::Infallible` if the function evaluation never fails.
+    pub fn log_density<U, E>(&mut self, func: &dyn LogDensity<U, E>, args: &U) -> Result<(), E> {
+        if self.fx.is_none() {
+            self.fx = Some(func.log_density(&self.x, args)?);
+        }
+        Ok(())
+    }
     /// Evaluate the given function at the point's coordinate and set the `fx` value to the result.
     /// This function assumes `x` is an internal vector, but performs a coordinate transform
     /// when evaluating the function.
@@ -87,7 +78,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate_transformed<T, U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         transform: &Option<T>,
         args: &U,
     ) -> Result<(), E>
@@ -109,7 +100,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn log_density_transformed<T, U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E>,
         transform: &Option<T>,
         args: &U,
     ) -> Result<(), E>

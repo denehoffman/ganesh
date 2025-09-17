@@ -111,7 +111,7 @@ impl HagerZhangLineSearch {
 impl HagerZhangLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E, Input = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         args: &U,
         status: &mut GradientStatus,
@@ -121,7 +121,7 @@ impl HagerZhangLineSearch {
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E, Input = DVector<Float>>,
+        func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
         args: &U,
         status: &mut GradientStatus,
@@ -137,7 +137,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E, Input = DVector<Float>>,
+        problem: &dyn Gradient<U, E>,
         _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,

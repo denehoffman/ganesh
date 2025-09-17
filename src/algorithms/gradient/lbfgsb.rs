@@ -32,7 +32,7 @@ impl Default for LBFGSBFTerminator {
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -72,7 +72,7 @@ impl Default for LBFGSBGTerminator {
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -106,7 +106,7 @@ impl Default for LBFGSBInfNormGTerminator {
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
@@ -444,7 +444,7 @@ impl LBFGSB {
 
 impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB
 where
-    P: Gradient<U, E, Input = DVector<Float>>,
+    P: Gradient<U, E>,
 {
     type Summary = MinimizationSummary;
     type Config = LBFGSBConfig;
