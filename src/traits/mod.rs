@@ -28,4 +28,4 @@ pub use boundable::Boundable;
 
 /// Module containing the [`Transform`] trait.
 pub mod transform;
-pub use transform::{DiffOps, Transform, TransformExt, TransformedProblem};
+pub use transform::{Transform, TransformExt, TransformedProblem};

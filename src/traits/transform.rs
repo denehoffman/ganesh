@@ -58,6 +58,57 @@ pub trait Transform: DynClone {
         }
         g
     }
+
+    /// The gradient on the internal space given an internal coordinate `z` and the external
+    /// gradient `g_ext`.
+    #[inline]
+    fn pullback_gradient(&self, z: &DVector<Float>, g_ext: &DVector<Float>) -> DVector<Float> {
+        self.to_external_jacobian(z).transpose() * g_ext
+    }
+
+    /// The Hessian on the internal space given an internal coordinate `z`, the external
+    /// gradient `g_ext`, and the external Hessian `h_ext`.
+    #[inline]
+    fn pullback_hessian(
+        &self,
+        z: &DVector<Float>,
+        g_ext: &DVector<Float>,
+        h_ext: &DMatrix<Float>,
+    ) -> DMatrix<Float> {
+        let j = self.to_external_jacobian(z);
+        let mut h = j.transpose() * h_ext * j;
+        for a in 0..g_ext.len() {
+            h += self.to_external_component_hessian(a, z) * g_ext[a];
+        }
+        h
+    }
+
+    /// The gradient on the external space given an internal coordinate `z` and the internal
+    /// gradient `g_int`.
+    #[inline]
+    fn pushforward_gradient(&self, z: &DVector<Float>, g_int: &DVector<Float>) -> DVector<Float> {
+        let x = self.to_external(z);
+        let k = self.to_internal_jacobian(&x);
+        k.transpose() * g_int
+    }
+
+    /// The Hessian on the external space given an internal coordinate `z`, the internal
+    /// gradient `g_int`, and the internal Hessian `h_int`.
+    #[inline]
+    fn pushforward_hessian(
+        &self,
+        z: &DVector<Float>,
+        g_int: &DVector<Float>,
+        h_int: &DMatrix<Float>,
+    ) -> DMatrix<Float> {
+        let x = self.to_external(z);
+        let j_inv = self.to_internal_jacobian(&x);
+        let mut h = j_inv.transpose() * h_int * j_inv;
+        for b in 0..g_int.len() {
+            h += self.to_internal_component_hessian(b, &x) * g_int[b];
+        }
+        h
+    }
 }
 dyn_clone::clone_trait_object!(Transform);
 
@@ -154,80 +205,6 @@ where
             g += g2a.scale(k1[(b, a)]);
         }
         g
-    }
-}
-
-/// Some useful differential operations mapping gradients and Hessians between internal and
-/// external spaces.
-pub trait DiffOps {
-    /// The gradient on the internal space given an internal coordinate `z` and the external
-    /// gradient `g_ext`.
-    fn pullback_gradient(&self, z: &DVector<Float>, g_ext: &DVector<Float>) -> DVector<Float>;
-    /// The Hessian on the internal space given an internal coordinate `z`, the external
-    /// gradient `g_ext`, and the external Hessian `h_ext`.
-    fn pullback_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_ext: &DVector<Float>,
-        h_ext: &DMatrix<Float>,
-    ) -> DMatrix<Float>;
-
-    /// The gradient on the external space given an internal coordinate `z` and the internal
-    /// gradient `g_int`.
-    fn pushforward_gradient(&self, z: &DVector<Float>, g_int: &DVector<Float>) -> DVector<Float>;
-    /// The Hessian on the external space given an internal coordinate `z`, the internal
-    /// gradient `g_int`, and the internal Hessian `h_int`.
-    fn pushforward_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_int: &DVector<Float>,
-        h_int: &DMatrix<Float>,
-    ) -> DMatrix<Float>;
-}
-
-impl<T> DiffOps for T
-where
-    T: Transform,
-{
-    #[inline]
-    fn pullback_gradient(&self, z: &DVector<Float>, g_ext: &DVector<Float>) -> DVector<Float> {
-        self.to_external_jacobian(z).transpose() * g_ext
-    }
-    #[inline]
-    fn pullback_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_ext: &DVector<Float>,
-        h_ext: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        let j = self.to_external_jacobian(z);
-        let mut h = j.transpose() * h_ext * j;
-        for a in 0..g_ext.len() {
-            h += self.to_external_component_hessian(a, z) * g_ext[a];
-        }
-        h
-    }
-
-    #[inline]
-    fn pushforward_gradient(&self, z: &DVector<Float>, g_int: &DVector<Float>) -> DVector<Float> {
-        let x = self.to_external(z);
-        let k = self.to_internal_jacobian(&x);
-        k.transpose() * g_int
-    }
-    #[inline]
-    fn pushforward_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_int: &DVector<Float>,
-        h_int: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        let x = self.to_external(z);
-        let j_inv = self.to_internal_jacobian(&x);
-        let mut h = j_inv.transpose() * h_int * j_inv;
-        for b in 0..g_int.len() {
-            h += self.to_internal_component_hessian(b, &x) * g_int[b];
-        }
-        h
     }
 }
 

@@ -240,10 +240,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::Bounds,
-        test_functions::Rosenbrock,
-        traits::{cost_function::GenericGradient, DiffOps},
-        DVector,
+        core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient, DVector,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
