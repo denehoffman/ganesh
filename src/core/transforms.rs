@@ -372,38 +372,12 @@ impl SphericalTransform {
         let phi = cy.atan2(cx);
         (r, theta, phi)
     }
-    // #[inline]
-    // fn jacobian_block_from_internal(&self, z: &DVector<Float>) -> [[Float; 3]; 3] {
-    //     let (cx, cy, cz) = self.xyz_from_internal(z);
-    //     let r2 = cx.mul_add(cx, cy.mul_add(cy, cz * cz));
-    //     let r = r2.sqrt();
-    //     let s2 = cx.mul_add(cx, cy * cy);
-    //     let s = s2.sqrt();
-    //     if r <= Float::EPSILON {
-    //         return [[0.0; 3]; 3];
-    //     }
-    //     let dr = [cx / r, cy / r, cz / r];
-    //     let mut dt = [0.0; 3];
-    //     if s > Float::EPSILON {
-    //         dt[0] = cx * cz / r2 / s;
-    //         dt[1] = cy * cz / r2 / s;
-    //     }
-    //     if r2 > 0.0 {
-    //         dt[2] = -s / r2;
-    //     }
-    //     let mut dp = [0.0; 3];
-    //     if s2 > Float::EPSILON {
-    //         dp[0] = -cy / s2;
-    //         dp[1] = cx / s2;
-    //     }
-    //     [dr, dt, dp]
-    // }
     #[inline]
     fn jacobian_block_from_internal(&self, z: &DVector<Float>) -> [[Float; 3]; 3] {
         let (cx, cy, cz) = self.xyz_from_internal(z);
-        let r2 = cx * cx + cy * cy + cz * cz;
+        let r2 = cx.mul_add(cx, cy.mul_add(cy, cz * cz));
         let r = r2.sqrt();
-        let s2 = cx * cx + cy * cy;
+        let s2 = cx.mul_add(cx, cy * cy);
         let s = s2.sqrt();
         if r <= Float::EPSILON {
             return [[0.0; 3]; 3];
