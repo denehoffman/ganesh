@@ -211,8 +211,8 @@ where
     #[inline]
     fn pushforward_gradient(&self, z: &DVector<Float>, g_int: &DVector<Float>) -> DVector<Float> {
         let x = self.to_external(z);
-        let j_inv = self.to_internal_jacobian(&x).transpose();
-        j_inv.transpose() * g_int
+        let k = self.to_internal_jacobian(&x);
+        k.transpose() * g_int
     }
     #[inline]
     fn pushforward_hessian(
