@@ -47,6 +47,7 @@ if __name__ == '__main__':
         ax[i].plot(steps[burn:], chain[0, burn:, i], color='m', label='Walker 0')
         ax[i].plot(steps[:burn], chain[0, :burn, i], color='m', ls='--', label='Walker 0 (burn-in)')
         ax[i].axhline(fit_result[i], color='b', label='Best fit')
+        ax[i].axhline(truths[i], color='r', label='Truth')
         ax[i].set_xlabel('Step')
         ax[i].set_ylabel(parameter_labels[i])
         ax[i].legend()
@@ -61,6 +62,7 @@ if __name__ == '__main__':
             ax[i].plot(steps[burn:], chain[j, burn:, i], color='k', alpha=0.1)
         ax[i].plot(steps[burn:], chain[0, burn:, i], color='m', label='Walker 0')
         ax[i].axhline(fit_result[i], color='b', label='Best fit')
+        ax[i].axhline(truths[i], color='r', label='Truth')
         ax[i].set_xlabel('Step')
         ax[i].set_ylabel(parameter_labels[i])
         ax[i].legend()
@@ -74,7 +76,7 @@ if __name__ == '__main__':
         flat_chain,
         labels=parameter_labels,
         truths=truths,
-        truths_color='r',
+        truth_color='r',
         quantiles=[(50 - ci / 2) / 100, 0.5, (50 + ci / 2) / 100],
         show_titles=True,
         title_fmt='.4f',
