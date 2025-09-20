@@ -331,6 +331,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::arc_with_non_send_sync)]
     fn check_all_terminator_wrappers() {
         let rc_refcel = Rc::new(RefCell::new(Trivial::default()));
         let rc_rwlock = Rc::new(RwLock::new(Trivial::default()));

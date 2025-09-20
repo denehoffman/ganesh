@@ -1,6 +1,6 @@
 use crate::{
-    core::{Bound, Bounds, Callbacks},
-    traits::{Status, Terminator, Transform},
+    core::{Bounds, Callbacks},
+    traits::{Bound, Status, Terminator, Transform},
 };
 use std::convert::Infallible;
 

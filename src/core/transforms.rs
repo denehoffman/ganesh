@@ -1,206 +1,63 @@
 use crate::{
-    core::utils::SampleFloat,
-    traits::{Boundable, Transform},
+    traits::{Bound, BoundLike, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
-    fmt::Display,
     ops::{Deref, DerefMut},
 };
 
-/// An enum that describes a bound/limit on a parameter in a minimization.
+/// The default bounds transformation.
 ///
-/// [`Bound`]s take a generic `T` which represents some scalar numeric value. They can be used by
-/// bounded algorithms directly, or by some unbounded algorithms using parameter space
-/// transformations.
-#[derive(Default, Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum Bound {
-    #[default]
-    /// `(-inf, +inf)`
-    NoBound,
-    /// `(min, +inf)`
-    LowerBound(Float),
-    /// `(-inf, max)`
-    UpperBound(Float),
-    /// `(min, max)`
-    LowerAndUpperBound(Float, Float),
-}
-impl Display for Bound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.lower(), self.upper())
-    }
-}
-impl From<(Float, Float)> for Bound {
-    fn from((a, b): (Float, Float)) -> Self {
-        let (l, u) = if a < b { (a, b) } else { (b, a) };
-        match (l.is_finite(), u.is_finite()) {
-            (true, true) => Self::LowerAndUpperBound(l, u),
-            (true, false) => Self::LowerBound(l),
-            (false, true) => Self::UpperBound(u),
-            (false, false) => Self::NoBound,
-        }
-    }
-}
+/// This will allow [`Bounds`] objects to transform a [`Bound`] according to the following
+/// formulae:
+///
+/// Upper and lower bounds:
+/// ```math
+/// x_\text{ext} = c + w \frac{x_\text{int}}{\sqrt{x_\text{int}^2 + 1}}
+/// ```
+/// ```math
+/// x_\text{int} = \frac{u}{\sqrt{1 - u^2}}
+/// ```
+/// where
+/// ```math
+/// u = \frac{x_\text{ext} - c}{w},\ c = \frac{x_\text{min} + x_\text{max}}{2},\ w = \frac{x_\text{max} - x_\text{min}}{2}
+/// ```
+/// Upper bound only:
+/// ```math
+/// x_\text{ext} = x_\text{max} - (\sqrt{x_\text{int}^2 + 1} - x_\text{int})
+/// ```
+/// ```math
+/// x_\text{int} = \frac{1}{2}\left(\frac{1}{(x_\text{max} - x_\text{ext})} - (x_\text{max} - x_\text{ext}) \right)
+/// ```
+/// Lower bound only:
+/// ```math
+/// x_\text{ext} = x_\text{min} + (\sqrt{x_\text{int}^2 + 1} + x_\text{int})
+/// ```
+/// ```math
+/// x_\text{int} = \frac{1}{2}\left((x_\text{ext} - x_\text{min}) - \frac{1}{(x_\text{ext} - x_\text{min})} \right)
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DefaultBoundsTransform;
 
-impl From<(Option<Float>, Option<Float>)> for Bound {
-    fn from((lo, hi): (Option<Float>, Option<Float>)) -> Self {
-        match (lo, hi) {
-            (Some(a), Some(b)) => {
-                let (l, u) = if a < b { (a, b) } else { (b, a) };
-                Self::LowerAndUpperBound(l, u)
-            }
-            (Some(l), None) => Self::LowerBound(l),
-            (None, Some(u)) => Self::UpperBound(u),
-            (None, None) => Self::NoBound,
-        }
-    }
-}
-
-impl Bound {
-    /// Get a value in the uniform distribution between `lower` and `upper`.
-    #[cfg(not(feature = "f32"))]
-    pub fn get_uniform(&self, rng: &mut Rng) -> Float {
-        rng.range(self.lower(), self.upper()) as Float
-    }
-    /// Get a value in the uniform distribution between `lower` and `upper`.
-    #[cfg(feature = "f32")]
-    pub fn get_uniform(&self, rng: &mut Rng) -> Float {
-        rng.f32_range(self.lower()..self.upper()) as Float
-    }
-    /// Checks whether the given `value` is compatible with the bounds.
-    pub fn contains(&self, value: Float) -> bool {
-        match self {
-            Self::NoBound => true,
-            Self::LowerBound(lb) => value >= *lb,
-            Self::UpperBound(ub) => value <= *ub,
-            Self::LowerAndUpperBound(lb, ub) => value >= *lb && value <= *ub,
-        }
-    }
-    /// Checks whether the given `value` is compatible with the bound and returns `0.0` if it is,
-    /// and the distance to the bound otherwise signed by whether the bound is a lower (`-`) or
-    /// upper (`+`) bound.
-    pub fn bound_excess(&self, value: Float) -> Float {
-        match self {
-            Self::NoBound => 0.0,
-            Self::LowerBound(lb) => {
-                if value >= *lb {
-                    0.0
-                } else {
-                    value - lb
-                }
-            }
-            Self::UpperBound(ub) => {
-                if value <= *ub {
-                    0.0
-                } else {
-                    value - ub
-                }
-            }
-            Self::LowerAndUpperBound(lb, ub) => {
-                if value < *lb {
-                    value - lb
-                } else if value > *ub {
-                    value - ub
-                } else {
-                    0.0
-                }
-            }
-        }
-    }
-    /// Returns the lower bound or `-inf` if there is none.
-    pub const fn lower(&self) -> Float {
-        match self {
-            Self::NoBound => Float::NEG_INFINITY,
-            Self::LowerBound(lb) => *lb,
-            Self::UpperBound(_) => Float::NEG_INFINITY,
-            Self::LowerAndUpperBound(lb, _) => *lb,
-        }
-    }
-    /// Returns the upper bound or `+inf` if there is none.
-    pub const fn upper(&self) -> Float {
-        match self {
-            Self::NoBound => Float::INFINITY,
-            Self::LowerBound(_) => Float::INFINITY,
-            Self::UpperBound(ub) => *ub,
-            Self::LowerAndUpperBound(_, ub) => *ub,
-        }
-    }
-    /// Checks if the given value is equal to one of the bounds.
-    ///
-    /// TODO: his just does equality comparison right now, which probably needs to be improved
-    /// to something with an epsilon (significant but not critical to most fits right now).
-    pub fn at_bound(&self, value: Float) -> bool {
-        match self {
-            Self::NoBound => false,
-            Self::LowerBound(lb) => value == *lb,
-            Self::UpperBound(ub) => value == *ub,
-            Self::LowerAndUpperBound(lb, ub) => value == *lb || value == *ub,
-        }
-    }
-    /// Converts an unbounded "internal" parameter into a bounded "external" one via the transform:
-    ///
-    /// Upper and lower bounds:
-    /// ```math
-    /// x_\text{ext} = c + w \frac{x_\text{int}}{\sqrt{x_\text{int}^2 + 1}}
-    /// ```
-    /// where
-    /// ```math
-    /// c = \frac{x_\text{min} + x_\text{max}}{2},\ w = \frac{x_\text{max} - x_\text{min}}{2}
-    /// ```
-    /// Upper bound only:
-    /// ```math
-    /// x_\text{ext} = x_\text{max} - (\sqrt{x_\text{int}^2 + 1} - x_\text{int})
-    /// ```
-    /// Lower bound only:
-    /// ```math
-    /// x_\text{ext} = x_\text{min} + (\sqrt{x_\text{int}^2 + 1} + x_\text{int})
-    /// ```
-    pub fn to_bounded(&self, z: Float) -> Float {
-        match *self {
-            Self::LowerBound(lb) => lb + (Float::sqrt(z.mul_add(z, 1.0)) + z),
-            Self::UpperBound(ub) => ub - (Float::sqrt(z.mul_add(z, 1.0)) - z),
-            Self::LowerAndUpperBound(lb, ub) => {
-                let c = 0.5 * (lb + ub);
-                let w = 0.5 * (ub - lb);
-                c + w * z / Float::sqrt(z.mul_add(z, 1.0))
-            }
-            Self::NoBound => z,
-        }
-    }
-    /// Converts a bounded "external" parameter into an unbounded "internal" one via the transform:
-    ///
-    /// Upper and lower bounds:
-    /// ```math
-    /// x_\text{int} = \frac{u}{\sqrt{1 - u^2}}
-    /// ```
-    /// where
-    /// ```math
-    /// u = \frac{x_\text{ext} - c}{w},\ c = \frac{x_\text{min} + x_\text{max}}{2},\ w = \frac{x_\text{max} - x_\text{min}}{2}
-    /// ```
-    /// Upper bound only:
-    /// ```math
-    /// x_\text{int} = \frac{1}{2}\left(\frac{1}{(x_\text{max} - x_\text{ext})} - (x_\text{max} - x_\text{ext}) \right)
-    /// ```
-    /// Lower bound only:
-    /// ```math
-    /// x_\text{int} = \frac{1}{2}\left((x_\text{ext} - x_\text{min}) - \frac{1}{(x_\text{ext} - x_\text{min})} \right)
-    /// ```
-    pub fn to_unbounded(&self, x: Float) -> Float {
-        match *self {
-            Self::LowerBound(lb) => {
-                let s = x - lb;
+#[typetag::serde]
+impl BoundLike for DefaultBoundsTransform {
+    fn to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => x,
+            Bound::LowerBound(l) => {
+                let s = x - l;
                 0.5 * (s - 1.0 / s)
             }
-            Self::UpperBound(ub) => {
-                let s = ub - x;
+            Bound::UpperBound(u) => {
+                let s = u - x;
                 0.5 * (1.0 / s - s)
             }
-            Self::LowerAndUpperBound(lb, ub) => {
-                let c = 0.5 * (lb + ub);
-                let w = 0.5 * (ub - lb);
+            Bound::LowerAndUpperBound(l, u) => {
+                let c = 0.5 * (l + u);
+                let w = 0.5 * (u - l);
                 let mut u = (x - c) / w;
                 if u >= 1.0 {
                     u = 1.0 - Float::EPSILON;
@@ -208,79 +65,249 @@ impl Bound {
                 if u <= -1.0 {
                     u = -1.0 + Float::EPSILON;
                 }
-                u / Float::sqrt(u.mul_add(-u, 1.0))
+                u / u.mul_add(-u, 1.0).sqrt()
             }
-            Self::NoBound => x,
         }
     }
 
-    /// Clips a value to be within the given bounds.
-    pub fn clip_value(&self, val: Float) -> Float {
-        match *self {
-            Self::NoBound => val,
-            Self::LowerBound(lb) => val.clamp(lb, val),
-            Self::UpperBound(ub) => val.clamp(val, ub),
-            Self::LowerAndUpperBound(lb, ub) => val.clamp(lb, ub),
+    fn d_to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => 1.0,
+            Bound::LowerBound(l) => (1.0 + 1.0 / (l - x).powi(2)) / 2.0,
+            Bound::UpperBound(u) => (1.0 + 1.0 / (x - u).powi(2)) / 2.0,
+            Bound::LowerAndUpperBound(l, u) => {
+                (l - u).powi(2) / ((l - x) * (x - u)).powf(1.5) / 4.0
+            }
+        }
+    }
+
+    fn dd_to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => 0.0,
+            Bound::LowerBound(l) => (l - x).powi(-3),
+            Bound::UpperBound(u) => (u - x).powi(-3),
+            Bound::LowerAndUpperBound(l, u) => {
+                -3.0 * (l - u).powi(2) * (x.mul_add(-2.0, l) + u)
+                    / 8.0
+                    / ((l - x) * (x - u)).powf(2.5)
+            }
+        }
+    }
+
+    fn to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => z,
+            Bound::LowerBound(l) => l + (z.mul_add(z, 1.0).sqrt() + z),
+            Bound::UpperBound(u) => u - (z.mul_add(z, 1.0).sqrt() - z),
+            Bound::LowerAndUpperBound(l, u) => {
+                let c = 0.5 * (l + u);
+                let w = 0.5 * (u - l);
+                c + w * z / (z.mul_add(z, 1.0)).sqrt()
+            }
+        }
+    }
+
+    fn d_to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => 1.0,
+            Bound::LowerBound(_) => 1.0 + z / (z.mul_add(z, 1.0)).sqrt(),
+            Bound::UpperBound(_) => 1.0 - z / (z.mul_add(z, 1.0)).sqrt(),
+            Bound::LowerAndUpperBound(l, u) => {
+                let w = 0.5 * (u - l);
+                w / z.mul_add(z, 1.0).powf(1.5)
+            }
+        }
+    }
+
+    fn dd_to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => 0.0,
+            Bound::LowerBound(_) => 1.0 / z.mul_add(z, 1.0).powf(1.5),
+            Bound::UpperBound(_) => -1.0 / z.mul_add(z, 1.0).powf(1.5),
+            Bound::LowerAndUpperBound(l, u) => {
+                let w = 0.5 * (u - l);
+                -3.0 * w * z / z.mul_add(z, 1.0).powf(2.5)
+            }
+        }
+    }
+}
+/// A Minuit/LMFIT-style bounds transform.
+///
+/// This will allow [`Bounds`] objects to transform a [`Bound`] according to the following
+/// formulae:
+///
+/// Upper and lower bounds:
+/// ```math
+/// x_\text{ext} = x_\text{min} + \left(\sin(x_\text{int}) + 1\right)\frac{x_\text{max} - x_\text{min}}{2}
+/// ```
+/// ```math
+/// x_\text{int} = \arcsin\left(2\frac{x_\text{ext} - x_\text{min}}{x_\text{max} - x_\text{min}} - 1\right)
+/// ```
+///
+/// Upper bound only:
+/// ```math
+/// x_\text{ext} = x_\text{max} + 1 - \sqrt{x_\text{int}^2 + 1}
+/// ```
+/// ```math
+/// x_\text{int} = \sqrt{(x_\text{max} - x_\text{ext} + 1)^2 - 1}
+/// ```
+///
+/// Lower bound only:
+/// ```math
+/// x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
+/// ```
+/// ```math
+/// x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
+/// ```
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct MinuitBoundsTransform;
+
+#[typetag::serde]
+impl BoundLike for MinuitBoundsTransform {
+    fn to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => x,
+            Bound::LowerBound(l) => (x - l + 1.0).mul_add(x - l + 1.0, -1.0).sqrt(),
+            Bound::UpperBound(u) => (u - x + 1.0).mul_add(u - x + 1.0, -1.0).sqrt(),
+            Bound::LowerAndUpperBound(l, u) => (2.0 * (x - l) / (u - l) - 1.0).asin(),
+        }
+    }
+
+    fn d_to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => 1.0,
+            Bound::LowerBound(l) => (1.0 - l + x) / (1.0 - l + x).mul_add(1.0 - l + x, -1.0).sqrt(),
+            Bound::UpperBound(u) => (x - u - 1.0) / (1.0 - x + u).mul_add(1.0 - x + u, -1.0).sqrt(),
+            Bound::LowerAndUpperBound(l, u) => ((l - x) * (x - u)).powf(-0.5),
+        }
+    }
+
+    fn dd_to_internal_impl(&self, bound: Bound, x: Float) -> Float {
+        match bound {
+            Bound::NoBound => 0.0,
+            Bound::LowerBound(l) => -(1.0 - l + x).mul_add(1.0 - l + x, -1.0).powf(-1.5),
+            Bound::UpperBound(u) => -(1.0 - x + u).mul_add(1.0 - x + u, -1.0).powf(-1.5),
+            Bound::LowerAndUpperBound(l, u) => {
+                x.mul_add(2.0, -u - l) / (2.0 * ((l - x) * (x - u)).powf(1.5))
+            }
+        }
+    }
+
+    fn to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => z,
+            Bound::LowerBound(l) => l - 1.0 + z.mul_add(z, 1.0).sqrt(),
+            Bound::UpperBound(u) => u + 1.0 - z.mul_add(z, 1.0).sqrt(),
+            Bound::LowerAndUpperBound(l, u) => l + (z.sin() + 1.0) * (u - l) / 2.0,
+        }
+    }
+
+    fn d_to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => 1.0,
+            Bound::LowerBound(_) => z / z.mul_add(z, 1.0).sqrt(),
+            Bound::UpperBound(_) => -z / z.mul_add(z, 1.0).sqrt(),
+            Bound::LowerAndUpperBound(l, u) => (u - l) * z.cos() / 2.0,
+        }
+    }
+
+    fn dd_to_external_impl(&self, bound: Bound, z: Float) -> Float {
+        match bound {
+            Bound::NoBound => 0.0,
+            Bound::LowerBound(_) => z.mul_add(z, 1.0).powf(-1.5),
+            Bound::UpperBound(_) => -z.mul_add(z, 1.0).powf(-1.5),
+            Bound::LowerAndUpperBound(l, u) => (l - u) * z.sin() / 2.0,
         }
     }
 }
 
 /// A struct that contains a list of [`Bound`]s.
-#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Bounds(Vec<Bound>);
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Bounds(Vec<(Bound, Box<dyn BoundLike>)>);
 
 impl Bounds {
-    /// Returns the inner Vector of bounds.
-    pub fn into_inner(self) -> Vec<Bound> {
+    /// Create a new [`Bounds`] object from a list of [`Bound`]s-compatible structs and a list of [`BoundLike`] transforms.
+    pub fn new<B>(
+        bounds: impl IntoIterator<Item = B>,
+        transforms: &[&(dyn BoundLike + 'static)],
+    ) -> Self
+    where
+        B: Into<Bound> + Copy,
+    {
+        Self(
+            bounds
+                .into_iter()
+                .map(Into::into)
+                .zip(transforms.iter().map(|t| dyn_clone::clone_box(*t)))
+                .collect(),
+        )
+    }
+    /// Create a new [`Bounds`] object from a list of [`Bound`]s-compatible structs with the [`DefaultBoundsTransform`] transform.
+    pub fn new_default<B, I>(bounds: I) -> Self
+    where
+        I: IntoIterator<Item = B>,
+        B: Into<Bound>,
+    {
+        let bvec: Vec<Bound> = bounds.into_iter().map(Into::into).collect();
+        let n = bvec.len();
+        let tvec =
+            std::iter::repeat_with(|| Box::new(DefaultBoundsTransform) as Box<dyn BoundLike>)
+                .take(n);
+
+        Self(bvec.into_iter().zip(tvec).collect())
+    }
+    /// Generate a random vector in the bounds.
+    ///
+    /// This uses the maximum/minimum representable value as
+    /// limits in cases where bounds are infinite.
+    pub fn random(&self, rng: &mut Rng) -> DVector<Float> {
+        DVector::from_iterator(self.0.len(), self.0.iter().map(|(b, _)| b.random(rng)))
+    }
+    /// Check to see if the given vector is contained in a box with the given bounds.
+    pub fn contains(&self, vec: &DVector<Float>) -> bool {
         self.0
+            .iter()
+            .zip(vec.iter())
+            .all(|((bi, _), vi)| bi.contains(*vi))
+    }
+    /// Get the signed excess from each bound.
+    ///
+    /// This will return negative values for coordinates which are less than a lower bound and
+    /// positive values for coordinates which are greater than an upper bound. It will return zero
+    /// for coordinates which are within the bounds.
+    pub fn get_excess(&self, vec: &DVector<Float>) -> DVector<Float> {
+        vec.map_with_location(|i, _, v| self.0[i].0.get_excess(v))
+    }
+    /// Get a new vector which is clipped to be within the bounds.
+    pub fn clip_values(&self, values: &DVector<Float>) -> DVector<Float> {
+        values.map_with_location(|i, _, v| self.0[i].0.clip_value(v))
     }
     /// Applies a coordinate transform to the bounds.
     pub fn apply<T>(&self, transform: &T) -> Self
     where
         T: Transform,
     {
-        let (l, u) = DVector::unpack(self);
+        let (l, u) = self
+            .0
+            .iter()
+            .map(|(b, _)| b.as_floats())
+            .collect::<(DVector<Float>, DVector<Float>)>();
         let l_int = transform.to_internal(&l);
         let u_int = transform.to_internal(&u);
-        DVector::pack(l_int.as_ref(), u_int.as_ref())
-    }
-}
-
-impl<B> From<Vec<B>> for Bounds
-where
-    B: Into<Bound>,
-{
-    fn from(value: Vec<B>) -> Self {
-        Self(value.into_iter().map(Into::into).collect())
-    }
-}
-impl<B> From<&[B]> for Bounds
-where
-    B: Into<Bound> + Copy,
-{
-    fn from(value: &[B]) -> Self {
-        Self(value.iter().copied().map(Into::into).collect())
-    }
-}
-impl<const N: usize, B> From<[B; N]> for Bounds
-where
-    B: Into<Bound>,
-{
-    fn from(value: [B; N]) -> Self {
-        Self(value.into_iter().map(Into::into).collect())
-    }
-}
-impl<const N: usize, B> From<&[B; N]> for Bounds
-where
-    B: Into<Bound> + Copy,
-{
-    fn from(value: &[B; N]) -> Self {
-        Self(value.as_slice().iter().copied().map(Into::into).collect())
+        Self(
+            l_int
+                .iter()
+                .copied()
+                .zip(u_int.iter().copied())
+                .zip(self.0.iter())
+                .map(|(b, bt)| (Bound::from(b), bt.1.clone()))
+                .collect(),
+        )
     }
 }
 
 impl Deref for Bounds {
-    type Target = Vec<Bound>;
+    type Target = Vec<(Bound, Box<dyn BoundLike>)>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -293,44 +320,90 @@ impl DerefMut for Bounds {
     }
 }
 
+impl<B> From<Vec<B>> for Bounds
+where
+    B: Into<Bound> + Copy,
+{
+    fn from(value: Vec<B>) -> Self {
+        Self::new_default(value)
+    }
+}
+impl<B> From<&[B]> for Bounds
+where
+    B: Into<Bound> + Copy,
+{
+    fn from(value: &[B]) -> Self {
+        Self::new_default(value.iter().copied())
+    }
+}
+impl<const N: usize, B> From<[B; N]> for Bounds
+where
+    B: Into<Bound>,
+{
+    fn from(value: [B; N]) -> Self {
+        Self::new_default(value)
+    }
+}
+impl<const N: usize, B> From<&[B; N]> for Bounds
+where
+    B: Into<Bound> + Copy,
+{
+    fn from(value: &[B; N]) -> Self {
+        Self::new_default(value.iter().copied())
+    }
+}
+
 impl Transform for Bounds {
     fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        z.constrain_to(Some(self))
+        Cow::Owned(DVector::from_iterator(
+            z.len(),
+            self.iter()
+                .zip(z.iter())
+                .map(|((bi, ti), zi)| ti.to_external_impl(*bi, *zi)),
+        ))
     }
 
     fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        x.unconstrain_from(Some(self))
+        Cow::Owned(DVector::from_iterator(
+            x.len(),
+            self.iter()
+                .zip(x.iter())
+                .map(|((bi, ti), xi)| ti.to_internal_impl(*bi, *xi)),
+        ))
     }
 
     fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-        let mut jac = DMatrix::zeros(self.0.len(), self.0.len());
-        for (i, zi) in z.iter().enumerate() {
-            jac[(i, i)] = match self.0[i] {
-                Bound::NoBound => 1.0,
-                Bound::LowerBound(_) => 1.0 + zi / Float::sqrt(zi.powi(2) + 1.0),
-                Bound::UpperBound(_) => 1.0 - zi / Float::sqrt(zi.powi(2) + 1.0),
-                Bound::LowerAndUpperBound(lb, ub) => {
-                    let w = 0.5 * (ub - lb);
-                    w / Float::powf(1.0 + zi * zi, 1.5)
-                }
-            }
-        }
-        jac
+        DMatrix::from_diagonal(&DVector::from_iterator(
+            z.len(),
+            self.iter()
+                .zip(z.iter())
+                .map(|((bi, ti), zi)| ti.d_to_external_impl(*bi, *zi)),
+        ))
     }
 
     fn to_external_component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-        let mut hess = DMatrix::zeros(self.0.len(), self.0.len());
+        let mut h = DMatrix::zeros(z.len(), z.len());
         let za = z[a];
-        hess[(a, a)] = match self.0[a] {
-            Bound::NoBound => 0.0,
-            Bound::LowerBound(_) => 1.0 / Float::powf(za.mul_add(za, 1.0), 1.5),
-            Bound::UpperBound(_) => -1.0 / Float::powf(za.mul_add(za, 1.0), 1.5),
-            Bound::LowerAndUpperBound(lb, ub) => {
-                let w = 0.5 * (ub - lb);
-                -3.0 * w * za / Float::powf(za.mul_add(za, 1.0), 2.5)
-            }
-        };
-        hess
+        let (ba, ta) = &self.0[a];
+        h[(a, a)] = ta.dd_to_external_impl(*ba, za);
+        h
+    }
+
+    fn to_internal_jacobian(&self, x: &DVector<Float>) -> DMatrix<Float> {
+        DMatrix::from_diagonal(&DVector::from_iterator(
+            x.len(),
+            self.iter()
+                .zip(x.iter())
+                .map(|((bi, ti), xi)| ti.d_to_internal_impl(*bi, *xi)),
+        ))
+    }
+
+    fn to_internal_component_hessian(&self, b: usize, x: &DVector<Float>) -> DMatrix<Float> {
+        let mut g = DMatrix::zeros(x.len(), x.len());
+        let xb = x[b];
+        let (bb, tb) = &self.0[b];
+        g[(b, b)] = tb.dd_to_internal_impl(*bb, xb);
+        g
     }
 }
 
@@ -535,7 +608,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        traits::{transform::TransformExt, Boundable, CostFunction, Gradient, TransformedProblem},
+        traits::{transform::TransformExt, CostFunction, Gradient, TransformedProblem},
         DVector,
     };
 
@@ -554,12 +627,12 @@ mod tests {
         let b1 = Bound::LowerBound(0.0);
         assert!(b1.contains(1.0));
         assert!(!b1.contains(-1.0));
-        assert_eq!(b1.bound_excess(-1.0), -1.0);
+        assert_eq!(b1.get_excess(-1.0), -1.0);
 
         let b2 = Bound::UpperBound(5.0);
         assert!(b2.contains(4.0));
         assert!(!b2.contains(6.0));
-        assert_eq!(b2.bound_excess(6.0), 1.0);
+        assert_eq!(b2.get_excess(6.0), 1.0);
 
         let b3 = Bound::LowerAndUpperBound(-1.0, 1.0);
         assert!(b3.contains(0.0));
@@ -571,18 +644,9 @@ mod tests {
         let b = Bound::LowerAndUpperBound(-2.0, 3.0);
         assert_eq!(b.lower(), -2.0);
         assert_eq!(b.upper(), 3.0);
-        assert!(b.at_bound(-2.0));
-        assert!(b.at_bound(3.0));
-        assert!(!b.at_bound(0.0));
-    }
-
-    #[test]
-    fn test_bound_transformations() {
-        let b = Bound::LowerAndUpperBound(0.0, 2.0);
-        let val = 1.0;
-        let bounded = b.to_bounded(val);
-        let unbounded = b.to_unbounded(bounded);
-        assert!((val - unbounded).abs() < 1e-6);
+        assert!(b.at_bound(-2.0, Float::EPSILON));
+        assert!(b.at_bound(3.0, Float::EPSILON));
+        assert!(!b.at_bound(0.0, Float::EPSILON));
     }
 
     #[test]
@@ -595,11 +659,10 @@ mod tests {
         ]
         .into();
 
-        let d: DVector<Float> = Boundable::random_vector_in(&bounds, &mut rng);
+        let d: DVector<Float> = bounds.random(&mut rng);
 
         assert_eq!(d.len(), bounds.len());
-
-        assert!(d.is_in(&bounds));
+        assert!(bounds.contains(&d));
     }
 
     #[test]
@@ -607,21 +670,8 @@ mod tests {
         let bounds = sample_bounds();
         let d: DVector<Float> = dvector![-1.0, 11.0, 0.0, 5.0];
 
-        let d_excess = d.excess_from(&bounds);
-        assert!(d_excess.iter().any(|x| *x != 0.0));
-
-        let d_constrained = d.constrain_to(Some(&bounds));
-        assert!(d_constrained.is_in(&bounds));
-
-        let d_unconstrained = d_constrained.unconstrain_from(Some(&bounds));
-        assert_eq!(d_unconstrained.len(), d.len());
-    }
-
-    #[test]
-    fn test_bounds_container() {
-        let b = Bound::LowerBound(0.0);
-        let bounds: Bounds = vec![b].into();
-        assert_eq!(bounds.into_inner(), vec![b]);
+        let d_excess = bounds.get_excess(&d);
+        assert_eq!(d_excess, dvector![-1.0, 1.0, 0.0, 0.0]);
     }
 
     /// A simple offset transform: adds +1.0 on `to_internal`, subtracts 1.0 on `to_external`.
@@ -732,6 +782,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::suboptimal_flops)]
     fn chain_applies_in_sequence_scale_then_offset() {
         let sc = Scale(2.0);
         let off = Offset;
@@ -764,7 +815,7 @@ mod tests {
         let scaled = bounds.apply(&Scale(-1.0));
         assert_eq!(scaled.len(), 1);
 
-        match &scaled[0] {
+        match &scaled[0].0 {
             Bound::LowerAndUpperBound(l, u) => {
                 assert_eq!((*l, *u), (-5.0, -1.0));
             }
@@ -799,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bounds_transform() -> Result<(), Infallible> {
+    fn test_default_bounds_transform() -> Result<(), Infallible> {
         let f = Quadratic;
         let t = Bounds::from([
             (-1.1, 2.0),
@@ -808,22 +859,68 @@ mod tests {
             (Float::NEG_INFINITY, Float::INFINITY),
         ]);
         let p = TransformedProblem::new(&f, &t);
-        let x_unbounded = dvector![1.0, -1.5, 0.8, 0.5];
-        let x_bounded = t.to_owned_external(&x_unbounded);
-        assert_relative_eq!(t.to_owned_internal(&x_bounded), x_unbounded);
+        let x_ext = dvector![1.0, -1.5, 0.8, 0.5];
+        let x_int = p.to_owned_internal(&x_ext);
+        assert_relative_eq!(
+            p.to_owned_external(&x_int),
+            x_ext,
+            epsilon = Float::EPSILON.sqrt()
+        );
 
-        let f_int = p.evaluate(&x_unbounded, &())?;
-        let f_ext = f.evaluate(&x_bounded, &())?;
-        assert_relative_eq!(f_int, f_ext);
+        let f_int = p.evaluate(&x_int, &())?;
+        let f_ext = f.evaluate(&x_ext, &())?;
+        assert_relative_eq!(f_int, f_ext, epsilon = Float::EPSILON.sqrt());
 
-        let g_int = p.gradient(&x_unbounded, &())?;
-        let g_ext = f.gradient(&x_bounded, &())?;
-        let g_int_to_ext = p.pushforward_gradient(&x_unbounded, &g_int);
+        let g_int = p.gradient(&x_int, &())?;
+        let g_ext = f.gradient(&x_ext, &())?;
+        let g_int_to_ext = p.pushforward_gradient(&x_int, &g_int);
         assert_relative_eq!(g_int_to_ext, g_ext, epsilon = Float::EPSILON.sqrt());
 
-        let h_int = p.hessian(&x_unbounded, &())?;
-        let h_ext = f.hessian(&x_bounded, &())?;
-        let h_int_to_ext = p.pushforward_hessian(&x_unbounded, &g_int, &h_int);
+        let h_int = p.hessian(&x_int, &())?;
+        let h_ext = f.hessian(&x_ext, &())?;
+        let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
+        assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
+        Ok(())
+    }
+
+    #[test]
+    fn test_minuit_bounds_transform() -> Result<(), Infallible> {
+        let f = Quadratic;
+        let t = Bounds::new(
+            [
+                (-1.1, 2.0),
+                (Float::NEG_INFINITY, 10.0),
+                (0.2, Float::INFINITY),
+                (Float::NEG_INFINITY, Float::INFINITY),
+            ],
+            &[
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+            ],
+        );
+        let p = TransformedProblem::new(&f, &t);
+        let x_ext = dvector![1.0, -1.5, 0.8, 0.5];
+        let x_int = p.to_owned_internal(&x_ext);
+        assert_relative_eq!(
+            p.to_owned_external(&x_int),
+            x_ext,
+            epsilon = Float::EPSILON.sqrt()
+        );
+
+        let f_int = p.evaluate(&x_int, &())?;
+        let f_ext = f.evaluate(&x_ext, &())?;
+        assert_relative_eq!(f_int, f_ext, epsilon = Float::EPSILON.sqrt());
+
+        let g_int = p.gradient(&x_int, &())?;
+        let g_ext = f.gradient(&x_ext, &())?;
+        let g_int_to_ext = p.pushforward_gradient(&x_int, &g_int);
+        assert_relative_eq!(g_int_to_ext, g_ext, epsilon = Float::EPSILON.sqrt());
+
+        let h_int = p.hessian(&x_int, &())?;
+        let h_ext = f.hessian(&x_ext, &())?;
+        let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
         assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
         Ok(())
     }
@@ -833,22 +930,26 @@ mod tests {
         let f = Quadratic;
         let t = SphericalTransform::new(0, 1, 2);
         let p = TransformedProblem::new(&f, &t);
-        let xyz = dvector![1.0, -1.5, 0.8];
-        let rtp = t.to_owned_external(&xyz);
-        assert_relative_eq!(t.to_owned_internal(&rtp), xyz);
+        let x_ext = dvector![1.5, 0.2, 0.3];
+        let x_int = p.to_owned_internal(&x_ext);
+        assert_relative_eq!(
+            p.to_owned_external(&x_int),
+            x_ext,
+            epsilon = Float::EPSILON.sqrt()
+        );
 
-        let f_int = p.evaluate(&xyz, &())?;
-        let f_ext = f.evaluate(&rtp, &())?;
-        assert_relative_eq!(f_int, f_ext);
+        let f_int = p.evaluate(&x_int, &())?;
+        let f_ext = f.evaluate(&x_ext, &())?;
+        assert_relative_eq!(f_int, f_ext, epsilon = Float::EPSILON.sqrt());
 
-        let g_int = p.gradient(&xyz, &())?;
-        let g_ext = f.gradient(&rtp, &())?;
-        let g_int_to_ext = p.pushforward_gradient(&xyz, &g_int);
+        let g_int = p.gradient(&x_int, &())?;
+        let g_ext = f.gradient(&x_ext, &())?;
+        let g_int_to_ext = p.pushforward_gradient(&x_int, &g_int);
         assert_relative_eq!(g_int_to_ext, g_ext, epsilon = Float::EPSILON.sqrt());
 
-        let h_int = p.hessian(&xyz, &())?;
-        let h_ext = f.hessian(&rtp, &())?;
-        let h_int_to_ext = p.pushforward_hessian(&xyz, &g_int, &h_int);
+        let h_int = p.hessian(&x_int, &())?;
+        let h_ext = f.hessian(&x_ext, &())?;
+        let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
         assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
         Ok(())
     }

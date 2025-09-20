@@ -975,10 +975,10 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let cfg = ESSConfig::new(walkers);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
+        let f = Rosenbrock { n: 2 };
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
 
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Differential"));
     }
@@ -989,10 +989,10 @@ mod tests {
         let walkers = make_walkers(6, 2);
         let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::gaussian(1.0)]);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
+        let f = Rosenbrock { n: 2 };
 
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Gaussian"));
     }
@@ -1008,10 +1008,10 @@ mod tests {
             Some(3),
         )]);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
+        let f = Rosenbrock { n: 2 };
 
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Global"));
     }

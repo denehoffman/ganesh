@@ -213,12 +213,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
                     st,
                 )
             } else if c == b_star {
-                return update(
+                update(
                     a_star,
                     b_star,
                     secant(b, dphi_b, b_star, dphi(&dphi_vec(b_star, st)?)),
                     st,
-                );
+                )
             } else {
                 Ok((a_star, b_star))
             }

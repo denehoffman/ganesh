@@ -2,8 +2,8 @@ use crate::{
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
     traits::{
-        algorithm::SupportsTransform, Algorithm, Boundable, CostFunction, SupportsBounds,
-        Terminator, Transform,
+        algorithm::SupportsTransform, Algorithm, CostFunction, SupportsBounds, Terminator,
+        Transform,
     },
     DMatrix, DVector, Float,
 };
@@ -132,12 +132,14 @@ impl SimplexConstructionMethod {
                     // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
                     if let Some(bounds) = bounds {
                         point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                            if *v > b.upper() {
-                                *v = Float::mul_add(2.0, b.upper(), -(*v));
+                            if *v > b.0.upper() {
+                                *v = Float::mul_add(2.0, b.0.upper(), -(*v));
                             }
                         });
                     }
-                    point_i.x.clip_to(bounds);
+                    if let Some(b) = bounds {
+                        point_i.x = b.clip_values(&point_i.x);
+                    }
                     point_i.fx = None;
                     point_i.evaluate_transformed(func, transform, args)?;
                     points.push(point_i);
@@ -160,12 +162,14 @@ impl SimplexConstructionMethod {
                     // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
                     if let Some(bounds) = bounds {
                         point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                            if *v > b.upper() {
-                                *v = Float::mul_add(2.0, b.upper(), -(*v));
+                            if *v > b.0.upper() {
+                                *v = Float::mul_add(2.0, b.0.upper(), -(*v));
                             }
                         });
                     }
-                    point_i.x.clip_to(bounds);
+                    if let Some(b) = bounds {
+                        point_i.x = b.clip_values(&point_i.x);
+                    }
                     point_i.fx = None;
                     point_i.evaluate_transformed(func, transform, args)?;
                     points.push(point_i);
@@ -184,12 +188,14 @@ impl SimplexConstructionMethod {
                             // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
                             if let Some(bounds) = bounds {
                                 point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                                    if *v > b.upper() {
-                                        *v = Float::mul_add(2.0, b.upper(), -(*v));
+                                    if *v > b.0.upper() {
+                                        *v = Float::mul_add(2.0, b.0.upper(), -(*v));
                                     }
                                 });
                             }
-                            point_i.x.clip_to(bounds);
+                            if let Some(b) = bounds {
+                                point_i.x = b.clip_values(&point_i.x);
+                            }
                             point_i.evaluate_transformed(func, transform, args)?;
                             Ok(point_i)
                         })
@@ -764,11 +770,11 @@ where
         let s = self.simplex.second_worst();
         let l = self.simplex.best();
         let c = &self.simplex.corrected_centroid();
-        let mut xr = Point::from(
-            (c + (c - &h.x).scale(config.alpha))
-                .clip_to(internal_bounds.as_ref())
-                .into_owned(),
-        );
+        let mut xrx = c + (c - &h.x).scale(config.alpha);
+        if let Some(ib) = internal_bounds.as_ref() {
+            xrx = ib.clip_values(&xrx);
+        }
+        let mut xr = Point::from(xrx);
         xr.evaluate_transformed(problem, &config.transform, args)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
@@ -786,11 +792,11 @@ where
             // This means that x_r is certainly the best point so far. We should either expand and
             // accept the expanded point x_e regardless (greedy expansion), or we should do one
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
-            let mut xe = Point::from(
-                (c + (&xr.x - c).scale(config.beta))
-                    .clip_to(internal_bounds.as_ref())
-                    .into_owned(),
-            );
+            let mut xex = c + (&xr.x - c).scale(config.beta);
+            if let Some(ib) = internal_bounds.as_ref() {
+                xex = ib.clip_values(&xex);
+            }
+            let mut xe = Point::from(xex);
             xe.evaluate_transformed(problem, &config.transform, args)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
@@ -827,11 +833,11 @@ where
             // make it event the slightest bit better than worst will be accepted.
             if &xr < h {
                 // Try to contract outside if x_r < h
-                let mut xc = Point::from(
-                    (c + (&xr.x - c).scale(config.gamma))
-                        .clip_to(internal_bounds.as_ref())
-                        .into_owned(),
-                );
+                let mut xcx = c + (&xr.x - c).scale(config.gamma);
+                if let Some(ib) = internal_bounds.as_ref() {
+                    xcx = ib.clip_values(&xcx);
+                }
+                let mut xc = Point::from(xcx);
                 xc.evaluate_transformed(problem, &config.transform, args)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
@@ -852,11 +858,11 @@ where
                 // TODO: else try accepting x_r here?
             } else {
                 // Contract inside if h <= x_r
-                let mut xc = Point::from(
-                    (c + (&h.x - c).scale(config.gamma))
-                        .clip_to(internal_bounds.as_ref())
-                        .into_owned(),
-                );
+                let mut xcx = c + (&h.x - c).scale(config.gamma);
+                if let Some(ib) = internal_bounds.as_ref() {
+                    xcx = ib.clip_values(&xcx);
+                }
+                let mut xc = Point::from(xcx);
                 xc.evaluate_transformed(problem, &config.transform, args)?;
                 status.inc_n_f_evals();
                 if &xc < h {
@@ -879,11 +885,11 @@ where
         // If no point is accepted, shrink
         let l_clone = l.clone();
         for p in self.simplex.points.iter_mut().skip(1) {
-            *p = Point::from(
-                (&l_clone.x + (&p.x - &l_clone.x).scale(config.delta))
-                    .clip_to(internal_bounds.as_ref())
-                    .into_owned(),
-            );
+            let mut px = &l_clone.x + (&p.x - &l_clone.x).scale(config.delta);
+            if let Some(ib) = internal_bounds.as_ref() {
+                px = ib.clip_values(&px);
+            }
+            *p = Point::from(px);
             p.evaluate_transformed(problem, &config.transform, args)?;
             status.inc_n_f_evals();
         }

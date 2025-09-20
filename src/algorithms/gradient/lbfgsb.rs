@@ -2,12 +2,12 @@ use crate::algorithms::line_search::StrongWolfeLineSearch;
 use crate::traits::algorithm::SupportsTransform;
 use crate::traits::linesearch::LineSearchOutput;
 use crate::traits::{
-    Algorithm, CostFunction, Gradient, LineSearch, SupportsBounds, Terminator, Transform,
+    Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, Terminator, Transform,
     TransformedProblem,
 };
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{Bound, Bounds, Callbacks, MinimizationSummary},
+    core::{Bounds, Callbacks, MinimizationSummary},
     DMatrix, DVector, Float,
 };
 use std::collections::VecDeque;
@@ -464,13 +464,13 @@ where
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = &internal_bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
-                match bound {
+                match bound.0 {
                     Bound::NoBound => {}
-                    Bound::LowerBound(lb) => self.l[i] = *lb,
-                    Bound::UpperBound(ub) => self.u[i] = *ub,
+                    Bound::LowerBound(lb) => self.l[i] = lb,
+                    Bound::UpperBound(ub) => self.u[i] = ub,
                     Bound::LowerAndUpperBound(lb, ub) => {
-                        self.l[i] = *lb;
-                        self.u[i] = *ub;
+                        self.l[i] = lb;
+                        self.u[i] = ub;
                     }
                 }
             }

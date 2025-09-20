@@ -23,8 +23,8 @@ pub mod status;
 pub use status::Status;
 
 /// Module containing the [`Boundable`] trait.
-pub mod boundable;
-pub use boundable::Boundable;
+pub mod boundlike;
+pub use boundlike::{Bound, BoundLike};
 
 /// Module containing the [`Transform`] trait.
 pub mod transform;

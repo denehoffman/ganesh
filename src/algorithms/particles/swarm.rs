@@ -3,7 +3,7 @@ use crate::{
         utils::{generate_random_vector_in_limits, SampleFloat},
         Bounds, Point,
     },
-    traits::{Boundable, CostFunction, Transform},
+    traits::{CostFunction, Transform},
     DVector, Float,
 };
 use fastrand::Rng;
@@ -338,7 +338,7 @@ impl SwarmParticle {
                 SwarmBoundaryMethod::Inf => {
                     self.position
                         .set_position(transform.to_external(&new_position_internal).into_owned());
-                    if !new_position_internal.is_in(&internal_bounds) {
+                    if !internal_bounds.contains(&new_position_internal) {
                         self.position.fx = Some(Float::INFINITY);
                     } else {
                         self.position.evaluate(func, args)?;
@@ -346,7 +346,7 @@ impl SwarmParticle {
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
-                    let bounds_excess = new_position_internal.excess_from(&internal_bounds);
+                    let bounds_excess = internal_bounds.get_excess(&new_position_internal);
                     self.position.set_position(
                         transform
                             .to_external(&(new_position_internal - bounds_excess))

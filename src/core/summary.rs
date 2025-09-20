@@ -1,7 +1,4 @@
-use crate::{
-    core::transforms::{Bound, Bounds},
-    DMatrix, DVector, Float,
-};
+use crate::{core::transforms::Bounds, traits::Bound, DMatrix, DVector, Float};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -99,7 +96,7 @@ impl Display for MinimizationSummary {
         let bounds = self
             .bounds
             .clone()
-            .map(|b| b.into_inner())
+            .map(|bs| bs.iter().map(|b| b.0).collect())
             .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()])
             .into_iter();
 
@@ -121,7 +118,12 @@ impl Display for MinimizationSummary {
                 &format!("{:.5}", v0),
                 &format!("{:.5}", b.lower()),
                 &format!("{:.5}", b.upper()),
-                &(if b.at_bound(*v) { "Yes" } else { "No" }.to_string()),
+                &(if b.at_bound(*v, Float::EPSILON) {
+                    "Yes"
+                } else {
+                    "No"
+                }
+                .to_string()),
             ]);
         }
         let mut table = builder.build();

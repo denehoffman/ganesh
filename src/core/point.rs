@@ -180,10 +180,7 @@ impl<I> PartialOrd for Point<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        core::{Bound, Bounds},
-        test_functions::Rosenbrock,
-    };
+    use crate::{core::Bounds, test_functions::Rosenbrock, traits::Bound};
     use nalgebra::dvector;
     use std::cmp::Ordering;
 

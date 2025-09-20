@@ -284,8 +284,8 @@ mod tests {
             status: &mut SimulatedAnnealingStatus<Self::Input>,
             args: &U,
         ) -> Self::Input {
-            #[allow(clippy::expect_used)]
             let x_int = transform.to_owned_internal(&status.current.x);
+            #[allow(clippy::expect_used)]
             let g_ext = self
                 .gradient_generic(&status.current.x, args)
                 .expect("This should never fail");
