@@ -14,7 +14,6 @@ pub struct Rastrigin {
     pub n: usize,
 }
 impl CostFunction for Rastrigin {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         #[allow(clippy::suboptimal_flops)]
         Ok(10.0 * self.n as Float

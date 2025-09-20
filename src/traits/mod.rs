@@ -4,7 +4,7 @@ pub use abort_signal::AbortSignal;
 
 /// Module containing the [`Algorithm`] and [`Bounded`] traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, Bounded};
+pub use algorithm::{Algorithm, SupportsBounds};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
@@ -12,7 +12,7 @@ pub use callback::{Observer, Terminator};
 
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
-pub use cost_function::{CostFunction, Gradient, LogDensity};
+pub use cost_function::{CostFunction, GenericCostFunction, GenericGradient, Gradient, LogDensity};
 
 /// Module containing various line-search methods.
 pub mod linesearch;
@@ -23,5 +23,9 @@ pub mod status;
 pub use status::Status;
 
 /// Module containing the [`Boundable`] trait.
-pub mod boundable;
-pub use boundable::Boundable;
+pub mod boundlike;
+pub use boundlike::{Bound, BoundLike};
+
+/// Module containing the [`Transform`] trait.
+pub mod transform;
+pub use transform::{Transform, TransformExt, TransformedProblem};

@@ -9,7 +9,6 @@ use ganesh::{
 
 struct Rosenbrock;
 impl CostFunction for Rosenbrock {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
         let mut s = 0.0 as Float;
         for i in 0..(x.len() - 1) {

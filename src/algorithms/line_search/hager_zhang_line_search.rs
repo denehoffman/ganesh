@@ -1,7 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Boundable, Gradient, LineSearch},
+    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
     DVector, Float,
 };
 
@@ -113,23 +113,21 @@ impl HagerZhangLineSearch {
         &self,
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
-        bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
         status.inc_n_f_evals();
-        func.evaluate(&x.constrain_to(bounds), args)
+        func.evaluate(x, args)
     }
     fn g_eval<U, E>(
         &self,
         func: &dyn Gradient<U, E>,
         x: &DVector<Float>,
-        bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.inc_n_g_evals();
-        func.gradient(&x.constrain_to(bounds), args)
+        func.gradient(x, args)
     }
 }
 
@@ -140,15 +138,15 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         p: &DVector<Float>,
         max_step: Option<Float>,
         problem: &dyn Gradient<U, E>,
-        bounds: Option<&Bounds>,
+        _bounds: Option<&Bounds>,
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let phi = |alpha: Float, st: &mut GradientStatus| -> Result<Float, E> {
-            self.f_eval(problem, &(x0 + p.scale(alpha)), bounds, args, st)
+            self.f_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
         let dphi_vec = |alpha: Float, st: &mut GradientStatus| -> Result<DVector<Float>, E> {
-            self.g_eval(problem, &(x0 + p.scale(alpha)), bounds, args, st)
+            self.g_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
         let dphi = |dphi_vec: &DVector<Float>| -> Float { dphi_vec.dot(p) };
         let secant = |a: Float, dphi_a: Float, b: Float, dphi_b: Float| -> Float {
@@ -215,12 +213,12 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
                     st,
                 )
             } else if c == b_star {
-                return update(
+                update(
                     a_star,
                     b_star,
                     secant(b, dphi_b, b_star, dphi(&dphi_vec(b_star, st)?)),
                     st,
-                );
+                )
             } else {
                 Ok((a_star, b_star))
             }

@@ -12,10 +12,10 @@ pub trait AbortSignal {
     fn reset(&self);
 }
 
-impl<T, A, P, S, U, E> Terminator<A, P, S, U, E> for T
+impl<T, A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for T
 where
     T: AbortSignal,
-    A: Algorithm<P, S, U, E>,
+    A: Algorithm<P, S, U, E, Config = C>,
     S: Status,
 {
     fn check_for_termination(
@@ -25,6 +25,7 @@ where
         _problem: &P,
         _status: &mut S,
         _args: &U,
+        _config: &C,
     ) -> ControlFlow<()> {
         if self.is_aborted() {
             self.reset();

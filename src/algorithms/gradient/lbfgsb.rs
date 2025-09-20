@@ -1,9 +1,13 @@
 use crate::algorithms::line_search::StrongWolfeLineSearch;
+use crate::traits::algorithm::SupportsTransform;
 use crate::traits::linesearch::LineSearchOutput;
-use crate::traits::{Algorithm, Bounded, Gradient, LineSearch, Terminator};
+use crate::traits::{
+    Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, Terminator, Transform,
+    TransformedProblem,
+};
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{Bound, Bounds, Callbacks, MinimizationSummary},
+    core::{Bounds, Callbacks, MinimizationSummary},
     DMatrix, DVector, Float,
 };
 use std::collections::VecDeque;
@@ -26,7 +30,7 @@ impl Default for LBFGSBFTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBFTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
 where
     P: Gradient<U, E>,
 {
@@ -37,6 +41,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
             status.set_converged();
@@ -65,7 +70,7 @@ impl Default for LBFGSBGTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
 where
     P: Gradient<U, E>,
 {
@@ -76,6 +81,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
             status.set_converged();
@@ -98,7 +104,7 @@ impl Default for LBFGSBInfNormGTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E> for LBFGSBInfNormGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
 where
     P: Gradient<U, E>,
 {
@@ -109,6 +115,7 @@ where
         _problem: &P,
         status: &mut GradientStatus,
         _args: &U,
+        _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
             status.set_converged();
@@ -134,15 +141,20 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
-    /// The line search algorithm used by the [`LBFGSB`] algorithm.
+    transform: Option<Box<dyn Transform>>,
     line_search: StrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
 }
-impl Bounded for LBFGSBConfig {
+impl SupportsBounds for LBFGSBConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
+    }
+}
+impl SupportsTransform for LBFGSBConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
+        &mut self.transform
     }
 }
 impl LBFGSBConfig {
@@ -154,6 +166,7 @@ impl LBFGSBConfig {
         Self {
             x0: DVector::from_row_slice(x0.as_ref()),
             bounds: None,
+            transform: None,
             line_search: StrongWolfeLineSearch::default(),
             m: 10,
             max_step: 1e8,
@@ -442,21 +455,22 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
+        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         self.line_search = config.line_search.clone();
-        let x0 = config.x0.as_ref();
+        let x0 = config.transform.to_internal(&config.x0);
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &config.bounds {
+        if let Some(bounds_vec) = &internal_bounds {
             for (i, bound) in bounds_vec.iter().enumerate() {
-                match bound {
+                match bound.0 {
                     Bound::NoBound => {}
-                    Bound::LowerBound(lb) => self.l[i] = *lb,
-                    Bound::UpperBound(ub) => self.u[i] = *ub,
+                    Bound::LowerBound(lb) => self.l[i] = lb,
+                    Bound::UpperBound(ub) => self.u[i] = ub,
                     Bound::LowerAndUpperBound(lb, ub) => {
-                        self.l[i] = *lb;
-                        self.u[i] = *ub;
+                        self.l[i] = lb;
+                        self.u[i] = ub;
                     }
                 }
             }
@@ -470,10 +484,11 @@ where
                 x0[i]
             }
         });
-        self.g = problem.gradient(&self.x, args)?;
+        let t_problem = TransformedProblem::new(problem, &config.transform);
+        self.g = t_problem.gradient(&self.x, args)?;
         status.inc_n_g_evals();
-        self.f = problem.evaluate(&self.x, args)?;
-        status.with_position((self.x.clone(), self.f));
+        self.f = t_problem.evaluate(&self.x, args)?;
+        status.with_position((config.transform.to_owned_external(&self.x), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = DMatrix::zeros(1, 1);
@@ -488,15 +503,16 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
+        let t_problem = TransformedProblem::new(problem, &config.transform);
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d, config.max_step);
         if let Ok(LineSearchOutput {
             alpha,
             fx: f_kp1,
             g: g_kp1,
-        }) = self
-            .line_search
-            .search(&self.x, &d, Some(max_step), problem, None, args, status)?
+        }) =
+            self.line_search
+                .search(&self.x, &d, Some(max_step), &t_problem, None, args, status)?
         {
             let dx = d.scale(alpha);
             let grad_kp1_vec = g_kp1;
@@ -516,7 +532,7 @@ where
             self.x += dx;
             self.g = grad_kp1_vec;
             self.f = f_kp1;
-            status.with_position((self.x.clone(), f_kp1));
+            status.with_position((config.transform.to_owned_external(&self.x), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -537,7 +553,10 @@ where
     ) -> Result<(), E> {
         match config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let hessian = problem.hessian(&self.x, args)?;
+                let t_problem = TransformedProblem::new(problem, &config.transform);
+                let g_int = t_problem.gradient(&self.x, args)?;
+                let h_int = t_problem.hessian(&self.x, args)?;
+                let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
                 status.with_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}
@@ -587,7 +606,7 @@ where
         self.s_store = VecDeque::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {

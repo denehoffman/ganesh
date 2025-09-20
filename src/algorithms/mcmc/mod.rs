@@ -63,7 +63,7 @@ impl Walker {
     /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E, Input = DVector<Float>>,
+        func: &dyn LogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
         self.get_latest().write().log_density(func, args)
@@ -261,9 +261,9 @@ impl Default for AutocorrelationTerminator {
     }
 }
 
-impl<A, P, U, E> Terminator<A, P, EnsembleStatus, U, E> for AutocorrelationTerminator
+impl<A, P, U, E, C> Terminator<A, P, EnsembleStatus, U, E, C> for AutocorrelationTerminator
 where
-    A: Algorithm<P, EnsembleStatus, U, E>,
+    A: Algorithm<P, EnsembleStatus, U, E, Config = C>,
 {
     fn check_for_termination(
         &mut self,
@@ -272,6 +272,7 @@ where
         _problem: &P,
         status: &mut EnsembleStatus,
         _args: &U,
+        _config: &C,
     ) -> ControlFlow<()> {
         if current_step % self.n_check == 0 {
             let taus = status.get_integrated_autocorrelation_times(

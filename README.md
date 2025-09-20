@@ -58,7 +58,6 @@ pub struct Rosenbrock {
     pub n: usize,
 }
 impl CostFunction for Rosenbrock {
-    type Input = DVector<Float>;
     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
         Ok((0..(self.n - 1))
             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
@@ -74,9 +73,9 @@ use ganesh::{Float, DVector};
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
-    let mut problem = Rosenbrock { n: 2 };
+    let problem = Rosenbrock { n: 2 };
     let mut nm = NelderMead::default();
-    let result = nm.process(&mut problem,
+    let result = nm.process(&problem,
                             &(),
                             NelderMeadConfig::new([2.0, 2.0]),
                             NelderMead::default_callbacks())?;
@@ -138,30 +137,36 @@ cargo r -r --example <example_name>
 ```
 
 ## Bounds
-All `Algorithm`s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, the same one used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not enacted on algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html). While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+All `Algorithm`s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 
 Upper and lower bounds:
 ```math
-x_\text{int} = \arcsin\left(2\frac{x_\text{ext} - x_\text{min}}{x_\text{max} - x_\text{min}} - 1\right)
+x_\text{int} = \frac{u}{\sqrt{1 - u^2}}
 ```
 ```math
-x_\text{ext} = x_\text{min} + \left(\sin(x_\text{int}) + 1\right)\frac{x_\text{max} - x_\text{min}}{2}
+x_\text{ext} = c + w \frac{x_\text{int}}{\sqrt{x_\text{int}^2 + 1}}
+```
+where
+```math
+u = \frac{x_\text{ext} - c}{w},\ c = \frac{x_\text{min} + x_\text{max}}{2},\ w = \frac{x_\text{max} - x_\text{min}}{2}
 ```
 Upper bound only:
 ```math
-x_\text{int} = \sqrt{(x_\text{max} - x_\text{ext} + 1)^2 - 1}
+x_\text{int} = \frac{1}{2}\left(\frac{1}{(x_\text{max} - x_\text{ext})} - (x_\text{max} - x_\text{ext}) \right)
 ```
 ```math
-x_\text{ext} = x_\text{max} + 1 - \sqrt{x_\text{int}^2 + 1}
+x_\text{ext} = x_\text{max} - (\sqrt{x_\text{int}^2 + 1} - x_\text{int})
 ```
 Lower bound only:
 ```math
-x_\text{int} = \sqrt{(x_\text{ext} - x_\text{min} + 1)^2 - 1}
+x_\text{int} = \frac{1}{2}\left((x_\text{ext} - x_\text{min}) - \frac{1}{(x_\text{ext} - x_\text{min})} \right)
 ```
 ```math
-x_\text{ext} = x_\text{min} - 1 + \sqrt{x_\text{int}^2 + 1}
+x_\text{ext} = x_\text{min} + (\sqrt{x_\text{int}^2 + 1} + x_\text{int})
 ```
-As noted in the documentation for both `LMFIT` and `MINUIT`, these bounds should be used with caution. They turn linear problems into nonlinear ones, which can mess with error propagation and even fit convergence, not to mention increase function complexity. Methods which output covariance matrices need to be adjusted if bounded, and `MINUIT` recommends fitting a second time near a minimum without bounds to ensure proper error propagation. Some methods, like `L-BFGS-B`, are written with implicit bounds handling, and these transformations are not performed in such cases.
+While `MINUIT` and `LMFIT` recommend caution in interpreting covariance matrices obtained from
+fits with bounds transforms, `ganesh` does not, since it implements higher-order derivatives on
+these bounds while these other libraries use linear approximations.
 
 ## Future Plans
 

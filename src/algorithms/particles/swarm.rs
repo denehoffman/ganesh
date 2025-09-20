@@ -3,7 +3,7 @@ use crate::{
         utils::{generate_random_vector_in_limits, SampleFloat},
         Bounds, Point,
     },
-    traits::{Boundable, CostFunction},
+    traits::{CostFunction, Transform},
     DVector, Float,
 };
 use fastrand::Rng;
@@ -13,8 +13,6 @@ use std::cmp::Ordering;
 /// A swarm of particles used in particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Swarm {
-    /// The internal boundaries used by the swarm
-    pub bounds: Option<Bounds>,
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
     /// The topology used by the swarm
@@ -33,7 +31,6 @@ impl Swarm {
     /// Create a new [`Swarm`] from a [`SwarmPositionInitializer`].
     pub fn new(position_initializer: SwarmPositionInitializer) -> Self {
         Self {
-            bounds: None,
             particles: Vec::default(),
             topology: SwarmTopology::default(),
             update_method: SwarmUpdateMethod::default(),
@@ -45,14 +42,7 @@ impl Swarm {
     /// Get list of the particles in the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
     pub fn get_particles(&self) -> Vec<SwarmParticle> {
-        if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
-            self.particles
-                .iter()
-                .map(|p| p.to_bounded(self.bounds.as_ref()))
-                .collect()
-        } else {
-            self.particles.clone()
-        }
+        self.particles.clone()
     }
     /// Create particles in the swarm using the given random number generator, dimension, bounds, and cost function.
     /// The method uses the configured [`SwarmPositionInitializer`] and [`SwarmVelocityInitializer`] to create the particles.
@@ -65,11 +55,10 @@ impl Swarm {
     pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
-        bounds: Option<&Bounds>,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        transform: &Option<Box<dyn Transform>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
     ) -> Result<(), E> {
-        self.bounds = bounds.cloned();
         let mut particle_positions = self.position_initializer.init_positions(rng);
         let mut particle_velocities = self.velocity_initializer.init_velocities(
             rng,
@@ -78,26 +67,17 @@ impl Swarm {
         );
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
-        if matches!(self.boundary_method, SwarmBoundaryMethod::Transform) {
-            particle_positions
-                .iter_mut()
-                .for_each(|point| *point = point.x.unconstrain_from(bounds).into());
-            particle_velocities
-                .iter_mut()
-                .for_each(|velocity| *velocity = velocity.unconstrain_from(bounds));
-        }
+        particle_positions
+            .iter_mut()
+            .for_each(|point| *point = transform.to_internal(&point.x).into_owned().into());
+        particle_velocities
+            .iter_mut()
+            .for_each(|velocity| *velocity = transform.to_internal(velocity).into_owned());
         self.particles = particle_positions
             .into_iter()
             .zip(particle_velocities.into_iter())
             .map(|(position, velocity)| {
-                SwarmParticle::new(
-                    position,
-                    velocity,
-                    func,
-                    args,
-                    self.bounds.as_ref(),
-                    self.boundary_method,
-                )
+                SwarmParticle::new(position, velocity, func, args, transform)
             })
             .collect::<Result<Vec<SwarmParticle>, E>>()?;
         Ok(())
@@ -159,8 +139,6 @@ pub enum SwarmBoundaryMethod {
     Inf,
     /// Shrink the velocity vector to place the particle on the boundary where it would cross
     Shr,
-    /// Transform the function inputs nonlinearly to map the infinite plane to a bounded subset
-    Transform,
 }
 
 /// Swarm topologies which determine the flow of information
@@ -320,17 +298,12 @@ impl SwarmParticle {
     pub fn new<U, E>(
         position: Point<DVector<Float>>,
         velocity: DVector<Float>,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
-        bounds: Option<&Bounds>,
-        boundary_method: SwarmBoundaryMethod,
+        transform: &Option<Box<dyn Transform>>,
     ) -> Result<Self, E> {
         let mut position = position;
-        if matches!(boundary_method, SwarmBoundaryMethod::Transform) {
-            position.evaluate_bounded(func, bounds, args)?;
-        } else {
-            position.evaluate(func, args)?;
-        }
+        position.evaluate_transformed(func, transform, args)?;
         Ok(Self {
             position: position.clone(),
             velocity,
@@ -349,50 +322,46 @@ impl SwarmParticle {
     /// information.
     pub fn update_position<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E, Input = DVector<Float>>,
+        func: &dyn CostFunction<U, E>,
         args: &U,
         bounds: Option<&Bounds>,
+        transform: &Option<Box<dyn Transform>>,
         boundary_method: SwarmBoundaryMethod,
     ) -> Result<usize, E> {
-        let new_position = self.position.x.clone() + self.velocity.clone();
+        let internal_bounds = bounds.map(|b| b.apply(transform));
+        let position_internal = self.position.to_internal(transform);
+        let velocity_internal = transform.to_internal(&self.velocity);
+        let new_position_internal = position_internal.x + velocity_internal.as_ref();
         let mut evals = 0;
-        if let Some(bounds) = bounds {
+        if let Some(internal_bounds) = internal_bounds {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
-                    self.position.set_position(new_position);
-                    if !self.position.x.is_in(bounds) {
-                        self.position.fx = Float::INFINITY;
+                    self.position
+                        .set_position(transform.to_external(&new_position_internal).into_owned());
+                    if !internal_bounds.contains(&new_position_internal) {
+                        self.position.fx = Some(Float::INFINITY);
                     } else {
                         self.position.evaluate(func, args)?;
                         evals += 1;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
-                    let bounds_excess = new_position.excess_from(bounds);
-                    self.position.set_position(new_position - bounds_excess);
+                    let bounds_excess = internal_bounds.get_excess(&new_position_internal);
+                    self.position.set_position(
+                        transform
+                            .to_external(&(new_position_internal - bounds_excess))
+                            .into_owned(),
+                    );
                     self.position.evaluate(func, args)?;
-                    evals += 1;
-                }
-                SwarmBoundaryMethod::Transform => {
-                    self.position.set_position(new_position);
-                    self.position.evaluate_bounded(func, Some(bounds), args)?;
                     evals += 1;
                 }
             }
         } else {
-            self.position.set_position(new_position);
+            self.position
+                .set_position(transform.to_external(&new_position_internal).into_owned());
             self.position.evaluate(func, args)?;
             evals += 1;
         }
         Ok(evals)
-    }
-    /// Convert the particle's coordinates from the unbounded space to the bounded space using a
-    /// nonlinear transformation.
-    pub fn to_bounded(&self, bounds: Option<&Bounds>) -> Self {
-        Self {
-            position: self.position.constrain_to(bounds),
-            velocity: self.velocity.constrain_to(bounds),
-            best: self.best.constrain_to(bounds),
-        }
     }
 }

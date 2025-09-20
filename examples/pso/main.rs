@@ -14,7 +14,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Rastrigin function
     impl CostFunction for Problem {
-        type Input = DVector<Float>;
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(10.0
                 + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))

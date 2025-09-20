@@ -1,6 +1,6 @@
 use crate::{
-    core::{Bound, Bounds, Callbacks},
-    traits::{Status, Terminator},
+    core::{Bounds, Callbacks},
+    traits::{Bound, Status, Terminator, Transform},
 };
 use std::convert::Infallible;
 
@@ -95,18 +95,18 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
         callbacks: C,
     ) -> Result<Self::Summary, E>
     where
-        C: Into<Callbacks<Self, P, S, U, E>>,
+        C: Into<Callbacks<Self, P, S, U, E, Self::Config>>,
         Self: Sized,
     {
         let mut status = S::default();
-        let mut cbs: Callbacks<Self, P, S, U, E> = callbacks.into();
+        let mut cbs: Callbacks<Self, P, S, U, E, Self::Config> = callbacks.into();
         self.initialize(problem, &mut status, args, &config)?;
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, args, &config)?;
 
             if cbs
-                .check_for_termination(current_step, self, problem, &mut status, args)
+                .check_for_termination(current_step, self, problem, &mut status, args, &config)
                 .is_break()
             {
                 break;
@@ -142,7 +142,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     }
 
     /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].
-    fn default_callbacks() -> Callbacks<Self, P, S, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, S, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -151,7 +151,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
 }
 
 /// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter bounds.
-pub trait Bounded
+pub trait SupportsBounds
 where
     Self: Sized,
 {
@@ -168,6 +168,20 @@ where
             .collect::<Vec<_>>()
             .into();
         *self.get_bounds_mut() = Some(bounds);
+        self
+    }
+}
+
+/// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter transformations.
+pub trait SupportsTransform
+where
+    Self: Sized,
+{
+    /// A helper method to get the mutable internal [`Bounds`] object.
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>>;
+    /// Set the transformation to apply to the parameter space.
+    fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
+        *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
         self
     }
 }

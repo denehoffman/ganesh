@@ -2,9 +2,9 @@ use crate::{
     algorithms::mcmc::{EnsembleStatus, Walker},
     core::{
         utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
-        Bounds, MCMCSummary, Point,
+        MCMCSummary, Point,
     },
-    traits::{Algorithm, Bounded, LogDensity, Status},
+    traits::{algorithm::SupportsTransform, Algorithm, LogDensity, Status, Transform},
     DMatrix, DVector, Float, PI,
 };
 use fastrand::Rng;
@@ -66,12 +66,13 @@ impl ESSMove {
         max_steps: usize,
         mu: &mut Float,
         problem: &P,
+        transform: &Option<Box<dyn Transform>>,
         args: &U,
         ensemble: &mut EnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
-        P: LogDensity<U, E, Input = DVector<Float>>,
+        P: LogDensity<U, E>,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -104,7 +105,9 @@ impl ESSMove {
                     let s = &ensemble.get_compliment_walkers(i, 2, rng);
                     let x_l = s[0].get_latest();
                     let x_m = s[1].get_latest();
-                    let eta = (&x_l.read().x - &x_m.read().x).scale(*mu);
+                    let eta = (transform.to_internal(&x_l.read().x).as_ref()
+                        - transform.to_internal(&x_m.read().x).as_ref())
+                    .scale(*mu);
                     eta
                 }
                 Self::Gaussian => {
@@ -116,10 +119,13 @@ impl ESSMove {
                     //
                     // W = ⅀ Zₗ(Xₗ - X̅ₛ)
                     //   Xₗ∈S
-                    let x_s = ensemble.mean_compliment(i);
+                    let x_s = ensemble.internal_mean_compliment(i, transform);
                     ensemble
                         .iter_compliment(i)
-                        .map(|x_l| (&x_l.read().x - &x_s).scale(rng.normal(0.0, 1.0)))
+                        .map(|x_l| {
+                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
+                                .scale(rng.normal(0.0, 1.0))
+                        })
                         .sum::<DVector<Float>>()
                         .scale(2.0 * *mu)
                 }
@@ -128,8 +134,8 @@ impl ESSMove {
                     rescale_cov,
                     n_components,
                 } => {
-                    let dpgm =
-                        dpgm_result.get_or_insert_with(|| dpgm(*n_components, ensemble, rng));
+                    let dpgm = dpgm_result
+                        .get_or_insert_with(|| dpgm(*n_components, ensemble, transform, rng));
                     let labels = &dpgm.labels;
                     let means = &dpgm.means;
                     let covariances = &dpgm.covariances;
@@ -150,21 +156,22 @@ impl ESSMove {
             };
             // Y ~ U(0, f(Xₖ(t)))
             let y = x_k.read().fx_checked() + rng.float().ln();
+            let x_k_internal = transform.to_internal(&x_k.read().x).into_owned();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
-            let mut p_l = Point::from(&x_k.read().x + eta.scale(l));
-            p_l.log_density(problem, args)?;
+            let mut p_l = Point::from(&x_k_internal + eta.scale(l));
+            p_l.log_density_transformed(problem, transform, args)?;
             // R <- L + 1
             let mut r = l + 1.0;
-            let mut p_r = Point::from(&x_k.read().x + eta.scale(r));
-            p_r.log_density(problem, args)?;
+            let mut p_r = Point::from(&x_k_internal + eta.scale(r));
+            p_r.log_density_transformed(problem, transform, args)?;
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
-                p_l.set_position(&x_k.read().x + eta.scale(l));
-                p_l.log_density(problem, args)?;
+                p_l.set_position(&x_k_internal + eta.scale(l));
+                p_l.log_density_transformed(problem, transform, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -172,8 +179,8 @@ impl ESSMove {
             while y < p_r.fx_checked() && n_expand < max_steps {
                 // R <- R + 1
                 r += 1.0;
-                p_r.set_position(&x_k.read().x + eta.scale(r));
-                p_r.log_density(problem, args)?;
+                p_r.set_position(&x_k_internal + eta.scale(r));
+                p_r.log_density_transformed(problem, transform, args)?;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -182,8 +189,8 @@ impl ESSMove {
                 // X' ~ U(L, R)
                 let xprime = rng.range(l, r);
                 // Y' <- f(X'ηₖ + Xₖ(t))
-                let mut p_yprime = Point::from(&x_k.read().x + eta.scale(xprime));
-                p_yprime.log_density(problem, args)?;
+                let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
+                p_yprime.log_density_transformed(problem, transform, args)?;
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
@@ -199,9 +206,9 @@ impl ESSMove {
                 n_contract += 1;
             };
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
-            let mut proposal = Point::from(&x_k.read().x + eta.scale(xprime));
-            proposal.log_density(problem, args)?;
-            positions.push(Arc::new(RwLock::new(proposal)))
+            let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
+            proposal.log_density_transformed(problem, transform, args)?;
+            positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
         }
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
         if step <= n_adaptive {
@@ -215,17 +222,12 @@ impl ESSMove {
 /// The internal configuration struct for the [`ESS`] algorithm.
 #[derive(Clone)]
 pub struct ESSConfig {
-    bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedESSMove>,
     n_adaptive: usize,
     max_steps: usize,
     mu: Float,
-}
-impl Bounded for ESSConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
-    }
 }
 impl ESSConfig {
     /// Create a new configuratione with the initial positions of the walkers.
@@ -236,7 +238,7 @@ impl ESSConfig {
     /// [`Walker::new`]
     pub fn new(x0: Vec<DVector<Float>>) -> Self {
         Self {
-            bounds: None,
+            transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![ESSMove::differential(1.0)],
             n_adaptive: 0,
@@ -263,6 +265,12 @@ impl ESSConfig {
     pub const fn with_mu(mut self, mu: Float) -> Self {
         self.mu = mu;
         self
+    }
+}
+
+impl SupportsTransform for ESSConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
+        &mut self.transform
     }
 }
 
@@ -296,7 +304,7 @@ impl ESS {
 }
 impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
 where
-    P: LogDensity<U, E, Input = DVector<Float>>,
+    P: LogDensity<U, E>,
 {
     type Summary = MCMCSummary;
     type Config = ESSConfig;
@@ -331,6 +339,7 @@ where
             config.max_steps,
             &mut self.mu,
             problem,
+            &config.transform,
             args,
             status,
             &mut self.rng,
@@ -343,10 +352,10 @@ where
         _problem: &P,
         status: &EnsembleStatus,
         _args: &U,
-        config: &Self::Config,
+        _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MCMCSummary {
-            bounds: config.bounds.clone(),
+            bounds: None,
             parameter_names: None,
             message: status.message().to_string(),
             chain: status.get_chain(None, None),
@@ -754,12 +763,19 @@ struct DPGMResult {
 //
 // DPGMResult
 #[allow(clippy::unnecessary_cast)]
-fn dpgm(n_components: usize, ensemble: &EnsembleStatus, rng: &mut Rng) -> DPGMResult {
+fn dpgm(
+    n_components: usize,
+    ensemble: &EnsembleStatus,
+    transform: &Option<Box<dyn Transform>>,
+    rng: &mut Rng,
+) -> DPGMResult
+where
+{
     let (n_walkers, _, n_parameters) = ensemble.dimension();
-    let data = ensemble.get_latest_position_matrix();
+    let data = ensemble.get_latest_internal_position_matrix(transform);
     let weight_concentration_prior = 1.0 / n_components as Float;
     let mean_precision_prior = 1.0;
-    let mean_prior = ensemble.mean();
+    let mean_prior = ensemble.internal_mean(transform);
     let degrees_of_freedom_prior = n_parameters as Float;
     let covariance_prior = cov(&data.transpose());
 
@@ -921,7 +937,6 @@ mod tests {
         let cfg = ESSConfig::new(walkers);
         assert_eq!(cfg.walkers.len(), 3);
         assert_eq!(cfg.moves.len(), 1);
-        assert!(cfg.bounds.is_none());
         assert_eq!(cfg.n_adaptive, 0);
         assert_eq!(cfg.max_steps, 10000);
         assert_eq!(cfg.mu, 1.0);
@@ -951,7 +966,6 @@ mod tests {
         assert_eq!(status.walkers.len(), 3);
 
         let summary = ess.summarize(0, &f, &status, &(), &cfg).unwrap();
-        assert_eq!(summary.bounds, cfg.bounds);
         assert_eq!(summary.dimension, status.dimension());
     }
 
@@ -961,10 +975,10 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let cfg = ESSConfig::new(walkers);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
+        let f = Rosenbrock { n: 2 };
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
 
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Differential"));
     }
@@ -975,10 +989,10 @@ mod tests {
         let walkers = make_walkers(6, 2);
         let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::gaussian(1.0)]);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
+        let f = Rosenbrock { n: 2 };
 
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Gaussian"));
     }
@@ -994,10 +1008,10 @@ mod tests {
             Some(3),
         )]);
         let mut status = EnsembleStatus::default();
-        let mut f = Rosenbrock { n: 2 };
+        let f = Rosenbrock { n: 2 };
 
-        ess.initialize(&mut f, &mut status, &(), &cfg).unwrap();
-        let result = ess.step(0, &mut f, &mut status, &(), &cfg);
+        ess.initialize(&f, &mut status, &(), &cfg).unwrap();
+        let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().contains("Global"));
     }
@@ -1060,7 +1074,7 @@ mod tests {
         status.walkers = positions;
 
         let mut rng2 = Rng::with_seed(0);
-        let res = super::dpgm(2, &status, &mut rng2);
+        let res = super::dpgm(2, &status, &None, &mut rng2);
 
         assert_eq!(res.labels.len(), n_a + n_b);
         assert_eq!(res.means.len(), 2);

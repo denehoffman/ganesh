@@ -1,6 +1,8 @@
 use crate::{
-    core::{utils::SampleFloat, Bounds, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{Algorithm, Bounded, CostFunction, Status, Terminator},
+    core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
+    traits::{
+        algorithm::SupportsTransform, Algorithm, GenericCostFunction, Status, Terminator, Transform,
+    },
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +20,8 @@ impl Default for SimulatedAnnealingTerminator {
         }
     }
 }
-impl<P, U, E, I> Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E>
+impl<P, U, E, I>
+    Terminator<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E, SimulatedAnnealingConfig>
     for SimulatedAnnealingTerminator
 where
     P: SimulatedAnnealingGenerator<U, E, Input = I>,
@@ -31,6 +34,7 @@ where
         _problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         _args: &U,
+        _config: &SimulatedAnnealingConfig,
     ) -> ControlFlow<()> {
         if status.temperature < self.min_temperature {
             return ControlFlow::Break(());
@@ -40,18 +44,18 @@ where
 }
 
 /// A trait for generating new points in the simulated annealing algorithm.
-pub trait SimulatedAnnealingGenerator<U, E>: CostFunction<U, E> {
+pub trait SimulatedAnnealingGenerator<U, E>: GenericCostFunction<U, E> {
     /// Returns the initial state of the algorithm.
     fn initial(
         &self,
-        bounds: Option<&Bounds>,
+        transform: &Option<Box<dyn Transform>>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
         args: &U,
     ) -> Self::Input;
     /// Generates a new state based on the current state, cost function and the status.
     fn generate(
         &self,
-        bounds: Option<&Bounds>,
+        transform: &Option<Box<dyn Transform>>,
         status: &mut SimulatedAnnealingStatus<Self::Input>,
         args: &U,
     ) -> Self::Input;
@@ -59,7 +63,7 @@ pub trait SimulatedAnnealingGenerator<U, E>: CostFunction<U, E> {
 
 /// The internal configuration struct for the [`SimulatedAnnealing`] algorithm.
 pub struct SimulatedAnnealingConfig {
-    bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform>>,
     /// The initial temperature for the simulated annealing algorithm.
     pub initial_temperature: Float,
     /// The cooling rate for the simulated annealing algorithm.
@@ -68,7 +72,7 @@ pub struct SimulatedAnnealingConfig {
 impl Default for SimulatedAnnealingConfig {
     fn default() -> Self {
         Self {
-            bounds: Default::default(),
+            transform: None,
             initial_temperature: 1.0,
             cooling_rate: 0.999,
         }
@@ -78,15 +82,15 @@ impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
     pub const fn new(initial_temperature: Float, cooling_rate: Float) -> Self {
         Self {
-            bounds: None,
+            transform: None,
             initial_temperature,
             cooling_rate,
         }
     }
 }
-impl Bounded for SimulatedAnnealingConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
+impl SupportsTransform for SimulatedAnnealingConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
+        &mut self.transform
     }
 }
 
@@ -163,11 +167,13 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let bounds = config.bounds.as_ref();
-        let x0 = problem.initial(bounds, status, args);
-        let fx0 = problem.evaluate(&x0, args)?;
+        let x0 = problem.initial(&config.transform, status, args);
+        let fx0 = problem.evaluate_generic(&x0, args)?;
         status.temperature = config.initial_temperature;
-        status.current = Point { x: x0, fx: fx0 };
+        status.current = Point {
+            x: x0,
+            fx: Some(fx0),
+        };
         status.initial = status.current.clone();
         status.best = status.current.clone();
         status.iteration = 0;
@@ -182,18 +188,18 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let x = problem.generate(config.bounds.as_ref(), status, args);
-        let fx = problem.evaluate(&x, args)?;
+        let x = problem.generate(&config.transform, status, args);
+        let fx = problem.evaluate_generic(&x, args)?;
         status.cost_evals += 1;
 
-        status.current = Point { x, fx };
+        status.current = Point { x, fx: Some(fx) };
         status.temperature *= config.cooling_rate;
         status.iteration += 1;
 
         let acceptance_probability = if status.current.fx < status.best.fx {
             1.0
         } else {
-            let d_fx = status.current.fx - status.best.fx;
+            let d_fx = status.current.fx_checked() - status.best.fx_checked();
             (-d_fx / status.temperature).exp()
         };
 
@@ -209,20 +215,20 @@ where
         _problem: &P,
         status: &SimulatedAnnealingStatus<I>,
         _args: &U,
-        config: &Self::Config,
+        _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(SimulatedAnnealingSummary {
-            bounds: config.bounds.clone(),
+            bounds: None,
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
-            fx: status.best.fx,
+            fx: status.best.fx_checked(),
             cost_evals: status.cost_evals,
             converged: status.converged,
         })
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E>
+    fn default_callbacks() -> Callbacks<Self, P, SimulatedAnnealingStatus<I>, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -234,78 +240,81 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::MaxSteps,
-        test_functions::Rosenbrock,
-        traits::{Boundable, Gradient},
-        DVector,
+        core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient, DVector,
     };
     use approx::assert_relative_eq;
+    use nalgebra::DMatrix;
     use std::fmt::Debug;
 
-    pub struct GradientAnnealingProblem<U, E>(Box<dyn Gradient<U, E>>);
+    pub struct GradientAnnealingProblem<U, E>(
+        Box<dyn GenericGradient<U, E, Input = DVector<Float>>>,
+        DVector<Float>,
+    );
     impl<U, E> GradientAnnealingProblem<U, E> {
-        pub fn new<P>(problem: P) -> Self
+        pub fn new<P>(problem: P, x0: &[Float]) -> Self
         where
-            P: Gradient<U, E> + 'static,
+            P: GenericGradient<U, E, Input = DVector<Float>> + 'static,
         {
-            Self(Box::new(problem))
+            Self(Box::new(problem), DVector::from_row_slice(x0))
         }
     }
-    impl<U, E> CostFunction<U, E> for GradientAnnealingProblem<U, E> {
+    impl<U, E> GenericCostFunction<U, E> for GradientAnnealingProblem<U, E> {
         type Input = DVector<Float>;
 
-        fn evaluate(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
-            self.0.evaluate(x, args)
+        fn evaluate_generic(&self, x: &Self::Input, args: &U) -> Result<Float, E> {
+            self.0.evaluate_generic(x, args)
         }
     }
-    impl<U, E> Gradient<U, E> for GradientAnnealingProblem<U, E> {
-        fn gradient(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
-            self.0.gradient(x, args)
+    impl<U, E> GenericGradient<U, E> for GradientAnnealingProblem<U, E> {
+        fn gradient_generic(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E> {
+            self.0.gradient_generic(x, args)
         }
 
-        fn hessian(&self, x: &Self::Input, args: &U) -> Result<nalgebra::DMatrix<Float>, E> {
-            self.0.hessian(x, args)
+        fn hessian_generic(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E> {
+            self.0.hessian_generic(x, args)
         }
     }
     impl<U, E: Debug> SimulatedAnnealingGenerator<U, E> for GradientAnnealingProblem<U, E>
     where
-        Self: Gradient<U, E>,
+        Self: GenericGradient<U, E, Input = DVector<Float>>,
     {
         fn generate(
             &self,
-            bounds: Option<&Bounds>,
+            transform: &Option<Box<dyn Transform>>,
             status: &mut SimulatedAnnealingStatus<Self::Input>,
             args: &U,
         ) -> Self::Input {
+            let x_int = transform.to_owned_internal(&status.current.x);
             #[allow(clippy::expect_used)]
-            let g = self
-                .gradient(&status.current.x, args)
+            let g_ext = self
+                .gradient_generic(&status.current.x, args)
                 .expect("This should never fail");
-            let x = &status.current.x - &(status.temperature * 1e0 * g);
-            x.constrain_to(bounds)
+            let g_int = transform.pullback_gradient(&x_int, &g_ext);
+            let x_int_new = x_int - &(status.temperature * 1e-4 * g_int);
+            transform.to_owned_external(&x_int_new)
         }
 
         fn initial(
             &self,
-            bounds: Option<&Bounds>,
+            _transform: &Option<Box<dyn Transform>>,
             _status: &mut SimulatedAnnealingStatus<Self::Input>,
             _args: &U,
         ) -> Self::Input {
-            #[allow(clippy::expect_used)]
-            DVector::zeros(bounds.expect("This generator requires bounds to be explicitly specified, even if all parameters are unbounded!").len()).constrain_to(bounds)
+            self.1.clone()
         }
     }
 
     #[test]
     fn test_simulated_annealing() {
         let mut solver = SimulatedAnnealing::new(Some(0));
-        let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 });
+        let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
         let result = solver
             .process(
                 &problem,
                 &(),
-                SimulatedAnnealingConfig::new(1.0, 0.999).with_bounds([(-5.0, 5.0), (-5.0, 5.0)]),
-                SimulatedAnnealing::default_callbacks().with_terminator(MaxSteps(5_000)),
+                SimulatedAnnealingConfig::new(1.0, 0.999)
+                    .with_transform(&Bounds::from([(-5.0, 5.0), (-5.0, 5.0)])),
+                SimulatedAnnealing::default_callbacks(),
             )
             .unwrap();
         assert_relative_eq!(result.fx, 0.0, epsilon = 0.5);

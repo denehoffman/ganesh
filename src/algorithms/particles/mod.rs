@@ -1,6 +1,6 @@
 use crate::{
     core::Point,
-    traits::{Algorithm, Observer},
+    traits::{CostFunction, Observer},
     DVector, Float,
 };
 use parking_lot::Mutex;
@@ -24,7 +24,7 @@ pub use swarm_status::SwarmStatus;
 
 /// An [`Observer`] which stores the swarm particles' history as well as the
 /// history of global best positions.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TrackingSwarmObserver {
     /// The history of the swarm particles
     pub history: Vec<Vec<SwarmParticle>>,
@@ -41,17 +41,18 @@ impl TrackingSwarmObserver {
     }
 }
 
-impl<A, P, U, E> Observer<A, P, SwarmStatus, U, E> for TrackingSwarmObserver
+impl<P, U, E> Observer<PSO, P, SwarmStatus, U, E, PSOConfig> for TrackingSwarmObserver
 where
-    A: Algorithm<P, SwarmStatus, U, E>,
+    P: CostFunction<U, E>,
 {
     fn observe(
         &mut self,
         _current_step: usize,
-        _algorithm: &A,
+        _algorithm: &PSO,
         _problem: &P,
         status: &SwarmStatus,
         _args: &U,
+        _config: &PSOConfig,
     ) {
         self.history.push(status.swarm.particles.clone());
         self.best_history.push(status.get_best());

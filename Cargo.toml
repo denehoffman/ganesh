@@ -20,6 +20,7 @@ bench = false
 nalgebra = { version = "0.34.0", features = ["serde-serialize"] }
 ctrlc = "3.5.0"
 dyn-clone = "1.0.20"
+typetag = "0.2.20"
 serde = { version = "1.0.219", features = ["derive", "rc"] }
 serde-pickle = "1.2.0"
 spec_math = "0.1.6"

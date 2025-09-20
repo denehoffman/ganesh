@@ -1,7 +1,4 @@
-use crate::{
-    core::bound::{Bound, Bounds},
-    DMatrix, DVector, Float,
-};
+use crate::{core::transforms::Bounds, traits::Bound, DMatrix, DVector, Float};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -58,23 +55,6 @@ impl HasParameterNames for MinimizationSummary {
     }
 }
 
-impl MinimizationSummary {
-    /// Set the names associated with each parameter.
-    pub fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        self.parameter_names = Some(
-            parameter_names
-                .into_iter()
-                .map(|s| s.as_ref().to_string())
-                .collect(),
-        );
-        self
-    }
-}
-
 impl Display for MinimizationSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use tabled::{
@@ -116,7 +96,7 @@ impl Display for MinimizationSummary {
         let bounds = self
             .bounds
             .clone()
-            .map(|b| b.into_inner())
+            .map(|bs| bs.iter().map(|b| b.0).collect())
             .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()])
             .into_iter();
 
@@ -138,7 +118,12 @@ impl Display for MinimizationSummary {
                 &format!("{:.5}", v0),
                 &format!("{:.5}", b.lower()),
                 &format!("{:.5}", b.upper()),
-                &(if b.at_bound(*v) { "Yes" } else { "No" }.to_string()),
+                &(if b.at_bound(*v, Float::EPSILON) {
+                    "Yes"
+                } else {
+                    "No"
+                }
+                .to_string()),
             ]);
         }
         let mut table = builder.build();
@@ -217,6 +202,48 @@ pub struct MCMCSummary {
     pub converged: bool,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
+}
+
+impl MCMCSummary {
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
+        let burn = burn.unwrap_or(0);
+        let thin = thin.unwrap_or(1);
+        self.chain
+            .iter()
+            .map(|walker| {
+                walker
+                    .iter()
+                    .skip(burn)
+                    .enumerate()
+                    .filter_map(|(i, position)| {
+                        if i % thin == 0 {
+                            Some(position.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    ///
+    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
+    /// will be discarded from the beginning of each [`Walker`]'s history.
+    ///
+    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
+    /// be discarded from the [`Walker`]'s history.
+    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
+        let chain = self.get_chain(burn, thin);
+        chain.into_iter().flatten().collect()
+    }
 }
 
 impl HasParameterNames for MCMCSummary {

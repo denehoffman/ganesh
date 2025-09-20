@@ -1,5 +1,5 @@
 use crate::{
-    algorithms::particles::{Swarm, SwarmBoundaryMethod, SwarmPositionInitializer},
+    algorithms::particles::{Swarm, SwarmPositionInitializer},
     core::Point,
     traits::Status,
     DVector, Float,
@@ -37,11 +37,7 @@ impl SwarmStatus {
     /// Get the global best position found by the swarm. If the boundary method is set to
     /// [`SwarmBoundaryMethod::Transform`], this will return the position in the original bounded space.
     pub fn get_best(&self) -> Point<DVector<Float>> {
-        if matches!(self.swarm.boundary_method, SwarmBoundaryMethod::Transform) {
-            self.gbest.constrain_to(self.swarm.bounds.as_ref())
-        } else {
-            self.gbest.clone()
-        }
+        self.gbest.clone()
     }
 }
 
