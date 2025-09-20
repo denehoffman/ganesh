@@ -1,3 +1,5 @@
+use nalgebra::{Dyn, LU};
+
 use crate::algorithms::line_search::StrongWolfeLineSearch;
 use crate::traits::algorithm::SupportsTransform;
 use crate::traits::linesearch::LineSearchOutput;
@@ -206,7 +208,7 @@ pub struct LBFGSB {
     g: DVector<Float>,
     l: DVector<Float>,
     u: DVector<Float>,
-    m_mat: DMatrix<Float>,
+    m_mat: Option<LU<Float, Dyn, Dyn>>,
     w_mat: DMatrix<Float>,
     theta: Float,
     f: Float,
@@ -236,6 +238,30 @@ impl Default for LBFGSB {
 }
 
 impl LBFGSB {
+    #[inline]
+    fn m_dot_vec(&self, b: &DVector<Float>) -> DVector<Float> {
+        match &self.m_mat {
+            Some(lu) => lu.solve(b).expect("Inverse failed!"),
+            None => DVector::zeros(b.len()),
+        }
+    }
+    #[inline]
+    fn m_dot_mat(&self, b: &DMatrix<Float>) -> DMatrix<Float> {
+        match &self.m_mat {
+            Some(lu) => lu.solve(b).expect("Inverse failed!"),
+            None => DMatrix::zeros(b.nrows(), b.ncols()),
+        }
+    }
+    #[inline]
+    fn vec_dot_m_dot_vec(&self, v: &DVector<Float>) -> Float {
+        if v.len() == 0 {
+            return 0.0;
+        }
+        match &self.m_mat {
+            Some(_) => v.dot(&self.m_dot_vec(v)),
+            None => 0.0,
+        }
+    }
     /// For Equation 6.1
     fn get_inf_norm_projected_gradient(&self) -> Float {
         let x_minus_g = &self.x - &self.g;
@@ -284,9 +310,7 @@ impl LBFGSB {
         l_tr_view += l_mat.transpose();
         let mut theta_s_tr_s_view = m_mat_inv.view_mut((m, m), (m, m));
         theta_s_tr_s_view += theta_s_tr_s;
-        self.m_mat = m_mat_inv
-            .try_inverse()
-            .expect("Error: Something has gone horribly wrong, inversion of M failed!");
+        self.m_mat = Some(LU::new(m_mat_inv));
     }
     fn get_xcp_c_free_indices(&self) -> (DVector<Float>, DVector<Float>, Vec<usize>) {
         // Equations 4.1 and 4.2
@@ -316,7 +340,7 @@ impl LBFGSB {
         let mut p = self.w_mat.transpose() * &d;
         let mut c = DVector::zeros(p.len());
         let mut df = -d.dot(&d);
-        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_mat * &p)));
+        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_dot_vec(&p))));
         let mut dt_min = -df / ddf;
 
         while dt_min >= dt_b && i_free < free_indices.len() {
@@ -328,14 +352,15 @@ impl LBFGSB {
             let w_b_tr = self.w_mat.row(b);
             df += dt_b.mul_add(
                 ddf,
-                g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&(&self.m_mat * &c))),
+                g_b * (self.theta.mul_add(z_b, g_b)
+                    - w_b_tr.transpose().dot(&(&self.m_dot_vec(&c)))),
             );
             ddf -= g_b
                 * self.theta.mul_add(
                     g_b,
                     (-2.0 as Float).mul_add(
-                        w_b_tr.transpose().dot(&(&self.m_mat * &p)),
-                        -(g_b * w_b_tr.transpose().dot(&(&self.m_mat * w_b_tr.transpose()))),
+                        w_b_tr.transpose().dot(&(&self.m_dot_vec(&p))),
+                        -(g_b * (&self.vec_dot_m_dot_vec(&w_b_tr.transpose()))),
                     ),
                 );
             // min here
@@ -364,9 +389,6 @@ impl LBFGSB {
             .filter(|&i| x_cp[i] < self.u[i] && x_cp[i] > self.l[i])
             .collect();
         c += p.scale(dt_min);
-        // let vec_free_indices = (0..x_cp.len())
-        //     .filter(|&i| x_cp[i] < self.u[i] && x_cp[i] > self.l[i])
-        //     .collect();
         (x_cp, c, free_indices)
     }
     // Direct primal method (page 1199, equations 5.4), returns x_bar such that the search
@@ -386,13 +408,15 @@ impl LBFGSB {
             }
         });
         let r_hat_c = z_mat.transpose()
-            * (&self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * &self.m_mat * c);
+            * (&self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * self.m_dot_vec(c));
         let w_tr_z_mat = self.w_mat.transpose() * &z_mat;
-        let n_mat = DMatrix::identity(self.m_mat.shape().0, self.m_mat.shape().1)
-            - (&self.m_mat * (&w_tr_z_mat * w_tr_z_mat.transpose())).unscale(self.theta);
+        let n_mat = DMatrix::identity(w_tr_z_mat.nrows(), w_tr_z_mat.nrows())
+            - &self
+                .m_dot_mat(&(&w_tr_z_mat * w_tr_z_mat.transpose()))
+                .unscale(self.theta);
         let v = n_mat
             .lu()
-            .solve(&(&self.m_mat * &self.w_mat.transpose() * &z_mat * &r_hat_c))
+            .solve(&(&self.m_dot_vec(&(&self.w_mat.transpose() * &z_mat * &r_hat_c))))
             .expect(
                 "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
             );
@@ -491,7 +515,7 @@ where
         status.with_position((config.transform.to_owned_external(&self.x), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
-        self.m_mat = DMatrix::zeros(1, 1);
+        self.m_mat = None;
         Ok(())
     }
 
@@ -538,7 +562,7 @@ where
             self.s_store.clear();
             self.y_store.clear();
             self.w_mat = DMatrix::zeros(self.x.len(), 1);
-            self.m_mat = DMatrix::zeros(1, 1);
+            self.m_mat = None;
             self.theta = 1.0;
         }
         Ok(())
