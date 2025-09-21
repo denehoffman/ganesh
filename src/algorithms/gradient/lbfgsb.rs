@@ -393,7 +393,7 @@ impl LBFGSB {
         }
         dt_min = Float::max(dt_min, 0.0);
         t_old += dt_min;
-        // for i in free_indices.iter() {
+        // for i in free_indices.iter() ?
         for i in 0..self.x.len() {
             if t[i] >= t_b {
                 x_cp[i] += t_old * d[i];
@@ -414,23 +414,27 @@ impl LBFGSB {
         c: &DVector<Float>,
         free_indices: &[usize],
     ) -> DVector<Float> {
-        let z_mat = DMatrix::from_fn(self.x.len(), free_indices.len(), |i, j| {
-            if i == free_indices[j] {
-                1.0
-            } else {
-                0.0
+        let k = free_indices.len();
+        let two_m = self.w_mat.ncols();
+
+        let r_full = &self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * self.m_dot_vec(c);
+        let mut r_hat_c = DVector::zeros(k);
+        for (j, &idx) in free_indices.iter().enumerate() {
+            r_hat_c[j] = r_full[idx];
+        }
+        let mut w_tr_z_mat = DMatrix::zeros(two_m, k);
+        for (j, &idx) in free_indices.iter().enumerate() {
+            let w_row = self.w_mat.row(idx);
+            for i in 0..two_m {
+                w_tr_z_mat[(i, j)] = w_row[i];
             }
-        });
-        let r_hat_c = z_mat.transpose()
-            * (&self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * self.m_dot_vec(c));
-        let w_tr_z_mat = self.w_mat.transpose() * &z_mat;
-        let n_mat = DMatrix::identity(w_tr_z_mat.nrows(), w_tr_z_mat.nrows())
-            - &self
-                .m_dot_mat(&(&w_tr_z_mat * w_tr_z_mat.transpose()))
-                .unscale(self.theta);
+        }
+        let i_2m = DMatrix::identity(two_m, two_m);
+        let wz_wz_tr = &w_tr_z_mat * w_tr_z_mat.transpose();
+        let n_mat = &i_2m - (&self.m_dot_mat(&wz_wz_tr)).unscale(self.theta);
         let v = n_mat
             .lu()
-            .solve(&(&self.m_dot_vec(&(&self.w_mat.transpose() * &z_mat * &r_hat_c))))
+            .solve(&(&self.m_dot_vec(&(&w_tr_z_mat * &r_hat_c))))
             .expect(
                 "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
             );
@@ -438,7 +442,7 @@ impl LBFGSB {
             -(r_hat_c + (w_tr_z_mat.transpose() * v).unscale(self.theta)).unscale(self.theta);
         // The minus sign here is missing in equation 5.11, this is a typo!
         let mut alpha_star = 1.0;
-        for i in 0..free_indices.len() {
+        for i in 0..k {
             let i_free = free_indices[i];
             alpha_star = if d_hat_u[i] > 0.0 {
                 Float::min(alpha_star, (self.u[i_free] - x_cp[i_free]) / d_hat_u[i])
@@ -449,10 +453,9 @@ impl LBFGSB {
             }
         }
         let mut x_bar = x_cp.clone();
-        let d_hat_star = d_hat_u.scale(alpha_star);
-        let z_d_hat_star = &z_mat * d_hat_star;
-        for i in free_indices {
-            x_bar[*i] += z_d_hat_star[*i]
+        for i in 0..k {
+            let idx = free_indices[i];
+            x_bar[idx] += alpha_star * d_hat_u[i];
         }
         x_bar
     }
