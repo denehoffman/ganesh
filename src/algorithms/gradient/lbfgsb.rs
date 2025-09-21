@@ -262,6 +262,12 @@ impl LBFGSB {
             None => 0.0,
         }
     }
+    #[inline]
+    fn ensure_dims_mat(mut m: DMatrix<Float>, rows: usize, cols: usize) -> DMatrix<Float> {
+        m.resize_mut(rows, cols, 0.0);
+        m.fill(0.0);
+        m
+    }
     /// For Equation 6.1
     fn get_inf_norm_projected_gradient(&self) -> Float {
         let x_minus_g = &self.x - &self.g;
@@ -288,15 +294,17 @@ impl LBFGSB {
         let s_mat = DMatrix::from_fn(n, m, |i, j| self.s_store[j][i]);
         let y_mat = DMatrix::from_fn(n, m, |i, j| self.y_store[j][i]);
 
-        // W
-        self.w_mat = DMatrix::zeros(n, 2 * m);
-        let mut y_view = self.w_mat.view_mut((0, 0), (n, m));
-        y_view += &y_mat;
-        let mut theta_s_view = self.w_mat.view_mut((0, m), (n, m));
-        theta_s_view += s_mat.scale(self.theta);
-        let theta_s_tr_s = (s_mat.transpose() * &s_mat).scale(self.theta);
+        // W = [Y, θS]
+        self.w_mat = Self::ensure_dims_mat(std::mem::take(&mut self.w_mat), n, 2 * m);
+        {
+            let mut y_view = self.w_mat.view_mut((0, 0), (n, m));
+            y_view += &y_mat;
+            let mut theta_s_view = self.w_mat.view_mut((0, m), (n, m));
+            theta_s_view += s_mat.scale(self.theta);
+        }
 
         // M
+        let theta_s_tr_s = (s_mat.transpose() * &s_mat).scale(self.theta);
         let s_tr_y = s_mat.transpose() * &y_mat;
         let d_vec = s_tr_y.diagonal();
         let mut l_mat = s_tr_y.lower_triangle();
