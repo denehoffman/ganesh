@@ -1,4 +1,4 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](crate::traits::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](crate::traits::Gradient) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](crate::traits::cost_function::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](crate::traits::cost_function::Gradient) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
 //!
 //! # Table of Contents
 //! - [Key Features](#key-features)
@@ -17,7 +17,7 @@
 //!
 //! ## Quick Start
 //!
-//! This crate provides some common test functions in the [`test_functions`](`crate::test_functions`) module. Consider the following implementation of the Rosenbrock function:
+//! This crate provides some common test functions in the [`test_functions`](crate::test_functions) module. Consider the following implementation of the Rosenbrock function:
 //!
 //! ```rust
 //! use ganesh::traits::*;
@@ -90,20 +90,20 @@
 //!
 //! ## Algorithms
 //!
-//! At the moment, `ganesh` contains the following [`Algorithm`](`crate::traits::Algorithm`)s:
+//! At the moment, `ganesh` contains the following [`Algorithm`](crate::traits::algorithm::Algorithm)s:
 //! - Gradient descent/quasi-Newton:
-//!   - [`L-BFGS-B`](`crate::algorithms::gradient::LBFGSB`)
-//!   - [`Adam`](`crate::algorithms::gradient::Adam`) (for stochastic [`CostFunction`](crate::traits::CostFunction)s)
+//!   - [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB)
+//!   - [`Adam`](crate::algorithms::gradient::adam::Adam) (for stochastic [`CostFunction`](crate::traits::cost_function::CostFunction)s)
 //! - Gradient-free:
-//!   - [`Nelder-Mead`](`crate::algorithms::gradient_free::NelderMead`)
-//!   - [`Simulated Annealing`](`crate::algorithms::gradient_free::SimulatedAnnealing`)
+//!   - [`Nelder-Mead`](crate::algorithms::gradient_free::nelder_mead::NelderMead)
+//!   - [`Simulated Annealing`](crate::algorithms::gradient_free::simulated_annealing::SimulatedAnnealing)
 //! - Markov Chain Monte Carlo (MCMC):
-//!   - [`AIES`](`crate::algorithms::mcmc::AIES`)
-//!   - [`ESS`](`crate::algorithms::mcmc::ESS`)
+//!   - [`AIES`](crate::algorithms::mcmc::aies::AIES)
+//!   - [`ESS`](crate::algorithms::mcmc::ess::ESS)
 //! - Swarms:
-//!   - [`PSO`](`crate::algorithms::particles::PSO`) (a basic form of particle swarm optimization)
+//!   - [`PSO`](crate::algorithms::particles::pso::PSO) (a basic form of particle swarm optimization)
 //!
-//! All algorithms are written in pure Rust, including `L-BFGS-B`, which is typically a binding to
+//! All algorithms are written in pure Rust, including [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB), which is typically a binding to
 //! `FORTRAN` code in other crates.
 //!
 //! ## Examples
@@ -117,7 +117,7 @@
 //! ```
 //!
 //! ## Bounds
-//! All [`Algorithm`](`crate::traits::Algorithm`)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](`crate::algorithms::gradient::lbfgsb::LBFGSB`), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! All [`Algorithm`](crate::traits::algorithm::Algorithm)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 //!
 //! Upper and lower bounds:
 //! ```math

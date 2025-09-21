@@ -28,7 +28,7 @@
 
 <!-- cargo-rdme start -->
 
-`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the `CostFunction` trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the `Gradient` trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
+`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.CostFunction.html) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.Gradient.html) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
 
 # Table of Contents
 - [Key Features](#key-features)
@@ -110,20 +110,20 @@ This should output
 
 ## Algorithms
 
-At the moment, `ganesh` contains the following `Algorithm`s:
+At the moment, `ganesh` contains the following [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s:
 - Gradient descent/quasi-Newton:
-  - `L-BFGS-B`
-  - `Adam` (for stochastic `CostFunction`s)
+  - [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html)
+  - [`Adam`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/adam/struct.Adam.html) (for stochastic [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.CostFunction.html)s)
 - Gradient-free:
-  - `Nelder-Mead`
-  - `Simulated Annealing`
+  - [`Nelder-Mead`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/nelder_mead/struct.NelderMead.html)
+  - [`Simulated Annealing`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/simulated_annealing/struct.SimulatedAnnealing.html)
 - Markov Chain Monte Carlo (MCMC):
-  - `AIES`
-  - `ESS`
+  - [`AIES`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/aies/struct.AIES.html)
+  - [`ESS`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/ess/struct.ESS.html)
 - Swarms:
-  - `PSO` (a basic form of particle swarm optimization)
+  - [`PSO`](https://docs.rs/ganesh/latest/ganesh/algorithms/particles/pso/struct.PSO.html) (a basic form of particle swarm optimization)
 
-All algorithms are written in pure Rust, including `L-BFGS-B`, which is typically a binding to
+All algorithms are written in pure Rust, including [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), which is typically a binding to
 `FORTRAN` code in other crates.
 
 ## Examples
@@ -137,7 +137,7 @@ cargo r -r --example <example_name>
 ```
 
 ## Bounds
-All `Algorithm`s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+All [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 
 Upper and lower bounds:
 ```math
