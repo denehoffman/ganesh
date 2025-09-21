@@ -551,8 +551,9 @@ where
             let dg = &grad_kp1_vec - &self.g;
             let sy = dx.dot(&dg);
             let yy = dg.dot(&dg);
+            self.x += &dx;
             if sy > Float::EPSILON * yy {
-                self.s_store.push_back(dx.clone());
+                self.s_store.push_back(dx);
                 self.y_store.push_back(dg);
                 self.theta = yy / sy;
                 if self.s_store.len() > config.m {
@@ -561,7 +562,6 @@ where
                 }
                 self.update_w_mat_m_mat();
             }
-            self.x += dx;
             self.g = grad_kp1_vec;
             self.f = f_kp1;
             status.with_position((config.transform.to_owned_external(&self.x), f_kp1));
