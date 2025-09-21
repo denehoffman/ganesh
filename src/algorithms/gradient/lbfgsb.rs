@@ -1,0 +1,747 @@
+use nalgebra::{Dyn, LU};
+
+use crate::algorithms::line_search::StrongWolfeLineSearch;
+use crate::traits::algorithm::SupportsTransform;
+use crate::traits::linesearch::LineSearchOutput;
+use crate::traits::{
+    Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, Terminator, Transform,
+    TransformedProblem,
+};
+use crate::{
+    algorithms::gradient::GradientStatus,
+    core::{Bounds, Callbacks, MinimizationSummary},
+    DMatrix, DVector, Float,
+};
+use std::collections::VecDeque;
+use std::ops::ControlFlow;
+
+/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
+///
+/// This causes termination when the change in the function evaluation becomes smaller
+/// than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
+/// will be set as converged with the message "GRADIENT CONVERGED".
+#[derive(Clone)]
+pub struct LBFGSBFTerminator {
+    /// The absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBFTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::sqrt(Float::EPSILON),
+        }
+    }
+}
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB,
+        _problem: &P,
+        status: &mut GradientStatus,
+        _args: &U,
+        _config: &LBFGSBConfig,
+    ) -> ControlFlow<()> {
+        if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
+            status.set_converged();
+            status.with_message("F_EVAL CONVERGED");
+            return ControlFlow::Break(());
+        }
+        algorithm.f_previous = algorithm.f;
+        ControlFlow::Continue(())
+    }
+}
+
+/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
+///
+/// This causes termination when the magnitude of the
+/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
+/// will be set as converged with the message "GRADIENT CONVERGED".
+#[derive(Clone)]
+pub struct LBFGSBGTerminator {
+    /// The absolute g-convergence tolerance (default = `MACH_EPS^(1/3)`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB,
+        _problem: &P,
+        status: &mut GradientStatus,
+        _args: &U,
+        _config: &LBFGSBConfig,
+    ) -> ControlFlow<()> {
+        if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
+            status.set_converged();
+            status.with_message("GRADIENT CONVERGED");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
+pub struct LBFGSBInfNormGTerminator {
+    /// The value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will successfully terminate the algorithm (default = `1e-5`).
+    pub eps_abs: Float,
+}
+impl Default for LBFGSBInfNormGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
+where
+    P: Gradient<U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB,
+        _problem: &P,
+        status: &mut GradientStatus,
+        _args: &U,
+        _config: &LBFGSBConfig,
+    ) -> ControlFlow<()> {
+        if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
+            status.set_converged();
+            status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// Error modes for [`LBFGSB`] [`Algorithm`].
+#[derive(Default, Clone)]
+pub enum LBFGSBErrorMode {
+    /// Computes the exact Hessian matrix via finite differences.
+    #[default]
+    ExactHessian,
+    /// Skip Hessian computation (use this when error evaluation is not important).
+    Skip,
+}
+
+/// The internal configuration struct for the [`LBFGSB`] algorithm.
+#[derive(Clone)]
+pub struct LBFGSBConfig {
+    x0: DVector<Float>,
+    bounds: Option<Bounds>,
+    transform: Option<Box<dyn Transform>>,
+    line_search: StrongWolfeLineSearch,
+    m: usize,
+    max_step: Float,
+    error_mode: LBFGSBErrorMode,
+}
+impl SupportsBounds for LBFGSBConfig {
+    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
+        &mut self.bounds
+    }
+}
+impl SupportsTransform for LBFGSBConfig {
+    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
+        &mut self.transform
+    }
+}
+impl LBFGSBConfig {
+    /// Create a new configuration by setting the starting position of the algorithm.
+    pub fn new<I>(x0: I) -> Self
+    where
+        I: AsRef<[Float]>,
+    {
+        Self {
+            x0: DVector::from_row_slice(x0.as_ref()),
+            bounds: None,
+            transform: None,
+            line_search: StrongWolfeLineSearch::default(),
+            m: 10,
+            max_step: 1e8,
+            error_mode: Default::default(),
+        }
+    }
+    /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
+    /// while sacrificing memory usage (default = `10`).
+    pub const fn with_memory_limit(mut self, limit: usize) -> Self {
+        self.m = limit;
+        self
+    }
+    /// Set the line search algorithm to use (default = [`StrongWolfeLineSearch::default`]).
+    pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {
+        self.line_search = line_search;
+        self
+    }
+    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
+    /// recalculating an exact finite-difference Hessian.
+    pub const fn with_error_mode(mut self, error_mode: LBFGSBErrorMode) -> Self {
+        self.error_mode = error_mode;
+        self
+    }
+}
+
+/// The L-BFGS-B (Limited memory, bounded Broyden-Fletcher-Goldfarb-Shanno) algorithm.
+///
+/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
+/// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
+/// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
+///
+/// [^1]: [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Clone)]
+pub struct LBFGSB {
+    x: DVector<Float>,
+    g: DVector<Float>,
+    l: DVector<Float>,
+    u: DVector<Float>,
+    m_mat: Option<LU<Float, Dyn, Dyn>>,
+    w_mat: DMatrix<Float>,
+    theta: Float,
+    f: Float,
+    f_previous: Float,
+    y_store: VecDeque<DVector<Float>>,
+    s_store: VecDeque<DVector<Float>>,
+    line_search: StrongWolfeLineSearch,
+}
+
+impl Default for LBFGSB {
+    fn default() -> Self {
+        Self {
+            x: Default::default(),
+            g: Default::default(),
+            l: Default::default(),
+            u: Default::default(),
+            m_mat: Default::default(),
+            w_mat: Default::default(),
+            theta: 1.0,
+            f: Float::INFINITY,
+            f_previous: Float::INFINITY,
+            y_store: VecDeque::default(),
+            s_store: VecDeque::default(),
+            line_search: StrongWolfeLineSearch::default(),
+        }
+    }
+}
+
+impl LBFGSB {
+    #[inline]
+    fn m_dot_vec(&self, b: &DVector<Float>) -> DVector<Float> {
+        match &self.m_mat {
+            Some(lu) => lu.solve(b).expect("Inverse failed!"),
+            None => DVector::zeros(b.len()),
+        }
+    }
+    #[inline]
+    fn m_dot_mat(&self, b: &DMatrix<Float>) -> DMatrix<Float> {
+        match &self.m_mat {
+            Some(lu) => lu.solve(b).expect("Inverse failed!"),
+            None => DMatrix::zeros(b.nrows(), b.ncols()),
+        }
+    }
+    #[inline]
+    fn vec_dot_m_dot_vec(&self, v: &DVector<Float>) -> Float {
+        if v.len() == 0 {
+            return 0.0;
+        }
+        match &self.m_mat {
+            Some(_) => v.dot(&self.m_dot_vec(v)),
+            None => 0.0,
+        }
+    }
+    #[inline]
+    fn ensure_dims_mat(mut m: DMatrix<Float>, rows: usize, cols: usize) -> DMatrix<Float> {
+        m.resize_mut(rows, cols, 0.0);
+        m.fill(0.0);
+        m
+    }
+    /// For Equation 6.1
+    fn get_inf_norm_projected_gradient(&self) -> Float {
+        let x_minus_g = &self.x - &self.g;
+        x_minus_g
+            .iter()
+            .enumerate()
+            .map(|(i, &x_minus_g_i)| {
+                if x_minus_g_i < self.l[i] {
+                    Float::abs(self.l[i] - self.x[i])
+                } else if x_minus_g_i > self.u[i] {
+                    Float::abs(self.u[i] - self.x[i])
+                } else {
+                    Float::abs(self.g[i])
+                }
+            })
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(0.0)
+    }
+    /// Equations 3.3, 3.4, 3.5, 3.6
+    #[allow(clippy::expect_used)]
+    fn update_w_mat_m_mat(&mut self) {
+        let m = self.s_store.len();
+        let n = self.x.len();
+        let s_mat = DMatrix::from_fn(n, m, |i, j| self.s_store[j][i]);
+        let y_mat = DMatrix::from_fn(n, m, |i, j| self.y_store[j][i]);
+
+        // W = [Y, θS]
+        self.w_mat = Self::ensure_dims_mat(std::mem::take(&mut self.w_mat), n, 2 * m);
+        {
+            let mut y_view = self.w_mat.view_mut((0, 0), (n, m));
+            y_view += &y_mat;
+            let mut theta_s_view = self.w_mat.view_mut((0, m), (n, m));
+            theta_s_view += s_mat.scale(self.theta);
+        }
+
+        // M
+        let theta_s_tr_s = (s_mat.transpose() * &s_mat).scale(self.theta);
+        let s_tr_y = s_mat.transpose() * &y_mat;
+        let d_vec = s_tr_y.diagonal();
+        let mut l_mat = s_tr_y.lower_triangle();
+        l_mat.set_diagonal(&DVector::from_element(m, 0.0));
+        let mut m_mat_inv = DMatrix::zeros(2 * m, 2 * m);
+        let mut d_view = m_mat_inv.view_mut((0, 0), (m, m));
+        d_view.set_diagonal(&(-&d_vec));
+        let mut l_view = m_mat_inv.view_mut((m, 0), (m, m));
+        l_view += &l_mat;
+        let mut l_tr_view = m_mat_inv.view_mut((0, m), (m, m));
+        l_tr_view += l_mat.transpose();
+        let mut theta_s_tr_s_view = m_mat_inv.view_mut((m, m), (m, m));
+        theta_s_tr_s_view += theta_s_tr_s;
+        self.m_mat = Some(LU::new(m_mat_inv));
+    }
+    fn get_xcp_c_free_indices(&self) -> (DVector<Float>, DVector<Float>, Vec<usize>) {
+        // Equations 4.1 and 4.2
+        let (t, mut d): (DVector<Float>, DVector<Float>) = (0..self.g.len())
+            .map(|i| {
+                let ti = if self.g[i] < 0.0 {
+                    (self.x[i] - self.u[i]) / self.g[i]
+                } else if self.g[i] > 0.0 {
+                    (self.x[i] - self.l[i]) / self.g[i]
+                } else {
+                    Float::INFINITY
+                };
+                let di = if ti < Float::EPSILON { 0.0 } else { -self.g[i] };
+                (ti, di)
+            })
+            .unzip();
+        let mut x_cp = self.x.clone();
+        let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > 0.0).collect();
+
+        let mut p = self.w_mat.transpose() * &d;
+        let mut c = DVector::zeros(p.len());
+
+        if free_indices.is_empty() {
+            return (x_cp, c, free_indices);
+        }
+
+        free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
+        let free_indices = VecDeque::from(free_indices);
+        let mut t_old = 0.0;
+        let mut i_free = 0;
+        let mut b = free_indices[0];
+        let mut t_b = t[b];
+        let mut dt_b = t_b - t_old;
+
+        let mut df = -d.dot(&d);
+        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_dot_vec(&p))));
+        let mut dt_min = -df / ddf;
+
+        while dt_min >= dt_b && i_free < free_indices.len() {
+            // b is the index of the smallest positive nonzero element of t, so d_b is never zero!
+            x_cp[b] = if d[b] > 0.0 { self.u[b] } else { self.l[b] };
+            let z_b = x_cp[b] - self.x[b];
+            c += p.scale(dt_b);
+            let g_b = self.g[b];
+            let w_b_tr = self.w_mat.row(b);
+            df += dt_b.mul_add(
+                ddf,
+                g_b * (self.theta.mul_add(z_b, g_b)
+                    - w_b_tr.transpose().dot(&(&self.m_dot_vec(&c)))),
+            );
+            ddf -= g_b
+                * self.theta.mul_add(
+                    g_b,
+                    (-2.0 as Float).mul_add(
+                        w_b_tr.transpose().dot(&(&self.m_dot_vec(&p))),
+                        -(g_b * (&self.vec_dot_m_dot_vec(&w_b_tr.transpose()))),
+                    ),
+                );
+            // min here
+            p += w_b_tr.transpose().scale(g_b);
+            d[b] = 0.0;
+            dt_min = -df / ddf;
+            t_old = t_b;
+            i_free += 1;
+            if i_free < free_indices.len() {
+                b = free_indices[i_free];
+                t_b = t[b];
+                dt_b = t_b - t_old;
+            } else {
+                t_b = Float::INFINITY;
+            }
+        }
+        dt_min = Float::max(dt_min, 0.0);
+        t_old += dt_min;
+        // for i in free_indices.iter() ?
+        for i in 0..self.x.len() {
+            if t[i] >= t_b {
+                x_cp[i] += t_old * d[i];
+            }
+        }
+        let free_indices = (0..free_indices.len())
+            .filter(|&i| x_cp[i] < self.u[i] && x_cp[i] > self.l[i])
+            .collect();
+        c += p.scale(dt_min);
+        (x_cp, c, free_indices)
+    }
+    // Direct primal method (page 1199, equations 5.4), returns x_bar such that the search
+    // direction is d = x_bar - x
+    #[allow(clippy::expect_used)]
+    fn direct_primal_min(
+        &self,
+        x_cp: &DVector<Float>,
+        c: &DVector<Float>,
+        free_indices: &[usize],
+    ) -> DVector<Float> {
+        let k = free_indices.len();
+        let two_m = self.w_mat.ncols();
+
+        let r_full = &self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * self.m_dot_vec(c);
+        let mut r_hat_c = DVector::zeros(k);
+        for (j, &idx) in free_indices.iter().enumerate() {
+            r_hat_c[j] = r_full[idx];
+        }
+        let mut w_tr_z_mat = DMatrix::zeros(two_m, k);
+        for (j, &idx) in free_indices.iter().enumerate() {
+            let w_row = self.w_mat.row(idx);
+            for i in 0..two_m {
+                w_tr_z_mat[(i, j)] = w_row[i];
+            }
+        }
+        let i_2m = DMatrix::identity(two_m, two_m);
+        let wz_wz_tr = &w_tr_z_mat * w_tr_z_mat.transpose();
+        let n_mat = &i_2m - (&self.m_dot_mat(&wz_wz_tr)).unscale(self.theta);
+        let v = n_mat
+            .lu()
+            .solve(&(&self.m_dot_vec(&(&w_tr_z_mat * &r_hat_c))))
+            .expect(
+                "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
+            );
+        let d_hat_u =
+            -(r_hat_c + (w_tr_z_mat.transpose() * v).unscale(self.theta)).unscale(self.theta);
+        // The minus sign here is missing in equation 5.11, this is a typo!
+        let mut alpha_star = 1.0;
+        for i in 0..k {
+            let i_free = free_indices[i];
+            alpha_star = if d_hat_u[i] > 0.0 {
+                Float::min(alpha_star, (self.u[i_free] - x_cp[i_free]) / d_hat_u[i])
+            } else if d_hat_u[i] < 0.0 {
+                Float::min(alpha_star, (self.l[i_free] - x_cp[i_free]) / d_hat_u[i])
+            } else {
+                alpha_star
+            }
+        }
+        let mut x_bar = x_cp.clone();
+        for i in 0..k {
+            let idx = free_indices[i];
+            x_bar[idx] += alpha_star * d_hat_u[i];
+        }
+        x_bar
+    }
+    fn compute_step_direction(&self) -> DVector<Float> {
+        let (xcp, c, free_indices) = self.get_xcp_c_free_indices();
+        let x_bar = if free_indices.is_empty() {
+            xcp
+        } else {
+            self.direct_primal_min(&xcp, &c, &free_indices)
+        };
+        x_bar - &self.x
+    }
+    fn compute_max_step(&self, d: &DVector<Float>, max_step: Float) -> Float {
+        let mut max_step = max_step;
+        for i in 0..self.x.len() {
+            max_step = if d[i] > 0.0 {
+                Float::min(max_step, (self.u[i] - self.x[i]) / d[i])
+            } else if d[i] < 0.0 {
+                Float::min(max_step, (self.l[i] - self.x[i]) / d[i])
+            } else {
+                max_step
+            }
+        }
+        max_step
+    }
+}
+
+impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB
+where
+    P: Gradient<U, E>,
+{
+    type Summary = MinimizationSummary;
+    type Config = LBFGSBConfig;
+    fn initialize(
+        &mut self,
+        problem: &P,
+        status: &mut GradientStatus,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
+        self.f_previous = Float::INFINITY;
+        self.theta = 1.0;
+        self.line_search = config.line_search.clone();
+        let x0 = config.transform.to_internal(&config.x0);
+        self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
+        self.u = DVector::from_element(x0.len(), Float::INFINITY);
+        if let Some(bounds_vec) = &internal_bounds {
+            for (i, bound) in bounds_vec.iter().enumerate() {
+                match bound.0 {
+                    Bound::NoBound => {}
+                    Bound::LowerBound(lb) => self.l[i] = lb,
+                    Bound::UpperBound(ub) => self.u[i] = ub,
+                    Bound::LowerAndUpperBound(lb, ub) => {
+                        self.l[i] = lb;
+                        self.u[i] = ub;
+                    }
+                }
+            }
+        }
+        self.x = DVector::from_fn(x0.len(), |i, _| {
+            if x0[i] < self.l[i] {
+                self.l[i]
+            } else if x0[i] > self.u[i] {
+                self.u[i]
+            } else {
+                x0[i]
+            }
+        });
+        let t_problem = TransformedProblem::new(problem, &config.transform);
+        self.g = t_problem.gradient(&self.x, args)?;
+        status.inc_n_g_evals();
+        self.f = t_problem.evaluate(&self.x, args)?;
+        status.with_position((config.transform.to_owned_external(&self.x), self.f));
+        status.inc_n_f_evals();
+        self.w_mat = DMatrix::zeros(self.x.len(), 1);
+        self.m_mat = None;
+        Ok(())
+    }
+
+    fn step(
+        &mut self,
+        _current_step: usize,
+        problem: &P,
+        status: &mut GradientStatus,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let t_problem = TransformedProblem::new(problem, &config.transform);
+        let d = self.compute_step_direction();
+        let max_step = self.compute_max_step(&d, config.max_step);
+        if let Ok(LineSearchOutput {
+            alpha,
+            fx: f_kp1,
+            g: g_kp1,
+        }) =
+            self.line_search
+                .search(&self.x, &d, Some(max_step), &t_problem, None, args, status)?
+        {
+            let dx = d.scale(alpha);
+            let grad_kp1_vec = g_kp1;
+            let dg = &grad_kp1_vec - &self.g;
+            let sy = dx.dot(&dg);
+            let yy = dg.dot(&dg);
+            self.x += &dx;
+            if sy > Float::EPSILON * yy {
+                self.s_store.push_back(dx);
+                self.y_store.push_back(dg);
+                self.theta = yy / sy;
+                if self.s_store.len() > config.m {
+                    self.s_store.pop_front();
+                    self.y_store.pop_front();
+                }
+                self.update_w_mat_m_mat();
+            }
+            self.g = grad_kp1_vec;
+            self.f = f_kp1;
+            status.with_position((config.transform.to_owned_external(&self.x), f_kp1));
+        } else {
+            // reboot
+            self.s_store.clear();
+            self.y_store.clear();
+            self.w_mat = DMatrix::zeros(self.x.len(), 1);
+            self.m_mat = None;
+            self.theta = 1.0;
+        }
+        Ok(())
+    }
+
+    fn postprocessing(
+        &mut self,
+        problem: &P,
+        status: &mut GradientStatus,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        match config.error_mode {
+            LBFGSBErrorMode::ExactHessian => {
+                let t_problem = TransformedProblem::new(problem, &config.transform);
+                let g_int = t_problem.gradient(&self.x, args)?;
+                let h_int = t_problem.hessian(&self.x, args)?;
+                let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
+                status.with_hess(&hessian);
+            }
+            LBFGSBErrorMode::Skip => {}
+        }
+        Ok(())
+    }
+
+    fn summarize(
+        &self,
+        _current_step: usize,
+        _problem: &P,
+        status: &GradientStatus,
+        _args: &U,
+        config: &Self::Config,
+    ) -> Result<Self::Summary, E> {
+        Ok(MinimizationSummary {
+            x0: config.x0.clone(),
+            x: status.x.clone(),
+            fx: status.fx,
+            bounds: config.bounds.clone(),
+            converged: status.converged,
+            cost_evals: status.n_f_evals,
+            gradient_evals: status.n_g_evals,
+            message: status.message.clone(),
+            parameter_names: None,
+            std: status
+                .err
+                .clone()
+                .unwrap_or_else(|| DVector::from_element(status.x.len(), 0.0)),
+            covariance: status
+                .cov
+                .clone()
+                .unwrap_or_else(|| DMatrix::identity(status.x.len(), status.x.len())),
+        })
+    }
+    fn reset(&mut self) {
+        self.x = Default::default();
+        self.g = Default::default();
+        self.l = Default::default();
+        self.u = Default::default();
+        self.m_mat = Default::default();
+        self.w_mat = Default::default();
+        self.theta = 1.0;
+        self.f = Float::INFINITY;
+        self.f_previous = Float::INFINITY;
+        self.y_store = VecDeque::default();
+        self.s_store = VecDeque::default();
+    }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
+    where
+        Self: Sized,
+    {
+        Callbacks::empty()
+            .with_terminator(LBFGSBFTerminator::default())
+            .with_terminator(LBFGSBGTerminator::default())
+            .with_terminator(LBFGSBInfNormGTerminator::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        algorithms::line_search::HagerZhangLineSearch, core::MaxSteps, test_functions::Rosenbrock,
+    };
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_lbfgsb() {
+        let mut solver = LBFGSB::default();
+        let problem = Rosenbrock { n: 2 };
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver
+                .process(
+                    &problem,
+                    &(),
+                    LBFGSBConfig::new(starting_value),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
+    }
+    #[test]
+    fn test_lbfgsb_hager_zhang() {
+        let mut solver = LBFGSB::default();
+        let problem = Rosenbrock { n: 2 };
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver
+                .process(
+                    &problem,
+                    &(),
+                    LBFGSBConfig::new(starting_value).with_line_search(
+                        StrongWolfeLineSearch::HagerZhang(HagerZhangLineSearch::default()),
+                    ),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
+    }
+
+    #[test]
+    fn test_bounded_lbfgsb() {
+        let mut solver = LBFGSB::default();
+        let problem = Rosenbrock { n: 2 };
+        let starting_values = vec![
+            [-2.0, 2.0],
+            [2.0, 2.0],
+            [2.0, -2.0],
+            [-2.0, -2.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+        ];
+        for starting_value in starting_values {
+            let result = solver
+                .process(
+                    &problem,
+                    &(),
+                    LBFGSBConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
+                )
+                .unwrap();
+            assert!(result.converged);
+            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
+        }
+    }
+}

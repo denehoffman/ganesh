@@ -1,23 +1,20 @@
-use std::convert::Infallible;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
-
 use fastrand::Rng;
-use ganesh::abort_signal::CtrlCAbortSignal;
-use ganesh::observers::TrackingSwarmObserver;
-use ganesh::swarms::{SwarmPositionInitializer, PSO};
-use ganesh::traits::AbortSignal;
-use ganesh::{Float, Function, Swarm};
-use ganesh::{SwarmMinimizer, PI};
-use std::error::Error;
+use ganesh::{
+    algorithms::particles::{
+        pso::PSOConfig, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
+    },
+    core::{Callbacks, MaxSteps},
+    traits::{Algorithm, CostFunction},
+    DVector, Float, PI,
+};
+use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Rastrigin function
-    impl Function<(), Infallible> for Problem {
-        fn evaluate(&self, x: &[Float], _user_data: &mut ()) -> Result<Float, Infallible> {
+    impl CostFunction for Problem {
+        fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(10.0
                 + (x[0].powi(2) - 10.0 * Float::cos(2.0 * PI * x[0]))
                 + (x[1].powi(2) - 10.0 * Float::cos(2.0 * PI * x[1])))
@@ -29,27 +26,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rng = Rng::new();
     rng.seed(0);
 
-    // Construct a new swarm
-    let swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
-        n_particles: 50,
-        limits: vec![(-20.0, 20.0), (-20.0, 20.0)],
-    });
+    // Create a tracker to record swarm history
+    let tracker = TrackingSwarmObserver::new();
 
     // Create a particle swarm optimizer algorithm and set some hyperparameters
-    let pso = PSO::new(rng).with_c1(0.1).with_c2(0.1).with_omega(0.8);
-
-    // Create a tracker to record swarm history
-    let tracker = TrackingSwarmObserver::build();
-
-    // Create a new Sampler
-    let mut s = SwarmMinimizer::new(Box::new(pso), swarm)
-        .with_observer(tracker.clone())
-        .with_max_steps(200);
-
     // Run the particle swarm optimizer
-    s.minimize(&problem, &mut (), CtrlCAbortSignal::new().boxed())?;
+    let mut pso = PSO::default();
+    let result = pso.process(
+        &problem,
+        &(),
+        PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
+            n_particles: 50,
+        }))
+        .with_c1(0.1)
+        .with_c2(0.1)
+        .with_omega(0.8),
+        Callbacks::empty()
+            .with_observer(tracker.clone())
+            .with_terminator(MaxSteps(200)),
+    )?;
 
-    println!("{}", s.swarm);
+    println!("{}", result);
 
     // Export the results to a Python .pkl file to visualize via matplotlib
     let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);

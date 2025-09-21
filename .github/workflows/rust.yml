@@ -1,10 +1,6 @@
 name: Rust
 
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+on: [pull_request, push]
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,3 +14,11 @@ jobs:
         run: cargo build -r --verbose
       - name: Run tests
         run: cargo test -r --verbose
+  check-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if the README.md is up to date.
+        run: |
+          cargo install cargo-rdme
+          cargo rdme --check

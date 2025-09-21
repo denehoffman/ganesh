@@ -1,3 +1,3 @@
 default:
   cargo r -r --example pso
-  python visualize.py
+  uv run --script visualize.py
