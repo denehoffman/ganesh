@@ -1,6 +1,6 @@
 [package]
 name = "ganesh"
-version = "0.23.1"
+version = "0.24.0"
 edition = "2021"
 description = "Function minimization in Rust, simplified"
 documentation = "https://docs.rs/ganesh"
