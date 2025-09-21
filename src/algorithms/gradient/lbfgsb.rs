@@ -337,6 +337,14 @@ impl LBFGSB {
             .unzip();
         let mut x_cp = self.x.clone();
         let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > 0.0).collect();
+
+        let mut p = self.w_mat.transpose() * &d;
+        let mut c = DVector::zeros(p.len());
+
+        if free_indices.is_empty() {
+            return (x_cp, c, free_indices);
+        }
+
         free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
         let free_indices = VecDeque::from(free_indices);
         let mut t_old = 0.0;
@@ -345,8 +353,6 @@ impl LBFGSB {
         let mut t_b = t[b];
         let mut dt_b = t_b - t_old;
 
-        let mut p = self.w_mat.transpose() * &d;
-        let mut c = DVector::zeros(p.len());
         let mut df = -d.dot(&d);
         let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_dot_vec(&p))));
         let mut dt_min = -df / ddf;
