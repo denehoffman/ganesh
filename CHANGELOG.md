@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/denehoffman/ganesh/compare/v0.22.0...v0.23.0) - 2025-09-21
+
+### Fixed
+
+- correct links in docs and apply some clippy lints to L-BFGS-B
+
+### Other
+
+- ensure main matches unified API branch
+
 ## [0.22.0](https://github.com/denehoffman/ganesh/compare/v0.21.1...v0.22.0) - 2025-04-11
 
 ### Added
