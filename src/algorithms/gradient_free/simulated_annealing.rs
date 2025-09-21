@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
 
 /// A temperature-activated terminator for [`SimulatedAnnealing`].
+#[derive(Copy, Clone)]
 pub struct SimulatedAnnealingTerminator {
     /// The minimum temperature for the simulated annealing algorithm.
     pub min_temperature: Float,

@@ -12,6 +12,7 @@ use std::ops::ControlFlow;
 /// A [`Terminator`] which terminates the [`Adam`] algorithm if the Exponential Moving Average (EMA)
 /// loss does not improve in the number of steps defined by the [`AdamConfig`] `patience`
 /// parameter.
+#[derive(Copy, Clone)]
 pub struct AdamEMATerminator {
     /// The value for the slope of the exponential moving average loss decay (default = `0.9`).
     pub beta_c: Float,

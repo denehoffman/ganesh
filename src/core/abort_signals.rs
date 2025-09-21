@@ -1,5 +1,8 @@
 use parking_lot::Once;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use crate::traits::AbortSignal;
 static INIT: Once = Once::new();
@@ -8,7 +11,7 @@ static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
 /// A signal that is triggered when the user presses `Ctrl-C`.
 /// <div class="warning">This signal takes over the `Ctrl-C` handler for the whole process and can interfere with
 /// other libraries that use `Ctrl-C` (e.g. `tokio`).</div>
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CtrlCAbortSignal;
 impl CtrlCAbortSignal {
     /// Create a new `CtrlCAbortSignal` and register a ctrl-c handler.
@@ -45,16 +48,16 @@ impl AbortSignal for CtrlCAbortSignal {
 }
 
 /// A signal that is triggered by setting an atomic boolean.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AtomicAbortSignal {
-    abort: AtomicBool,
+    abort: Arc<AtomicBool>,
 }
 
 impl AtomicAbortSignal {
     /// Create a new `AtomicAbortSignal`.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            abort: AtomicBool::new(false),
+            abort: Arc::new(AtomicBool::new(false)),
         }
     }
 }

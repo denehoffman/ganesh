@@ -91,6 +91,7 @@ where
 }
 
 /// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
+#[derive(Copy, Clone)]
 pub struct LBFGSBInfNormGTerminator {
     /// The value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will successfully terminate the algorithm (default = `1e-5`).
     pub eps_abs: Float,

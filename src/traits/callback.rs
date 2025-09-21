@@ -1,3 +1,4 @@
+use dyn_clone::DynClone;
 use parking_lot::{Mutex, RwLock};
 use std::{cell::RefCell, ops::ControlFlow, rc::Rc, sync::Arc};
 
@@ -6,7 +7,7 @@ use crate::traits::{Algorithm, Status};
 /// A trait for all kinds of terminators used in [`Algorithm`](`crate::traits::Algorithm`)s.
 ///
 /// These can be implemented for different kinds of [`Algorithm`](`crate::traits::Algorithm`)s (`A`), problems (`P`), [`Status`](`crate::traits::Status`)es (`S`), and user data (`U`). This is the second least-restrictive type of callback, able to mutate both the [`Algorithm`](`crate::traits::Algorithm`) and its [`Status`](`crate::traits::Status`).
-pub trait Terminator<A, P, S, U, E, C>
+pub trait Terminator<A, P, S, U, E, C>: DynClone
 where
     A: Algorithm<P, S, U, E, Config = C>,
     S: Status,
@@ -22,6 +23,7 @@ where
         config: &C,
     ) -> ControlFlow<()>;
 }
+dyn_clone::clone_trait_object!(<A, P, S, U, E, C> Terminator<A, P, S, U, E, C>);
 impl<T, A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for Rc<RefCell<T>>
 where
     T: Terminator<A, P, S, U, E, C>,
@@ -152,7 +154,7 @@ where
 /// A trait for all kinds of observers used in [`Algorithm`](`crate::traits::Algorithm`)s.
 ///
 /// These can be implemented for different kinds of [`Algorithm`](`crate::traits::Algorithm`)s (`A`), problems (`P`), [`Status`](`crate::traits::Status`)es (`S`), and user data (`U`). This is the most restrictive type of callback and is not able to mutate any of its inputs aside from itself.
-pub trait Observer<A, P, S, U, E, C>
+pub trait Observer<A, P, S, U, E, C>: DynClone
 where
     A: Algorithm<P, S, U, E, Config = C>,
     S: Status,
@@ -168,6 +170,7 @@ where
         config: &C,
     );
 }
+dyn_clone::clone_trait_object!(<A, P, S, U, E, C> Observer<A, P, S, U, E, C>);
 impl<O, A, P, S, U, E, C> Observer<A, P, S, U, E, C> for Rc<RefCell<O>>
 where
     O: Observer<A, P, S, U, E, C>,
@@ -292,7 +295,7 @@ mod tests {
         test_functions::Rosenbrock,
     };
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct Trivial(usize);
     impl<A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for Trivial
     where

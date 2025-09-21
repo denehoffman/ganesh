@@ -1,9 +1,11 @@
+use dyn_clone::DynClone;
+
 use crate::traits::{Algorithm, Status, Terminator};
 use std::ops::ControlFlow;
 
 /// A trait for abort signals.
 /// This trait is used in minimizers to check if the user has requested to abort the calculation.
-pub trait AbortSignal {
+pub trait AbortSignal: DynClone {
     /// Return `true` if the user has requested to abort the calculation.
     fn is_aborted(&self) -> bool;
     /// Abort the calculation. Make `is_aborted()` return `true`.
@@ -11,6 +13,7 @@ pub trait AbortSignal {
     /// Reset the abort signal. Make `is_aborted()` return `false`.
     fn reset(&self);
 }
+dyn_clone::clone_trait_object!(AbortSignal);
 
 impl<T, A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for T
 where

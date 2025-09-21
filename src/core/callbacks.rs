@@ -5,6 +5,14 @@ enum CallbackLike<A, P, S, U, E, C> {
     Terminator(Box<dyn Terminator<A, P, S, U, E, C>>),
     Observer(Box<dyn Observer<A, P, S, U, E, C>>),
 }
+impl<A, P, S, U, E, C> Clone for CallbackLike<A, P, S, U, E, C> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Terminator(t) => Self::Terminator(dyn_clone::clone_box(&**t)),
+            Self::Observer(o) => Self::Observer(dyn_clone::clone_box(&**o)),
+        }
+    }
+}
 impl<A, P, S, U, E, C> CallbackLike<A, P, S, U, E, C>
 where
     A: Algorithm<P, S, U, E, Config = C>,
@@ -37,8 +45,13 @@ where
 }
 
 /// A set of [`Terminator`]s and/or [`Observer`]s which can be used as an input to [`Algorithm::process`].
+#[derive(Clone)]
 pub struct Callbacks<A, P, S, U, E, C>(Vec<CallbackLike<A, P, S, U, E, C>>);
-impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C> {
+impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C>
+where
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status,
+{
     /// Create an empty set of callbacks.
     pub const fn empty() -> Self {
         Self(Vec::new())
@@ -48,8 +61,6 @@ impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C> {
     pub fn with_terminator<T>(mut self, terminator: T) -> Self
     where
         T: Terminator<A, P, S, U, E, C> + 'static,
-        A: Algorithm<P, S, U, E, Config = C>,
-        S: Status,
     {
         self.0.push(CallbackLike::Terminator(Box::new(terminator)));
         self
@@ -59,19 +70,12 @@ impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C> {
     pub fn with_observer<O>(mut self, observer: O) -> Self
     where
         O: Observer<A, P, S, U, E, C> + 'static,
-        A: Algorithm<P, S, U, E, Config = C>,
-        S: Status,
     {
         self.0.push(CallbackLike::Observer(Box::new(observer)));
         self
     }
-}
-impl<A, P, S, U, E, C> Terminator<A, P, S, U, E, C> for Callbacks<A, P, S, U, E, C>
-where
-    A: Algorithm<P, S, U, E, Config = C>,
-    S: Status,
-{
-    fn check_for_termination(
+    /// Runs all of the contained [`Terminator`]s and [`Observer`]s and returns [`ControlFlow::Break`] if any of the terminators return [`ControlFlow::Break`].
+    pub fn check_for_termination(
         &mut self,
         current_step: usize,
         algorithm: &mut A,
@@ -92,6 +96,7 @@ where
 }
 
 /// A [`Terminator`] which terminates the algorithm after a number of steps.
+#[derive(Copy, Clone)]
 pub struct MaxSteps(pub usize);
 impl Default for MaxSteps {
     fn default() -> Self {
@@ -137,6 +142,7 @@ where
 /// // ^ This will print debug messages for each step
 /// assert!(result.converged);
 /// ```
+#[derive(Copy, Clone)]
 pub struct DebugObserver;
 impl<A, P, S, U, E, C> Observer<A, P, S, U, E, C> for DebugObserver
 where

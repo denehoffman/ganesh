@@ -190,6 +190,7 @@ pub fn integrated_autocorrelation_times(
 ///     aco.lock().taus.last().unwrap()
 /// )
 /// ```
+#[derive(Clone)]
 pub struct AutocorrelationTerminator {
     n_check: usize,
     n_taus_threshold: usize,
