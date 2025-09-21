@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/denehoffman/ganesh/compare/v0.22.0...v0.23.0) - 2025-09-21
+
+### Added
+
+- Major refactor of `ganesh` crate which includes large changes to the user-facing API
+- Large performance improvements across main algorithms like Nelder-Mead and L-BFGS-B
+- Unified interface for `Transform`s like bounds transformations
+- Unified interface for `Terminator`s and `Observer`s
+- `Engine`-less processing of all algorithms under singe trait interface
+- Many other bugfixes and improvements
+
 ## [0.22.0](https://github.com/denehoffman/ganesh/compare/v0.21.1...v0.22.0) - 2025-04-11
 
 ### Added
