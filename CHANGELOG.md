@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0](https://github.com/denehoffman/ganesh/compare/v0.23.1...v0.24.0) - 2025-09-21
+
+### Added
+
+- add DynClone to callbacks to make Callbacks clone-able
+
 ## [0.23.1](https://github.com/denehoffman/ganesh/compare/v0.23.0...v0.23.1) - 2025-09-21
 
 ### Other
