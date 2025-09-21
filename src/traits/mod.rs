@@ -2,9 +2,9 @@
 pub mod abort_signal;
 pub use abort_signal::AbortSignal;
 
-/// Module containing the [`Algorithm`] and [`Bounded`] traits.
+/// Module containing the [`Algorithm`], [`SupportsBounds`], and [`SupportsTransform`] traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, SupportsBounds};
+pub use algorithm::{Algorithm, SupportsBounds, SupportsTransform};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
@@ -22,7 +22,7 @@ pub use linesearch::LineSearch;
 pub mod status;
 pub use status::Status;
 
-/// Module containing the [`Boundable`] trait.
+/// Module containing the [`BoundLike`] trait and the [`Bound`] enum.
 pub mod boundlike;
 pub use boundlike::{Bound, BoundLike};
 

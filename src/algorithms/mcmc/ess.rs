@@ -4,7 +4,7 @@ use crate::{
         utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
         MCMCSummary, Point,
     },
-    traits::{algorithm::SupportsTransform, Algorithm, LogDensity, Status, Transform},
+    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
     DMatrix, DVector, Float, PI,
 };
 use fastrand::Rng;

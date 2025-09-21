@@ -1,9 +1,7 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{utils::generate_random_vector, Bounds, MinimizationSummary},
-    traits::{
-        algorithm::SupportsTransform, Algorithm, CostFunction, Status, SupportsBounds, Transform,
-    },
+    traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;

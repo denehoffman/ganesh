@@ -1,10 +1,7 @@
 use crate::{
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
-    traits::{
-        algorithm::SupportsTransform, Algorithm, CostFunction, SupportsBounds, Terminator,
-        Transform,
-    },
+    traits::{Algorithm, CostFunction, SupportsBounds, SupportsTransform, Terminator, Transform},
     DMatrix, DVector, Float,
 };
 use std::{fmt::Debug, ops::ControlFlow};

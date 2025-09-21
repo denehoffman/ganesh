@@ -1,17 +1,13 @@
-use nalgebra::{Dyn, LU};
-
-use crate::algorithms::line_search::StrongWolfeLineSearch;
-use crate::traits::algorithm::SupportsTransform;
-use crate::traits::linesearch::LineSearchOutput;
-use crate::traits::{
-    Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, Terminator, Transform,
-    TransformedProblem,
-};
 use crate::{
-    algorithms::gradient::GradientStatus,
+    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Bounds, Callbacks, MinimizationSummary},
+    traits::{
+        linesearch::LineSearchOutput, Algorithm, Bound, CostFunction, Gradient, LineSearch,
+        SupportsBounds, SupportsTransform, Terminator, Transform, TransformedProblem,
+    },
     DMatrix, DVector, Float,
 };
+use nalgebra::{Dyn, LU};
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 
@@ -239,22 +235,24 @@ impl Default for LBFGSB {
 
 impl LBFGSB {
     #[inline]
+    #[allow(clippy::expect_used)]
     fn m_dot_vec(&self, b: &DVector<Float>) -> DVector<Float> {
-        match &self.m_mat {
-            Some(lu) => lu.solve(b).expect("Inverse failed!"),
-            None => DVector::zeros(b.len()),
-        }
+        self.m_mat.as_ref().map_or_else(
+            || DVector::zeros(b.len()),
+            |lu| lu.solve(b).expect("Inverse failed!"),
+        )
     }
     #[inline]
+    #[allow(clippy::expect_used)]
     fn m_dot_mat(&self, b: &DMatrix<Float>) -> DMatrix<Float> {
-        match &self.m_mat {
-            Some(lu) => lu.solve(b).expect("Inverse failed!"),
-            None => DMatrix::zeros(b.nrows(), b.ncols()),
-        }
+        self.m_mat.as_ref().map_or_else(
+            || DMatrix::zeros(b.nrows(), b.ncols()),
+            |lu| lu.solve(b).expect("Inverse failed!"),
+        )
     }
     #[inline]
     fn vec_dot_m_dot_vec(&self, v: &DVector<Float>) -> Float {
-        if v.len() == 0 {
+        if v.is_empty() {
             return 0.0;
         }
         match &self.m_mat {
@@ -354,7 +352,7 @@ impl LBFGSB {
         let mut dt_b = t_b - t_old;
 
         let mut df = -d.dot(&d);
-        let mut ddf = (-self.theta).mul_add(df, -p.dot(&(&self.m_dot_vec(&p))));
+        let mut ddf = (-self.theta).mul_add(df, -p.dot(&self.m_dot_vec(&p)));
         let mut dt_min = -df / ddf;
 
         while dt_min >= dt_b && i_free < free_indices.len() {
@@ -366,15 +364,14 @@ impl LBFGSB {
             let w_b_tr = self.w_mat.row(b);
             df += dt_b.mul_add(
                 ddf,
-                g_b * (self.theta.mul_add(z_b, g_b)
-                    - w_b_tr.transpose().dot(&(&self.m_dot_vec(&c)))),
+                g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&self.m_dot_vec(&c))),
             );
             ddf -= g_b
                 * self.theta.mul_add(
                     g_b,
                     (-2.0 as Float).mul_add(
-                        w_b_tr.transpose().dot(&(&self.m_dot_vec(&p))),
-                        -(g_b * (&self.vec_dot_m_dot_vec(&w_b_tr.transpose()))),
+                        w_b_tr.transpose().dot(&self.m_dot_vec(&p)),
+                        -(g_b * self.vec_dot_m_dot_vec(&w_b_tr.transpose())),
                     ),
                 );
             // min here
@@ -431,10 +428,10 @@ impl LBFGSB {
         }
         let i_2m = DMatrix::identity(two_m, two_m);
         let wz_wz_tr = &w_tr_z_mat * w_tr_z_mat.transpose();
-        let n_mat = &i_2m - (&self.m_dot_mat(&wz_wz_tr)).unscale(self.theta);
+        let n_mat = &i_2m - self.m_dot_mat(&wz_wz_tr).unscale(self.theta);
         let v = n_mat
             .lu()
-            .solve(&(&self.m_dot_vec(&(&w_tr_z_mat * &r_hat_c))))
+            .solve(&self.m_dot_vec(&(&w_tr_z_mat * &r_hat_c)))
             .expect(
                 "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
             );

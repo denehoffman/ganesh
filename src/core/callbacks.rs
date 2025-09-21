@@ -36,10 +36,10 @@ where
     }
 }
 
-/// A set of [`Callback`]s which can be used as an input to [`Algorithm::process`].
+/// A set of [`Terminator`]s and/or [`Observer`]s which can be used as an input to [`Algorithm::process`].
 pub struct Callbacks<A, P, S, U, E, C>(Vec<CallbackLike<A, P, S, U, E, C>>);
 impl<A, P, S, U, E, C> Callbacks<A, P, S, U, E, C> {
-    /// Create an empty set of [`Callback`]s.
+    /// Create an empty set of callbacks.
     pub const fn empty() -> Self {
         Self(Vec::new())
     }
@@ -91,7 +91,7 @@ where
     }
 }
 
-/// A [`Callback`] which terminates the algorithm after a number of steps.
+/// A [`Terminator`] which terminates the algorithm after a number of steps.
 pub struct MaxSteps(pub usize);
 impl Default for MaxSteps {
     fn default() -> Self {

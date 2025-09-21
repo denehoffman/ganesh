@@ -7,8 +7,7 @@ use ganesh::{
     },
     core::{summary::HasParameterNames, utils::SampleFloat, Bounds},
     traits::{
-        algorithm::SupportsTransform, Algorithm, CostFunction, Gradient, LogDensity, Transform,
-        TransformExt,
+        Algorithm, CostFunction, Gradient, LogDensity, SupportsTransform, Transform, TransformExt,
     },
     PI,
 };

@@ -1,8 +1,6 @@
 use crate::{
     core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{
-        algorithm::SupportsTransform, Algorithm, GenericCostFunction, Status, Terminator, Transform,
-    },
+    traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
     Float,
 };
 use serde::{Deserialize, Serialize};

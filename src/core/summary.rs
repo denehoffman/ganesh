@@ -205,13 +205,14 @@ pub struct MCMCSummary {
 }
 
 impl MCMCSummary {
-    /// Get a [`Vec`] containing a [`Vec`] of positions for each [`Walker`] in the ensemble
+    /// Get a [`Vec`] containing a [`Vec`] of positions for each
+    /// [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble
     ///
     /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
+    /// will be discarded from the beginning of each [`Walker`](crate::algorithms::mcmc::Walker)'s history.
     ///
     /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
+    /// be discarded from the [`Walker`](crate::algorithms::mcmc::Walker)'s history.
     pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
         let burn = burn.unwrap_or(0);
         let thin = thin.unwrap_or(1);
@@ -233,13 +234,13 @@ impl MCMCSummary {
             })
             .collect()
     }
-    /// Get a [`Vec`] containing positions for each [`Walker`] in the ensemble, flattened
+    /// Get a [`Vec`] containing positions for each [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble, flattened
     ///
     /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`]'s history.
+    /// will be discarded from the beginning of each [`Walker`](crate::algorithms::mcmc::Walker)'s history.
     ///
     /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`]'s history.
+    /// be discarded from the [`Walker`](crate::algorithms::mcmc::Walker)'s history.
     pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
         let chain = self.get_chain(burn, thin);
         chain.into_iter().flatten().collect()

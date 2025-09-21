@@ -79,7 +79,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
     /// Process the given problem using this [`Algorithm`].
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
-    /// terminating if any supplied [`Callback`]s return
+    /// terminating if any supplied [`Terminator`]s return
     /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
     /// summary of the [`Algorithm`]'s state.

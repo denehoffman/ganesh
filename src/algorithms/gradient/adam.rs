@@ -2,7 +2,7 @@ use crate::{
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MinimizationSummary},
     traits::{
-        algorithm::SupportsTransform, Algorithm, CostFunction, Gradient, Terminator, Transform,
+        Algorithm, CostFunction, Gradient, SupportsTransform, Terminator, Transform,
         TransformedProblem,
     },
     DMatrix, DVector, Float,

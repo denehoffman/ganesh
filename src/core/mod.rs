@@ -6,8 +6,7 @@ pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
 pub mod transforms;
 pub use transforms::Bounds;
 
-/// [`Callbacks`] and some other implementors of [`Callback`](`crate::traits::Callback`),
-/// [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
+/// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;
 pub use callbacks::{Callbacks, DebugObserver, MaxSteps};
 

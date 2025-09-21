@@ -34,8 +34,7 @@ impl Default for SwarmStatus {
 }
 
 impl SwarmStatus {
-    /// Get the global best position found by the swarm. If the boundary method is set to
-    /// [`SwarmBoundaryMethod::Transform`], this will return the position in the original bounded space.
+    /// Get the global best position found by the swarm.
     pub fn get_best(&self) -> Point<DVector<Float>> {
         self.gbest.clone()
     }

@@ -39,8 +39,7 @@ impl Swarm {
             velocity_initializer: SwarmVelocityInitializer::default(),
         }
     }
-    /// Get list of the particles in the swarm. If the boundary method is set to
-    /// [`SwarmBoundaryMethod::Transform`], this will transform the particles' coordinates to the original bounded space.
+    /// Get list of the particles in the swarm.
     pub fn get_particles(&self) -> Vec<SwarmParticle> {
         self.particles.clone()
     }
