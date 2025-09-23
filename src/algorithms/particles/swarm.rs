@@ -82,28 +82,25 @@ impl Swarm {
         Ok(())
     }
     /// Sets the topology used by the swarm (default = [`SwarmTopology::Global`]).
-    pub const fn with_topology(&mut self, value: SwarmTopology) -> &mut Self {
+    pub const fn with_topology(mut self, value: SwarmTopology) -> Self {
         self.topology = value;
         self
     }
     /// Sets the update method used by the swarm (default = [`SwarmUpdateMethod::Synchronous`]).
-    pub const fn with_update_method(&mut self, value: SwarmUpdateMethod) -> &mut Self {
+    pub const fn with_update_method(mut self, value: SwarmUpdateMethod) -> Self {
         self.update_method = value;
         self
     }
     /// Set the [`PSO`](super::PSO)'s [`SwarmVelocityInitializer`].
     pub fn with_velocity_initializer(
-        &mut self,
+        mut self,
         velocity_initializer: SwarmVelocityInitializer,
-    ) -> &mut Self {
+    ) -> Self {
         self.velocity_initializer = velocity_initializer;
         self
     }
     /// Set the [`SwarmBoundaryMethod`] for the [`PSO`](super::PSO).
-    pub const fn with_boundary_method(
-        &mut self,
-        boundary_method: SwarmBoundaryMethod,
-    ) -> &mut Self {
+    pub const fn with_boundary_method(mut self, boundary_method: SwarmBoundaryMethod) -> Self {
         self.boundary_method = boundary_method;
         self
     }
