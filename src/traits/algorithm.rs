@@ -8,7 +8,7 @@ use std::convert::Infallible;
 ///
 /// This trait is implemented for the algorithms found in the [`algorithms`](`crate::algorithms`) module and contains
 /// all the methods needed to [`process`](`Algorithm::process`) a problem.
-pub trait Algorithm<P, S: Status, U = (), E = Infallible> {
+pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     /// A type which holds a summary of the algorithm's ending state.
     type Summary;
     /// The configuration struct for the algorithm.

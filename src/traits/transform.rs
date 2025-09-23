@@ -12,7 +12,7 @@ use crate::{
 ///
 /// This can be used to restrict an algorithm to a space of valid coordinates, such as a bounded
 /// space or a space satisfying some constraints between parameters.
-pub trait Transform: DynClone {
+pub trait Transform: DynClone + Send + Sync {
     /// Map from internal to external coordinates.
     fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>>;
     /// Map from external to internal coordinates.

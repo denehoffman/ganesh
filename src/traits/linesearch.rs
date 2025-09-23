@@ -19,7 +19,7 @@ pub struct LineSearchOutput {
 ///
 /// Line searches are one-dimensional minimizers typically used to determine optimal step sizes for
 /// [`Algorithm`](`crate::traits::Algorithm`)s which only provide a direction for the next optimal step.
-pub trait LineSearch<S: Status, U, E>: DynClone {
+pub trait LineSearch<S: Status, U, E>: DynClone + Send + Sync {
     /// The search method takes the current position of the minimizer, `x`, the search direction
     /// `p`, the objective function `func`, optional bounds `bounds`, and any arguments to the
     /// objective function `args`, and returns a [`Result`] containing another [`Result`]. The

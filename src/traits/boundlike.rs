@@ -139,7 +139,7 @@ impl From<(Option<Float>, Option<Float>)> for Bound {
 
 /// A trait representing a transform specifically involving a parameter bound.
 #[typetag::serde]
-pub trait BoundLike: DynClone + Debug {
+pub trait BoundLike: DynClone + Debug + Send + Sync {
     /// The mapping to internal (unbounded) coordinates.
     fn to_internal_impl(&self, bound: Bound, x: Float) -> Float;
     /// The first derivative of the mapping to internal (unbounded) coordinates.
