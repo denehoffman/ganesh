@@ -85,3 +85,44 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_rho_sets_value() {
+        let ls = BacktrackingLineSearch::default().with_rho(0.7);
+        assert_eq!(ls.rho, 0.7);
+    }
+
+    #[test]
+    fn with_c_sets_value() {
+        let ls = BacktrackingLineSearch::default().with_c(1e-3);
+        assert_eq!(ls.c, 1e-3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_rho_panics_when_out_of_range_low() {
+        let _ = BacktrackingLineSearch::default().with_rho(0.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_rho_panics_when_out_of_range_high() {
+        let _ = BacktrackingLineSearch::default().with_rho(1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c_panics_when_out_of_range_low() {
+        let _ = BacktrackingLineSearch::default().with_c(0.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c_panics_when_out_of_range_high() {
+        let _ = BacktrackingLineSearch::default().with_c(1.0);
+    }
+}

@@ -303,3 +303,118 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_delta_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_delta(0.2);
+        assert_eq!(ls.delta, 0.2);
+    }
+
+    #[test]
+    fn with_sigma_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_sigma(0.7);
+        assert_eq!(ls.sigma, 0.7);
+    }
+
+    #[test]
+    fn with_delta_sigma_sets_both() {
+        let ls = HagerZhangLineSearch::default().with_delta_sigma(0.05, 0.8);
+        assert_eq!(ls.delta, 0.05);
+        assert_eq!(ls.sigma, 0.8);
+    }
+
+    #[test]
+    fn with_epsilon_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_epsilon(1e-8);
+        assert_eq!(ls.epsilon, 1e-8);
+        assert!(ls.epsilon > 0.0);
+    }
+
+    #[test]
+    fn with_theta_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_theta(0.6);
+        assert_eq!(ls.theta, 0.6);
+        assert!(0.0 < ls.theta && ls.theta < 1.0);
+    }
+
+    #[test]
+    fn with_gamma_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_gamma(0.7);
+        assert_eq!(ls.gamma, 0.7);
+        assert!(0.0 < ls.gamma && ls.gamma < 1.0);
+    }
+
+    #[test]
+    fn with_max_bisects_sets_value() {
+        let ls = HagerZhangLineSearch::default().with_max_bisects(7);
+        assert_eq!(ls.max_bisects, 7);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_delta_panics_when_nonpositive() {
+        let _ = HagerZhangLineSearch::default().with_delta(0.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_delta_panics_when_not_less_than_sigma() {
+        let _ = HagerZhangLineSearch::default()
+            .with_sigma(0.4)
+            .with_delta(0.5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_sigma_panics_when_not_less_than_one() {
+        let _ = HagerZhangLineSearch::default().with_sigma(1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_sigma_panics_when_not_greater_than_delta() {
+        let _ = HagerZhangLineSearch::default()
+            .with_delta(0.2)
+            .with_sigma(0.1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_delta_sigma_panics_when_bad_ordering() {
+        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.5, 0.2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_delta_sigma_panics_when_sigma_not_less_than_one() {
+        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.2, 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_delta_sigma_panics_when_delta_not_positive() {
+        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.0, 0.5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_epsilon_panics_when_nonpositive() {
+        let _ = HagerZhangLineSearch::default().with_epsilon(0.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_theta_panics_when_out_of_range() {
+        let _ = HagerZhangLineSearch::default().with_theta(1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_gamma_panics_when_out_of_range() {
+        let _ = HagerZhangLineSearch::default().with_gamma(0.0);
+    }
+}
