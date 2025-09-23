@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// A status for particle swarm optimization and similar methods.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SwarmStatus {
-    /// The global best position found by all particles (in unbounded space)
+    /// The global best position found by all particles
     pub gbest: Point<DVector<Float>>,
     /// An indicator of whether the swarm has converged
     pub converged: bool,

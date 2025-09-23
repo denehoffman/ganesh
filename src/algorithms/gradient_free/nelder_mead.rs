@@ -715,7 +715,7 @@ impl SupportsTransform for NelderMeadConfig {
 /// input vector. The algorithm is as follows:
 ///
 /// 0. Pick a starting simplex. The default implementation just takes one simplex point to be the
-///    starting point and the others to be steps of equal size in each coordinate direction.
+///    starting point and the others to be the starting point scaled by a small amount in each coordinate direction.
 /// 1. Compute $`f(\vec{x}_i)`$ for each point in the simplex.
 /// 2. Calculate the centroid of all but the worst point $`\vec{x}^\dagger`$ in the simplex,
 ///    $`\vec{x}_o`$.
