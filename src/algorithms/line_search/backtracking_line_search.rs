@@ -19,6 +19,33 @@ impl Default for BacktrackingLineSearch {
         Self { rho: 0.5, c: 1e-4 }
     }
 }
+impl BacktrackingLineSearch {
+    /// Set the backtracking factor $`\rho`$ (default = `0.5`).
+    ///
+    /// On each unsuccessful Armijo check, the step is scaled by $`\rho`$.
+    ///
+    /// # Panics
+    ///
+    /// Panics if $`0 \ge \rho`$ or $`\rho \ge 1`$.
+    pub fn with_rho(mut self, rho: Float) -> Self {
+        assert!(0.0 < rho && rho < 1.0);
+        self.rho = rho;
+        self
+    }
+
+    /// Set the Armijo parameter $`c`$ (default = `1e-4`).
+    ///
+    /// The Armijo condition is $`\phi(\alpha) \le \phi(0) + c\,\alpha\,\phi'(0)`$.
+    ///
+    /// # Panics
+    ///
+    /// Panics if $`0 \ge c`$ or $`c \ge 1`$.
+    pub fn with_c(mut self, c: Float) -> Self {
+        assert!(0.0 < c && c < 1.0);
+        self.c = c;
+        self
+    }
+}
 
 impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
     fn search(
