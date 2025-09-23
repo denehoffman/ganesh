@@ -43,12 +43,11 @@ impl MoreThuenteLineSearch {
         self.max_zoom = max_zoom;
         self
     }
-    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to
-    /// 1e-4).
+    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4).
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    /// This method will panic if the condition $`0 < c_1 < c_2`$ is not met.
     pub fn with_c1(mut self, c1: Float) -> Self {
         assert!(0.0 < c1);
         assert!(c1 < self.c2);
@@ -59,10 +58,23 @@ impl MoreThuenteLineSearch {
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    /// This method will panic if the condition $`c_1 < c_2 < 1`$ is not met.
     pub fn with_c2(mut self, c2: Float) -> Self {
         assert!(1.0 > c2);
         assert!(c2 > self.c1);
+        self.c2 = c2;
+        self
+    }
+    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4) and the second control parameter, used in the second Wolfe condition (defaults to 0.9) simultaneously.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    pub fn with_c1_c2(mut self, c1: Float, c2: Float) -> Self {
+        assert!(0.0 < c1);
+        assert!(1.0 > c2);
+        assert!(c1 < c2);
+        self.c1 = c1;
         self.c2 = c2;
         self
     }

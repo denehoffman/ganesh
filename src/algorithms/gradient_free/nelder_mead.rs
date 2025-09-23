@@ -638,6 +638,19 @@ impl NelderMeadConfig {
         self.beta = value;
         self
     }
+    /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if $`\alpha <= 0`$, $`\beta <= 1`$, or $`\beta <= \alpha`$.
+    pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> Self {
+        assert!(alpha > 0.0);
+        assert!(beta > 1.0);
+        assert!(beta > alpha);
+        self.alpha = alpha;
+        self.beta = beta;
+        self
+    }
     /// Set the contraction coefficient $`\gamma`$ (default = `0.5`).
     ///
     /// # Panics

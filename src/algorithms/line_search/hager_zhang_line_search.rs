@@ -44,12 +44,11 @@ impl HagerZhangLineSearch {
         self.max_iters = max_iters;
         self
     }
-    /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to
-    /// 0.1).
+    /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1).
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < \delta < \sigma < 1`$ is not met.
+    /// This method will panic if the condition $`0 < \delta < \sigma`$ is not met.
     pub fn with_delta(mut self, delta: Float) -> Self {
         assert!(0.0 < delta);
         assert!(delta < self.sigma);
@@ -60,10 +59,23 @@ impl HagerZhangLineSearch {
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < \delta < \sigma < 1`$ is not met.
+    /// This method will panic if the condition $`\delta < \sigma < 1`$ is not met.
     pub fn with_sigma(mut self, sigma: Float) -> Self {
         assert!(1.0 > sigma);
         assert!(sigma > self.delta);
+        self.sigma = sigma;
+        self
+    }
+    /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1) and the parameter $`\sigma`$ used in the second Wolfe condition (defaults to 0.9) simultaneously.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the condition $`0 < \delta < \sigma < 1`$ is not met.
+    pub fn with_delta_sigma(mut self, delta: Float, sigma: Float) -> Self {
+        assert!(0.0 < delta);
+        assert!(1.0 > sigma);
+        assert!(delta < sigma);
+        self.delta = delta;
         self.sigma = sigma;
         self
     }
