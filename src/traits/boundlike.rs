@@ -126,20 +126,18 @@ impl From<(Float, Float)> for Bound {
 impl From<(Option<Float>, Option<Float>)> for Bound {
     fn from(value: (Option<Float>, Option<Float>)) -> Self {
         match value {
-            (Some(sa), Some(sb)) => {
-                let (l, u) = if sa < sb { (sa, sb) } else { (sb, sa) };
-                Self::LowerAndUpperBound(l, u)
-            }
-            (Some(l), None) => Self::LowerBound(l),
-            (None, Some(u)) => Self::UpperBound(u),
-            (None, None) => Self::NoBound,
+            (Some(a), Some(b)) => (a, b),
+            (Some(l), None) => (l, Float::INFINITY),
+            (None, Some(u)) => (Float::NEG_INFINITY, u),
+            (None, None) => (Float::NEG_INFINITY, Float::INFINITY),
         }
+        .into()
     }
 }
 
 /// A trait representing a transform specifically involving a parameter bound.
 #[typetag::serde]
-pub trait BoundLike: DynClone + Debug {
+pub trait BoundLike: DynClone + Debug + Send + Sync {
     /// The mapping to internal (unbounded) coordinates.
     fn to_internal_impl(&self, bound: Bound, x: Float) -> Float;
     /// The first derivative of the mapping to internal (unbounded) coordinates.

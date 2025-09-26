@@ -43,12 +43,11 @@ impl MoreThuenteLineSearch {
         self.max_zoom = max_zoom;
         self
     }
-    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to
-    /// 1e-4).
+    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4).
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    /// This method will panic if the condition $`0 < c_1 < c_2`$ is not met.
     pub fn with_c1(mut self, c1: Float) -> Self {
         assert!(0.0 < c1);
         assert!(c1 < self.c2);
@@ -59,10 +58,23 @@ impl MoreThuenteLineSearch {
     ///
     /// # Panics
     ///
-    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    /// This method will panic if the condition $`c_1 < c_2 < 1`$ is not met.
     pub fn with_c2(mut self, c2: Float) -> Self {
         assert!(1.0 > c2);
         assert!(c2 > self.c1);
+        self.c2 = c2;
+        self
+    }
+    /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4) and the second control parameter, used in the second Wolfe condition (defaults to 0.9) simultaneously.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    pub fn with_c1_c2(mut self, c1: Float, c2: Float) -> Self {
+        assert!(0.0 < c1);
+        assert!(1.0 > c2);
+        assert!(c1 < c2);
+        self.c1 = c1;
         self.c2 = c2;
         self
     }
@@ -201,5 +213,74 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
                 }));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_c1_sets_value() {
+        let ls = MoreThuenteLineSearch::default().with_c1(1e-3);
+        assert_eq!(ls.c1, 1e-3);
+        assert!(ls.c1 > 0.0 && ls.c1 < ls.c2);
+    }
+
+    #[test]
+    fn with_c2_sets_value() {
+        let ls = MoreThuenteLineSearch::default().with_c2(0.8);
+        assert_eq!(ls.c2, 0.8);
+        assert!(ls.c2 < 1.0 && ls.c2 > ls.c1);
+    }
+
+    #[test]
+    fn with_c1_c2_sets_both() {
+        let ls = MoreThuenteLineSearch::default().with_c1_c2(1e-5, 0.7);
+        assert_eq!(ls.c1, 1e-5);
+        assert_eq!(ls.c2, 0.7);
+        assert!(ls.c1 > 0.0 && ls.c2 < 1.0 && ls.c1 < ls.c2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c1_panics_when_nonpositive() {
+        let _ = MoreThuenteLineSearch::default().with_c1(0.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c1_panics_when_not_less_than_c2() {
+        let _ = MoreThuenteLineSearch::default().with_c2(0.2).with_c1(0.3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c2_panics_when_not_less_than_one() {
+        let _ = MoreThuenteLineSearch::default().with_c2(1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c2_panics_when_not_greater_than_c1() {
+        let _ = MoreThuenteLineSearch::default().with_c1(1e-4).with_c2(1e-5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c1_c2_panics_when_bad_ordering() {
+        let _ = MoreThuenteLineSearch::default().with_c1_c2(0.9, 0.1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c1_c2_panics_when_c2_not_less_than_one() {
+        let _ = MoreThuenteLineSearch::default().with_c1_c2(1e-4, 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_c1_c2_panics_when_c1_not_positive() {
+        let _ = MoreThuenteLineSearch::default().with_c1_c2(0.0, 0.5);
     }
 }

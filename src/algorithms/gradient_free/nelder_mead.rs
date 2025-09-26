@@ -638,6 +638,19 @@ impl NelderMeadConfig {
         self.beta = value;
         self
     }
+    /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if $`\alpha <= 0`$, $`\beta <= 1`$, or $`\beta <= \alpha`$.
+    pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> Self {
+        assert!(alpha > 0.0);
+        assert!(beta > 1.0);
+        assert!(beta > alpha);
+        self.alpha = alpha;
+        self.beta = beta;
+        self
+    }
     /// Set the contraction coefficient $`\gamma`$ (default = `0.5`).
     ///
     /// # Panics
@@ -702,7 +715,7 @@ impl SupportsTransform for NelderMeadConfig {
 /// input vector. The algorithm is as follows:
 ///
 /// 0. Pick a starting simplex. The default implementation just takes one simplex point to be the
-///    starting point and the others to be steps of equal size in each coordinate direction.
+///    starting point and the others to be the starting point scaled by a small amount in each coordinate direction.
 /// 1. Compute $`f(\vec{x}_i)`$ for each point in the simplex.
 /// 2. Calculate the centroid of all but the worst point $`\vec{x}^\dagger`$ in the simplex,
 ///    $`\vec{x}_o`$.
@@ -1321,6 +1334,31 @@ mod tests {
     #[should_panic]
     fn with_beta_panics_when_not_gt_one() {
         let _ = NelderMeadConfig::new([1.0, 1.0]).with_beta(1.0);
+    }
+
+    #[test]
+    fn with_alpha_beta_sets_values() {
+        let nmc = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.1, 2.2);
+        assert_eq!(nmc.alpha, 1.1);
+        assert_eq!(nmc.beta, 2.2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_alpha_nonpositive() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.0, 2.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_beta_not_gt_one() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.5, 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.6, 1.5);
     }
 
     #[test]
