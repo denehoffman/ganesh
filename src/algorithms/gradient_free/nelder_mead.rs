@@ -1337,6 +1337,31 @@ mod tests {
     }
 
     #[test]
+    fn with_alpha_beta_sets_values() {
+        let nmc = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.1, 2.2);
+        assert_eq!(nmc.alpha, 1.1);
+        assert_eq!(nmc.beta, 2.2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_alpha_nonpositive() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.0, 2.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_beta_not_gt_one() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.5, 1.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.6, 1.5);
+    }
+
+    #[test]
     #[should_panic]
     fn with_beta_panics_when_not_gt_alpha() {
         let _ = NelderMeadConfig::new([1.0, 1.0])
