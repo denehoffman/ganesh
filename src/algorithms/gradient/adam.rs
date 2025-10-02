@@ -156,7 +156,7 @@ where
         let t_problem = TransformedProblem::new(problem, &config.transform);
         self.x = t_problem.to_owned_internal(&config.x0);
         self.g = DVector::zeros(self.x.len());
-        self.f = t_problem.evaluate(&config.x0, args)?;
+        self.f = t_problem.evaluate(&self.x, args)?;
         status.with_position((config.x0.clone(), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
