@@ -68,7 +68,7 @@ impl Bound {
     /// Get the upper bound (positive infinity if unbounded).
     pub const fn upper(&self) -> Float {
         match self {
-            Self::NoBound | Self::LowerBound(_) => Float::NEG_INFINITY,
+            Self::NoBound | Self::LowerBound(_) => Float::INFINITY,
             Self::UpperBound(u) => *u,
             Self::LowerAndUpperBound(_, u) => *u,
         }
@@ -153,3 +153,44 @@ pub trait BoundLike: DynClone + Debug + Send + Sync {
 }
 
 dyn_clone::clone_trait_object!(BoundLike);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_bounds_creation() {
+        let bound = Bound::from((None, None));
+        assert_eq!(bound.lower(), Float::NEG_INFINITY);
+        assert_eq!(bound.upper(), Float::INFINITY);
+        let bound = Bound::from((None, Some(1.2)));
+        assert_eq!(bound.lower(), Float::NEG_INFINITY);
+        assert_eq!(bound.upper(), 1.2);
+        let bound = Bound::from((Some(-3.4), None));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), Float::INFINITY);
+        let bound = Bound::from((Some(-3.4), Some(1.2)));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), 1.2);
+        let bound = Bound::from((Some(1.2), Some(-3.4)));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), 1.2);
+        let bound = Bound::from((Float::NEG_INFINITY, Float::INFINITY));
+        assert_eq!(bound.lower(), Float::NEG_INFINITY);
+        assert_eq!(bound.upper(), Float::INFINITY);
+        let bound = Bound::from((Float::INFINITY, Float::NEG_INFINITY));
+        assert_eq!(bound.lower(), Float::NEG_INFINITY);
+        assert_eq!(bound.upper(), Float::INFINITY);
+        let bound = Bound::from((Float::NEG_INFINITY, 1.2));
+        assert_eq!(bound.lower(), Float::NEG_INFINITY);
+        assert_eq!(bound.upper(), 1.2);
+        let bound = Bound::from((-3.4, Float::INFINITY));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), Float::INFINITY);
+        let bound = Bound::from((-3.4, 1.2));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), 1.2);
+        let bound = Bound::from((1.2, -3.4));
+        assert_eq!(bound.lower(), -3.4);
+        assert_eq!(bound.upper(), 1.2);
+    }
+}
