@@ -20,7 +20,7 @@ pub use linesearch::LineSearch;
 
 /// Module containing the [`Status`] trait.
 pub mod status;
-pub use status::Status;
+pub use status::{Status, StatusMessage, StatusType};
 
 /// Module containing the [`BoundLike`] trait and the [`Bound`] enum.
 pub mod boundlike;

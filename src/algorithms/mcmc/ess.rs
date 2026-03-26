@@ -6,7 +6,7 @@ use crate::{
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
     },
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
+    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform, status::StatusType},
 };
 use fastrand::Rng;
 use nalgebra::Cholesky;
@@ -110,17 +110,19 @@ impl ESSMove {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
             Self::Differential => {
-                ensemble.update_message("Differential Move");
+                ensemble
+                    .set_message()
+                    .step_with_message("Differential Move");
             }
             Self::Gaussian => {
-                ensemble.update_message("Gaussian Move");
+                ensemble.set_message().step_with_message("Gaussian Move");
             }
             Self::Global {
                 scale,
                 rescale_cov,
                 n_components,
             } => {
-                ensemble.update_message(&format!(
+                ensemble.set_message().step_with_message(&format!(
                     "Global Move (scale = {}, rescale_cov = {}, n_components = {})",
                     scale, rescale_cov, n_components
                 ));
@@ -363,7 +365,9 @@ where
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
         self.mu = config.mu;
-        status.log_density_latest(problem, args)
+        status.log_density_latest(problem, args)?;
+        status.set_message().initialize();
+        Ok(())
     }
 
     fn step(
@@ -400,14 +404,19 @@ where
         _args: &U,
         _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
+        let mut message = status.message().clone();
+        if matches!(message.status_type, StatusType::Custom)
+            && message.text.contains("Maximum number of steps reached")
+        {
+            message.succeed_with_message(&message.text.clone());
+        }
         Ok(MCMCSummary {
             bounds: None,
             parameter_names: None,
-            message: status.message().to_string(),
+            message,
             chain: status.get_chain(None, None),
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
-            converged: status.converged(),
             dimension: status.dimension(),
         })
     }
@@ -1027,7 +1036,7 @@ mod tests {
 
         let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
-        assert!(status.message().contains("Differential"));
+        assert!(status.message().to_string().contains("Differential"));
     }
 
     #[test]
@@ -1041,7 +1050,7 @@ mod tests {
         ess.initialize(&f, &mut status, &(), &cfg).unwrap();
         let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
-        assert!(status.message().contains("Gaussian"));
+        assert!(status.message().to_string().contains("Gaussian"));
     }
 
     #[test]
@@ -1057,7 +1066,7 @@ mod tests {
         ess.initialize(&f, &mut status, &(), &cfg).unwrap();
         let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
-        assert!(status.message().contains("Global"));
+        assert!(status.message().to_string().contains("Global"));
     }
 
     #[test]

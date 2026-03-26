@@ -3,7 +3,9 @@ use crate::{
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, CostFunction, SupportsBounds, SupportsTransform, Terminator, Transform},
+    traits::{
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Terminator, Transform,
+    },
 };
 use std::{fmt::Debug, ops::ControlFlow};
 
@@ -391,8 +393,7 @@ where
                 let fh = simplex.worst().fx_checked();
                 let fl = simplex.best().fx_checked();
                 if 2.0 * (fh - fl) / (Float::abs(fh) + Float::abs(fl)) <= *eps_f_rel {
-                    status.set_converged();
-                    status.with_message("term_f = AMOEBA");
+                    status.set_message().succeed_with_message("term_f = AMOEBA");
                     return ControlFlow::Break(());
                 }
             }
@@ -400,8 +401,9 @@ where
                 let fh = simplex.worst().fx_checked();
                 let fl = simplex.best().fx_checked();
                 if fh - fl <= *eps_f_abs {
-                    status.set_converged();
-                    status.with_message("term_f = ABSOLUTE");
+                    status
+                        .set_message()
+                        .succeed_with_message("term_f = ABSOLUTE");
                     return ControlFlow::Break(());
                 }
             }
@@ -422,8 +424,7 @@ where
                         / dim,
                 );
                 if std_dev <= *eps_f_abs {
-                    status.set_converged();
-                    status.with_message("term_f = STDDEV");
+                    status.set_message().succeed_with_message("term_f = STDDEV");
                     return ControlFlow::Break(());
                 }
             }
@@ -525,8 +526,9 @@ where
                     .max_by(|&a, &b| a.total_cmp(&b))
                     .unwrap_or(0.0);
                 if max_inf_norm <= *eps_x_abs {
-                    status.set_converged();
-                    status.with_message("term_x = DIAMETER");
+                    status
+                        .set_message()
+                        .succeed_with_message("term_x = DIAMETER");
                     return ControlFlow::Break(());
                 }
             }
@@ -546,8 +548,7 @@ where
                     .max_by(|&a, &b| a.total_cmp(&b))
                     .unwrap_or(0.0);
                 if numer / denom <= *eps_x_rel {
-                    status.set_converged();
-                    status.with_message("term_x = HIGHAM");
+                    status.set_message().succeed_with_message("term_x = HIGHAM");
                     return ControlFlow::Break(());
                 }
             }
@@ -555,8 +556,7 @@ where
                 let init_diff = (&simplex.initial_worst.x - &simplex.initial_best.x).lp_norm(2);
                 let current_diff = (&simplex.worst().x - &simplex.best().x).lp_norm(2);
                 if current_diff <= *eps_x_rel * init_diff {
-                    status.set_converged();
-                    status.with_message("term_x = ROWAN");
+                    status.set_message().succeed_with_message("term_x = ROWAN");
                     return ControlFlow::Break(());
                 }
             }
@@ -565,8 +565,7 @@ where
                 let lv_init = Float::powf(simplex.initial_volume, 1.0 / dim);
                 let lv_current = Float::powf(simplex.volume, 1.0 / dim);
                 if lv_current <= *eps_x_rel * lv_init {
-                    status.set_converged();
-                    status.with_message("term_x = SINGER");
+                    status.set_message().succeed_with_message("term_x = SINGER");
                     return ControlFlow::Break(());
                 }
             }
@@ -800,7 +799,7 @@ where
             args,
         )?;
         status.n_f_evals += self.simplex.size();
-        status.with_position(self.simplex.best_position(&config.transform));
+        status.initialize(self.simplex.best_position(&config.transform));
         Ok(())
     }
 
@@ -830,8 +829,8 @@ where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.with_position(self.simplex.best_position(&config.transform));
-            status.with_message("REFLECT");
+            status.set_position(self.simplex.best_position(&config.transform));
+            status.set_message().step_with_message("REFLECT");
             self.simplex.scale_volume(config.alpha);
             return Ok(());
         } else if &xr < l {
@@ -859,8 +858,8 @@ where
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            status.with_position(self.simplex.best_position(&config.transform));
-            status.with_message("EXPAND");
+            status.set_position(self.simplex.best_position(&config.transform));
+            status.set_message().step_with_message("EXPAND");
             self.simplex.scale_volume(config.alpha * config.beta);
             return Ok(());
         } else if s <= &xr {
@@ -892,13 +891,13 @@ where
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.with_position(self.simplex.best_position(&config.transform));
+                        status.set_position(self.simplex.best_position(&config.transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
                         self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
                     }
-                    status.with_message("CONTRACT OUT");
+                    status.set_message().step_with_message("CONTRACT OUT");
                     self.simplex.scale_volume(config.alpha * config.gamma);
                     return Ok(());
                 }
@@ -917,13 +916,13 @@ where
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.with_position(self.simplex.best_position(&config.transform));
+                        status.set_position(self.simplex.best_position(&config.transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
                         self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
                     }
-                    status.with_message("CONTRACT IN");
+                    status.set_message().step_with_message("CONTRACT IN");
                     self.simplex.scale_volume(config.gamma);
                     return Ok(());
                 }
@@ -946,8 +945,8 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_total_centroid();
-        status.with_position(self.simplex.best_position(&config.transform));
-        status.with_message("SHRINK");
+        status.set_position(self.simplex.best_position(&config.transform));
+        status.set_message().step_with_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
         Ok(())
@@ -966,7 +965,6 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),
@@ -1021,7 +1019,7 @@ mod tests {
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
         }
     }
@@ -1047,7 +1045,7 @@ mod tests {
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
         }
     }
@@ -1074,7 +1072,7 @@ mod tests {
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
         }
     }
@@ -1102,7 +1100,7 @@ mod tests {
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
         }
     }
@@ -1174,8 +1172,8 @@ mod tests {
             Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba { eps_rel: 0.01 });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_f = AMOEBA");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_f = AMOEBA"));
     }
 
     #[test]
@@ -1190,8 +1188,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_f = ABSOLUTE");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_f = ABSOLUTE"));
     }
 
     #[test]
@@ -1206,8 +1204,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_f = STDDEV");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_f = STDDEV"));
     }
 
     #[test]
@@ -1222,8 +1220,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_x = DIAMETER");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_x = DIAMETER"));
     }
 
     #[test]
@@ -1238,8 +1236,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_x = HIGHAM");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_x = HIGHAM"));
     }
 
     #[test]
@@ -1254,8 +1252,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_x = ROWAN");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_x = ROWAN"));
     }
 
     #[test]
@@ -1270,8 +1268,8 @@ mod tests {
         });
 
         let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
-        assert!(result.converged);
-        assert_eq!(result.message, "term_x = SINGER");
+        assert!(result.message.success());
+        assert!(result.message.to_string().contains("term_x = SINGER"));
     }
 
     #[test]
@@ -1360,7 +1358,7 @@ mod tests {
                 NelderMead::default_callbacks(),
             )
             .unwrap();
-        assert!(result.converged);
+        assert!(result.message.success());
     }
 
     #[test]
@@ -1445,7 +1443,7 @@ mod tests {
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),
             )
             .unwrap();
-        assert!(result.converged);
+        assert!(result.message.success());
         assert_eq!(result.gradient_evals, 0);
     }
 }

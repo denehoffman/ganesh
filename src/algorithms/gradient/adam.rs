@@ -4,7 +4,7 @@ use crate::{
     core::{Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, CostFunction, Gradient, SupportsTransform, Terminator, Transform,
+        Algorithm, CostFunction, Gradient, Status, SupportsTransform, Terminator, Transform,
         TransformedProblem,
     },
 };
@@ -54,8 +54,7 @@ where
             algorithm.ema_counter = 0;
         }
         if algorithm.ema_counter >= self.patience {
-            status.set_converged();
-            status.with_message(&format!(
+            status.set_message().succeed_with_message(&format!(
                 "EMA LOSS HAS NOT IMPROVED IN {} STEPS",
                 algorithm.ema_counter
             ));
@@ -178,7 +177,7 @@ where
         self.x = t_problem.to_owned_internal(&config.x0);
         self.g = DVector::zeros(self.x.len());
         self.f = t_problem.evaluate(&self.x, args)?;
-        status.with_position((config.x0.clone(), self.f));
+        status.initialize((config.x0.clone(), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
@@ -207,7 +206,7 @@ where
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
         self.f = t_problem.evaluate(&self.x, args)?;
         status.inc_n_f_evals();
-        status.with_position((t_problem.to_owned_external(&self.x), self.f));
+        status.set_position((t_problem.to_owned_external(&self.x), self.f));
         Ok(())
     }
 
@@ -224,7 +223,6 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
@@ -283,7 +281,7 @@ mod tests {
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
     }
@@ -310,7 +308,7 @@ mod tests {
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
     }

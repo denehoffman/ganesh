@@ -1,4 +1,8 @@
-use crate::{core::transforms::Bounds, traits::Bound, DMatrix, DVector, Float};
+use crate::{
+    DMatrix, DVector, Float,
+    core::transforms::Bounds,
+    traits::{Bound, StatusMessage},
+};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -30,7 +34,7 @@ pub struct MinimizationSummary {
     /// The names of the parameters. This is `None` if no names were set.
     pub parameter_names: Option<Vec<String>>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The initial parameters of the minimization.
     pub x0: DVector<Float>,
     /// The current parameters of the minimization.
@@ -43,8 +47,6 @@ pub struct MinimizationSummary {
     pub cost_evals: usize,
     /// The number of gradient evaluations.
     pub gradient_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
     /// Covariance of fit parameters.
     pub covariance: DMatrix<Float>,
 }
@@ -60,15 +62,15 @@ impl Display for MinimizationSummary {
         use tabled::{
             builder::Builder,
             settings::{
-                object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Color,
-                Padding, Span, Style, Theme,
+                Alignment, Color, Padding, Span, Style, Theme, object::Row, style::HorizontalLine,
+                themes::BorderCorrection,
             },
         };
         let mut builder = Builder::default();
         builder.push_record(["FIT RESULTS"]);
         builder.push_record(["Status", "f(x)", "", "#f(x)", "", "#∇f(x)", ""]);
         builder.push_record([
-            if self.converged {
+            if self.message.success() {
                 "Converged"
             } else {
                 "Invalid Minimum"
@@ -80,7 +82,7 @@ impl Display for MinimizationSummary {
             &format!("{:.5}", self.gradient_evals),
             "",
         ]);
-        builder.push_record(["Message", &self.message]);
+        builder.push_record(["Message", &self.message.to_string()]);
 
         let names = self
             .parameter_names
@@ -169,7 +171,7 @@ pub struct SimulatedAnnealingSummary<I> {
     /// The bounds of the parameters. This is `None` if no bounds were set.
     pub bounds: Option<Bounds>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The initial parameters of the minimization.
     pub x0: I,
     /// The current parameters of the minimization.
@@ -178,8 +180,6 @@ pub struct SimulatedAnnealingSummary<I> {
     pub fx: Float,
     /// The number of function evaluations.
     pub cost_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
 }
 
 /// A struct that holds the results of an MCMC sampling.
@@ -190,7 +190,7 @@ pub struct MCMCSummary {
     /// The names of the parameters. This is `None` if no names were set.
     pub parameter_names: Option<Vec<String>>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The chain of positions sampled by each walker with dimension `(n_walkers, n_steps,
     /// n_variables)`.
     pub chain: Vec<Vec<DVector<Float>>>,
@@ -198,8 +198,6 @@ pub struct MCMCSummary {
     pub cost_evals: usize,
     /// The number of gradient evaluations.
     pub gradient_evals: usize,
-    /// Flag that says whether or not the sampler is in a converged state.
-    pub converged: bool,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
 }
@@ -263,14 +261,13 @@ mod tests {
         let result = MinimizationSummary {
             bounds: None,
             parameter_names: None,
-            message: "Success".to_string(),
+            message: StatusMessage::default().set_success(),
             x0: dvector![1.0, 2.0, 3.0],
             x: dvector![1.0, 2.0, 3.0],
             std: dvector![0.1, 0.2, 0.3],
             fx: 3.0,
             cost_evals: 10,
             gradient_evals: 5,
-            converged: true,
             covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         };
         println!("{}", result);

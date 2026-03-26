@@ -118,7 +118,9 @@ where
         _config: &C,
     ) -> ControlFlow<()> {
         if current_step >= self.0.saturating_sub(1) {
-            status.update_message(&format!("Maximum number of steps reached ({})!", self.0));
+            status
+                .set_message()
+                .custom(&format!("Maximum number of steps reached ({})", self.0));
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
@@ -140,7 +142,7 @@ where
 /// let mut nm = NelderMead::default();
 /// let result = nm.process(&problem, &(), NelderMeadConfig::new([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
 /// // ^ This will print debug messages for each step
-/// assert!(result.converged);
+/// assert!(result.message.success());
 /// ```
 #[derive(Copy, Clone)]
 pub struct DebugObserver;

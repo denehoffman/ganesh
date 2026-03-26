@@ -4,8 +4,8 @@ use crate::{
     core::{Bounds, Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, SupportsTransform,
-        Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
+        Algorithm, Bound, CostFunction, Gradient, LineSearch, Status, SupportsBounds,
+        SupportsTransform, Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
     },
 };
 use nalgebra::{Dyn, LU};
@@ -54,8 +54,9 @@ where
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
-            status.set_converged();
-            status.with_message("F_EVAL CONVERGED");
+            status
+                .set_message()
+                .succeed_with_message("F_EVAL CONVERGED");
             return ControlFlow::Break(());
         }
         algorithm.f_previous = algorithm.f;
@@ -106,8 +107,9 @@ where
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
-            status.set_converged();
-            status.with_message("GRADIENT CONVERGED");
+            status
+                .set_message()
+                .succeed_with_message("GRADIENT CONVERGED");
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
@@ -152,8 +154,9 @@ where
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
         if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
-            status.set_converged();
-            status.with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
+            status
+                .set_message()
+                .succeed_with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
@@ -566,7 +569,7 @@ where
         self.g = t_problem.gradient(&self.x, args)?;
         status.inc_n_g_evals();
         self.f = t_problem.evaluate(&self.x, args)?;
-        status.with_position((config.transform.to_owned_external(&self.x), self.f));
+        status.initialize((config.transform.to_owned_external(&self.x), self.f));
         status.inc_n_f_evals();
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = None;
@@ -610,7 +613,7 @@ where
             }
             self.g = grad_kp1_vec;
             self.f = f_kp1;
-            status.with_position((config.transform.to_owned_external(&self.x), f_kp1));
+            status.set_position((config.transform.to_owned_external(&self.x), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -635,7 +638,7 @@ where
                 let g_int = t_problem.gradient(&self.x, args)?;
                 let h_int = t_problem.hessian(&self.x, args)?;
                 let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
-                status.with_hess(&hessian);
+                status.set_hess(&hessian);
             }
             LBFGSBErrorMode::Skip => {}
         }
@@ -655,7 +658,6 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
@@ -724,7 +726,7 @@ mod tests {
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
     }
@@ -751,7 +753,7 @@ mod tests {
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
     }
@@ -777,7 +779,7 @@ mod tests {
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
     }

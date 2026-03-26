@@ -2,7 +2,7 @@ use crate::{
     DVector, Float,
     algorithms::particles::{Swarm, SwarmPositionInitializer},
     core::Point,
-    traits::Status,
+    traits::{Status, StatusMessage},
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 pub struct SwarmStatus {
     /// The global best position found by all particles
     pub gbest: Point<DVector<Float>>,
-    /// An indicator of whether the swarm has converged
-    pub converged: bool,
     /// A message containing information about the condition of the swarm or convergence
-    pub message: String,
+    pub message: StatusMessage,
     /// The swarm
     pub swarm: Swarm,
     /// The number of function evaluations (approximately, this is left up to individual
@@ -25,7 +23,6 @@ impl Default for SwarmStatus {
     fn default() -> Self {
         Self {
             gbest: Default::default(),
-            converged: Default::default(),
             message: Default::default(),
             swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::default())),
             n_f_evals: Default::default(),
@@ -43,18 +40,16 @@ impl SwarmStatus {
 impl Status for SwarmStatus {
     fn reset(&mut self) {
         self.gbest = Default::default();
-        self.converged = Default::default();
         self.message = Default::default();
         self.swarm.particles = Default::default();
         self.n_f_evals = Default::default();
     }
-    fn converged(&self) -> bool {
-        self.converged
-    }
-    fn message(&self) -> &str {
+
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
     }
 }

@@ -1,11 +1,14 @@
-use crate::{DMatrix, DVector, Float, traits::Status};
+use crate::{
+    DMatrix, DVector, Float,
+    traits::{Status, StatusMessage},
+};
 use serde::{Deserialize, Serialize};
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GradientStatus {
-    /// A [`String`] message that can be set by [`Algorithm`](crate::traits::Algorithm)s.
-    pub message: String,
+    /// A [`StatusMessage`] that can be set by [`Algorithm`](crate::traits::Algorithm)s.
+    pub message: StatusMessage,
     /// The current parameters of the minimization.
     pub x: DVector<Float>,
     /// The current value of the minimization problem function at [`GradientStatus::x`].
@@ -16,8 +19,6 @@ pub struct GradientStatus {
     /// The number of gradient evaluations (approximately, this is left up to individual
     /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
     pub n_g_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
     /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
     pub hess: Option<DMatrix<Float>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
@@ -33,35 +34,36 @@ impl Status for GradientStatus {
         self.fx = Default::default();
         self.n_f_evals = Default::default();
         self.n_g_evals = Default::default();
-        self.converged = Default::default();
         self.hess = Default::default();
         self.cov = Default::default();
         self.err = Default::default();
     }
-    fn converged(&self) -> bool {
-        self.converged
-    }
-    fn message(&self) -> &str {
+
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
     }
 }
 
 impl GradientStatus {
-    /// Updates the [`GradientStatus::message`] field.
-    pub fn with_message(&mut self, message: &str) {
-        self.message = message.to_string();
-    }
-    /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields.
-    pub fn with_position(&mut self, pos: (DVector<Float>, Float)) {
+    /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and sets the status
+    /// message to an initialized state.
+    pub fn initialize(&mut self, pos: (DVector<Float>, Float)) {
+        self.set_message()
+            .succeed_with_message(&format!("f(x) = {}", pos.1));
         self.x = pos.0;
         self.fx = pos.1;
     }
-    /// Sets [`GradientStatus::converged`] to be `true`.
-    pub fn set_converged(&mut self) {
-        self.converged = true;
+    /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and sets the status
+    /// message to a step state.
+    pub fn set_position(&mut self, pos: (DVector<Float>, Float)) {
+        self.set_message()
+            .step_with_message(&format!("f(x) = {}", pos.1));
+        self.x = pos.0;
+        self.fx = pos.1;
     }
     /// Increments [`GradientStatus::n_f_evals`] by `1`.
     pub fn inc_n_f_evals(&mut self) {
@@ -72,14 +74,14 @@ impl GradientStatus {
         self.n_g_evals += 1;
     }
     /// Updates the [`GradientStatus::err`] field.
-    pub fn with_cov(&mut self, covariance: Option<DMatrix<Float>>) {
+    pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
         if let Some(cov_mat) = &covariance {
             self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
     }
     /// Updates the [`GradientStatus::hess`] field and computes [`GradientStatus::cov`] and [`GradientStatus::err`].
-    pub fn with_hess(&mut self, hessian: &DMatrix<Float>) {
+    pub fn set_hess(&mut self, hessian: &DMatrix<Float>) {
         use crate::core::utils::hessian_to_covariance;
         self.hess = Some(hessian.clone());
         let covariance = hessian_to_covariance(hessian);

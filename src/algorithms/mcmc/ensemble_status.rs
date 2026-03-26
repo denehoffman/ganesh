@@ -2,7 +2,7 @@ use crate::{
     DMatrix, DVector, Float,
     algorithms::mcmc::{Walker, integrated_autocorrelation_times},
     core::Point,
-    traits::{LogDensity, Status, Transform},
+    traits::{LogDensity, Status, StatusMessage, Transform},
 };
 use fastrand::Rng;
 use nalgebra::RowDVector;
@@ -19,7 +19,7 @@ pub struct EnsembleStatus {
     /// A list of each [`Walker`] in the ensemble
     pub walkers: Vec<Walker>,
     /// A message indicating the state of the sampler
-    pub message: String,
+    pub message: StatusMessage,
     /// The number of function evaluations (approximately, this is left up to individual
     /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
     pub n_f_evals: usize,
@@ -240,15 +240,11 @@ impl Status for EnsembleStatus {
         self.n_g_evals = Default::default();
     }
 
-    fn converged(&self) -> bool {
-        false
-    }
-
-    fn message(&self) -> &str {
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
 
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
     }
 }

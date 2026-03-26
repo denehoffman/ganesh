@@ -239,7 +239,7 @@ where
                 status.gbest = particle.best.clone();
             }
         }
-        status.update_message("Initialized");
+        status.set_message().initialize();
         Ok(())
     }
 
@@ -267,7 +267,6 @@ where
             x: status.gbest.x.clone(),
             fx: status.gbest.fx_checked(),
             bounds: config.bounds.clone(),
-            converged: status.converged,
             cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),

@@ -290,8 +290,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        algorithms::gradient::{LBFGSBConfig, LBFGSB},
-        core::{summary::HasParameterNames, MaxSteps},
+        algorithms::gradient::{LBFGSB, LBFGSBConfig},
+        core::{MaxSteps, summary::HasParameterNames},
         test_functions::Rosenbrock,
     };
 
@@ -365,13 +365,13 @@ mod tests {
             .unwrap()
             .with_parameter_names(["a", "b"]);
         assert_eq!(rc_refcel.borrow().0, 10); // 5 * 2 = 10 because each is called as both an
-                                              // observer and a terminator
+        // observer and a terminator
         assert_eq!(rc_rwlock.read().0, 10);
         assert_eq!(rc_mutex.lock().0, 10);
         assert_eq!(arc_refcel.borrow().0, 10);
         assert_eq!(arc_rwlock.read().0, 10);
         assert_eq!(arc_mutex.lock().0, 10);
-        assert_eq!(res.message, "Maximum number of steps reached (5)!");
+        assert_eq!(res.message.text, "Maximum number of steps reached (5)");
         assert_eq!(
             res.parameter_names,
             Some(vec!["a".to_string(), "b".to_string()])

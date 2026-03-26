@@ -6,7 +6,7 @@ use crate::{
         utils::{RandChoice, SampleFloat},
     },
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
+    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform, status::StatusType},
 };
 use fastrand::Rng;
 use parking_lot::RwLock;
@@ -59,10 +59,12 @@ impl AIESMove {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
             Self::Stretch { a } => {
-                ensemble.update_message(&format!("Stretch Move (a = {})", &a));
+                ensemble
+                    .set_message()
+                    .step_with_message(&format!("Stretch Move (a = {})", &a));
             }
             Self::Walk => {
-                ensemble.update_message("Walk Move");
+                ensemble.set_message().step_with_message("Walk Move");
             }
         }
         for (i, walker) in ensemble.iter().enumerate() {
@@ -224,7 +226,9 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
-        status.log_density_latest(problem, args)
+        status.log_density_latest(problem, args)?;
+        status.set_message().initialize();
+        Ok(())
     }
 
     fn step(
@@ -251,14 +255,19 @@ where
         _args: &U,
         _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
+        let mut message = status.message().clone();
+        if matches!(message.status_type, StatusType::Custom)
+            && message.text.contains("Maximum number of steps reached")
+        {
+            message.succeed_with_message(&message.text.clone());
+        }
         Ok(MCMCSummary {
             bounds: None,
             parameter_names: None,
-            message: status.message().to_string(),
+            message,
             chain: status.get_chain(None, None),
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
-            converged: status.converged(),
             dimension: status.dimension(),
         })
     }
@@ -294,12 +303,12 @@ mod tests {
         AIESMove::Stretch { a: 2.0 }
             .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
-        assert!(status.message().contains("Stretch Move"));
+        assert!(status.message().to_string().contains("Stretch Move"));
 
         AIESMove::Walk
             .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
-        assert!(status.message().contains("Walk Move"));
+        assert!(status.message().to_string().contains("Walk Move"));
     }
 
     #[test]

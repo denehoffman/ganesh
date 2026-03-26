@@ -2,7 +2,10 @@ use crate::{
     Float,
     core::{Callbacks, Point, SimulatedAnnealingSummary, utils::SampleFloat},
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
+    traits::{
+        Algorithm, GenericCostFunction, Status, StatusMessage, SupportsTransform, Terminator,
+        Transform,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
@@ -120,7 +123,7 @@ pub struct SimulatedAnnealingStatus<I> {
     /// Flag indicating whether the algorithm has converged.
     pub converged: bool,
     /// The message to be displayed at the end of the algorithm.
-    pub message: String,
+    pub message: StatusMessage,
     /// The number of function evaluations.
     pub n_f_evals: usize,
 }
@@ -138,14 +141,13 @@ where
         self.message = Default::default();
         self.n_f_evals = Default::default();
     }
-    fn converged(&self) -> bool {
-        self.converged
-    }
-    fn message(&self) -> &str {
+
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
     }
 }
 
@@ -189,6 +191,7 @@ where
         status.initial = status.current.clone();
         status.best = status.current.clone();
         status.iteration = 0;
+        status.set_message().initialize();
         Ok(())
     }
 
@@ -239,7 +242,6 @@ where
             x: status.best.x.clone(),
             fx: status.best.fx_checked(),
             cost_evals: status.n_f_evals,
-            converged: status.converged,
         })
     }
 
