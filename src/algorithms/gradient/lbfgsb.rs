@@ -1,11 +1,11 @@
 use crate::{
+    DMatrix, DVector, Float,
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Bounds, Callbacks, MinimizationSummary},
     traits::{
-        linesearch::LineSearchOutput, Algorithm, Bound, CostFunction, Gradient, LineSearch,
-        SupportsBounds, SupportsTransform, Terminator, Transform, TransformedProblem,
+        Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, SupportsTransform,
+        Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
     },
-    DMatrix, DVector, Float,
 };
 use nalgebra::{Dyn, LU};
 use std::collections::VecDeque;
@@ -391,13 +391,12 @@ impl LBFGSB {
         }
         dt_min = Float::max(dt_min, 0.0);
         t_old += dt_min;
-        // for i in free_indices.iter() ?
         for i in 0..self.x.len() {
             if t[i] >= t_b {
                 x_cp[i] += t_old * d[i];
             }
         }
-        let free_indices = (0..free_indices.len())
+        let free_indices = (0..self.x.len())
             .filter(|&i| x_cp[i] < self.u[i] && x_cp[i] > self.l[i])
             .collect();
         c += p.scale(dt_min);
