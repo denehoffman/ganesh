@@ -1,4 +1,4 @@
-use crate::{traits::Status, DMatrix, DVector, Float};
+use crate::{DMatrix, DVector, Float, traits::Status};
 use serde::{Deserialize, Serialize};
 
 /// A status message struct containing all information about a minimization result.
@@ -25,14 +25,14 @@ pub struct GradientFreeStatus {
 
 impl Status for GradientFreeStatus {
     fn reset(&mut self) {
-        self.message = String::new();
+        self.message = Default::default();
         self.x = DVector::zeros(self.x.len());
-        self.fx = Float::default();
-        self.n_f_evals = 0;
-        self.converged = false;
-        self.hess = None;
-        self.cov = None;
-        self.err = None;
+        self.fx = Default::default();
+        self.n_f_evals = Default::default();
+        self.converged = Default::default();
+        self.hess = Default::default();
+        self.cov = Default::default();
+        self.err = Default::default();
     }
     fn converged(&self) -> bool {
         self.converged

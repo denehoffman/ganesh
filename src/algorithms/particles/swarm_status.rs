@@ -1,8 +1,8 @@
 use crate::{
+    DVector, Float,
     algorithms::particles::{Swarm, SwarmPositionInitializer},
     core::Point,
     traits::Status,
-    DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,10 +42,11 @@ impl SwarmStatus {
 
 impl Status for SwarmStatus {
     fn reset(&mut self) {
-        self.converged = false;
-        self.message = String::new();
-        self.gbest = Point::default();
-        self.swarm.particles = vec![];
+        self.gbest = Default::default();
+        self.converged = Default::default();
+        self.message = Default::default();
+        self.swarm.particles = Default::default();
+        self.n_f_evals = Default::default();
     }
     fn converged(&self) -> bool {
         self.converged

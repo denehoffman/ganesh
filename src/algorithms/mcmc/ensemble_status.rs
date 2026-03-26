@@ -235,6 +235,9 @@ impl Status for EnsembleStatus {
         for walker in self.walkers.iter_mut() {
             walker.reset();
         }
+        self.message = Default::default();
+        self.n_f_evals = Default::default();
+        self.n_g_evals = Default::default();
     }
 
     fn converged(&self) -> bool {

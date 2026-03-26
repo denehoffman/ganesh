@@ -119,11 +119,13 @@ where
     I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
     fn reset(&mut self) {
-        self.converged = false;
-        self.message = String::new();
-        self.best = Point::default();
-        self.current = Point::default();
-        self.iteration = 0;
+        self.temperature = Default::default();
+        self.best = Default::default();
+        self.current = Default::default();
+        self.iteration = Default::default();
+        self.converged = Default::default();
+        self.message = Default::default();
+        self.n_f_evals = Default::default();
     }
     fn converged(&self) -> bool {
         self.converged

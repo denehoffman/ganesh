@@ -1,7 +1,7 @@
 use crate::{
+    DVector, Float,
     core::Point,
     traits::{Algorithm, LogDensity, Terminator},
-    DVector, Float,
 };
 use nalgebra::Complex;
 use parking_lot::{Mutex, RwLock};
@@ -11,11 +11,11 @@ use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
-pub use aies::{AIESConfig, AIESMove, AIES};
+pub use aies::{AIES, AIESConfig, AIESMove};
 
 /// Ensemble Slice Sampler
 pub mod ess;
-pub use ess::{ESSConfig, ESSMove, ESS};
+pub use ess::{ESS, ESSConfig, ESSMove};
 
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
@@ -44,7 +44,7 @@ impl Walker {
         if let Some(first) = first {
             self.history = vec![first.clone()];
         } else {
-            self.history = Vec::default();
+            self.history = Default::default();
         }
     }
     /// Get the most recent (current) [`Walker`]'s position
@@ -314,9 +314,9 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::{utils::SampleFloat, Callbacks},
-        test_functions::Rosenbrock,
         DVector,
+        core::{Callbacks, utils::SampleFloat},
+        test_functions::Rosenbrock,
     };
     use fastrand::Rng;
 
