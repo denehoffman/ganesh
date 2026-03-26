@@ -912,7 +912,7 @@ where
         status.with_position(self.simplex.best_position(&config.transform));
         status.with_message("SHRINK");
         self.simplex
-            .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32));
+            .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
         Ok(())
     }
 
