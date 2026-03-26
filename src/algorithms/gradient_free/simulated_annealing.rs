@@ -1,7 +1,7 @@
 use crate::{
-    core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
     Float,
+    core::{Callbacks, Point, SimulatedAnnealingSummary, utils::SampleFloat},
+    traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
 };
 use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
@@ -191,20 +191,23 @@ where
         let fx = problem.evaluate_generic(&x, args)?;
         status.cost_evals += 1;
 
-        status.current = Point { x, fx: Some(fx) };
         status.temperature *= config.cooling_rate;
-        status.iteration += 1;
 
-        let acceptance_probability = if status.current.fx < status.best.fx {
-            1.0
-        } else {
-            let d_fx = status.current.fx_checked() - status.best.fx_checked();
-            (-d_fx / status.temperature).exp()
-        };
+        if fx < status.best.fx_checked() {
+            status.current = Point { x, fx: Some(fx) };
+            status.best = status.current.clone();
+            return Ok(());
+        }
+
+        let d_fx = fx - status.current.fx_checked();
+        let acceptance_probability = (-d_fx / status.temperature).exp();
 
         if acceptance_probability > self.rng.float() {
-            status.best = status.current.clone();
+            status.current = Point { x, fx: Some(fx) };
         }
+
+        status.iteration += 1;
+
         Ok(())
     }
 
@@ -239,7 +242,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient, DVector,
+        DVector, core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
