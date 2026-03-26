@@ -39,6 +39,31 @@
 //! ```rust
 //! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
+//! use ganesh::{Float, DVector, minimize_gradient_free};
+//! use std::convert::Infallible;
+//!
+//! # pub struct Rosenbrock {
+//! #     pub n: usize,
+//! # }
+//! # impl CostFunction for Rosenbrock {
+//! #     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
+//! #         Ok((0..(self.n - 1))
+//! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
+//! #             .sum())
+//! #     }
+//! # }
+//! fn main() -> Result<(), Infallible> {
+//!     let problem = Rosenbrock { n: 2 };
+//!     let result = minimize_gradient_free(&problem, [2.0, 2.0], &(), None::<Vec<Bound>>)?;
+//!     println!("{}", result);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! We could also use some more verbose syntax if we wanted additional customization:
+//! ```rust
+//! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
+//! use ganesh::traits::*;
 //! use ganesh::{Float, DVector};
 //! use std::convert::Infallible;
 //!
@@ -87,6 +112,8 @@
 //! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
 //! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
+//!
+//! The `ganesh` crate provides convenience functions for some of the most common minimization/MCMC algorithms, including [`minimize`] (L-BFGS-B), [`minimize_gradient_free`] (Nelder-Mead), and [`sample`] (AIES).
 //!
 //! ## Algorithms
 //!
