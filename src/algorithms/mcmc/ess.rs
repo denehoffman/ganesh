@@ -1,11 +1,11 @@
 use crate::{
+    DMatrix, DVector, Float, PI,
     algorithms::mcmc::{EnsembleStatus, Walker},
     core::{
-        utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
         MCMCSummary, Point,
+        utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
     },
     traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
-    DMatrix, DVector, Float, PI,
 };
 use fastrand::Rng;
 use nalgebra::Cholesky;
@@ -96,6 +96,7 @@ impl ESSMove {
         let mut n_expand = 0;
         let mut n_contract = 0;
         let mut dpgm_result = None;
+        let mut n_f_evals: usize = 0;
         for (i, walker) in ensemble.iter().enumerate() {
             let x_k = walker.get_latest();
             let eta = match self {
@@ -162,16 +163,19 @@ impl ESSMove {
             let mut l = -rng.float();
             let mut p_l = Point::from(&x_k_internal + eta.scale(l));
             p_l.log_density_transformed(problem, transform, args)?;
+            n_f_evals += 1;
             // R <- L + 1
             let mut r = l + 1.0;
             let mut p_r = Point::from(&x_k_internal + eta.scale(r));
             p_r.log_density_transformed(problem, transform, args)?;
+            n_f_evals += 1;
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k_internal + eta.scale(l));
                 p_l.log_density_transformed(problem, transform, args)?;
+                n_f_evals += 1;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -181,6 +185,7 @@ impl ESSMove {
                 r += 1.0;
                 p_r.set_position(&x_k_internal + eta.scale(r));
                 p_r.log_density_transformed(problem, transform, args)?;
+                n_f_evals += 1;
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -191,6 +196,7 @@ impl ESSMove {
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
                 p_yprime.log_density_transformed(problem, transform, args)?;
+                n_f_evals += 1;
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
@@ -208,8 +214,10 @@ impl ESSMove {
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
             let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
             proposal.log_density_transformed(problem, transform, args)?;
+            n_f_evals += 1;
             positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
         }
+        ensemble.n_f_evals += n_f_evals;
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
         if step <= n_adaptive {
             *mu *= 2.0 * (n_expand as Float) / (n_expand + n_contract) as Float

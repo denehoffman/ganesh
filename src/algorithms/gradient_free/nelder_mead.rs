@@ -250,6 +250,9 @@ impl Simplex {
             initial_volume: volume,
         }
     }
+    fn size(&self) -> usize {
+        self.points.len()
+    }
     fn corrected_centroid(&self) -> DVector<Float> {
         let n = self.points.len();
         let total = &self.total_centroid * (n as Float);
@@ -763,6 +766,7 @@ where
             internal_bounds.as_ref(),
             args,
         )?;
+        status.n_f_evals += self.simplex.size();
         status.with_position(self.simplex.best_position(&config.transform));
         Ok(())
     }

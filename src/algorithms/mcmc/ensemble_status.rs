@@ -1,8 +1,8 @@
 use crate::{
-    algorithms::mcmc::{integrated_autocorrelation_times, Walker},
+    DMatrix, DVector, Float,
+    algorithms::mcmc::{Walker, integrated_autocorrelation_times},
     core::Point,
     traits::{LogDensity, Status, Transform},
-    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use nalgebra::RowDVector;
@@ -69,6 +69,7 @@ impl EnsembleStatus {
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
             walker.log_density_latest(func, args)?;
+            self.n_f_evals += 1;
         }
         Ok(())
     }

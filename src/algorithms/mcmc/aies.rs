@@ -134,6 +134,7 @@ impl AIESMove {
                 positions.push(x_k)
             }
         }
+        ensemble.n_f_evals += ensemble.walkers.len();
         ensemble.push(positions);
         Ok(())
     }

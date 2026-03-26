@@ -111,7 +111,7 @@ pub struct SimulatedAnnealingStatus<I> {
     /// The message to be displayed at the end of the algorithm.
     pub message: String,
     /// The number of function evaluations.
-    pub cost_evals: usize,
+    pub n_f_evals: usize,
 }
 
 impl<I> Status for SimulatedAnnealingStatus<I>
@@ -189,7 +189,7 @@ where
     ) -> Result<(), E> {
         let x = problem.generate(&config.transform, status, args);
         let fx = problem.evaluate_generic(&x, args)?;
-        status.cost_evals += 1;
+        status.n_f_evals += 1;
 
         status.temperature *= config.cooling_rate;
 
@@ -225,7 +225,7 @@ where
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
             fx: status.best.fx_checked(),
-            cost_evals: status.cost_evals,
+            cost_evals: status.n_f_evals,
             converged: status.converged,
         })
     }

@@ -231,6 +231,7 @@ where
         status
             .swarm
             .initialize(&mut self.rng, &config.transform, problem, args)?;
+        status.n_f_evals += status.swarm.particles.len();
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
