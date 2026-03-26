@@ -1,8 +1,8 @@
 use crate::{
+    DMatrix, DVector, Float,
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
     traits::{Algorithm, CostFunction, SupportsBounds, SupportsTransform, Terminator, Transform},
-    DMatrix, DVector, Float,
 };
 use std::{fmt::Debug, ops::ControlFlow};
 
@@ -487,7 +487,7 @@ where
         let simplex = &algorithm.simplex;
         match self {
             Self::Diameter { eps_abs: eps_x_abs } => {
-                let l = simplex.worst();
+                let l = simplex.best();
                 let max_inf_norm = simplex
                     .points
                     .iter()
@@ -512,7 +512,7 @@ where
                 }
             }
             Self::Higham { eps_rel: eps_x_rel } => {
-                let l = simplex.worst();
+                let l = simplex.best();
                 let l1_norm_l = l.x.lp_norm(1);
                 let denom = Float::max(l1_norm_l, 1.0);
                 let numer = simplex
