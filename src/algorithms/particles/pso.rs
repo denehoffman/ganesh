@@ -1,8 +1,8 @@
 use crate::{
-    algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
-    core::{utils::generate_random_vector, Bounds, MinimizationSummary},
-    traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
     DMatrix, DVector, Float,
+    algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
+    core::{Bounds, MinimizationSummary, utils::generate_random_vector},
+    traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
 };
 use fastrand::Rng;
 use std::cmp::Ordering;
@@ -117,7 +117,7 @@ impl PSO {
         match swarm.topology {
             SwarmTopology::Global => status.gbest.x.clone(),
             SwarmTopology::Ring => {
-                let ind = swarm.index_of_max_in_circular_window(i, 2);
+                let ind = swarm.index_of_min_in_circular_window(i, 2);
                 swarm.particles[ind].best.x.clone()
             }
         }

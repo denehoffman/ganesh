@@ -1,10 +1,10 @@
 use crate::{
+    DVector, Float,
     core::{
-        utils::{generate_random_vector_in_limits, SampleFloat},
         Bounds, Point,
+        utils::{SampleFloat, generate_random_vector_in_limits},
     },
     traits::{CostFunction, Transform},
-    DVector, Float,
 };
 use fastrand::Rng;
 use serde::{Deserialize, Serialize};
@@ -104,12 +104,12 @@ impl Swarm {
         self.boundary_method = boundary_method;
         self
     }
-    /// Get index of the particle with the maximum value in a circular window around the given index.
+    /// Get index of the particle with the minimum value in a circular window around the given index.
     ///
     /// # Panics
     ///
     /// This method panics if the window size is zero.
-    pub fn index_of_max_in_circular_window(
+    pub fn index_of_min_in_circular_window(
         &self,
         center_index: usize,
         window_radius: usize,
@@ -122,7 +122,7 @@ impl Swarm {
 
         #[allow(clippy::expect_used)]
         window_indices
-            .max_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
+            .min_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
             .expect("Window has zero size!")
     }
 }
