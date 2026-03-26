@@ -1,11 +1,11 @@
 use crate::{
+    DVector, Float,
     algorithms::mcmc::{EnsembleStatus, Walker},
     core::{
-        utils::{RandChoice, SampleFloat},
         MCMCSummary, Point,
+        utils::{RandChoice, SampleFloat},
     },
     traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
-    DVector, Float,
 };
 use fastrand::Rng;
 use parking_lot::RwLock;
@@ -82,7 +82,7 @@ impl AIESMove {
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal = Point::from(
                         transform.to_internal(&x_l.read().x).as_ref()
-                            - (transform.to_internal(&x_k.read().x).as_ref()
+                            + (transform.to_internal(&x_k.read().x).as_ref()
                                 - transform.to_internal(&x_l.read().x).as_ref())
                             .scale(z),
                     );
