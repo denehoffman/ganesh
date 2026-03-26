@@ -156,8 +156,8 @@ impl PSO {
 
         for (i, particle) in &mut status.swarm.particles.iter_mut().enumerate() {
             let dim = particle.position.x.len();
-            let rv1 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
-            let rv2 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
+            let rv1 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
+            let rv2 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
             particle.velocity = particle.velocity.scale(config.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
