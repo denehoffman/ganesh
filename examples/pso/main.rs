@@ -1,11 +1,11 @@
 use fastrand::Rng;
 use ganesh::{
+    DVector, Float, PI,
     algorithms::particles::{
-        pso::PSOConfig, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
+        PSO, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, pso::PSOConfig,
     },
     core::{Callbacks, MaxSteps},
     traits::{Algorithm, CostFunction},
-    DVector, Float, PI,
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
@@ -39,9 +39,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
             n_particles: 50,
         }))
-        .with_c1(0.1)
-        .with_c2(0.1)
-        .with_omega(0.8),
+        .with_c1(0.1)?
+        .with_c2(0.1)?
+        .with_omega(0.8)?,
         Callbacks::empty()
             .with_observer(tracker.clone())
             .with_terminator(MaxSteps(200)),

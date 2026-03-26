@@ -5,6 +5,7 @@ use crate::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat},
     },
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
 };
 use fastrand::Rng;
@@ -30,6 +31,15 @@ impl AIESMove {
     /// Create a new [`AIESMove::Stretch`] with a usage weight and default scaling parameter
     pub const fn stretch(weight: Float) -> WeightedAIESMove {
         (Self::Stretch { a: 2.0 }, weight)
+    }
+    /// Create a new [`AIESMove::Stretch`] with a usage weight and custom scaling parameter
+    pub fn custom_stretch(a: Float, weight: Float) -> GaneshResult<WeightedAIESMove> {
+        if a <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Scaling parameter must be greater than 0".to_string(),
+            ));
+        }
+        Ok((Self::Stretch { a }, weight))
     }
     /// Create a new [`AIESMove::Walk`] with a usage weight
     pub const fn walk(weight: Float) -> WeightedAIESMove {

@@ -2,6 +2,7 @@ use crate::{
     DMatrix, DVector, Float,
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, CostFunction, SupportsBounds, SupportsTransform, Terminator, Transform},
 };
 use std::{fmt::Debug, ops::ControlFlow};
@@ -53,15 +54,25 @@ impl SimplexConstructionMethod {
         x0: I,
         orthogonal_multiplier: Float,
         orthogonal_zero_step: Float,
-    ) -> Self
+    ) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
     {
-        Self::ScaledOrthogonal {
+        if orthogonal_multiplier <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "orthogonal_multiplier must be greater than 0".to_string(),
+            ));
+        }
+        if orthogonal_zero_step <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "orthogonal_zero_step must be greater than 0".to_string(),
+            ));
+        }
+        Ok(Self::ScaledOrthogonal {
             x0: DVector::from_row_slice(x0.as_ref()),
             orthogonal_multiplier,
             orthogonal_zero_step,
-        }
+        })
     }
     /// Create a new [`SimplexConstructionMethod::Orthogonal`] with the given `x0` and
     /// default settings.
@@ -76,14 +87,19 @@ impl SimplexConstructionMethod {
     }
     /// Create a new [`SimplexConstructionMethod::Orthogonal`] with the given `x0` and
     /// custom settings.
-    pub fn custom_orthogonal<I>(x0: I, simplex_size: Float) -> Self
+    pub fn custom_orthogonal<I>(x0: I, simplex_size: Float) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
     {
-        Self::Orthogonal {
+        if simplex_size <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "simplex_size must be greater than 0".to_string(),
+            ));
+        }
+        Ok(Self::Orthogonal {
             x0: DVector::from_row_slice(x0.as_ref()),
             simplex_size,
-        }
+        })
     }
     /// Create a new [`SimplexConstructionMethod::Custom`] from the given points.
     pub fn custom<I>(simplex: I) -> Self
@@ -621,60 +637,72 @@ impl NelderMeadConfig {
         }
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\alpha <= 0`$.
-    pub fn with_alpha(mut self, value: Float) -> Self {
-        assert!(value > 0.0);
+    pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Reflection coefficient alpha must be greater than 0".to_string(),
+            ));
+        }
         self.alpha = value;
-        self
+        Ok(self)
     }
     /// Set the expansion coefficient $`\beta`$ (default = `2`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\beta <= 1`$ or $`\beta <= \alpha`$.
-    pub fn with_beta(mut self, value: Float) -> Self {
-        assert!(value > 1.0);
-        assert!(value > self.alpha);
+    pub fn with_beta(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "Expansion coefficient beta must be greater than 1".to_string(),
+            ));
+        }
+        if value <= self.alpha {
+            return Err(GaneshError::ConfigError(format!(
+                "Expansion coefficient beta must be greater than reflection coefficient alpha ({})",
+                self.alpha
+            )));
+        }
         self.beta = value;
-        self
+        Ok(self)
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\alpha <= 0`$, $`\beta <= 1`$, or $`\beta <= \alpha`$.
-    pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> Self {
-        assert!(alpha > 0.0);
-        assert!(beta > 1.0);
-        assert!(beta > alpha);
+    pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> GaneshResult<Self> {
+        if alpha <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Reflection coefficient alpha must be greater than 0".to_string(),
+            ));
+        }
+        if beta <= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "Expansion coefficient beta must be greater than 1".to_string(),
+            ));
+        }
+        if beta <= alpha {
+            return Err(GaneshError::ConfigError(
+                "Expansion coefficient beta must be greater than reflection coefficient alpha"
+                    .to_string(),
+            ));
+        }
         self.alpha = alpha;
         self.beta = beta;
-        self
+        Ok(self)
     }
     /// Set the contraction coefficient $`\gamma`$ (default = `0.5`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\gamma >= 1`$ or $`\gamma <= 0`$.
-    pub fn with_gamma(mut self, value: Float) -> Self {
-        assert!(value > 0.0);
-        assert!(value < 1.0);
+    pub fn with_gamma(mut self, value: Float) -> GaneshResult<Self> {
+        if value >= 1.0 || value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Contraction coefficient gamma must be in (0, 1)".to_string(),
+            ));
+        }
         self.gamma = value;
-        self
+        Ok(self)
     }
     /// Set the shrink coefficient $`\delta`$ (default = `0.5`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\delta >= 1`$ or $`\delta <= 0`$.
-    pub fn with_delta(mut self, value: Float) -> Self {
-        assert!(value > 0.0);
-        assert!(value < 1.0);
+    pub fn with_delta(mut self, value: Float) -> GaneshResult<Self> {
+        if value >= 1.0 || value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Shrink coefficient delta must be in (0, 1)".to_string(),
+            ));
+        }
         self.delta = value;
-        self
+        Ok(self)
     }
     /// A set of adaptive hyperparameters according to Gao and Han[^1]. This method, dubbed ANMS
     /// for Adaptive Nelder-Mead Simplex, is identical to the Standard Nelder-Mead Simplex (SNMS)
@@ -687,13 +715,18 @@ impl NelderMeadConfig {
     /// **Table 4** in the paper for more details).
     ///
     /// [^1]: [Gao, F., Han, L. Implementing the Nelder-Mead simplex algorithm with adaptive parameters. *Comput Optim Appl* **51**, 259–277 (2012).](https://doi.org/10.1007/s10589-010-9329-3)
-    pub fn with_adaptive(mut self, n: usize) -> Self {
+    pub fn with_adaptive(mut self, n: usize) -> GaneshResult<Self> {
+        if n < 1 {
+            return Err(GaneshError::ConfigError(
+                "Adaptive hyperparameters requires input dimension >= 1".to_string(),
+            ));
+        }
         let n = n as Float;
         self.alpha = 1.0;
         self.beta = 1.0 + (2.0 / n);
         self.gamma = 0.75 - 1.0 / (2.0 * n);
         self.delta = 1.0 - 1.0 / n;
-        self
+        Ok(self)
     }
     /// Set the [`SimplexExpansionMethod`].
     pub const fn with_expansion_method(mut self, method: SimplexExpansionMethod) -> Self {
@@ -1063,7 +1096,9 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(starting_value).with_adaptive(2),
+                    NelderMeadConfig::new(starting_value)
+                        .with_adaptive(2)
+                        .unwrap(),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -1301,7 +1336,7 @@ mod tests {
     #[test]
     fn adaptive_parameters_match_gao_han() {
         // For n=2, ANMS sets: alpha=1, beta=1+2/n=2, gamma=0.75-1/(2n)=0.5, delta=1-1/n=0.5
-        let cfg = NelderMeadConfig::new([1.0, 1.0]).with_adaptive(2);
+        let cfg = NelderMeadConfig::new([1.0, 1.0]).with_adaptive(2).unwrap();
         assert_relative_eq!(cfg.alpha, 1.0);
         assert_relative_eq!(cfg.beta, 2.0);
         assert_relative_eq!(cfg.gamma, 0.5);
@@ -1331,18 +1366,20 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_panics_on_nonpositive() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha(0.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha(0.0).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_beta_panics_when_not_gt_one() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_beta(1.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_beta(1.0).unwrap();
     }
 
     #[test]
     fn with_alpha_beta_sets_values() {
-        let nmc = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.1, 2.2);
+        let nmc = NelderMeadConfig::new([1.0, 1.0])
+            .with_alpha_beta(1.1, 2.2)
+            .unwrap();
         assert_eq!(nmc.alpha, 1.1);
         assert_eq!(nmc.beta, 2.2);
     }
@@ -1350,19 +1387,25 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_alpha_nonpositive() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.0, 2.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0])
+            .with_alpha_beta(0.0, 2.0)
+            .unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_beta_not_gt_one() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.5, 1.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0])
+            .with_alpha_beta(0.5, 1.0)
+            .unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.6, 1.5);
+        let _ = NelderMeadConfig::new([1.0, 1.0])
+            .with_alpha_beta(1.6, 1.5)
+            .unwrap();
     }
 
     #[test]
@@ -1370,21 +1413,23 @@ mod tests {
     fn with_beta_panics_when_not_gt_alpha() {
         let _ = NelderMeadConfig::new([1.0, 1.0])
             .with_alpha(1.5)
-            .with_beta(1.4);
+            .unwrap()
+            .with_beta(1.4)
+            .unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_gamma_panics_if_not_in_unit() {
         // gamma must be in (0,1)
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_gamma(0.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_gamma(0.0).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_delta_panics_if_not_in_unit() {
         // delta must be in (0,1)
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_delta(1.0);
+        let _ = NelderMeadConfig::new([1.0, 1.0]).with_delta(1.0).unwrap();
     }
 
     #[test]

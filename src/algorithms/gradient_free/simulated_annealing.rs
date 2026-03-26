@@ -1,6 +1,7 @@
 use crate::{
     Float,
     core::{Callbacks, Point, SimulatedAnnealingSummary, utils::SampleFloat},
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
 };
 use serde::{Deserialize, Serialize};
@@ -79,12 +80,22 @@ impl Default for SimulatedAnnealingConfig {
 }
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub const fn new(initial_temperature: Float, cooling_rate: Float) -> Self {
-        Self {
+    pub fn new(initial_temperature: Float, cooling_rate: Float) -> GaneshResult<Self> {
+        if initial_temperature <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Initial temperature must be greater than 0".to_string(),
+            ));
+        }
+        if cooling_rate <= 0.0 || cooling_rate >= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "Cooling rate must be in (0, 1)".to_string(),
+            ));
+        }
+        Ok(Self {
             transform: None,
             initial_temperature,
             cooling_rate,
-        }
+        })
     }
 }
 impl SupportsTransform for SimulatedAnnealingConfig {
@@ -317,6 +328,7 @@ mod tests {
                 &problem,
                 &(),
                 SimulatedAnnealingConfig::new(1.0, 0.999)
+                    .unwrap()
                     .with_transform(&Bounds::from([(-5.0, 5.0), (-5.0, 5.0)])),
                 SimulatedAnnealing::default_callbacks(),
             )

@@ -225,6 +225,9 @@ pub mod algorithms;
 /// Module containing standard functions for testing algorithms.
 pub mod test_functions;
 
+/// Module containing `ganesh`-wide error types
+pub mod error;
+
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(not(feature = "f32"))]
 pub type Float = f64;

@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use ganesh::{
     algorithms::gradient_free::{
-        nelder_mead::{NelderMeadConfig, SimplexConstructionMethod},
         NelderMead,
+        nelder_mead::{NelderMeadConfig, SimplexConstructionMethod},
     },
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
@@ -38,7 +38,8 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
                 let base_cfg = NelderMeadConfig::new_with_method(
                     SimplexConstructionMethod::orthogonal(vec![5.0; *ndim]),
                 )
-                .with_adaptive(*ndim);
+                .with_adaptive(*ndim)
+                .unwrap();
                 b.iter_batched(
                     || {
                         let problem = Rosenbrock { n: *ndim };

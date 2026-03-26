@@ -5,6 +5,7 @@ use crate::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
     },
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
 };
 use fastrand::Rng;
@@ -43,20 +44,52 @@ impl ESSMove {
         (Self::Gaussian, weight)
     }
     /// Create a new [`ESSMove::Global`] with a usage weight
-    pub fn global(
+    pub fn global(weight: Float) -> WeightedESSMove {
+        (
+            Self::Global {
+                scale: 1.0,
+                rescale_cov: 0.001,
+                n_components: 5,
+            },
+            weight,
+        )
+    }
+    /// Create a new [`ESSMove::Global`] with a usage weight and custom hyperparameters
+    pub fn custom_global(
         weight: Float,
         scale: Option<Float>,
         rescale_cov: Option<Float>,
         n_components: Option<usize>,
-    ) -> WeightedESSMove {
-        (
+    ) -> GaneshResult<WeightedESSMove> {
+        if let Some(scale) = scale {
+            if scale <= 0.0 {
+                return Err(GaneshError::ConfigError(
+                    "scale must be greater than 0".to_string(),
+                ));
+            }
+        }
+        if let Some(rescale_cov) = rescale_cov {
+            if rescale_cov <= 0.0 {
+                return Err(GaneshError::ConfigError(
+                    "rescale_cov must be greater than 0".to_string(),
+                ));
+            }
+        }
+        if let Some(n_components) = n_components {
+            if n_components < 2 {
+                return Err(GaneshError::ConfigError(
+                    "n_components must be greater than 1".to_string(),
+                ));
+            }
+        }
+        Ok((
             Self::Global {
                 scale: scale.unwrap_or(1.0),
                 rescale_cov: rescale_cov.unwrap_or(0.001),
                 n_components: n_components.unwrap_or(5),
             },
             weight,
-        )
+        ))
     }
     #[allow(clippy::too_many_arguments)]
     fn step<P, U, E>(
@@ -270,9 +303,14 @@ impl ESSConfig {
         self
     }
     /// Set the adaptive scaling parameter, $`\mu`$ (default: `1.0`)
-    pub const fn with_mu(mut self, mu: Float) -> Self {
+    pub fn with_mu(mut self, mu: Float) -> GaneshResult<Self> {
+        if mu <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Adaptive scaling parameter must be greater than 0".to_string(),
+            ));
+        }
         self.mu = mu;
-        self
+        Ok(self)
     }
 }
 
@@ -923,7 +961,7 @@ mod tests {
         let g = ESSMove::gaussian(1.0);
         assert!(matches!(g.0, ESSMove::Gaussian));
 
-        let gl = ESSMove::global(2.0, None, None, None);
+        let gl = ESSMove::global(2.0);
         if let ESSMove::Global {
             scale,
             rescale_cov,
@@ -954,7 +992,8 @@ mod tests {
             .with_moves(&moves)
             .with_n_adaptive(5)
             .with_max_steps(42)
-            .with_mu(4.1);
+            .with_mu(4.1)
+            .unwrap();
 
         assert_eq!(cfg.moves.len(), 2);
         assert_eq!(cfg.n_adaptive, 5);
@@ -1009,12 +1048,9 @@ mod tests {
     fn test_global_step_runs() {
         let mut ess = ESS::default();
         let walkers = make_walkers(100, 2);
-        let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::global(
-            1.0,
-            Some(1.0),
-            Some(0.001),
-            Some(3),
-        )]);
+        let cfg = ESSConfig::new(walkers).with_moves(vec![
+            ESSMove::custom_global(1.0, Some(1.0), Some(0.001), Some(3)).unwrap(),
+        ]);
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 

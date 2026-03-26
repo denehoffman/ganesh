@@ -1,9 +1,9 @@
 use fastrand::Rng;
 use ganesh::{
-    algorithms::mcmc::{ess::ESSConfig, AutocorrelationTerminator, ESSMove, ESS},
-    core::{utils::SampleFloat, Callbacks, MaxSteps},
-    traits::{Algorithm, LogDensity},
     DMatrix, DVector, Float,
+    algorithms::mcmc::{AutocorrelationTerminator, ESS, ESSMove, ess::ESSConfig},
+    core::{Callbacks, MaxSteps, utils::SampleFloat},
+    traits::{Algorithm, LogDensity},
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &cov_inv,
         ESSConfig::new(x0.clone()).with_moves([
             ESSMove::gaussian(0.1),
-            ESSMove::global(0.7, None, Some(0.5), Some(4)),
+            ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
             ESSMove::differential(0.2),
         ]),
         Callbacks::empty()

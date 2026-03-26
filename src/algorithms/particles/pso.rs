@@ -2,6 +2,7 @@ use crate::{
     DMatrix, DVector, Float,
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{Bounds, MinimizationSummary, utils::generate_random_vector},
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
 };
 use fastrand::Rng;
@@ -30,37 +31,37 @@ impl PSOConfig {
         }
     }
     /// Sets the inertial weight $`\omega`$ (default = `0.8`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\omega < 0`$.
-    pub fn with_omega(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
+    pub fn with_omega(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Inertial weight must be greater than 0".to_string(),
+            ));
+        }
         self.omega = value;
-        self
+        Ok(self)
     }
     /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
     /// to move towards its personal best (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_1 < 0`$.
-    pub fn with_c1(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
+    pub fn with_c1(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Cognitive weight must be greater than 0".to_string(),
+            ));
+        }
         self.c1 = value;
-        self
+        Ok(self)
     }
     /// Sets the social weight $`c_2`$ which controls the particle's tendency
     /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
     /// (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_2 < 0`$.
-    pub fn with_c2(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
+    pub fn with_c2(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Social weight must be greater than 0".to_string(),
+            ));
+        }
         self.c2 = value;
-        self
+        Ok(self)
     }
 }
 impl SupportsBounds for PSOConfig {
@@ -311,8 +312,11 @@ mod tests {
                     n_particles: 50,
                 }))
                 .with_c1(0.1)
+                .unwrap()
                 .with_c2(0.1)
-                .with_omega(0.8),
+                .unwrap()
+                .with_omega(0.8)
+                .unwrap(),
                 callbacks,
             )
             .unwrap();

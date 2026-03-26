@@ -2,6 +2,7 @@ use crate::{
     DMatrix, DVector, Float,
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Bounds, Callbacks, MinimizationSummary},
+    error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, Bound, CostFunction, Gradient, LineSearch, SupportsBounds, SupportsTransform,
         Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
@@ -19,13 +20,24 @@ use std::ops::ControlFlow;
 #[derive(Clone)]
 pub struct LBFGSBFTerminator {
     /// The absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
-    pub eps_abs: Float,
+    eps_abs: Float,
 }
 impl Default for LBFGSBFTerminator {
     fn default() -> Self {
         Self {
             eps_abs: Float::sqrt(Float::EPSILON),
         }
+    }
+}
+impl LBFGSBFTerminator {
+    /// Generate a new [`LBFGSBFTerminator`] with a given absolute tolerance.
+    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
+        if eps_abs <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "eps_abs must be greater than 0".to_string(),
+            ));
+        }
+        Ok(Self { eps_abs })
     }
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
@@ -59,13 +71,25 @@ where
 #[derive(Clone)]
 pub struct LBFGSBGTerminator {
     /// The absolute g-convergence tolerance (default = `MACH_EPS^(1/3)`).
-    pub eps_abs: Float,
+    eps_abs: Float,
 }
 impl Default for LBFGSBGTerminator {
     fn default() -> Self {
         Self {
             eps_abs: Float::cbrt(Float::EPSILON),
         }
+    }
+}
+
+impl LBFGSBGTerminator {
+    /// Generate a new [`LBFGSBGTerminator`] with a given absolute tolerance.
+    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
+        if eps_abs <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "eps_abs must be greater than 0".to_string(),
+            ));
+        }
+        Ok(Self { eps_abs })
     }
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
@@ -101,6 +125,17 @@ impl Default for LBFGSBInfNormGTerminator {
         Self {
             eps_abs: Float::cbrt(Float::EPSILON),
         }
+    }
+}
+impl LBFGSBInfNormGTerminator {
+    /// Generate a new [`LBFGSBInfNormGTerminator`] with a given absolute tolerance.
+    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
+        if eps_abs <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "eps_abs must be greater than 0".to_string(),
+            ));
+        }
+        Ok(Self { eps_abs })
     }
 }
 impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
@@ -174,9 +209,14 @@ impl LBFGSBConfig {
     }
     /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
-    pub const fn with_memory_limit(mut self, limit: usize) -> Self {
+    pub fn with_memory_limit(mut self, limit: usize) -> GaneshResult<Self> {
+        if limit < 1 {
+            return Err(GaneshError::ConfigError(
+                "Memory limit must be at least 1".to_string(),
+            ));
+        }
         self.m = limit;
-        self
+        Ok(self)
     }
     /// Set the line search algorithm to use (default = [`StrongWolfeLineSearch::default`]).
     pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {

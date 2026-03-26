@@ -1,11 +1,12 @@
 use crate::{
+    DMatrix, DVector, Float,
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MinimizationSummary},
+    error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, CostFunction, Gradient, SupportsTransform, Terminator, Transform,
         TransformedProblem,
     },
-    DMatrix, DVector, Float,
 };
 use std::ops::ControlFlow;
 
@@ -90,31 +91,51 @@ impl AdamConfig {
         }
     }
     /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
-    pub const fn with_alpha(mut self, value: Float) -> Self {
+    pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Initial learning rate must be positive and greater than 0".to_string(),
+            ));
+        }
         self.alpha = value;
-        self
+        Ok(self)
     }
     /// Set the value for the hyperparameter $`\beta_1`$ (default = `0.9`).
     ///
     /// This represents the exponential decay rate of the first moment estimate, $`m`$.
-    pub const fn with_beta_1(mut self, value: Float) -> Self {
+    pub fn with_beta_1(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 || value >= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "beta_1 must be in the range [0, 1)".to_string(),
+            ));
+        }
         self.beta_1 = value;
-        self
+        Ok(self)
     }
     /// Set the value for the hyperparameter $`\beta_2`$ (default = `0.999`).
     ///
     /// This represents the exponential decay rate of the second moment estimate, $`v`$.
-    pub const fn with_beta_2(mut self, value: Float) -> Self {
+    pub fn with_beta_2(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 || value >= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "beta_2 must be in the range [0, 1)".to_string(),
+            ));
+        }
         self.beta_2 = value;
-        self
+        Ok(self)
     }
     /// Set the value for the divide-by-zero tolerance in the update step (default = `1e-8`).
     ///
     /// This ensures the update does not divide by zero if the bias-corrected second raw moment
     /// estimate is zero for any parameter.
-    pub const fn with_epsilon(mut self, value: Float) -> Self {
+    pub fn with_epsilon(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Divide-by-zero tolerance must be positive and greater than 0".to_string(),
+            ));
+        }
         self.epsilon = value;
-        self
+        Ok(self)
     }
 }
 impl SupportsTransform for AdamConfig {
