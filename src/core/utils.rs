@@ -1,4 +1,4 @@
-use crate::{DMatrix, DVector, Float};
+use crate::{DMatrix, DVector, Float, error::{GaneshError, GaneshResult}};
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use nalgebra::Cholesky;
@@ -66,13 +66,21 @@ pub trait SampleFloat {
     fn float(&mut self) -> Float;
     /// Get a random Normal value
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
+    /// Get a random value from a multivariate Normal distribution, returning an error if the
+    /// covariance matrix is not positive definite.
+    fn try_mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> GaneshResult<DVector<Float>> {
+        let cholesky = Cholesky::new(cov.clone()).ok_or_else(|| {
+            GaneshError::NumericalError("Covariance matrix is not positive definite".to_string())
+        })?;
+        let a = cholesky.l();
+        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
+        Ok(mu + a * z)
+    }
     /// Get a random value from a multivariate Normal distribution
     #[allow(clippy::expect_used)]
     fn mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> DVector<Float> {
-        let cholesky = Cholesky::new(cov.clone()).expect("Covariance matrix not positive definite");
-        let a = cholesky.l();
-        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
-        mu + a * z
+        self.try_mv_normal(mu, cov)
+            .expect("Covariance matrix not positive definite")
     }
 }
 impl SampleFloat for Rng {
@@ -328,6 +336,18 @@ mod tests {
         let mu = DVector::from_vec(vec![0.0, 0.0]);
         let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, -1.0]);
         let _ = rng.mv_normal(&mu, &cov);
+    }
+
+    #[test]
+    fn test_try_mv_normal_returns_numerical_error() {
+        let mut rng = Rng::with_seed(42);
+        let mu = DVector::from_vec(vec![0.0, 0.0]);
+        let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, -1.0]);
+
+        let err = rng.try_mv_normal(&mu, &cov).unwrap_err();
+
+        assert!(matches!(err, GaneshError::NumericalError(_)));
+        assert!(err.to_string().contains("not positive definite"));
     }
 
     fn reset_globals() {
