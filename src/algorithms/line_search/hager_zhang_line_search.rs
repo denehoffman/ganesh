@@ -1,8 +1,8 @@
 use crate::{
+    DVector, Float,
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
-    DVector, Float,
+    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
 };
 
 /// The line search algorithm from Hager and Zhang (2006)[^1].
@@ -141,6 +141,17 @@ impl HagerZhangLineSearch {
         status.inc_n_g_evals();
         func.gradient(x, args)
     }
+    fn f_g_eval<U, E>(
+        &self,
+        func: &dyn Gradient<U, E>,
+        x: &DVector<Float>,
+        args: &U,
+        status: &mut GradientStatus,
+    ) -> Result<(Float, DVector<Float>), E> {
+        status.inc_n_f_evals();
+        status.inc_n_g_evals();
+        func.evaluate_with_gradient(x, args)
+    }
 }
 
 impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
@@ -160,12 +171,15 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         let dphi_vec = |alpha: Float, st: &mut GradientStatus| -> Result<DVector<Float>, E> {
             self.g_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
+        let phi_dphi_vec =
+            |alpha: Float, st: &mut GradientStatus| -> Result<(Float, DVector<Float>), E> {
+                self.f_g_eval(problem, &(x0 + p.scale(alpha)), args, st)
+            };
         let dphi = |dphi_vec: &DVector<Float>| -> Float { dphi_vec.dot(p) };
         let secant = |a: Float, dphi_a: Float, b: Float, dphi_b: Float| -> Float {
             a.mul_add(dphi_b, -(b * dphi_a)) / (dphi_b - dphi_a)
         };
-        let phi_0 = phi(0.0, status)?;
-        let g_0 = dphi_vec(0.0, status)?;
+        let (phi_0, g_0) = phi_dphi_vec(0.0, status)?;
         let dphi_0 = dphi(&g_0);
         let epsilon_k = self.epsilon * phi_0.abs();
         let update =
@@ -266,8 +280,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         let mut b_k = max_step.unwrap_or(1e5);
         let mut i = 0;
         loop {
-            let phi_a_k = phi(a_k, status)?;
-            let g_a_k = dphi_vec(a_k, status)?;
+            let (phi_a_k, g_a_k) = phi_dphi_vec(a_k, status)?;
             let dphi_a_k = dphi(&g_a_k);
             if check(a_k, phi_a_k, dphi_a_k) {
                 return Ok(Ok(LineSearchOutput {
@@ -276,8 +289,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
                     g: g_a_k,
                 }));
             }
-            let phi_b_k = phi(b_k, status)?;
-            let g_b_k = dphi_vec(b_k, status)?;
+            let (phi_b_k, g_b_k) = phi_dphi_vec(b_k, status)?;
             let dphi_b_k = dphi(&g_b_k);
             if check(b_k, phi_b_k, dphi_b_k) {
                 return Ok(Ok(LineSearchOutput {

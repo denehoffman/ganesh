@@ -36,6 +36,23 @@ pub trait GenericGradient<U = (), E = Infallible>: GenericCostFunction<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. See [`GenericCostFunction::evaluate_generic`] for more
     /// information.
     fn gradient_generic(&self, x: &Self::Input, args: &U) -> Result<DVector<Float>, E>;
+    /// The evaluation of both the function and its gradient at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if either evaluation fails. See
+    /// [`GenericCostFunction::evaluate_generic`] for more information.
+    fn evaluate_with_gradient_generic(
+        &self,
+        x: &Self::Input,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>), E> {
+        Ok((
+            self.evaluate_generic(x, args)?,
+            self.gradient_generic(x, args)?,
+        ))
+    }
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -43,6 +60,55 @@ pub trait GenericGradient<U = (), E = Infallible>: GenericCostFunction<U, E> {
     /// Returns an `Err(E)` if the evaluation fails. See [`GenericCostFunction::evaluate_generic`] for more
     /// information.
     fn hessian_generic(&self, x: &Self::Input, args: &U) -> Result<DMatrix<Float>, E>;
+    /// The evaluation of both the function and its hessian at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if either evaluation fails. See
+    /// [`GenericCostFunction::evaluate_generic`] for more information.
+    fn evaluate_with_hessian_generic(
+        &self,
+        x: &Self::Input,
+        args: &U,
+    ) -> Result<(Float, DMatrix<Float>), E> {
+        Ok((
+            self.evaluate_generic(x, args)?,
+            self.hessian_generic(x, args)?,
+        ))
+    }
+    /// The evaluation of both the gradient and hessian at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if either evaluation fails. See
+    /// [`GenericCostFunction::evaluate_generic`] for more information.
+    fn gradient_with_hessian_generic(
+        &self,
+        x: &Self::Input,
+        args: &U,
+    ) -> Result<(DVector<Float>, DMatrix<Float>), E> {
+        Ok((
+            self.gradient_generic(x, args)?,
+            self.hessian_generic(x, args)?,
+        ))
+    }
+    /// The evaluation of the function, gradient, and hessian at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any evaluation fails. See
+    /// [`GenericCostFunction::evaluate_generic`] for more information.
+    fn evaluate_with_gradient_and_hessian_generic(
+        &self,
+        x: &Self::Input,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>, DMatrix<Float>), E> {
+        let (v, g) = self.evaluate_with_gradient_generic(x, args)?;
+        Ok((v, g, self.hessian_generic(x, args)?))
+    }
 }
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$
@@ -93,7 +159,20 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
         }
         Ok(grad)
     }
-
+    /// The evaluation of both the function and its gradient at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if either evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
+    fn evaluate_with_gradient(
+        &self,
+        x: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>), E> {
+        Ok((self.evaluate(x, args)?, self.gradient(x, args)?))
+    }
     /// The evaluation of the hessian at a point `x` with the given arguments/user data.
     ///
     /// # Errors
@@ -130,6 +209,35 @@ pub trait Gradient<U = (), E = Infallible>: CostFunction<U, E> {
         }
         Ok(hess)
     }
+    /// The evaluation of both the gradient and hessian at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if either evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
+    fn gradient_with_hessian(
+        &self,
+        x: &DVector<Float>,
+        args: &U,
+    ) -> Result<(DVector<Float>, DMatrix<Float>), E> {
+        Ok((self.gradient(x, args)?, self.hessian(x, args)?))
+    }
+    /// The evaluation of the function, gradient, and hessian at a point `x` with the given
+    /// arguments/user data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any evaluation fails. See [`CostFunction::evaluate`] for more
+    /// information.
+    fn evaluate_with_gradient_and_hessian(
+        &self,
+        x: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>, DMatrix<Float>), E> {
+        let (v, g) = self.evaluate_with_gradient(x, args)?;
+        Ok((v, g, self.hessian(x, args)?))
+    }
 }
 
 /// A trait which describes a function $`f(\mathbb{R}^n) \to \mathbb{R}`$ representing the natural
@@ -154,8 +262,8 @@ pub trait LogDensity<U = (), E = Infallible> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{CostFunction, Gradient},
         DVector, Float,
+        traits::{CostFunction, Gradient},
     };
     use approx::assert_relative_eq;
     use std::convert::Infallible;

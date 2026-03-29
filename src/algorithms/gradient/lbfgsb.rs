@@ -4,8 +4,8 @@ use crate::{
     core::{Bounds, Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, Bound, CostFunction, Gradient, LineSearch, Status, SupportsBounds,
-        SupportsTransform, Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
+        Algorithm, Bound, Gradient, LineSearch, Status, SupportsBounds, SupportsTransform,
+        Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
     },
 };
 use nalgebra::{Dyn, LU};
@@ -566,11 +566,10 @@ where
             }
         });
         let t_problem = TransformedProblem::new(problem, &config.transform);
-        self.g = t_problem.gradient(&self.x, args)?;
-        status.inc_n_g_evals();
-        self.f = t_problem.evaluate(&self.x, args)?;
-        status.initialize((config.transform.to_owned_external(&self.x), self.f));
+        (self.f, self.g) = t_problem.evaluate_with_gradient(&self.x, args)?;
         status.inc_n_f_evals();
+        status.inc_n_g_evals();
+        status.initialize((config.transform.to_owned_external(&self.x), self.f));
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = None;
         Ok(())
@@ -635,8 +634,7 @@ where
         match config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
                 let t_problem = TransformedProblem::new(problem, &config.transform);
-                let g_int = t_problem.gradient(&self.x, args)?;
-                let h_int = t_problem.hessian(&self.x, args)?;
+                let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
                 let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
                 status.set_hess(&hessian);
             }

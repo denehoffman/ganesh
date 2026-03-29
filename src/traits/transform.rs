@@ -4,8 +4,8 @@ use dyn_clone::DynClone;
 use nalgebra::{DMatrix, DVector, LU};
 
 use crate::{
-    traits::{CostFunction, Gradient},
     Float,
+    traits::{CostFunction, Gradient},
 };
 
 /// A trait used to define a change of basis.
@@ -371,10 +371,48 @@ where
         Ok(self.t.pullback_gradient(z, &gy))
     }
     #[inline]
+    fn evaluate_with_gradient(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>), E> {
+        let y = self.t.to_external(z);
+        let (v, gy) = self.f.evaluate_with_gradient(y.as_ref(), args)?;
+        Ok((v, self.t.pullback_gradient(z, &gy)))
+    }
+    #[inline]
     fn hessian(&self, z: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
         let y = self.t.to_external(z);
-        let gy = self.f.gradient(y.as_ref(), args)?;
-        let hy = self.f.hessian(y.as_ref(), args)?;
+        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
         Ok(self.t.pullback_hessian(z, &gy, &hy))
+    }
+    #[inline]
+    fn gradient_with_hessian(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(DVector<Float>, DMatrix<Float>), E> {
+        let y = self.t.to_external(z);
+        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
+        Ok((
+            self.t.pullback_gradient(z, &gy),
+            self.t.pullback_hessian(z, &gy, &hy),
+        ))
+    }
+    #[inline]
+    fn evaluate_with_gradient_and_hessian(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>, DMatrix<Float>), E> {
+        let y = self.t.to_external(z);
+        let (v, gy, hy) = self
+            .f
+            .evaluate_with_gradient_and_hessian(y.as_ref(), args)?;
+        Ok((
+            v,
+            self.t.pullback_gradient(z, &gy),
+            self.t.pullback_hessian(z, &gy, &hy),
+        ))
     }
 }

@@ -1,8 +1,8 @@
 use crate::{
+    DVector, Float,
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
-    DVector, Float,
+    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
 };
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical
@@ -101,6 +101,18 @@ impl MoreThuenteLineSearch {
         status.inc_n_g_evals();
         func.gradient(x, args)
     }
+    fn f_g_eval<U, E>(
+        &self,
+        func: &dyn Gradient<U, E>,
+        x: &DVector<Float>,
+        args: &U,
+        status: &mut GradientStatus,
+    ) -> Result<(Float, DVector<Float>), E> {
+        status.inc_n_f_evals();
+        status.inc_n_g_evals();
+        func.evaluate_with_gradient(x, args)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
@@ -175,8 +187,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
-        let f0 = self.f_eval(problem, x0, args, status)?;
-        let g0 = self.g_eval(problem, x0, args, status)?;
+        let (f0, g0) = self.f_g_eval(problem, x0, args, status)?;
         let alpha_max = max_step.unwrap_or(1.0); // TODO: 1e5?
         let mut alpha_im1 = 0.0;
         let mut alpha_i = 1.0;
