@@ -1,6 +1,6 @@
 use crate::{
     DMatrix, DVector, Float, PI,
-    algorithms::mcmc::{EnsembleStatus, Walker},
+    algorithms::mcmc::{EnsembleStatus, Walker, validate_weighted_moves},
     core::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
@@ -290,9 +290,13 @@ impl ESSConfig {
         }
     }
     /// Set the moves for the [`ESS`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> Self {
+    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> GaneshResult<Self> {
+        validate_weighted_moves(
+            &moves.as_ref().iter().map(|move_weight| move_weight.1).collect::<Vec<_>>(),
+            "ESS",
+        )?;
         self.moves = moves.as_ref().to_vec();
-        self
+        Ok(self)
     }
     /// Set the number of adaptive moves to perform at the start of sampling (default: `0`)
     pub const fn with_n_adaptive(mut self, n_adaptive: usize) -> Self {
@@ -381,7 +385,7 @@ where
         let step_type_index = self
             .rng
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .unwrap_or(0);
+            .expect("ESS move weights should be validated by ESSConfig::with_moves");
         let step_type = config.moves[step_type_index].0;
         step_type.step(
             current_step,
@@ -1003,6 +1007,7 @@ mod tests {
         let moves = vec![ESSMove::gaussian(1.0), ESSMove::differential(1.0)];
         let cfg = cfg
             .with_moves(&moves)
+            .unwrap()
             .with_n_adaptive(5)
             .with_max_steps(42)
             .with_mu(4.1)
@@ -1012,6 +1017,34 @@ mod tests {
         assert_eq!(cfg.n_adaptive, 5);
         assert_eq!(cfg.max_steps, 42);
         assert!((cfg.mu - 4.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_ess_rejects_invalid_move_weights() {
+        let walkers = make_walkers(3, 2);
+
+        let err = match ESSConfig::new(walkers.clone())
+            .with_moves([ESSMove::gaussian(-1.0), ESSMove::differential(1.0)])
+        {
+            Err(err) => err,
+            Ok(_) => panic!("negative ESS move weights should be rejected"),
+        };
+        assert!(err.to_string().contains("finite and non-negative"));
+
+        let err = match ESSConfig::new(walkers.clone()).with_moves(Vec::<WeightedESSMove>::new()) {
+            Err(err) => err,
+            Ok(_) => panic!("empty ESS move lists should be rejected"),
+        };
+        assert!(err.to_string().contains("must not be empty"));
+
+        let err = match ESSConfig::new(walkers).with_moves([
+            ESSMove::gaussian(0.0),
+            ESSMove::differential(0.0),
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("zero-sum ESS move weights should be rejected"),
+        };
+        assert!(err.to_string().contains("sum to a positive finite value"));
     }
 
     #[test]
@@ -1049,7 +1082,9 @@ mod tests {
     fn test_gaussian_step_runs() {
         let mut ess = ESS::default();
         let walkers = make_walkers(6, 2);
-        let cfg = ESSConfig::new(walkers).with_moves(vec![ESSMove::gaussian(1.0)]);
+        let cfg = ESSConfig::new(walkers)
+            .with_moves(vec![ESSMove::gaussian(1.0)])
+            .unwrap();
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 
@@ -1063,9 +1098,11 @@ mod tests {
     fn test_global_step_runs() {
         let mut ess = ESS::default();
         let walkers = make_walkers(100, 2);
-        let cfg = ESSConfig::new(walkers).with_moves(vec![
-            ESSMove::custom_global(1.0, Some(1.0), Some(0.001), Some(3)).unwrap(),
-        ]);
+        let cfg = ESSConfig::new(walkers)
+            .with_moves(vec![
+                ESSMove::custom_global(1.0, Some(1.0), Some(0.001), Some(3)).unwrap(),
+            ])
+            .unwrap();
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 

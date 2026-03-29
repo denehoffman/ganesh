@@ -1,6 +1,6 @@
 use crate::{
     DVector, Float,
-    algorithms::mcmc::{EnsembleStatus, Walker},
+    algorithms::mcmc::{EnsembleStatus, Walker, validate_weighted_moves},
     core::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat},
@@ -179,9 +179,13 @@ impl AIESConfig {
         }
     }
     /// Set the moves for the [`AIES`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> Self {
+    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> GaneshResult<Self> {
+        validate_weighted_moves(
+            &moves.as_ref().iter().map(|move_weight| move_weight.1).collect::<Vec<_>>(),
+            "AIES",
+        )?;
         self.moves = moves.as_ref().to_vec();
-        self
+        Ok(self)
     }
 }
 
@@ -242,7 +246,7 @@ where
         let step_type_index = self
             .rng
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .unwrap_or(0);
+            .expect("AIES move weights should be validated by AIESConfig::with_moves");
         let step_type = config.moves[step_type_index].0;
         step_type.step(problem, &config.transform, args, status, &mut self.rng)
     }
@@ -303,10 +307,34 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(0.5), AIESMove::walk(0.5)];
 
-        let config = AIESConfig::new(walkers.clone()).with_moves(moves.clone());
+        let config = AIESConfig::new(walkers.clone())
+            .with_moves(moves.clone())
+            .unwrap();
 
         assert_eq!(config.walkers.len(), walkers.len());
         assert_eq!(config.moves.len(), moves.len());
+    }
+
+    #[test]
+    fn test_aies_rejects_invalid_move_weights() {
+        let walkers = make_walkers(3, 2);
+
+        let err = match AIESConfig::new(walkers.clone())
+            .with_moves([AIESMove::stretch(-1.0), AIESMove::walk(1.0)])
+        {
+            Err(err) => err,
+            Ok(_) => panic!("negative AIES move weights should be rejected"),
+        };
+        assert!(err.to_string().contains("finite and non-negative"));
+
+        let err = match AIESConfig::new(walkers).with_moves([
+            AIESMove::stretch(0.0),
+            AIESMove::walk(0.0),
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("zero-sum AIES move weights should be rejected"),
+        };
+        assert!(err.to_string().contains("sum to a positive finite value"));
     }
 
     #[test]
@@ -350,7 +378,7 @@ mod tests {
 
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
-        let config = AIESConfig::new(walkers).with_moves(moves);
+        let config = AIESConfig::new(walkers).with_moves(moves).unwrap();
 
         let mut status = EnsembleStatus::default();
         aies.initialize(&problem, &mut status, &(), &config)

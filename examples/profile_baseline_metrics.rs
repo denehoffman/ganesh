@@ -165,6 +165,7 @@ fn main() {
                     &(),
                     ESSConfig::new(make_walkers(dim, n_walkers))
                         .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                        .unwrap()
                         .with_n_adaptive(5)
                         .with_max_steps(64),
                     ESS::default_callbacks().with_terminator(MaxSteps(steps)),

@@ -66,6 +66,7 @@ fn main() {
                     &(),
                     ESSConfig::new(x0)
                         .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                        .unwrap()
                         .with_n_adaptive(10)
                         .with_max_steps(128),
                     ESS::default_callbacks().with_terminator(MaxSteps(n_steps)),

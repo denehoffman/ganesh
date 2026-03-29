@@ -49,11 +49,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = sampler.process(
         &problem,
         &cov_inv,
-        ESSConfig::new(x0.clone()).with_moves([
-            ESSMove::gaussian(0.1),
-            ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
-            ESSMove::differential(0.2),
-        ]),
+        ESSConfig::new(x0.clone())
+            .with_moves([
+                ESSMove::gaussian(0.1),
+                ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
+                ESSMove::differential(0.2),
+            ])?,
         Callbacks::empty()
             .with_terminator(aco.clone())
             .with_terminator(MaxSteps(1000)),

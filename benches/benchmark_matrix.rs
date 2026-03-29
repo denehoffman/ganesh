@@ -148,6 +148,7 @@ fn benchmark_ess(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
             let base_cfg = ESSConfig::new(matrix_walkers(ndim))
                 .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                .unwrap()
                 .with_n_adaptive(5)
                 .with_max_steps(64);
             b.iter_batched(

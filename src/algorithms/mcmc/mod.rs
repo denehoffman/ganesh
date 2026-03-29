@@ -1,6 +1,7 @@
 use crate::{
     DVector, Float,
     core::Point,
+    error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Terminator},
 };
 use nalgebra::Complex;
@@ -20,6 +21,26 @@ pub use ess::{ESS, ESSConfig, ESSMove};
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
 pub use ensemble_status::EnsembleStatus;
+
+pub(crate) fn validate_weighted_moves(weights: &[Float], family: &str) -> GaneshResult<()> {
+    if weights.is_empty() {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} move weights must not be empty"
+        )));
+    }
+    if weights.iter().any(|&weight| !weight.is_finite() || weight < 0.0) {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} move weights must be finite and non-negative"
+        )));
+    }
+    let total = weights.iter().sum::<Float>();
+    if !total.is_finite() || total <= 0.0 {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} move weights must sum to a positive finite value"
+        )));
+    }
+    Ok(())
+}
 
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -179,7 +200,7 @@ pub fn integrated_autocorrelation_times(
 /// let mut sampler = ESS::new(Some(1));
 /// let result = sampler.process(&problem, &(),
 /// ESSConfig::new(x0.clone()).with_moves([ESSMove::gaussian(0.1),
-/// ESSMove::differential(0.9)]), Callbacks::empty().with_terminator(aco.clone())).unwrap();
+/// ESSMove::differential(0.9)]).unwrap(), Callbacks::empty().with_terminator(aco.clone())).unwrap();
 ///
 /// println!(
 ///     "Walker 0 Final Position: {}",
@@ -342,7 +363,9 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                ESSConfig::new(x0).with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)]),
+                ESSConfig::new(x0)
+                    .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
+                    .unwrap(),
                 Callbacks::empty().with_terminator(aco.clone()),
             )
             .unwrap();
