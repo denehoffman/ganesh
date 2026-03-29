@@ -265,6 +265,9 @@ impl Bounds {
     }
     /// Check to see if the given vector is contained in a box with the given bounds.
     pub fn contains(&self, vec: &DVector<Float>) -> bool {
+        if vec.len() != self.0.len() {
+            return false;
+        }
         self.0
             .iter()
             .zip(vec.iter())
@@ -627,15 +630,19 @@ mod tests {
         let b1 = Bound::LowerBound(0.0);
         assert!(b1.contains(1.0));
         assert!(!b1.contains(-1.0));
+        assert!(b1.contains(0.0));
         assert_eq!(b1.get_excess(-1.0), -1.0);
 
         let b2 = Bound::UpperBound(5.0);
         assert!(b2.contains(4.0));
         assert!(!b2.contains(6.0));
+        assert!(b2.contains(5.0));
         assert_eq!(b2.get_excess(6.0), 1.0);
 
         let b3 = Bound::LowerAndUpperBound(-1.0, 1.0);
         assert!(b3.contains(0.0));
+        assert!(b3.contains(-1.0));
+        assert!(b3.contains(1.0));
         assert!(!b3.contains(2.0));
     }
 
@@ -663,6 +670,28 @@ mod tests {
 
         assert_eq!(d.len(), bounds.len());
         assert!(bounds.contains(&d));
+    }
+
+    #[test]
+    fn test_bounds_random_with_infinite_endpoints_stays_finite() {
+        let mut rng = Rng::with_seed(0);
+        let bounds: Bounds = vec![
+            Bound::LowerBound(-1.0),
+            Bound::UpperBound(2.0),
+            Bound::NoBound,
+        ]
+        .into();
+
+        let d = bounds.random(&mut rng);
+
+        assert!(d.iter().all(|value| value.is_finite()));
+        assert!(bounds.contains(&d));
+    }
+
+    #[test]
+    fn test_bounds_contains_rejects_dimension_mismatch() {
+        let bounds: Bounds = vec![Bound::LowerAndUpperBound(-1.0, 1.0)].into();
+        assert!(!bounds.contains(&dvector![0.0, 0.0]));
     }
 
     #[test]

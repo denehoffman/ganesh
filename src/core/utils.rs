@@ -17,9 +17,12 @@ pub(crate) fn generate_random_vector_in_limits(
     limits: &[(Float, Float)],
     rng: &mut Rng,
 ) -> DVector<Float> {
+    use crate::traits::Bound;
+
     DVector::from_vec(
-        (0..limits.len())
-            .map(|i| rng.range(limits[i].0, limits[i].1))
+        limits
+            .iter()
+            .map(|&(lower, upper)| Bound::from((lower, upper)).random(rng))
             .collect(),
     )
 }
@@ -234,6 +237,22 @@ mod tests {
         let mut rng = Rng::with_seed(0);
         let weights = vec![0.0, 0.0, 0.0];
         assert_eq!(rng.choice_weighted(&weights), Some(0));
+    }
+
+    #[test]
+    fn test_random_vector_in_limits_handles_infinite_endpoints() {
+        let mut rng = Rng::with_seed(0);
+        let sample = generate_random_vector_in_limits(
+            &[
+                (Float::NEG_INFINITY, 1.0),
+                (-2.0, Float::INFINITY),
+                (Float::NEG_INFINITY, Float::INFINITY),
+            ],
+            &mut rng,
+        );
+        assert!(sample.iter().all(|value| value.is_finite()));
+        assert!(sample[0] <= 1.0);
+        assert!(sample[1] >= -2.0);
     }
 
     #[test]

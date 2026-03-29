@@ -75,15 +75,21 @@ impl Bound {
     }
     /// Get a random value in the bound.
     ///
-    /// This uses the maximum/minimum representable value as
-    /// limits in cases where bounds are infinite.
+    /// This draws finite samples even when one or both endpoints are infinite.
     pub fn random(&self, rng: &mut Rng) -> Float {
-        rng.range(self.lower(), self.upper()) as Float
+        match self.as_options() {
+            (None, None) => rng.normal(0.0, 1.0),
+            (Some(l), None) => l + Float::abs(rng.normal(0.0, 1.0)),
+            (None, Some(u)) => u - Float::abs(rng.normal(0.0, 1.0)),
+            (Some(l), Some(u)) => rng.range(l, u),
+        }
     }
     /// Check to see if the given value is contained in the bound.
     pub fn contains(&self, value: Float) -> bool {
-        !((self.has_upper() && value >= self.upper())
-            || (self.has_lower() && value <= self.lower()))
+        if value.is_nan() {
+            return false;
+        }
+        (!self.has_lower() || value >= self.lower()) && (!self.has_upper() || value <= self.upper())
     }
     /// Get the signed excess from the bound.
     ///
@@ -99,7 +105,8 @@ impl Bound {
     }
     /// Check if the value is near the bounds with a given tolerance.
     pub fn at_bound(&self, value: Float, tol: Float) -> bool {
-        (value - self.upper()).abs() < tol || (value - self.lower()).abs() < tol
+        (self.has_upper() && (value - self.upper()).abs() < tol)
+            || (self.has_lower() && (value - self.lower()).abs() < tol)
     }
     /// Clip a value to be within the bounds.
     pub fn clip_value(&self, value: Float) -> Float {
@@ -157,6 +164,8 @@ dyn_clone::clone_trait_object!(BoundLike);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fastrand::Rng;
+
     #[test]
     fn test_bounds_creation() {
         let bound = Bound::from((None, None));
@@ -192,5 +201,33 @@ mod tests {
         let bound = Bound::from((1.2, -3.4));
         assert_eq!(bound.lower(), -3.4);
         assert_eq!(bound.upper(), 1.2);
+    }
+
+    #[test]
+    fn test_bound_contains_is_inclusive_at_finite_endpoints() {
+        let bounded = Bound::LowerAndUpperBound(-1.0, 1.0);
+        assert!(bounded.contains(-1.0));
+        assert!(bounded.contains(1.0));
+        assert!(!bounded.contains(1.1));
+
+        let lower = Bound::LowerBound(2.0);
+        assert!(lower.contains(2.0));
+
+        let upper = Bound::UpperBound(3.0);
+        assert!(upper.contains(3.0));
+    }
+
+    #[test]
+    fn test_bound_random_with_infinite_endpoints_stays_finite() {
+        let mut rng = Rng::with_seed(0);
+        for bound in [
+            Bound::NoBound,
+            Bound::LowerBound(1.5),
+            Bound::UpperBound(-2.5),
+        ] {
+            let sample = bound.random(&mut rng);
+            assert!(sample.is_finite());
+            assert!(bound.contains(sample));
+        }
     }
 }
