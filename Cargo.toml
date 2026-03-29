@@ -55,6 +55,10 @@ harness = false
 name = "derivatives"
 harness = false
 
+[[bench]]
+name = "benchmark_matrix"
+harness = false
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./docs/docs-header.html"]
 
