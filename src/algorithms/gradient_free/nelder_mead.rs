@@ -3,6 +3,7 @@ use crate::{
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
+    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
         Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Terminator, Transform,
     },
@@ -600,6 +601,7 @@ where
 #[derive(Clone)]
 pub struct NelderMeadConfig {
     bounds: Option<Bounds>,
+    bounds_handling: BoundsHandlingMode,
     transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta: Float,
@@ -619,6 +621,7 @@ impl NelderMeadConfig {
     {
         Self {
             bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -632,6 +635,7 @@ impl NelderMeadConfig {
     pub fn new_with_method(construction_method: SimplexConstructionMethod) -> Self {
         Self {
             bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -648,6 +652,7 @@ impl NelderMeadConfig {
     {
         Ok(Self {
             bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -754,6 +759,11 @@ impl NelderMeadConfig {
         self.expansion_method = method;
         self
     }
+    /// Set the policy used to handle configured bounds when a transform is also present.
+    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
+        self.bounds_handling = bounds_handling;
+        self
+    }
 }
 impl SupportsBounds for NelderMeadConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
@@ -813,15 +823,17 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
         self.simplex = config.construction_method.generate(
             problem,
-            &config.transform,
+            &transform,
             internal_bounds.as_ref(),
             args,
         )?;
         status.n_f_evals += self.simplex.size();
-        status.initialize(self.simplex.best_position(&config.transform));
+        status.initialize(self.simplex.best_position(&transform));
         Ok(())
     }
 
@@ -833,7 +845,9 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
         let h = self.simplex.worst();
         let s = self.simplex.second_worst();
         let l = self.simplex.best();
@@ -843,7 +857,7 @@ where
             xrx = ib.clip_values(&xrx);
         }
         let mut xr = Point::from(xrx);
-        xr.evaluate_transformed(problem, &config.transform, args)?;
+        xr.evaluate_transformed(problem, &transform, args)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -851,7 +865,7 @@ where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.set_position(self.simplex.best_position(&config.transform));
+            status.set_position(self.simplex.best_position(&transform));
             status.set_message().step_with_message("REFLECT");
             self.simplex.scale_volume(config.alpha);
             return Ok(());
@@ -865,7 +879,7 @@ where
                 xex = ib.clip_values(&xex);
             }
             let mut xe = Point::from(xex);
-            xe.evaluate_transformed(problem, &config.transform, args)?;
+            xe.evaluate_transformed(problem, &transform, args)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
@@ -880,7 +894,7 @@ where
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            status.set_position(self.simplex.best_position(&config.transform));
+            status.set_position(self.simplex.best_position(&transform));
             status.set_message().step_with_message("EXPAND");
             self.simplex.scale_volume(config.alpha * config.beta);
             return Ok(());
@@ -906,14 +920,14 @@ where
                     xcx = ib.clip_values(&xcx);
                 }
                 let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &config.transform, args)?;
+                xc.evaluate_transformed(problem, &transform, args)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&config.transform));
+                        status.set_position(self.simplex.best_position(&transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -931,14 +945,14 @@ where
                     xcx = ib.clip_values(&xcx);
                 }
                 let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &config.transform, args)?;
+                xc.evaluate_transformed(problem, &transform, args)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&config.transform));
+                        status.set_position(self.simplex.best_position(&transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -958,7 +972,7 @@ where
                 px = ib.clip_values(&px);
             }
             *p = Point::from(px);
-            p.evaluate_transformed(problem, &config.transform, args)?;
+            p.evaluate_transformed(problem, &transform, args)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -967,7 +981,7 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_total_centroid();
-        status.set_position(self.simplex.best_position(&config.transform));
+        status.set_position(self.simplex.best_position(&transform));
         status.set_message().step_with_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
@@ -1572,5 +1586,17 @@ mod tests {
         assert!(result.cost_evals >= 3);
         assert_eq!(result.gradient_evals, 0);
         assert!(result.message.to_string().contains("Maximum number of steps reached"));
+    }
+
+    #[test]
+    fn transform_bounds_mode_is_selectable_for_nelder_mead() {
+        let config = NelderMeadConfig::new([2.0, 2.0])
+            .with_bounds([(0.0, 1.0), (0.0, 1.0)])
+            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
+
+        assert!(matches!(
+            config.bounds_handling,
+            BoundsHandlingMode::TransformBounds
+        ));
     }
 }

@@ -3,7 +3,10 @@ use crate::{
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{Bounds, MinimizationSummary, utils::generate_random_vector},
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
+    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::{
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform,
+    },
 };
 use fastrand::Rng;
 use std::cmp::Ordering;
@@ -13,6 +16,7 @@ use std::cmp::Ordering;
 pub struct PSOConfig {
     swarm: Swarm,
     bounds: Option<Bounds>,
+    bounds_handling: BoundsHandlingMode,
     transform: Option<Box<dyn Transform>>,
     omega: Float,
     c1: Float,
@@ -24,6 +28,7 @@ impl PSOConfig {
         Self {
             swarm,
             bounds: None,
+            bounds_handling: BoundsHandlingMode::Auto,
             transform: None,
             omega: 0.8,
             c1: 0.1,
@@ -62,6 +67,11 @@ impl PSOConfig {
         }
         self.c2 = value;
         Ok(self)
+    }
+    /// Set the policy used to handle configured bounds when a transform is also present.
+    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
+        self.bounds_handling = bounds_handling;
+        self
     }
 }
 impl SupportsBounds for PSOConfig {
@@ -143,6 +153,8 @@ impl PSO {
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         for particle in &mut status.swarm.particles {
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
@@ -169,8 +181,8 @@ impl PSO {
             status.n_f_evals += particle.update_position(
                 func,
                 args,
-                config.bounds.as_ref(),
-                &config.transform,
+                bounds.as_ref(),
+                &transform,
                 status.swarm.boundary_method,
             )?;
         }
@@ -183,6 +195,8 @@ impl PSO {
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
             .map(|i| self.nbest(i, status))
             .collect();
@@ -200,8 +214,8 @@ impl PSO {
             status.n_f_evals += particle.update_position(
                 func,
                 args,
-                config.bounds.as_ref(),
-                &config.transform,
+                bounds.as_ref(),
+                &transform,
                 status.swarm.boundary_method,
             )?;
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
@@ -228,10 +242,12 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
+        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         status.swarm = config.swarm.clone();
         status
             .swarm
-            .initialize(&mut self.rng, &config.transform, problem, args)?;
+            .initialize(&mut self.rng, &transform, problem, args)?;
         status.n_f_evals += status.swarm.particles.len();
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
@@ -370,6 +386,18 @@ mod tests {
 
         assert_relative_eq!(status.swarm.particles[0].velocity[0], expected[0]);
         assert_relative_eq!(status.swarm.particles[0].position.x[0], 1.0 + expected[0]);
+    }
+
+    #[test]
+    fn transform_bounds_mode_is_selectable_for_pso() {
+        let config = PSOConfig::new(Swarm::new(SwarmPositionInitializer::Custom(Vec::new())))
+            .with_bounds([(0.0, 1.0)])
+            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
+
+        assert!(matches!(
+            config.bounds_handling,
+            BoundsHandlingMode::TransformBounds
+        ));
     }
 
     #[test]

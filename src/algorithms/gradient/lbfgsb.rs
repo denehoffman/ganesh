@@ -3,6 +3,7 @@ use crate::{
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Bounds, Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
+    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
         Algorithm, Bound, Gradient, LineSearch, Status, SupportsBounds, SupportsTransform,
         Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
@@ -178,6 +179,7 @@ pub enum LBFGSBErrorMode {
 pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
+    bounds_handling: BoundsHandlingMode,
     transform: Option<Box<dyn Transform>>,
     line_search: StrongWolfeLineSearch,
     m: usize,
@@ -203,6 +205,7 @@ impl LBFGSBConfig {
         Self {
             x0: DVector::from_row_slice(x0.as_ref()),
             bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
             transform: None,
             line_search: StrongWolfeLineSearch::default(),
             m: 10,
@@ -230,6 +233,11 @@ impl LBFGSBConfig {
     /// recalculating an exact finite-difference Hessian.
     pub const fn with_error_mode(mut self, error_mode: LBFGSBErrorMode) -> Self {
         self.error_mode = error_mode;
+        self
+    }
+    /// Set the policy used to handle configured bounds when a transform is also present.
+    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
+        self.bounds_handling = bounds_handling;
         self
     }
 }
@@ -536,11 +544,13 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let internal_bounds = config.bounds.clone().map(|b| b.apply(&config.transform));
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         self.line_search = config.line_search.clone();
-        let x0 = config.transform.to_internal(&config.x0);
+        let x0 = transform.to_internal(&config.x0);
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = &internal_bounds {
@@ -565,11 +575,11 @@ where
                 x0[i]
             }
         });
-        let t_problem = TransformedProblem::new(problem, &config.transform);
+        let t_problem = TransformedProblem::new(problem, &transform);
         (self.f, self.g) = t_problem.evaluate_with_gradient(&self.x, args)?;
         status.inc_n_f_evals();
         status.inc_n_g_evals();
-        status.initialize((config.transform.to_owned_external(&self.x), self.f));
+        status.initialize((transform.to_owned_external(&self.x), self.f));
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = None;
         Ok(())
@@ -583,7 +593,9 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let t_problem = TransformedProblem::new(problem, &config.transform);
+        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        let t_problem = TransformedProblem::new(problem, &transform);
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d, config.max_step);
         if let Ok(LineSearchOutput {
@@ -612,7 +624,7 @@ where
             }
             self.g = grad_kp1_vec;
             self.f = f_kp1;
-            status.set_position((config.transform.to_owned_external(&self.x), f_kp1));
+            status.set_position((transform.to_owned_external(&self.x), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -633,7 +645,13 @@ where
     ) -> Result<(), E> {
         match config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let t_problem = TransformedProblem::new(problem, &config.transform);
+                let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+                    resolve_bounds_and_transform(
+                    &config.bounds,
+                    &config.transform,
+                    config.bounds_handling,
+                );
+                let t_problem = TransformedProblem::new(problem, &transform);
                 let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
                 let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
                 status.set_hess(&hessian);
@@ -815,5 +833,17 @@ mod tests {
         assert!(result.cost_evals > 0);
         assert!(result.gradient_evals > 0);
         assert!(!result.message.to_string().is_empty());
+    }
+
+    #[test]
+    fn transform_bounds_mode_disables_native_lbfgsb_bounds() {
+        let config = LBFGSBConfig::new([2.0])
+            .with_bounds([(0.0, 1.0)])
+            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
+
+        assert!(matches!(
+            config.bounds_handling,
+            BoundsHandlingMode::TransformBounds
+        ));
     }
 }

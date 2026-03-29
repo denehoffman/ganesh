@@ -1,6 +1,6 @@
 use crate::{
     core::{Bounds, Callbacks},
-    traits::{Bound, Status, Transform},
+    traits::{Bound, Status, Transform, TransformExt},
 };
 use std::convert::Infallible;
 
@@ -172,6 +172,53 @@ where
     }
 }
 
+/// Explicit policy for how an algorithm should apply configured bounds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BoundsHandlingMode {
+    /// Use the algorithm's default behavior.
+    ///
+    /// For algorithms with native bound support, this keeps bounds native. For algorithms without
+    /// native bound support, callers should provide an explicit bounds transform instead.
+    #[default]
+    Auto,
+    /// Keep bounds separate from any configured transform and use the algorithm's native
+    /// bounded-space machinery.
+    NativeBounds,
+    /// Convert configured bounds into an explicit transform and run the algorithm without native
+    /// bounds.
+    ///
+    /// If both a transform and bounds are configured, the transform is applied first and the
+    /// bounds transform is applied second.
+    TransformBounds,
+}
+
+pub(crate) fn resolve_bounds_and_transform(
+    bounds: &Option<Bounds>,
+    transform: &Option<Box<dyn Transform>>,
+    mode: BoundsHandlingMode,
+) -> (Option<Bounds>, Option<Box<dyn Transform>>) {
+    match mode {
+        BoundsHandlingMode::Auto | BoundsHandlingMode::NativeBounds => (
+            bounds.clone(),
+            transform
+                .as_ref()
+                .map(|transform| dyn_clone::clone_box(transform.as_ref())),
+        ),
+        BoundsHandlingMode::TransformBounds => {
+            let resolved_transform = match (bounds, transform) {
+                (Some(bounds), Some(transform)) => Some(Box::new(
+                    dyn_clone::clone_box(transform.as_ref()).compose(bounds.clone()),
+                )
+                    as Box<dyn Transform>),
+                (Some(bounds), None) => Some(Box::new(bounds.clone()) as Box<dyn Transform>),
+                (None, Some(transform)) => Some(dyn_clone::clone_box(transform.as_ref())),
+                (None, None) => None,
+            };
+            (None, resolved_transform)
+        }
+    }
+}
+
 /// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter transformations.
 pub trait SupportsTransform
 where
@@ -183,5 +230,65 @@ where
     fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
         *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DMatrix, DVector, Float};
+    use std::borrow::Cow;
+
+    #[derive(Clone)]
+    struct Scale(Float);
+
+    impl Transform for Scale {
+        fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(z.scale(self.0))
+        }
+
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.unscale(self.0))
+        }
+
+        fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::identity(z.len(), z.len()).scale(self.0)
+        }
+
+        fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
+        }
+    }
+
+    #[test]
+    fn transform_bounds_mode_moves_bounds_into_transform() {
+        let bounds = Some(Bounds::from([(0.0, 1.0)]));
+        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
+
+        let (resolved_bounds, resolved_transform) = resolve_bounds_and_transform(
+            &bounds,
+            &transform,
+            BoundsHandlingMode::TransformBounds,
+        );
+
+        assert!(resolved_bounds.is_none());
+        let resolved_transform = resolved_transform.expect("transform should be composed");
+        let x = resolved_transform.to_owned_external(&DVector::from_row_slice(&[10.0]));
+        assert!(x[0] >= 0.0 && x[0] <= 1.0);
+    }
+
+    #[test]
+    fn native_bounds_mode_preserves_bounds_and_transform() {
+        let bounds = Some(Bounds::from([(0.0, 1.0)]));
+        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
+
+        let (resolved_bounds, resolved_transform) = resolve_bounds_and_transform(
+            &bounds,
+            &transform,
+            BoundsHandlingMode::NativeBounds,
+        );
+
+        assert!(resolved_bounds.is_some());
+        assert!(resolved_transform.is_some());
     }
 }
