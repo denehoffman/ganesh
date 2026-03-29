@@ -8,7 +8,7 @@ pub use transforms::Bounds;
 
 /// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;
-pub use callbacks::{Callbacks, DebugObserver, MaxSteps};
+pub use callbacks::{Callbacks, DebugObserver, MaxSteps, ProgressObserver};
 
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;

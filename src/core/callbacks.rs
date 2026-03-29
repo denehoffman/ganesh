@@ -164,3 +164,167 @@ where
         println!("Step: {}\n{:#?}", current_step, status);
     }
 }
+
+/// A lightweight observer which prints a concise one-line progress update every `interval` steps.
+///
+/// The emitted line uses the format
+/// `step=<n> status=<status message>`.
+#[derive(Clone)]
+pub struct ProgressObserver {
+    interval: usize,
+    emitted_lines: usize,
+}
+
+impl ProgressObserver {
+    /// Create a new [`ProgressObserver`] with the given reporting interval.
+    pub fn new(interval: usize) -> Self {
+        Self {
+            interval: interval.max(1),
+            emitted_lines: 0,
+        }
+    }
+
+    /// Return the configured reporting interval.
+    pub const fn interval(&self) -> usize {
+        self.interval
+    }
+
+    /// Return the number of progress lines emitted so far.
+    pub const fn emitted_lines(&self) -> usize {
+        self.emitted_lines
+    }
+
+    fn should_emit(&self, current_step: usize) -> bool {
+        current_step.is_multiple_of(self.interval)
+    }
+
+    fn format_line<S: Status>(current_step: usize, status: &S) -> String {
+        format!("step={} status={}", current_step, status.message())
+    }
+}
+
+impl Default for ProgressObserver {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+impl<A, P, S, U, E, C> Observer<A, P, S, U, E, C> for ProgressObserver
+where
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status,
+{
+    fn observe(
+        &mut self,
+        current_step: usize,
+        _algorithm: &A,
+        _problem: &P,
+        status: &S,
+        _args: &U,
+        _config: &C,
+    ) {
+        if self.should_emit(current_step) {
+            println!("{}", Self::format_line(current_step, status));
+            self.emitted_lines += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::{StatusMessage, StatusType};
+    use serde::{Deserialize, Serialize};
+    use std::{cell::RefCell, convert::Infallible, rc::Rc};
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct DummyStatus {
+        message: StatusMessage,
+    }
+
+    impl Status for DummyStatus {
+        fn reset(&mut self) {
+            self.message.reset();
+        }
+
+        fn message(&self) -> &StatusMessage {
+            &self.message
+        }
+
+        fn set_message(&mut self) -> &mut StatusMessage {
+            &mut self.message
+        }
+    }
+
+    #[derive(Default)]
+    struct DummyAlgorithm;
+
+    impl Algorithm<(), DummyStatus, (), Infallible> for DummyAlgorithm {
+        type Summary = ();
+        type Config = ();
+
+        fn initialize(
+            &mut self,
+            _problem: &(),
+            status: &mut DummyStatus,
+            _args: &(),
+            _config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            status.set_message().initialize();
+            Ok(())
+        }
+
+        fn step(
+            &mut self,
+            current_step: usize,
+            _problem: &(),
+            status: &mut DummyStatus,
+            _args: &(),
+            _config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            status
+                .set_message()
+                .step_with_message(&format!("step {}", current_step));
+            Ok(())
+        }
+
+        fn summarize(
+            &self,
+            _current_step: usize,
+            _problem: &(),
+            _status: &DummyStatus,
+            _args: &(),
+            _config: &Self::Config,
+        ) -> Result<Self::Summary, Infallible> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn progress_observer_formats_one_line_status() {
+        let mut status = DummyStatus {
+            message: StatusMessage {
+                status_type: StatusType::StepType,
+                text: "EXPAND".to_string(),
+            },
+        };
+        status.set_message().step_with_message("EXPAND");
+        let line = ProgressObserver::format_line(7, &status);
+
+        assert_eq!(line, "step=7 status=Step: EXPAND");
+    }
+
+    #[test]
+    fn progress_observer_respects_interval() {
+        let observer = Rc::new(RefCell::new(ProgressObserver::new(2)));
+        let mut algorithm = DummyAlgorithm;
+        let callbacks = Callbacks::empty()
+            .with_terminator(MaxSteps(5))
+            .with_observer(observer.clone());
+
+        algorithm.process(&(), &(), (), callbacks).unwrap();
+
+        assert_eq!(observer.borrow().interval(), 2);
+        assert_eq!(observer.borrow().emitted_lines(), 2);
+    }
+}
