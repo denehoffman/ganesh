@@ -261,7 +261,7 @@ mod tests {
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
-    use std::fmt::Debug;
+    use std::{cell::RefCell, convert::Infallible, fmt::Debug};
 
     pub struct GradientAnnealingProblem<U, E>(
         Box<dyn GenericGradient<U, E, Input = DVector<Float>>>,
@@ -336,5 +336,93 @@ mod tests {
             )
             .unwrap();
         assert_relative_eq!(result.fx, 0.0, epsilon = 0.5);
+    }
+
+    struct SequenceAnnealingProblem {
+        initial: DVector<Float>,
+        proposals: RefCell<Vec<DVector<Float>>>,
+    }
+    impl SequenceAnnealingProblem {
+        fn new(initial: &[Float], proposals: Vec<&[Float]>) -> Self {
+            Self {
+                initial: DVector::from_row_slice(initial),
+                proposals: RefCell::new(
+                    proposals
+                        .into_iter()
+                        .map(DVector::from_row_slice)
+                        .collect::<Vec<_>>(),
+                ),
+            }
+        }
+    }
+    impl GenericCostFunction<(), Infallible> for SequenceAnnealingProblem {
+        type Input = DVector<Float>;
+
+        fn evaluate_generic(&self, x: &Self::Input, _: &()) -> Result<Float, Infallible> {
+            Ok(x[0])
+        }
+    }
+    impl SimulatedAnnealingGenerator<(), Infallible> for SequenceAnnealingProblem {
+        fn initial(
+            &self,
+            _: &Option<Box<dyn Transform>>,
+            _: &mut SimulatedAnnealingStatus<Self::Input>,
+            _: &(),
+        ) -> Self::Input {
+            self.initial.clone()
+        }
+
+        fn generate(
+            &self,
+            _: &Option<Box<dyn Transform>>,
+            _: &mut SimulatedAnnealingStatus<Self::Input>,
+            _: &(),
+        ) -> Self::Input {
+            self.proposals.borrow_mut().remove(0)
+        }
+    }
+
+    #[test]
+    fn accepts_improving_proposal_even_if_not_new_best() {
+        let mut solver = SimulatedAnnealing::new(Some(0));
+        let problem = SequenceAnnealingProblem::new(&[2.0], vec![&[1.0]]);
+        let config = SimulatedAnnealingConfig::new(0.01, 0.9).unwrap();
+        let mut status = SimulatedAnnealingStatus::default();
+
+        solver.initialize(&problem, &mut status, &(), &config).unwrap();
+        status.best = Point {
+            x: DVector::from_row_slice(&[0.0]),
+            fx: Some(0.0),
+        };
+        status.current = Point {
+            x: DVector::from_row_slice(&[2.0]),
+            fx: Some(2.0),
+        };
+
+        solver.step(0, &problem, &mut status, &(), &config).unwrap();
+
+        assert_relative_eq!(status.current.x[0], 1.0);
+        assert_relative_eq!(status.current.fx_checked(), 1.0);
+        assert_relative_eq!(status.best.x[0], 0.0);
+        assert_relative_eq!(status.best.fx_checked(), 0.0);
+    }
+
+    #[test]
+    fn rejected_proposal_does_not_advance_current() {
+        let mut solver = SimulatedAnnealing::new(Some(0));
+        let problem = SequenceAnnealingProblem::new(&[0.0], vec![&[1.0]]);
+        let config = SimulatedAnnealingConfig::new(1e-6, 0.9).unwrap();
+        let mut status = SimulatedAnnealingStatus::default();
+
+        solver.initialize(&problem, &mut status, &(), &config).unwrap();
+        let current_before = status.current.clone();
+        let best_before = status.best.clone();
+
+        solver.step(0, &problem, &mut status, &(), &config).unwrap();
+
+        assert_eq!(status.current.x, current_before.x);
+        assert_eq!(status.current.fx, current_before.fx);
+        assert_eq!(status.best.x, best_before.x);
+        assert_eq!(status.best.fx, best_before.fx);
     }
 }

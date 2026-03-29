@@ -361,3 +361,34 @@ impl SwarmParticle {
         Ok(evals)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Point;
+
+    fn particle_with_best(x: &[Float], fx: Float) -> SwarmParticle {
+        let best = Point {
+            x: DVector::from_column_slice(x),
+            fx: Some(fx),
+        };
+        SwarmParticle {
+            position: best.clone(),
+            velocity: DVector::zeros(best.x.len()),
+            best,
+        }
+    }
+
+    #[test]
+    fn circular_window_returns_lowest_fx_neighbor() {
+        let mut swarm = Swarm::new(SwarmPositionInitializer::Custom(Vec::new()));
+        swarm.particles = vec![
+            particle_with_best(&[0.0], 3.0),
+            particle_with_best(&[1.0], 1.0),
+            particle_with_best(&[2.0], 2.0),
+        ];
+
+        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), 1);
+        assert_eq!(swarm.index_of_min_in_circular_window(2, 1), 1);
+    }
+}

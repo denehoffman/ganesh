@@ -282,9 +282,18 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
-        core::{Callbacks, MaxSteps},
+        core::{Callbacks, MaxSteps, Point, utils::generate_random_vector},
         test_functions::Rastrigin,
     };
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
+
+    struct Quadratic;
+    impl CostFunction<(), Infallible> for Quadratic {
+        fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
 
     #[test]
     fn test_pso() {
@@ -321,5 +330,45 @@ mod tests {
             .unwrap();
 
         println!("{}", result);
+    }
+
+    #[test]
+    fn synchronous_update_uses_unit_random_coefficients() {
+        let mut solver = PSO::new(Some(0));
+        let particle = crate::algorithms::particles::SwarmParticle {
+            position: Point {
+                x: DVector::from_row_slice(&[1.0]),
+                fx: Some(1.0),
+            },
+            velocity: DVector::from_row_slice(&[0.0]),
+            best: Point {
+                x: DVector::from_row_slice(&[2.0]),
+                fx: Some(0.0),
+            },
+        };
+        let mut status = SwarmStatus {
+            gbest: particle.best.clone(),
+            swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::new())),
+            ..Default::default()
+        };
+        status.swarm.particles = vec![particle];
+
+        let config = PSOConfig::new(Swarm::new(SwarmPositionInitializer::Custom(Vec::new())))
+            .with_omega(0.0)
+            .unwrap()
+            .with_c1(1.0)
+            .unwrap()
+            .with_c2(0.0)
+            .unwrap();
+
+        let mut rng = Rng::with_seed(0);
+        let expected = generate_random_vector(1, 0.0, 1.0, &mut rng);
+
+        solver
+            .update_sync(&mut status, &Quadratic, &(), &config)
+            .unwrap();
+
+        assert_relative_eq!(status.swarm.particles[0].velocity[0], expected[0]);
+        assert_relative_eq!(status.swarm.particles[0].position.x[0], 1.0 + expected[0]);
     }
 }

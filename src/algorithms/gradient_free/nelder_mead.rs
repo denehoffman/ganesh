@@ -1298,6 +1298,67 @@ mod tests {
     }
 
     #[test]
+    fn diameter_terminator_uses_best_point_as_reference() {
+        let mut solver = NelderMead::default();
+        solver.simplex = Simplex::new(&[
+            point(&[1.0, 1.0], 0.0),
+            point(&[0.0, 0.0], 1.0),
+            point(&[2.0, 2.0], 2.0),
+        ]);
+        let mut status = GradientFreeStatus::default();
+
+        let terminated = NelderMeadXTerminator::Diameter { eps_abs: 1.5 }.check_for_termination(
+            0,
+            &mut solver,
+            &Rosenbrock { n: 2 },
+            &mut status,
+            &(),
+            &NelderMeadConfig::new([0.0, 0.0]),
+        );
+
+        assert!(terminated.is_break());
+        assert!(status.message.to_string().contains("term_x = DIAMETER"));
+    }
+
+    #[test]
+    fn higham_terminator_uses_best_point_as_reference() {
+        let mut solver = NelderMead::default();
+        solver.simplex = Simplex::new(&[
+            point(&[10.0, 10.0], 0.0),
+            point(&[9.5, 10.0], 1.0),
+            point(&[0.0, 0.0], 2.0),
+        ]);
+        let mut status = GradientFreeStatus::default();
+
+        let terminated = NelderMeadXTerminator::Higham { eps_rel: 2.0 }.check_for_termination(
+            0,
+            &mut solver,
+            &Rosenbrock { n: 2 },
+            &mut status,
+            &(),
+            &NelderMeadConfig::new([0.0, 0.0]),
+        );
+
+        assert!(terminated.is_break());
+        assert!(status.message.to_string().contains("term_x = HIGHAM"));
+    }
+
+    #[test]
+    fn shrink_volume_uses_parameter_dimension_exponent() {
+        let mut simplex = Simplex::new(&[
+            point(&[0.0, 0.0], 3.0),
+            point(&[2.0, 0.0], 2.0),
+            point(&[0.0, 2.0], 1.0),
+        ]);
+        let delta = 0.5;
+        let v0 = simplex.volume;
+
+        simplex.scale_volume(Float::powi(delta, simplex.dimension as i32 - 1));
+
+        assert_relative_eq!(simplex.volume, v0 * Float::powi(delta, 2));
+    }
+
+    #[test]
     #[should_panic(
         expected = "Nelder-Mead is only a suitable method for problems of dimension >= 2"
     )]

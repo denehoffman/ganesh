@@ -781,4 +781,22 @@ mod tests {
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
     }
+
+    #[test]
+    fn generalized_cauchy_point_tracks_actual_free_indices() {
+        let solver = LBFGSB {
+            x: DVector::from_row_slice(&[0.9, 0.5]),
+            g: DVector::from_row_slice(&[-1.0, 0.1]),
+            l: DVector::from_row_slice(&[0.0, 0.0]),
+            u: DVector::from_row_slice(&[1.0, 1.0]),
+            w_mat: DMatrix::zeros(2, 0),
+            ..Default::default()
+        };
+
+        let (xcp, _c, free_indices) = solver.get_xcp_c_free_indices();
+
+        assert_relative_eq!(xcp[0], 1.0);
+        assert!((xcp[1] - 0.4).abs() < 1e-12);
+        assert_eq!(free_indices, vec![1]);
+    }
 }

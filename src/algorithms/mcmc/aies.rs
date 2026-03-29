@@ -276,11 +276,22 @@ where
 mod tests {
     use super::*;
     use crate::test_functions::Rosenbrock;
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
             .map(|i| DVector::from_element(dim, i as Float + 1.0))
             .collect()
+    }
+
+    struct CenteredLogDensity {
+        target: Float,
+    }
+    impl crate::traits::LogDensity<(), Infallible> for CenteredLogDensity {
+        fn log_density(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
+            Ok(-Float::powi(x[0] - self.target, 2))
+        }
     }
 
     #[test]
@@ -342,5 +353,29 @@ mod tests {
             .unwrap();
 
         assert!(aies.step(0, &problem, &mut status, &(), &config).is_ok());
+    }
+
+    #[test]
+    fn stretch_move_proposes_toward_current_from_compliment() {
+        let mut rng = Rng::with_seed(0);
+        let a: Float = 2.0;
+        let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
+        let expected = 1.0 + z * (2.0 - 1.0);
+        let problem = CenteredLogDensity { target: expected };
+        let mut ensemble = EnsembleStatus {
+            walkers: vec![
+                Walker::new(DVector::from_row_slice(&[2.0])),
+                Walker::new(DVector::from_row_slice(&[1.0])),
+            ],
+            ..Default::default()
+        };
+        ensemble.log_density_latest(&problem, &()).unwrap();
+
+        AIESMove::Stretch { a }
+            .step(&problem, &None, &(), &mut ensemble, &mut Rng::with_seed(0))
+            .unwrap();
+
+        let x0 = ensemble.walkers[0].get_latest();
+        assert_relative_eq!(x0.read().x[0], expected);
     }
 }
