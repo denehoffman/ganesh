@@ -799,4 +799,21 @@ mod tests {
         assert!((xcp[1] - 0.4).abs() < 1e-12);
         assert_eq!(free_indices, vec![1]);
     }
+
+    #[test]
+    fn summary_reports_nonzero_eval_counters_and_message() {
+        let mut solver = LBFGSB::default();
+        let result = solver
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                LBFGSBConfig::new([-1.0, 1.0]),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.cost_evals > 0);
+        assert!(result.gradient_evals > 0);
+        assert!(!result.message.to_string().is_empty());
+    }
 }

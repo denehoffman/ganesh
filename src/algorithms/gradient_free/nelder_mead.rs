@@ -1507,4 +1507,22 @@ mod tests {
         assert!(result.message.success());
         assert_eq!(result.gradient_evals, 0);
     }
+
+    #[test]
+    fn summary_reports_simplex_init_evals_and_terminal_message() {
+        let mut solver = NelderMead::default();
+        let problem = Rosenbrock { n: 2 };
+        let result = solver
+            .process(
+                &problem,
+                &(),
+                NelderMeadConfig::new([0.5, -0.5]),
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.cost_evals >= 3);
+        assert_eq!(result.gradient_evals, 0);
+        assert!(result.message.to_string().contains("Maximum number of steps reached"));
+    }
 }

@@ -953,7 +953,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_functions::Rosenbrock;
+    use crate::{
+        core::{Callbacks, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::Algorithm,
+    };
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
@@ -1020,9 +1024,11 @@ mod tests {
 
         ess.initialize(&f, &mut status, &(), &cfg).unwrap();
         assert_eq!(status.walkers.len(), 3);
+        assert_eq!(status.n_f_evals, 3);
 
         let summary = ess.summarize(0, &f, &status, &(), &cfg).unwrap();
         assert_eq!(summary.dimension, status.dimension());
+        assert_eq!(summary.cost_evals, 3);
     }
 
     #[test]
@@ -1067,6 +1073,27 @@ mod tests {
         let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().to_string().contains("Global"));
+    }
+
+    #[test]
+    fn summary_marks_max_steps_as_success_and_counts_evals() {
+        let mut ess = ESS::default();
+        let walkers = make_walkers(4, 2);
+        let cfg = ESSConfig::new(walkers);
+
+        let result = ess
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                cfg,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.cost_evals >= 4);
+        assert_eq!(result.gradient_evals, 0);
+        assert!(result.message.success());
+        assert!(result.message.text.contains("Maximum number of steps reached"));
     }
 
     #[test]

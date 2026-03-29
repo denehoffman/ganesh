@@ -371,4 +371,27 @@ mod tests {
         assert_relative_eq!(status.swarm.particles[0].velocity[0], expected[0]);
         assert_relative_eq!(status.swarm.particles[0].position.x[0], 1.0 + expected[0]);
     }
+
+    #[test]
+    fn summary_reports_initial_eval_count_and_terminal_message() {
+        let problem = Rastrigin { n: 2 };
+        let callbacks = Callbacks::empty().with_terminator(MaxSteps(2));
+        let mut solver = PSO::default();
+
+        let result = solver
+            .process(
+                &problem,
+                &(),
+                PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
+                    bounds: vec![(-5.0, 5.0), (-5.0, 5.0)],
+                    n_particles: 8,
+                })),
+                callbacks,
+            )
+            .unwrap();
+
+        assert!(result.cost_evals >= 8);
+        assert_eq!(result.gradient_evals, 0);
+        assert!(result.message.to_string().contains("Maximum number of steps reached"));
+    }
 }

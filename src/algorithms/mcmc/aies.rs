@@ -275,7 +275,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_functions::Rosenbrock;
+    use crate::{
+        core::{Callbacks, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::Algorithm,
+    };
     use approx::assert_relative_eq;
     use std::convert::Infallible;
 
@@ -377,5 +381,26 @@ mod tests {
 
         let x0 = ensemble.walkers[0].get_latest();
         assert_relative_eq!(x0.read().x[0], expected);
+    }
+
+    #[test]
+    fn summary_marks_max_steps_as_success_and_counts_initial_evals() {
+        let mut aies = AIES::default();
+        let walkers = make_walkers(4, 2);
+        let config = AIESConfig::new(walkers);
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.cost_evals >= 4);
+        assert_eq!(result.gradient_evals, 0);
+        assert!(result.message.success());
+        assert!(result.message.text.contains("Maximum number of steps reached"));
     }
 }

@@ -257,7 +257,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        DVector, core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient,
+        DVector,
+        core::{Bounds, Callbacks, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::cost_function::GenericGradient,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
@@ -424,5 +427,22 @@ mod tests {
         assert_eq!(status.current.fx, current_before.fx);
         assert_eq!(status.best.x, best_before.x);
         assert_eq!(status.best.fx, best_before.fx);
+    }
+
+    #[test]
+    fn summary_reports_nonzero_evals_and_terminal_message() {
+        let mut solver = SimulatedAnnealing::new(Some(0));
+        let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
+        let result = solver
+            .process(
+                &problem,
+                &(),
+                SimulatedAnnealingConfig::new(1.0, 0.999).unwrap(),
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.cost_evals > 0);
+        assert!(result.message.to_string().contains("Maximum number of steps reached"));
     }
 }
