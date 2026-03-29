@@ -344,13 +344,14 @@ pub fn sample<P, I, U, Bounds, B, E>(
 where
     I: AsRef<[DVector<Float>]>,
     P: traits::LogDensity<U, E>,
+    E: From<error::GaneshError>,
 {
     use algorithms::mcmc::{AIES, AIESConfig};
     use core::MaxSteps;
     use traits::Algorithm;
 
     let mut solver = AIES::default();
-    let config = AIESConfig::new(x0.as_ref().to_vec());
+    let config = AIESConfig::new(x0.as_ref().to_vec())?;
     solver.process(
         problem,
         user_data,

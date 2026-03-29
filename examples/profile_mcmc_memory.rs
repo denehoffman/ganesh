@@ -46,7 +46,7 @@ fn main() {
                 .process(
                     &problem,
                     &(),
-                    AIESConfig::new(x0),
+                    AIESConfig::new(x0).unwrap(),
                     AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
@@ -65,6 +65,7 @@ fn main() {
                     &problem,
                     &(),
                     ESSConfig::new(x0)
+                        .unwrap()
                         .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                         .unwrap()
                         .with_n_adaptive(10)

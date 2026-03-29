@@ -140,7 +140,7 @@ fn main() {
                 .process(
                     &problem,
                     &(),
-                    AIESConfig::new(make_walkers(dim, n_walkers)),
+                    AIESConfig::new(make_walkers(dim, n_walkers)).unwrap(),
                     AIES::default_callbacks().with_terminator(MaxSteps(steps)),
                 )
                 .unwrap();
@@ -164,6 +164,7 @@ fn main() {
                     &problem,
                     &(),
                     ESSConfig::new(make_walkers(dim, n_walkers))
+                        .unwrap()
                         .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                         .unwrap()
                         .with_n_adaptive(5)

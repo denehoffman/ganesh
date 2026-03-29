@@ -1,6 +1,6 @@
 use crate::{
     DMatrix, DVector, Float, PI,
-    algorithms::mcmc::{EnsembleStatus, Walker, validate_weighted_moves},
+    algorithms::mcmc::{EnsembleStatus, Walker, validate_walker_inputs, validate_weighted_moves},
     core::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
@@ -282,15 +282,16 @@ impl ESSConfig {
     ///
     /// # See Also
     /// [`Walker::new`]
-    pub fn new(x0: Vec<DVector<Float>>) -> Self {
-        Self {
+    pub fn new(x0: Vec<DVector<Float>>) -> GaneshResult<Self> {
+        validate_walker_inputs(&x0, "ESS", 3)?;
+        Ok(Self {
             transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![ESSMove::differential(1.0)],
             n_adaptive: 0,
             max_steps: 10000,
             mu: 1.0,
-        }
+        })
     }
     /// Set the moves for the [`ESS`] algorithm to use.
     pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> GaneshResult<Self> {
@@ -1000,7 +1001,7 @@ mod tests {
     #[test]
     fn test_essconfig_defaults_and_builders() {
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::new(walkers);
+        let cfg = ESSConfig::new(walkers).unwrap();
         assert_eq!(cfg.walkers.len(), 3);
         assert_eq!(cfg.moves.len(), 1);
         assert_eq!(cfg.n_adaptive, 0);
@@ -1027,6 +1028,7 @@ mod tests {
         let walkers = make_walkers(3, 2);
 
         let err = match ESSConfig::new(walkers.clone())
+            .unwrap()
             .with_moves([ESSMove::gaussian(-1.0), ESSMove::differential(1.0)])
         {
             Err(err) => err,
@@ -1034,13 +1036,16 @@ mod tests {
         };
         assert!(err.to_string().contains("finite and non-negative"));
 
-        let err = match ESSConfig::new(walkers.clone()).with_moves(Vec::<WeightedESSMove>::new()) {
+        let err = match ESSConfig::new(walkers.clone())
+            .unwrap()
+            .with_moves(Vec::<WeightedESSMove>::new())
+        {
             Err(err) => err,
             Ok(_) => panic!("empty ESS move lists should be rejected"),
         };
         assert!(err.to_string().contains("must not be empty"));
 
-        let err = match ESSConfig::new(walkers).with_moves([
+        let err = match ESSConfig::new(walkers).unwrap().with_moves([
             ESSMove::gaussian(0.0),
             ESSMove::differential(0.0),
         ]) {
@@ -1051,10 +1056,38 @@ mod tests {
     }
 
     #[test]
+    fn test_ess_rejects_invalid_walker_inputs() {
+        let err = match ESSConfig::new(Vec::new()) {
+            Err(err) => err,
+            Ok(_) => panic!("empty ESS walker lists should be rejected"),
+        };
+        assert!(err.to_string().contains("at least 3 walkers"));
+
+        let err = match ESSConfig::new(vec![
+            DVector::from_row_slice(&[1.0, 2.0]),
+            DVector::from_row_slice(&[3.0, 4.0]),
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("too-few ESS walkers should be rejected"),
+        };
+        assert!(err.to_string().contains("at least 3 walkers"));
+
+        let err = match ESSConfig::new(vec![
+            DVector::from_row_slice(&[1.0, 2.0]),
+            DVector::from_row_slice(&[3.0]),
+            DVector::from_row_slice(&[4.0, 5.0]),
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("mixed-dimension ESS walkers should be rejected"),
+        };
+        assert!(err.to_string().contains("same dimension"));
+    }
+
+    #[test]
     fn test_ess_initialize_and_summarize() {
         let mut ess = ESS::default();
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::new(walkers);
+        let cfg = ESSConfig::new(walkers).unwrap();
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 
@@ -1071,7 +1104,7 @@ mod tests {
     fn test_differential_step_runs() {
         let mut ess = ESS::default();
         let walkers = make_walkers(3, 2);
-        let cfg = ESSConfig::new(walkers);
+        let cfg = ESSConfig::new(walkers).unwrap();
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
         ess.initialize(&f, &mut status, &(), &cfg).unwrap();
@@ -1086,6 +1119,7 @@ mod tests {
         let mut ess = ESS::default();
         let walkers = make_walkers(6, 2);
         let cfg = ESSConfig::new(walkers)
+            .unwrap()
             .with_moves(vec![ESSMove::gaussian(1.0)])
             .unwrap();
         let mut status = EnsembleStatus::default();
@@ -1102,6 +1136,7 @@ mod tests {
         let mut ess = ESS::default();
         let walkers = make_walkers(100, 2);
         let cfg = ESSConfig::new(walkers)
+            .unwrap()
             .with_moves(vec![
                 ESSMove::custom_global(1.0, Some(1.0), Some(0.001), Some(3)).unwrap(),
             ])
@@ -1120,7 +1155,7 @@ mod tests {
         let mut rng = Rng::with_seed(0);
         let mut status = EnsembleStatus::default();
         let problem = Rosenbrock { n: 2 };
-        status.walkers = ESSConfig::new(make_walkers(3, 2)).walkers;
+        status.walkers = ESSConfig::new(make_walkers(3, 2)).unwrap().walkers;
         status.log_density_latest(&problem, &()).unwrap();
 
         let mut mu = 1.5;
@@ -1136,7 +1171,7 @@ mod tests {
     fn summary_marks_max_steps_as_success_and_counts_evals() {
         let mut ess = ESS::default();
         let walkers = make_walkers(4, 2);
-        let cfg = ESSConfig::new(walkers);
+        let cfg = ESSConfig::new(walkers).unwrap();
 
         let result = ess
             .process(

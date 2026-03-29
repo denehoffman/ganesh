@@ -42,6 +42,34 @@ pub(crate) fn validate_weighted_moves(weights: &[Float], family: &str) -> Ganesh
     Ok(())
 }
 
+pub(crate) fn validate_walker_inputs(
+    walkers: &[DVector<Float>],
+    family: &str,
+    min_walkers: usize,
+) -> GaneshResult<()> {
+    if walkers.len() < min_walkers {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} requires at least {min_walkers} walkers"
+        )));
+    }
+    let Some(first) = walkers.first() else {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} walker list must not be empty"
+        )));
+    };
+    if first.is_empty() {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} walker dimension must be at least 1"
+        )));
+    }
+    if walkers.iter().any(|walker| walker.len() != first.len()) {
+        return Err(GaneshError::ConfigError(format!(
+            "{family} walkers must all have the same dimension"
+        )));
+    }
+    Ok(())
+}
+
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
@@ -199,7 +227,7 @@ pub fn integrated_autocorrelation_times(
 ///     .build();
 /// let mut sampler = ESS::new(Some(1));
 /// let result = sampler.process(&problem, &(),
-/// ESSConfig::new(x0.clone()).with_moves([ESSMove::gaussian(0.1),
+/// ESSConfig::new(x0.clone()).unwrap().with_moves([ESSMove::gaussian(0.1),
 /// ESSMove::differential(0.9)]).unwrap(), Callbacks::empty().with_terminator(aco.clone())).unwrap();
 ///
 /// println!(
@@ -364,6 +392,7 @@ mod tests {
                 &problem,
                 &(),
                 ESSConfig::new(x0)
+                    .unwrap()
                     .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
                     .unwrap(),
                 Callbacks::empty().with_terminator(aco.clone()),

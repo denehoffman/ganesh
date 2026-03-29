@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &problem,
         &cov_inv,
         ESSConfig::new(x0.clone())
+            .unwrap()
             .with_moves([
                 ESSMove::gaussian(0.1),
                 ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,

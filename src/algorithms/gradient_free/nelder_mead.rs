@@ -104,13 +104,35 @@ impl SimplexConstructionMethod {
         })
     }
     /// Create a new [`SimplexConstructionMethod::Custom`] from the given points.
-    pub fn custom<I>(simplex: I) -> Self
+    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
     where
         I: AsRef<[DVector<Float>]>,
     {
-        Self::Custom {
-            simplex: simplex.as_ref().to_vec(),
+        let simplex = simplex.as_ref();
+        let Some(first) = simplex.first() else {
+            return Err(GaneshError::ConfigError(
+                "Custom simplex must not be empty".to_string(),
+            ));
+        };
+        if first.len() < 2 {
+            return Err(GaneshError::ConfigError(
+                "Nelder-Mead is only a suitable method for problems of dimension >= 2"
+                    .to_string(),
+            ));
         }
+        if simplex.iter().any(|point| point.len() != first.len()) {
+            return Err(GaneshError::ConfigError(
+                "Custom simplex points must all have the same dimension".to_string(),
+            ));
+        }
+        if simplex.len() != first.len() + 1 {
+            return Err(GaneshError::ConfigError(
+                "Custom simplex must contain exactly n + 1 points for dimension n".to_string(),
+            ));
+        }
+        Ok(Self::Custom {
+            simplex: simplex.to_vec(),
+        })
     }
 }
 
@@ -620,20 +642,20 @@ impl NelderMeadConfig {
         }
     }
     /// Create a new configuration by setting all of the simplex positions manually.
-    pub fn custom<I>(simplex: I) -> Self
+    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
     where
         I: AsRef<[DVector<Float>]>,
     {
-        Self {
+        Ok(Self {
             bounds: None,
             transform: None,
             alpha: 1.0,
             beta: 2.0,
             gamma: 0.5,
             delta: 0.5,
-            construction_method: SimplexConstructionMethod::custom(simplex),
+            construction_method: SimplexConstructionMethod::custom(simplex)?,
             expansion_method: SimplexExpansionMethod::default(),
-        }
+        })
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`).
     pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
@@ -1415,11 +1437,37 @@ mod tests {
                     dvector![1.5, -0.5],
                     dvector![0.5, 0.5],
                 ])
+                .unwrap()
                 .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
                 NelderMead::default_callbacks(),
             )
             .unwrap();
         assert!(result.message.success());
+    }
+
+    #[test]
+    fn custom_simplex_config_rejects_invalid_shapes() {
+        let err = match NelderMeadConfig::custom(Vec::<DVector<Float>>::new()) {
+            Err(err) => err,
+            Ok(_) => panic!("empty custom simplex should be rejected"),
+        };
+        assert!(err.to_string().contains("must not be empty"));
+
+        let err = match NelderMeadConfig::custom(vec![
+            dvector![1.0, 2.0],
+            dvector![3.0],
+            dvector![4.0, 5.0],
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("mixed-dimension custom simplex should be rejected"),
+        };
+        assert!(err.to_string().contains("same dimension"));
+
+        let err = match NelderMeadConfig::custom(vec![dvector![1.0, 2.0], dvector![3.0, 4.0]]) {
+            Err(err) => err,
+            Ok(_) => panic!("wrong-size custom simplex should be rejected"),
+        };
+        assert!(err.to_string().contains("exactly n + 1 points"));
     }
 
     #[test]

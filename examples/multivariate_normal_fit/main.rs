@@ -205,7 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sample = ESS::default().process(
         &Problem,
         &data,
-        ESSConfig::new(walkers).with_transform(&transform),
+        ESSConfig::new(walkers)?.with_transform(&transform),
         ESS::default_callbacks().with_terminator(aco.clone()),
     )?;
 

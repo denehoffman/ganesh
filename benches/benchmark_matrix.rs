@@ -122,7 +122,7 @@ fn benchmark_aies(c: &mut Criterion) {
     let mut group = c.benchmark_group("Matrix/AIES");
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            let base_cfg = AIESConfig::new(matrix_walkers(ndim));
+            let base_cfg = AIESConfig::new(matrix_walkers(ndim)).unwrap();
             b.iter_batched(
                 || {
                     (
@@ -147,6 +147,7 @@ fn benchmark_ess(c: &mut Criterion) {
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
             let base_cfg = ESSConfig::new(matrix_walkers(ndim))
+                .unwrap()
                 .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                 .unwrap()
                 .with_n_adaptive(5)
