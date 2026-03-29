@@ -255,7 +255,10 @@ impl ESSMove {
         ensemble.n_f_evals += n_f_evals;
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
         if step <= n_adaptive {
-            *mu *= 2.0 * (n_expand as Float) / (n_expand + n_contract) as Float
+            let total_updates = n_expand + n_contract;
+            if total_updates > 0 {
+                *mu *= 2.0 * (n_expand as Float) / (total_updates as Float);
+            }
         }
         ensemble.push(positions);
         Ok(())
@@ -1110,6 +1113,23 @@ mod tests {
         let result = ess.step(0, &f, &mut status, &(), &cfg);
         assert!(result.is_ok());
         assert!(status.message().to_string().contains("Global"));
+    }
+
+    #[test]
+    fn adaptive_mu_stays_finite_when_no_expand_or_contract_updates_occur() {
+        let mut rng = Rng::with_seed(0);
+        let mut status = EnsembleStatus::default();
+        let problem = Rosenbrock { n: 2 };
+        status.walkers = ESSConfig::new(make_walkers(3, 2)).walkers;
+        status.log_density_latest(&problem, &()).unwrap();
+
+        let mut mu = 1.5;
+        ESSMove::Differential
+            .step(0, 1, 0, &mut mu, &problem, &None, &(), &mut status, &mut rng)
+            .unwrap();
+
+        assert!(mu.is_finite());
+        assert_eq!(mu, 1.5);
     }
 
     #[test]
