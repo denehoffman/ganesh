@@ -819,6 +819,8 @@ impl SupportsParameterNames for NelderMeadConfig {
 #[derive(Clone, Default)]
 pub struct NelderMead {
     simplex: Simplex,
+    internal_bounds: Option<Bounds>,
+    resolved_transform: Option<Box<dyn Transform>>,
 }
 impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
 where
@@ -836,14 +838,16 @@ where
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
+        self.internal_bounds = internal_bounds;
+        self.resolved_transform = transform;
         self.simplex = config.construction_method.generate(
             problem,
-            &transform,
-            internal_bounds.as_ref(),
+            &self.resolved_transform,
+            self.internal_bounds.as_ref(),
             args,
         )?;
         status.n_f_evals += self.simplex.size();
-        status.initialize(self.simplex.best_position(&transform));
+        status.initialize(self.simplex.best_position(&self.resolved_transform));
         Ok(())
     }
 
@@ -855,19 +859,16 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
         let h = self.simplex.worst();
         let s = self.simplex.second_worst();
         let l = self.simplex.best();
         let c = &self.simplex.corrected_centroid();
         let mut xrx = c + (c - &h.x).scale(config.alpha);
-        if let Some(ib) = internal_bounds.as_ref() {
+        if let Some(ib) = self.internal_bounds.as_ref() {
             xrx = ib.clip_values(&xrx);
         }
         let mut xr = Point::from(xrx);
-        xr.evaluate_transformed(problem, &transform, args)?;
+        xr.evaluate_transformed(problem, &self.resolved_transform, args)?;
         status.inc_n_f_evals();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -875,7 +876,7 @@ where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.set_position(self.simplex.best_position(&transform));
+            status.set_position(self.simplex.best_position(&self.resolved_transform));
             status.set_message().step_with_message("REFLECT");
             self.simplex.scale_volume(config.alpha);
             return Ok(());
@@ -885,11 +886,11 @@ where
             // accept the expanded point x_e regardless (greedy expansion), or we should do one
             // final comparison between x_r and x_e and choose the smallest (greedy minimization).
             let mut xex = c + (&xr.x - c).scale(config.beta);
-            if let Some(ib) = internal_bounds.as_ref() {
+            if let Some(ib) = self.internal_bounds.as_ref() {
                 xex = ib.clip_values(&xex);
             }
             let mut xe = Point::from(xex);
-            xe.evaluate_transformed(problem, &transform, args)?;
+            xe.evaluate_transformed(problem, &self.resolved_transform, args)?;
             status.inc_n_f_evals();
             self.simplex.insert_sorted(
                 0,
@@ -904,7 +905,7 @@ where
                     SimplexExpansionMethod::GreedyExpansion => xe,
                 },
             );
-            status.set_position(self.simplex.best_position(&transform));
+            status.set_position(self.simplex.best_position(&self.resolved_transform));
             status.set_message().step_with_message("EXPAND");
             self.simplex.scale_volume(config.alpha * config.beta);
             return Ok(());
@@ -926,18 +927,18 @@ where
             if &xr < h {
                 // Try to contract outside if x_r < h
                 let mut xcx = c + (&xr.x - c).scale(config.gamma);
-                if let Some(ib) = internal_bounds.as_ref() {
+                if let Some(ib) = self.internal_bounds.as_ref() {
                     xcx = ib.clip_values(&xcx);
                 }
                 let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &transform, args)?;
+                xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
                 status.inc_n_f_evals();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&transform));
+                        status.set_position(self.simplex.best_position(&self.resolved_transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -951,18 +952,18 @@ where
             } else {
                 // Contract inside if h <= x_r
                 let mut xcx = c + (&h.x - c).scale(config.gamma);
-                if let Some(ib) = internal_bounds.as_ref() {
+                if let Some(ib) = self.internal_bounds.as_ref() {
                     xcx = ib.clip_values(&xcx);
                 }
                 let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &transform, args)?;
+                xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
                 status.inc_n_f_evals();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&transform));
+                        status.set_position(self.simplex.best_position(&self.resolved_transform));
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -978,11 +979,11 @@ where
         let l_clone = l.clone();
         for p in self.simplex.points.iter_mut().skip(1) {
             let mut px = &l_clone.x + (&p.x - &l_clone.x).scale(config.delta);
-            if let Some(ib) = internal_bounds.as_ref() {
+            if let Some(ib) = self.internal_bounds.as_ref() {
                 px = ib.clip_values(&px);
             }
             *p = Point::from(px);
-            p.evaluate_transformed(problem, &transform, args)?;
+            p.evaluate_transformed(problem, &self.resolved_transform, args)?;
             status.inc_n_f_evals();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -991,7 +992,7 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_total_centroid();
-        status.set_position(self.simplex.best_position(&transform));
+        status.set_position(self.simplex.best_position(&self.resolved_transform));
         status.set_message().step_with_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
@@ -1033,6 +1034,10 @@ where
         Callbacks::empty()
             .with_terminator(NelderMeadFTerminator::default())
             .with_terminator(NelderMeadXTerminator::default())
+    }
+
+    fn reset(&mut self) {
+        self.simplex = Simplex::default();
     }
 }
 
