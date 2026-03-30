@@ -33,6 +33,13 @@ pub enum ChainStorageMode {
         /// The maximum number of samples retained per walker.
         window: usize,
     },
+    /// Retain only periodic samples for every walker.
+    Sampled {
+        /// Retain every `keep_every`th sample after the initial point.
+        keep_every: usize,
+        /// Optionally cap the number of retained samples per walker.
+        max_samples: Option<usize>,
+    },
 }
 
 impl ChainStorageMode {
@@ -40,6 +47,7 @@ impl ChainStorageMode {
         match self {
             Self::Full => None,
             Self::Rolling { window } => Some(window),
+            Self::Sampled { max_samples, .. } => max_samples,
         }
     }
 }
@@ -95,31 +103,41 @@ pub(crate) fn validate_walker_inputs(
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
+    initial: Point<DVector<Float>>,
+    current: Point<DVector<Float>>,
     history: Vec<Point<DVector<Float>>>,
-    history_limit: Option<usize>,
+    chain_storage: ChainStorageMode,
+    current_retained: bool,
+    total_samples_seen: usize,
 }
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
     pub fn new(x0: DVector<Float>) -> Self {
-        let history = vec![Point::from(x0)];
+        let initial = Point::from(x0);
+        let current = initial.clone();
+        let history = vec![initial.clone()];
         Self {
+            initial,
+            current,
             history,
-            history_limit: None,
+            chain_storage: ChainStorageMode::Full,
+            current_retained: true,
+            total_samples_seen: 1,
         }
     }
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
-        let n_steps = self.history.len();
-        let n_variables = self.history[0].x.len();
+        let n_steps = self.retained_len();
+        let n_variables = self.current.x.len();
         (n_steps, n_variables)
     }
     /// Reset the history of the [`Walker`] (except for its starting position)
     pub fn reset(&mut self) {
-        if let Some(first) = self.history.first().cloned() {
-            self.history = vec![first];
-        } else {
-            self.history = Default::default();
-        }
+        self.current = self.initial.clone();
+        self.history = vec![self.initial.clone()];
+        self.current_retained = true;
+        self.total_samples_seen = 1;
+        self.enforce_history_limit();
     }
     /// Get the most recent (current) [`Walker`]'s position
     ///
@@ -127,8 +145,7 @@ impl Walker {
     ///
     /// This method panics if the walker has no history.
     pub fn get_latest(&self) -> &Point<DVector<Float>> {
-        assert!(!self.history.is_empty());
-        &self.history[self.history.len() - 1]
+        &self.current
     }
     /// Get a mutable reference to the most recent (current) [`Walker`]'s position
     ///
@@ -136,9 +153,7 @@ impl Walker {
     ///
     /// This method panics if the walker has no history.
     pub fn get_latest_mut(&mut self) -> &mut Point<DVector<Float>> {
-        assert!(!self.history.is_empty());
-        let len = self.history.len();
-        &mut self.history[len - 1]
+        &mut self.current
     }
     /// Evaluate the most recent position of the [`Walker`]
     ///
@@ -154,17 +169,61 @@ impl Walker {
     }
     /// Add a new position to the [`Walker`]'s history
     pub fn push(&mut self, position: Point<DVector<Float>>) {
-        self.history.push(position);
+        self.total_samples_seen += 1;
+        self.current = position;
+        self.current_retained = self.should_retain_current();
+        if self.current_retained {
+            self.history.push(self.current.clone());
+        }
         self.enforce_history_limit();
     }
 
-    pub(crate) fn set_history_limit(&mut self, history_limit: Option<usize>) {
-        self.history_limit = history_limit;
+    pub(crate) fn set_chain_storage(&mut self, chain_storage: ChainStorageMode) {
+        self.chain_storage = chain_storage;
+        self.rebuild_retained_history();
         self.enforce_history_limit();
+    }
+
+    pub(crate) fn retained_positions(&self) -> Vec<&Point<DVector<Float>>> {
+        if self.current_retained {
+            self.history.iter().collect()
+        } else {
+            let mut positions = self.history.iter().collect::<Vec<_>>();
+            positions.push(&self.current);
+            positions
+        }
+    }
+
+    fn retained_len(&self) -> usize {
+        self.history.len() + usize::from(!self.current_retained)
+    }
+
+    fn should_retain_current(&self) -> bool {
+        match self.chain_storage {
+            ChainStorageMode::Full | ChainStorageMode::Rolling { .. } => true,
+            ChainStorageMode::Sampled { keep_every, .. } => {
+                keep_every == 0 || (self.total_samples_seen - 1).is_multiple_of(keep_every)
+            }
+        }
+    }
+
+    fn rebuild_retained_history(&mut self) {
+        self.history = vec![self.initial.clone()];
+        self.current_retained = true;
+        if self.total_samples_seen == 1 {
+            self.current = self.initial.clone();
+            return;
+        }
+        if self.should_retain_current() {
+            self.history.push(self.current.clone());
+            self.current_retained = true;
+        } else {
+            self.current_retained = false;
+        }
     }
 
     fn enforce_history_limit(&mut self) {
-        if let Some(limit) = self.history_limit {
+        if let Some(limit) = self.chain_storage.history_limit() {
             if self.history.len() > limit {
                 let excess = self.history.len() - limit;
                 self.history.drain(0..excess);

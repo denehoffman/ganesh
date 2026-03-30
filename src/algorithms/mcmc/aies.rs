@@ -250,9 +250,8 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
-        let history_limit = config.chain_storage.history_limit();
         for walker in status.walkers.iter_mut() {
-            walker.set_history_limit(history_limit);
+            walker.set_chain_storage(config.chain_storage);
         }
         status.log_density_latest(problem, args)?;
         status.set_message().initialize();
@@ -522,5 +521,35 @@ mod tests {
         assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 2 });
         assert!(result.chain.iter().all(|walker| walker.len() <= 2));
         assert_eq!(result.dimension.1, 2);
+    }
+
+    #[test]
+    fn sampled_chain_storage_downsamples_retained_history() {
+        let mut aies = AIES::default();
+        let config = AIESConfig::new(make_walkers(4, 2))
+            .unwrap()
+            .with_chain_storage(ChainStorageMode::Sampled {
+                keep_every: 2,
+                max_samples: Some(3),
+            });
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Sampled {
+                keep_every: 2,
+                max_samples: Some(3),
+            }
+        );
+        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
+        assert_eq!(result.dimension.1, 3);
     }
 }

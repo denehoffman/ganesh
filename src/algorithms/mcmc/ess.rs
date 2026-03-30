@@ -390,9 +390,8 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
-        let history_limit = config.chain_storage.history_limit();
         for walker in status.walkers.iter_mut() {
-            walker.set_history_limit(history_limit);
+            walker.set_chain_storage(config.chain_storage);
         }
         self.mu = config.mu;
         status.log_density_latest(problem, args)?;
@@ -1229,6 +1228,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 3 });
+        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
+        assert_eq!(result.dimension.1, 3);
+    }
+
+    #[test]
+    fn sampled_chain_storage_downsamples_retained_history() {
+        let walkers = make_walkers(4, 2);
+        let cfg = ESSConfig::new(walkers)
+            .unwrap()
+            .with_chain_storage(ChainStorageMode::Sampled {
+                keep_every: 2,
+                max_samples: Some(3),
+            });
+        let mut ess = ESS::default();
+
+        let result = ess
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                cfg,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Sampled {
+                keep_every: 2,
+                max_samples: Some(3),
+            }
+        );
         assert!(result.chain.iter().all(|walker| walker.len() <= 3));
         assert_eq!(result.dimension.1, 3);
     }

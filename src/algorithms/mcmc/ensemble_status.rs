@@ -160,8 +160,8 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 walker
-                    .history
-                    .iter()
+                    .retained_positions()
+                    .into_iter()
                     .skip(burn)
                     .enumerate()
                     .filter_map(|(i, position)| {
