@@ -4,6 +4,7 @@ use crate::{
     traits::{Bound, StatusMessage},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Error as SerdeJsonError;
 use std::fmt::Display;
 
 /// A trait used with the associated [`Summary`](`crate::traits::Algorithm`) type to set parameter names.
@@ -25,6 +26,50 @@ pub trait HasParameterNames: Sized {
         self
     }
 }
+
+/// A rendered summary containing both human-readable and machine-readable representations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedSummary {
+    /// The summary rendered using its [`Display`] implementation.
+    pub pretty: String,
+    /// The summary rendered as JSON.
+    pub json: String,
+}
+
+/// Helper methods for summary types that support both display formatting and serialization.
+pub trait SummaryExport: Display + Serialize {
+    /// Render the summary as a string using its [`Display`] implementation.
+    fn to_pretty_string(&self) -> String {
+        self.to_string()
+    }
+
+    /// Render the summary as a compact JSON string.
+    fn to_json_string(&self) -> Result<String, SerdeJsonError> {
+        serde_json::to_string(self)
+    }
+
+    /// Render the summary as an indented JSON string.
+    fn to_json_string_pretty(&self) -> Result<String, SerdeJsonError> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Render the summary as both a display string and compact JSON in one call.
+    fn render(&self) -> Result<RenderedSummary, SerdeJsonError> {
+        Ok(RenderedSummary {
+            pretty: self.to_pretty_string(),
+            json: self.to_json_string()?,
+        })
+    }
+
+    /// Render the summary as both a display string and indented JSON in one call.
+    fn render_pretty_json(&self) -> Result<RenderedSummary, SerdeJsonError> {
+        Ok(RenderedSummary {
+            pretty: self.to_pretty_string(),
+            json: self.to_json_string_pretty()?,
+        })
+    }
+}
+impl<T> SummaryExport for T where T: Display + Serialize {}
 
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -251,6 +296,29 @@ impl HasParameterNames for MCMCSummary {
     }
 }
 
+impl Display for MCMCSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MCMC Summary: status={}, cost_evals={}, gradient_evals={}, dimension={:?}",
+            self.message, self.cost_evals, self.gradient_evals, self.dimension
+        )
+    }
+}
+
+impl<I> Display for SimulatedAnnealingSummary<I>
+where
+    I: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Simulated Annealing Summary: status={}, f(x)={:.5}, cost_evals={}",
+            self.message, self.fx, self.cost_evals
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,5 +339,65 @@ mod tests {
             covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         };
         println!("{}", result);
+    }
+
+    #[test]
+    fn minimization_summary_can_render_pretty_and_json() {
+        let result = MinimizationSummary {
+            bounds: None,
+            parameter_names: Some(vec!["alpha".to_string(), "beta".to_string()]),
+            message: StatusMessage::default().set_success_with_message("ok"),
+            x0: dvector![1.0, 2.0],
+            x: dvector![0.5, 1.5],
+            std: dvector![0.1, 0.2],
+            fx: 1.25,
+            cost_evals: 10,
+            gradient_evals: 4,
+            covariance: dmatrix![1.0, 0.0, 0.0, 1.0],
+        };
+
+        let rendered = result.render().unwrap();
+
+        assert!(rendered.pretty.contains("FIT RESULTS"));
+        assert!(rendered.json.contains("\"fx\":1.25"));
+        assert!(rendered.json.contains("\"parameter_names\":[\"alpha\",\"beta\"]"));
+    }
+
+    #[test]
+    fn mcmc_summary_can_render_pretty_json() {
+        let result = MCMCSummary {
+            bounds: None,
+            parameter_names: Some(vec!["x".to_string()]),
+            message: StatusMessage::default().set_initialized_with_message("warmup"),
+            chain: vec![vec![dvector![1.0], dvector![2.0]]],
+            cost_evals: 8,
+            gradient_evals: 0,
+            dimension: (1, 2, 1),
+        };
+
+        let rendered = result.render_pretty_json().unwrap();
+
+        assert!(rendered.pretty.contains("MCMC Summary"));
+        assert!(rendered.pretty.contains("cost_evals=8"));
+        assert!(rendered.json.contains("\n  \"dimension\": [\n"));
+        assert!(rendered.json.contains("\"cost_evals\": 8"));
+    }
+
+    #[test]
+    fn simulated_annealing_summary_can_render_json() {
+        let result = SimulatedAnnealingSummary {
+            bounds: None,
+            message: StatusMessage::default().set_success_with_message("done"),
+            x0: "start".to_string(),
+            x: "finish".to_string(),
+            fx: 0.5,
+            cost_evals: 12,
+        };
+
+        let rendered = result.render().unwrap();
+
+        assert!(rendered.pretty.contains("Simulated Annealing Summary"));
+        assert!(rendered.json.contains("\"fx\":0.5"));
+        assert!(rendered.json.contains("\"x\":\"finish\""));
     }
 }

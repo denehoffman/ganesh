@@ -16,7 +16,10 @@ pub use point::Point;
 
 /// Summary types for the result of the minimization.
 pub mod summary;
-pub use summary::{MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary};
+pub use summary::{
+    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary,
+    SimulatedAnnealingSummary, SummaryExport,
+};
 
 /// Utility functions.
 pub mod utils;
