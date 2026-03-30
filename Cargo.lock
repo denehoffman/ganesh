@@ -337,6 +337,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde-pickle",
+ "serde_json",
  "spec_math",
  "tabled",
  "thiserror",
