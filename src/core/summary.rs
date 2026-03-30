@@ -1,5 +1,6 @@
 use crate::{
     DMatrix, DVector, Float,
+    algorithms::mcmc::ChainStorageMode,
     core::transforms::Bounds,
     traits::{Bound, StatusMessage},
 };
@@ -239,6 +240,8 @@ pub struct MCMCSummary {
     /// The chain of positions sampled by each walker with dimension `(n_walkers, n_steps,
     /// n_variables)`.
     pub chain: Vec<Vec<DVector<Float>>>,
+    /// The mode used to retain chain history in memory during sampling.
+    pub chain_storage: ChainStorageMode,
     /// The number of function evaluations.
     pub cost_evals: usize,
     /// The number of gradient evaluations.
@@ -370,6 +373,7 @@ mod tests {
             parameter_names: Some(vec!["x".to_string()]),
             message: StatusMessage::default().set_initialized_with_message("warmup"),
             chain: vec![vec![dvector![1.0], dvector![2.0]]],
+            chain_storage: ChainStorageMode::Full,
             cost_evals: 8,
             gradient_evals: 0,
             dimension: (1, 2, 1),

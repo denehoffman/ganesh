@@ -1,6 +1,6 @@
 use ganesh::{
     DVector, Float,
-    algorithms::mcmc::{AIES, AIESConfig, ESS, ESSConfig, ESSMove},
+    algorithms::mcmc::{AIES, AIESConfig, ChainStorageMode, ESS, ESSConfig, ESSMove},
     core::MaxSteps,
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
@@ -35,6 +35,15 @@ fn main() {
     let n_dim = parse_usize_arg(&args, 2, 4, "dimension");
     let n_walkers = parse_usize_arg(&args, 3, 32, "walker count");
     let n_steps = parse_usize_arg(&args, 4, 2000, "step count");
+    let chain_window = args.get(5).map(|value| {
+        value.parse::<usize>().unwrap_or_else(|_| {
+            eprintln!("invalid chain window: {}", value);
+            process::exit(2);
+        })
+    });
+    let chain_storage = chain_window.map_or(ChainStorageMode::Full, |window| {
+        ChainStorageMode::Rolling { window }
+    });
 
     let problem = Rosenbrock { n: n_dim };
     let x0 = walkers(n_dim, n_walkers);
@@ -46,16 +55,19 @@ fn main() {
                 .process(
                     &problem,
                     &(),
-                    AIESConfig::new(x0).unwrap(),
+                    AIESConfig::new(x0)
+                        .unwrap()
+                        .with_chain_storage(chain_storage),
                     AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
             println!(
-                "sampler=aies walkers={} steps={} dim={} evals={}",
+                "sampler=aies walkers={} steps={} dim={} evals={} chain_storage={:?}",
                 n_walkers,
                 n_steps,
                 n_dim,
-                summary.cost_evals
+                summary.cost_evals,
+                summary.chain_storage
             );
         }
         "ess" => {
@@ -69,16 +81,18 @@ fn main() {
                         .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                         .unwrap()
                         .with_n_adaptive(10)
-                        .with_max_steps(128),
+                        .with_max_steps(128)
+                        .with_chain_storage(chain_storage),
                     ESS::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
             println!(
-                "sampler=ess walkers={} steps={} dim={} evals={}",
+                "sampler=ess walkers={} steps={} dim={} evals={} chain_storage={:?}",
                 n_walkers,
                 n_steps,
                 n_dim,
-                summary.cost_evals
+                summary.cost_evals,
+                summary.chain_storage
             );
         }
         other => {

@@ -1,6 +1,9 @@
 use crate::{
     DMatrix, DVector, Float, PI,
-    algorithms::mcmc::{EnsembleStatus, Walker, validate_walker_inputs, validate_weighted_moves},
+    algorithms::mcmc::{
+        ChainStorageMode, EnsembleStatus, Walker, validate_walker_inputs,
+        validate_weighted_moves,
+    },
     core::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
@@ -276,6 +279,7 @@ pub struct ESSConfig {
     n_adaptive: usize,
     max_steps: usize,
     mu: Float,
+    chain_storage: ChainStorageMode,
 }
 impl ESSConfig {
     /// Create a new configuratione with the initial positions of the walkers.
@@ -294,6 +298,7 @@ impl ESSConfig {
             n_adaptive: 0,
             max_steps: 10000,
             mu: 1.0,
+            chain_storage: ChainStorageMode::default(),
         })
     }
     /// Set the moves for the [`ESS`] algorithm to use.
@@ -324,6 +329,11 @@ impl ESSConfig {
         }
         self.mu = mu;
         Ok(self)
+    }
+    /// Set how much chain history to retain in memory during sampling.
+    pub const fn with_chain_storage(mut self, chain_storage: ChainStorageMode) -> Self {
+        self.chain_storage = chain_storage;
+        self
     }
 }
 
@@ -380,6 +390,10 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
+        let history_limit = config.chain_storage.history_limit();
+        for walker in status.walkers.iter_mut() {
+            walker.set_history_limit(history_limit);
+        }
         self.mu = config.mu;
         status.log_density_latest(problem, args)?;
         status.set_message().initialize();
@@ -431,6 +445,7 @@ where
             parameter_names: config.parameter_names.clone(),
             message,
             chain: status.get_chain(None, None),
+            chain_storage: config.chain_storage,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             dimension: status.dimension(),
@@ -1194,6 +1209,28 @@ mod tests {
         assert_eq!(result.gradient_evals, 0);
         assert!(result.message.success());
         assert!(result.message.text.contains("Maximum number of steps reached"));
+    }
+
+    #[test]
+    fn rolling_chain_storage_limits_retained_history() {
+        let walkers = make_walkers(4, 2);
+        let cfg = ESSConfig::new(walkers)
+            .unwrap()
+            .with_chain_storage(ChainStorageMode::Rolling { window: 3 });
+        let mut ess = ESS::default();
+
+        let result = ess
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                cfg,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 3 });
+        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
+        assert_eq!(result.dimension.1, 3);
     }
 
     #[test]

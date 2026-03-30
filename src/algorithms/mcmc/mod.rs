@@ -22,6 +22,28 @@ pub use ess::{ESS, ESSConfig, ESSMove};
 pub mod ensemble_status;
 pub use ensemble_status::EnsembleStatus;
 
+/// Controls how much MCMC chain history is retained in memory.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub enum ChainStorageMode {
+    /// Retain the full chain for every walker.
+    #[default]
+    Full,
+    /// Retain only the most recent samples for every walker.
+    Rolling {
+        /// The maximum number of samples retained per walker.
+        window: usize,
+    },
+}
+
+impl ChainStorageMode {
+    pub(crate) const fn history_limit(self) -> Option<usize> {
+        match self {
+            Self::Full => None,
+            Self::Rolling { window } => Some(window),
+        }
+    }
+}
+
 pub(crate) fn validate_weighted_moves(weights: &[Float], family: &str) -> GaneshResult<()> {
     if weights.is_empty() {
         return Err(GaneshError::ConfigError(format!(
@@ -74,12 +96,16 @@ pub(crate) fn validate_walker_inputs(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
     history: Vec<Point<DVector<Float>>>,
+    history_limit: Option<usize>,
 }
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
     pub fn new(x0: DVector<Float>) -> Self {
         let history = vec![Point::from(x0)];
-        Self { history }
+        Self {
+            history,
+            history_limit: None,
+        }
     }
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
@@ -128,7 +154,22 @@ impl Walker {
     }
     /// Add a new position to the [`Walker`]'s history
     pub fn push(&mut self, position: Point<DVector<Float>>) {
-        self.history.push(position)
+        self.history.push(position);
+        self.enforce_history_limit();
+    }
+
+    pub(crate) fn set_history_limit(&mut self, history_limit: Option<usize>) {
+        self.history_limit = history_limit;
+        self.enforce_history_limit();
+    }
+
+    fn enforce_history_limit(&mut self) {
+        if let Some(limit) = self.history_limit {
+            if self.history.len() > limit {
+                let excess = self.history.len() - limit;
+                self.history.drain(0..excess);
+            }
+        }
     }
 }
 

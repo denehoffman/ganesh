@@ -1,6 +1,9 @@
 use crate::{
     DVector, Float,
-    algorithms::mcmc::{EnsembleStatus, Walker, validate_walker_inputs, validate_weighted_moves},
+    algorithms::mcmc::{
+        ChainStorageMode, EnsembleStatus, Walker, validate_walker_inputs,
+        validate_weighted_moves,
+    },
     core::{
         MCMCSummary, Point,
         utils::{RandChoice, SampleFloat},
@@ -161,6 +164,7 @@ pub struct AIESConfig {
     transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedAIESMove>,
+    chain_storage: ChainStorageMode,
 }
 impl SupportsTransform for AIESConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
@@ -186,6 +190,7 @@ impl AIESConfig {
             transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![AIESMove::stretch(1.0)],
+            chain_storage: ChainStorageMode::default(),
         })
     }
     /// Set the moves for the [`AIES`] algorithm to use.
@@ -196,6 +201,11 @@ impl AIESConfig {
         )?;
         self.moves = moves.as_ref().to_vec();
         Ok(self)
+    }
+    /// Set how much chain history to retain in memory during sampling.
+    pub const fn with_chain_storage(mut self, chain_storage: ChainStorageMode) -> Self {
+        self.chain_storage = chain_storage;
+        self
     }
 }
 
@@ -240,6 +250,10 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         status.walkers = config.walkers.clone();
+        let history_limit = config.chain_storage.history_limit();
+        for walker in status.walkers.iter_mut() {
+            walker.set_history_limit(history_limit);
+        }
         status.log_density_latest(problem, args)?;
         status.set_message().initialize();
         Ok(())
@@ -280,6 +294,7 @@ where
             parameter_names: config.parameter_names.clone(),
             message,
             chain: status.get_chain(None, None),
+            chain_storage: config.chain_storage,
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             dimension: status.dimension(),
@@ -486,5 +501,26 @@ mod tests {
             result.parameter_names,
             Some(vec!["alpha".to_string(), "beta".to_string()])
         );
+    }
+
+    #[test]
+    fn rolling_chain_storage_limits_retained_history() {
+        let mut aies = AIES::default();
+        let config = AIESConfig::new(make_walkers(4, 2))
+            .unwrap()
+            .with_chain_storage(ChainStorageMode::Rolling { window: 2 });
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 2 });
+        assert!(result.chain.iter().all(|walker| walker.len() <= 2));
+        assert_eq!(result.dimension.1, 2);
     }
 }
