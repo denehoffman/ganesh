@@ -359,3 +359,24 @@ where
         AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
     )
 }
+
+/// Run a multistart minimization workflow and collect all run summaries.
+///
+/// Each run is created by `restart_factory`, and `restart_policy` decides whether another run
+/// should be launched based on the current [`core::MultiStartState`]. This lets callers implement
+/// fixed restart counts or more adaptive policies that depend on the number of completed restarts
+/// and the minima already found.
+pub fn minimize_multistart<P, U, E, A, S, F, R>(
+    problem: &P,
+    user_data: &U,
+    restart_factory: &mut F,
+    restart_policy: &mut R,
+) -> Result<core::MultiStartSummary, E>
+where
+    S: traits::Status,
+    A: traits::Algorithm<P, S, U, E, Summary = core::MinimizationSummary>,
+    F: core::RestartFactory<A, P, S, U, E>,
+    R: core::RestartPolicy,
+{
+    core::minimize_multistart(problem, user_data, restart_factory, restart_policy)
+}

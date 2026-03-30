@@ -21,5 +21,12 @@ pub use summary::{
     SimulatedAnnealingSummary, SummaryExport,
 };
 
+/// Multistart minimization orchestration helpers.
+pub mod multistart;
+pub use multistart::{
+    FixedRestarts, MultiStartState, MultiStartSummary, RestartFactory, RestartPolicy,
+    minimize_multistart, restart_seed,
+};
+
 /// Utility functions.
 pub mod utils;
