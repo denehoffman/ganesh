@@ -12,8 +12,6 @@ use crate::{
     },
 };
 use fastrand::Rng;
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// A move used by the the [`AIES`] algorithm
 ///
@@ -98,9 +96,9 @@ impl AIESMove {
                         .get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal = Point::from(
-                        transform.to_internal(&x_l.read().x).as_ref()
-                            + (transform.to_internal(&x_k.read().x).as_ref()
-                                - transform.to_internal(&x_l.read().x).as_ref())
+                        transform.to_internal(&x_l.x).as_ref()
+                            + (transform.to_internal(&x_k.x).as_ref()
+                                - transform.to_internal(&x_l.x).as_ref())
                             .scale(z),
                     );
                     proposal.log_density_transformed(problem, transform, args)?;
@@ -109,9 +107,9 @@ impl AIESMove {
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
-                    let n = x_l.read().x.len();
+                    let n = x_l.x.len();
                     let r = z.ln().mul_add((n - 1) as Float, proposal.fx_checked())
-                        - x_k.read().fx_checked();
+                        - x_k.fx_checked();
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -131,24 +129,23 @@ impl AIESMove {
                     let w = ensemble
                         .iter_compliment(i)
                         .map(|x_l| {
-                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
+                            (transform.to_internal(&x_l.x).as_ref() - &x_s)
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>();
-                    let mut proposal =
-                        Point::from(transform.to_internal(&x_k.read().x).as_ref() + w);
+                    let mut proposal = Point::from(transform.to_internal(&x_k.x).as_ref() + w);
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
                     proposal.log_density_transformed(problem, transform, args)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
-                    let r = proposal.fx_checked() - x_k.read().fx_checked();
+                    let r = proposal.fx_checked() - x_k.fx_checked();
                     (proposal, r)
                 }
             };
             if r > rng.float().ln() {
-                positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
+                positions.push(proposal.to_external(transform))
             } else {
-                positions.push(x_k)
+                positions.push(x_k.clone())
             }
         }
         ensemble.n_f_evals += ensemble.walkers.len();
@@ -447,7 +444,7 @@ mod tests {
             .unwrap();
 
         let x0 = ensemble.walkers[0].get_latest();
-        assert_relative_eq!(x0.read().x[0], expected);
+        assert_relative_eq!(x0.x[0], expected);
     }
 
     #[test]

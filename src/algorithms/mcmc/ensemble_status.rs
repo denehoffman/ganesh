@@ -6,12 +6,8 @@ use crate::{
 };
 use fastrand::Rng;
 use nalgebra::RowDVector;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::ops::{Deref, DerefMut};
 
 /// A collection of [`Walker`]s
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -48,7 +44,7 @@ impl EnsembleStatus {
     }
     /// Add a set of positions to the [`EnsembleStatus`], adding each position to the corresponding
     /// [`Walker`] in the given order
-    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point<DVector<Float>>>>>) {
+    pub fn push(&mut self, positions: Vec<Point<DVector<Float>>>) {
         self.walkers
             .iter_mut()
             .zip(positions)
@@ -104,7 +100,7 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 transform
-                    .to_internal(&walker.get_latest().read().x)
+                    .to_internal(&walker.get_latest().x)
                     .into_owned()
             })
             .sum::<DVector<Float>>()
@@ -124,7 +120,7 @@ impl EnsembleStatus {
                 if i != index {
                     Some(
                         transform
-                            .to_internal(&walker.get_latest().read().x)
+                            .to_internal(&walker.get_latest().x)
                             .into_owned(),
                     )
                 } else {
@@ -138,7 +134,7 @@ impl EnsembleStatus {
     pub fn iter_compliment(
         &self,
         index: usize,
-    ) -> impl Iterator<Item = Arc<RwLock<Point<DVector<Float>>>>> + '_ {
+    ) -> impl Iterator<Item = &Point<DVector<Float>>> + '_ {
         self.walkers
             .iter()
             .enumerate()
@@ -170,7 +166,7 @@ impl EnsembleStatus {
                     .enumerate()
                     .filter_map(|(i, position)| {
                         if i % thin == 0 {
-                            Some(position.read().x.clone())
+                            Some(position.x.clone())
                         } else {
                             None
                         }
@@ -202,7 +198,7 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 transform
-                    .to_internal(&walker.get_latest().read().x)
+                    .to_internal(&walker.get_latest().x)
                     .transpose()
             })
             .collect::<Vec<RowDVector<Float>>>();

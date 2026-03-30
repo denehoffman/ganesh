@@ -13,8 +13,6 @@ use crate::{
 };
 use fastrand::Rng;
 use nalgebra::Cholesky;
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// A move used by the [`ESS`] algorithm
 ///
@@ -144,8 +142,8 @@ impl ESSMove {
                     let s = ensemble.get_compliment_walker_indices(i, 2, rng);
                     let x_l = ensemble.walkers[s[0]].get_latest();
                     let x_m = ensemble.walkers[s[1]].get_latest();
-                    let eta = (transform.to_internal(&x_l.read().x).as_ref()
-                        - transform.to_internal(&x_m.read().x).as_ref())
+                    let eta = (transform.to_internal(&x_l.x).as_ref()
+                        - transform.to_internal(&x_m.x).as_ref())
                     .scale(*mu);
                     eta
                 }
@@ -162,7 +160,7 @@ impl ESSMove {
                     ensemble
                         .iter_compliment(i)
                         .map(|x_l| {
-                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
+                            (transform.to_internal(&x_l.x).as_ref() - &x_s)
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>()
@@ -194,8 +192,8 @@ impl ESSMove {
                 }
             };
             // Y ~ U(0, f(Xₖ(t)))
-            let y = x_k.read().fx_checked() + rng.float().ln();
-            let x_k_internal = transform.to_internal(&x_k.read().x).into_owned();
+            let y = x_k.fx_checked() + rng.float().ln();
+            let x_k_internal = transform.to_internal(&x_k.x).into_owned();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
@@ -253,7 +251,7 @@ impl ESSMove {
             let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
             proposal.log_density_transformed(problem, transform, args)?;
             n_f_evals += 1;
-            positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
+            positions.push(proposal.to_external(transform))
         }
         ensemble.n_f_evals += n_f_evals;
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])

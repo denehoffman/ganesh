@@ -5,7 +5,7 @@ use crate::{
     traits::{Algorithm, LogDensity, Terminator},
 };
 use nalgebra::Complex;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
 use std::{ops::ControlFlow, sync::Arc};
@@ -73,25 +73,24 @@ pub(crate) fn validate_walker_inputs(
 /// A MCMC walker containing a history of past samples
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
-    history: Vec<Arc<RwLock<Point<DVector<Float>>>>>,
+    history: Vec<Point<DVector<Float>>>,
 }
 impl Walker {
     /// Create a new [`Walker`] located at `x0`
     pub fn new(x0: DVector<Float>) -> Self {
-        let history = vec![Arc::new(RwLock::new(Point::from(x0)))];
+        let history = vec![Point::from(x0)];
         Self { history }
     }
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
         let n_steps = self.history.len();
-        let n_variables = self.history[0].read().x.len();
+        let n_variables = self.history[0].x.len();
         (n_steps, n_variables)
     }
     /// Reset the history of the [`Walker`] (except for its starting position)
     pub fn reset(&mut self) {
-        let first = self.history.first();
-        if let Some(first) = first {
-            self.history = vec![first.clone()];
+        if let Some(first) = self.history.first().cloned() {
+            self.history = vec![first];
         } else {
             self.history = Default::default();
         }
@@ -101,9 +100,19 @@ impl Walker {
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> Arc<RwLock<Point<DVector<Float>>>> {
+    pub fn get_latest(&self) -> &Point<DVector<Float>> {
         assert!(!self.history.is_empty());
-        self.history[self.history.len() - 1].clone()
+        &self.history[self.history.len() - 1]
+    }
+    /// Get a mutable reference to the most recent (current) [`Walker`]'s position
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the walker has no history.
+    pub fn get_latest_mut(&mut self) -> &mut Point<DVector<Float>> {
+        assert!(!self.history.is_empty());
+        let len = self.history.len();
+        &mut self.history[len - 1]
     }
     /// Evaluate the most recent position of the [`Walker`]
     ///
@@ -115,10 +124,10 @@ impl Walker {
         func: &dyn LogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
-        self.get_latest().write().log_density(func, args)
+        self.get_latest_mut().log_density(func, args)
     }
     /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: Arc<RwLock<Point<DVector<Float>>>>) {
+    pub fn push(&mut self, position: Point<DVector<Float>>) {
         self.history.push(position)
     }
 }
