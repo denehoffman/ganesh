@@ -73,27 +73,30 @@ impl EnsembleStatus {
         }
         Ok(())
     }
-    /// Randomly draw a [`Walker`] from the [`EnsembleStatus`] other than the one at the provided `index`
-    pub fn get_compliment_walker(&self, index: usize, rng: &mut Rng) -> Walker {
+    /// Randomly draw the index of a [`Walker`] from the [`EnsembleStatus`] other than the one at
+    /// the provided `index`
+    pub fn get_compliment_walker_index(&self, index: usize, rng: &mut Rng) -> usize {
         let n_tot = self.walkers.len();
         let r = rng.usize(0..n_tot - 1);
-        let j = if r >= index { r + 1 } else { r };
-        self.walkers[j].clone()
+        if r >= index { r + 1 } else { r }
     }
-    /// Randomly draw `n` [`Walker`]s from the [`EnsembleStatus`] other than the one at the provided `index`
+    /// Randomly draw `n` [`Walker`] indices from the [`EnsembleStatus`] other than the one at the provided `index`
     ///
     /// # Panics
     ///
     /// This method will panic if you try to draw more [`Walker`]s than are in the [`EnsembleStatus`]
     /// (aside from the excluded one at the provided `index`).
-    pub fn get_compliment_walkers(&self, index: usize, n: usize, rng: &mut Rng) -> Vec<Walker> {
+    pub fn get_compliment_walker_indices(
+        &self,
+        index: usize,
+        n: usize,
+        rng: &mut Rng,
+    ) -> Vec<usize> {
         assert!(n < self.walkers.len());
         let mut indices: Vec<usize> = (0..self.walkers.len()).filter(|&i| i != index).collect();
         rng.shuffle(&mut indices);
-        indices[..n]
-            .iter()
-            .map(|&j| self.walkers[j].clone())
-            .collect()
+        indices.truncate(n);
+        indices
     }
     /// Get the average position of all [`Walker`]s in internal coordinates
     pub fn internal_mean(&self, transform: &Option<Box<dyn Transform>>) -> DVector<Float> {

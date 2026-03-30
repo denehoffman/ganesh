@@ -141,9 +141,9 @@ impl ESSMove {
                 Self::Differential => {
                     // Given a walker Xₖ and complementary set of walkers S, pick two walkers Xₗ and Xₘ from S (without
                     // replacement) and compute direction vector ηₖ = μ(Xₗ - Xₘ)
-                    let s = &ensemble.get_compliment_walkers(i, 2, rng);
-                    let x_l = s[0].get_latest();
-                    let x_m = s[1].get_latest();
+                    let s = ensemble.get_compliment_walker_indices(i, 2, rng);
+                    let x_l = ensemble.walkers[s[0]].get_latest();
+                    let x_m = ensemble.walkers[s[1]].get_latest();
                     let eta = (transform.to_internal(&x_l.read().x).as_ref()
                         - transform.to_internal(&x_m.read().x).as_ref())
                     .scale(*mu);

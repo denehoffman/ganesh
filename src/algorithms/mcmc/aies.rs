@@ -93,7 +93,9 @@ impl AIESMove {
                     //
                     // F⁻¹(u) = ((a-1) u + 1)² / a
                     let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
-                    let x_l = &ensemble.get_compliment_walker(i, rng).get_latest();
+                    let x_l = ensemble
+                        .walkers[ensemble.get_compliment_walker_index(i, rng)]
+                        .get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal = Point::from(
                         transform.to_internal(&x_l.read().x).as_ref()
