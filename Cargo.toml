@@ -60,6 +60,10 @@ harness = false
 name = "benchmark_matrix"
 harness = false
 
+[[bench]]
+name = "microkernels"
+harness = false
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./docs/docs-header.html"]
 
