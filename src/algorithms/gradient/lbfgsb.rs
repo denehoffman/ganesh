@@ -5,8 +5,9 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
-        Algorithm, Bound, Gradient, LineSearch, Status, SupportsBounds, SupportsTransform,
-        Terminator, Transform, TransformedProblem, linesearch::LineSearchOutput,
+        Algorithm, Bound, Gradient, LineSearch, Status, SupportsBounds,
+        SupportsParameterNames, SupportsTransform, Terminator, Transform, TransformedProblem,
+        linesearch::LineSearchOutput,
     },
 };
 use nalgebra::{Dyn, LU};
@@ -180,6 +181,7 @@ pub struct LBFGSBConfig {
     x0: DVector<Float>,
     bounds: Option<Bounds>,
     bounds_handling: BoundsHandlingMode,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     line_search: StrongWolfeLineSearch,
     m: usize,
@@ -196,6 +198,11 @@ impl SupportsTransform for LBFGSBConfig {
         &mut self.transform
     }
 }
+impl SupportsParameterNames for LBFGSBConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
+    }
+}
 impl LBFGSBConfig {
     /// Create a new configuration by setting the starting position of the algorithm.
     pub fn new<I>(x0: I) -> Self
@@ -206,6 +213,7 @@ impl LBFGSBConfig {
             x0: DVector::from_row_slice(x0.as_ref()),
             bounds: None,
             bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
             transform: None,
             line_search: StrongWolfeLineSearch::default(),
             m: 10,
@@ -677,7 +685,7 @@ where
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: status
                 .err
                 .clone()
@@ -845,5 +853,23 @@ mod tests {
             config.bounds_handling,
             BoundsHandlingMode::TransformBounds
         ));
+    }
+
+    #[test]
+    fn summary_uses_parameter_names_from_config() {
+        let mut solver = LBFGSB::default();
+        let result = solver
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                LBFGSBConfig::new([-1.0, 1.0]).with_parameter_names(["alpha", "beta"]),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.parameter_names,
+            Some(vec!["alpha".to_string(), "beta".to_string()])
+        );
     }
 }

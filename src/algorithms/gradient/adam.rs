@@ -4,8 +4,8 @@ use crate::{
     core::{Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, CostFunction, Gradient, Status, SupportsTransform, Terminator, Transform,
-        TransformedProblem,
+        Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
+        Terminator, Transform, TransformedProblem,
     },
 };
 use std::ops::ControlFlow;
@@ -68,6 +68,7 @@ where
 #[derive(Clone)]
 pub struct AdamConfig {
     x0: DVector<Float>,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta_1: Float,
@@ -82,6 +83,7 @@ impl AdamConfig {
     {
         Self {
             x0: DVector::from_row_slice(x0.as_ref()),
+            parameter_names: None,
             transform: None,
             alpha: 0.001,
             beta_1: 0.9,
@@ -140,6 +142,11 @@ impl AdamConfig {
 impl SupportsTransform for AdamConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for AdamConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -226,7 +233,7 @@ where
             cost_evals: status.n_f_evals,
             gradient_evals: status.n_g_evals,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: status
                 .err
                 .clone()

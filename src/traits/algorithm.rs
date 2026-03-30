@@ -233,6 +233,29 @@ where
     }
 }
 
+/// A trait for algorithm configs which can propagate parameter names into summaries.
+pub trait SupportsParameterNames
+where
+    Self: Sized,
+{
+    /// A helper method to get the mutable internal parameter name storage.
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>>;
+    /// Set the names associated with each parameter.
+    fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        *self.get_parameter_names_mut() = Some(
+            parameter_names
+                .into_iter()
+                .map(|name| name.as_ref().to_string())
+                .collect(),
+        );
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

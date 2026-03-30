@@ -6,7 +6,10 @@ use crate::{
         utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
     },
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform, status::StatusType},
+    traits::{
+        Algorithm, LogDensity, Status, SupportsParameterNames, SupportsTransform, Transform,
+        status::StatusType,
+    },
 };
 use fastrand::Rng;
 use nalgebra::Cholesky;
@@ -268,6 +271,7 @@ impl ESSMove {
 /// The internal configuration struct for the [`ESS`] algorithm.
 #[derive(Clone)]
 pub struct ESSConfig {
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedESSMove>,
@@ -285,6 +289,7 @@ impl ESSConfig {
     pub fn new(x0: Vec<DVector<Float>>) -> GaneshResult<Self> {
         validate_walker_inputs(&x0, "ESS", 3)?;
         Ok(Self {
+            parameter_names: None,
             transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![ESSMove::differential(1.0)],
@@ -327,6 +332,11 @@ impl ESSConfig {
 impl SupportsTransform for ESSConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for ESSConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -410,7 +420,7 @@ where
         _problem: &P,
         status: &EnsembleStatus,
         _args: &U,
-        _config: &Self::Config,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         let mut message = status.message().clone();
         if matches!(message.status_type, StatusType::Custom)
@@ -420,7 +430,7 @@ where
         }
         Ok(MCMCSummary {
             bounds: None,
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             message,
             chain: status.get_chain(None, None),
             cost_evals: status.n_f_evals,

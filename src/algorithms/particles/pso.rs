@@ -5,7 +5,8 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform,
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
+        SupportsTransform, Transform,
     },
 };
 use fastrand::Rng;
@@ -17,6 +18,7 @@ pub struct PSOConfig {
     swarm: Swarm,
     bounds: Option<Bounds>,
     bounds_handling: BoundsHandlingMode,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     omega: Float,
     c1: Float,
@@ -29,6 +31,7 @@ impl PSOConfig {
             swarm,
             bounds: None,
             bounds_handling: BoundsHandlingMode::Auto,
+            parameter_names: None,
             transform: None,
             omega: 0.8,
             c1: 0.1,
@@ -82,6 +85,11 @@ impl SupportsBounds for PSOConfig {
 impl SupportsTransform for PSOConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for PSOConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -286,7 +294,7 @@ where
             cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: DVector::from_element(status.gbest.x.len(), 0.0),
             covariance: DMatrix::identity(status.gbest.x.len(), status.gbest.x.len()),
         })

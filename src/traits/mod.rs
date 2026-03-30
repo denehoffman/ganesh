@@ -4,7 +4,7 @@ pub use abort_signal::AbortSignal;
 
 /// Module containing the [`Algorithm`], [`SupportsBounds`], and [`SupportsTransform`] traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, SupportsBounds, SupportsTransform};
+pub use algorithm::{Algorithm, SupportsBounds, SupportsParameterNames, SupportsTransform};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;

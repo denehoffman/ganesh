@@ -6,7 +6,10 @@ use crate::{
         utils::{RandChoice, SampleFloat},
     },
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform, status::StatusType},
+    traits::{
+        Algorithm, LogDensity, Status, SupportsParameterNames, SupportsTransform, Transform,
+        status::StatusType,
+    },
 };
 use fastrand::Rng;
 use parking_lot::RwLock;
@@ -155,6 +158,7 @@ impl AIESMove {
 /// The internal configuration struct for the [`AIES`] algorithm.
 #[derive(Clone)]
 pub struct AIESConfig {
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     walkers: Vec<Walker>,
     moves: Vec<WeightedAIESMove>,
@@ -162,6 +166,11 @@ pub struct AIESConfig {
 impl SupportsTransform for AIESConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for AIESConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 impl AIESConfig {
@@ -174,6 +183,7 @@ impl AIESConfig {
     pub fn new(x0: Vec<DVector<Float>>) -> GaneshResult<Self> {
         validate_walker_inputs(&x0, "AIES", 2)?;
         Ok(Self {
+            parameter_names: None,
             transform: None,
             walkers: x0.into_iter().map(Walker::new).collect(),
             moves: vec![AIESMove::stretch(1.0)],
@@ -258,7 +268,7 @@ where
         _func: &P,
         status: &EnsembleStatus,
         _args: &U,
-        _config: &Self::Config,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         let mut message = status.message().clone();
         if matches!(message.status_type, StatusType::Custom)
@@ -268,7 +278,7 @@ where
         }
         Ok(MCMCSummary {
             bounds: None,
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             message,
             chain: status.get_chain(None, None),
             cost_evals: status.n_f_evals,
@@ -457,5 +467,25 @@ mod tests {
         assert_eq!(result.gradient_evals, 0);
         assert!(result.message.success());
         assert!(result.message.text.contains("Maximum number of steps reached"));
+    }
+
+    #[test]
+    fn summary_uses_parameter_names_from_config() {
+        let mut aies = AIES::default();
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                AIESConfig::new(make_walkers(4, 2))
+                    .unwrap()
+                    .with_parameter_names(["alpha", "beta"]),
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.parameter_names,
+            Some(vec!["alpha".to_string(), "beta".to_string()])
+        );
     }
 }

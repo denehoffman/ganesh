@@ -5,7 +5,8 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Terminator, Transform,
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
+        SupportsTransform, Terminator, Transform,
     },
 };
 use std::{fmt::Debug, ops::ControlFlow};
@@ -602,6 +603,7 @@ where
 pub struct NelderMeadConfig {
     bounds: Option<Bounds>,
     bounds_handling: BoundsHandlingMode,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta: Float,
@@ -622,6 +624,7 @@ impl NelderMeadConfig {
         Self {
             bounds: None,
             bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -636,6 +639,7 @@ impl NelderMeadConfig {
         Self {
             bounds: None,
             bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -653,6 +657,7 @@ impl NelderMeadConfig {
         Ok(Self {
             bounds: None,
             bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
             transform: None,
             alpha: 1.0,
             beta: 2.0,
@@ -773,6 +778,11 @@ impl SupportsBounds for NelderMeadConfig {
 impl SupportsTransform for NelderMeadConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for NelderMeadConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -1004,7 +1014,7 @@ where
             cost_evals: status.n_f_evals,
             gradient_evals: 0,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: status
                 .err
                 .clone()
