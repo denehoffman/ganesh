@@ -9,7 +9,7 @@ use pyo3::{
 use crate::{
     algorithms::{
         gradient::LBFGSBConfig,
-        gradient_free::NelderMeadConfig,
+        gradient_free::{CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig},
         mcmc::{AIESConfig, ESSConfig},
         particles::{PSOConfig, Swarm, SwarmPositionInitializer},
     },
@@ -443,6 +443,228 @@ impl<'py> FromPyConfig<'py> for ESSConfig {
     }
 }
 
+/// Python-facing typed wrapper for [`DifferentialEvolutionConfig`].
+#[pyclass(module = "ganesh", name = "DifferentialEvolutionConfig")]
+#[derive(Clone)]
+pub struct PyDifferentialEvolutionConfig {
+    x0: Vec<Float>,
+    population_size: Option<usize>,
+    differential_weight: Float,
+    crossover_probability: Float,
+    initial_scale: Float,
+    bounds: Option<Vec<(Option<Float>, Option<Float>)>>,
+    parameter_names: Option<Vec<String>>,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyDifferentialEvolutionConfig {
+    #[new]
+    pub fn new(x0: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            x0: extract_vector(x0)?,
+            population_size: None,
+            differential_weight: 0.8,
+            crossover_probability: 0.9,
+            initial_scale: 1.0,
+            bounds: None,
+            parameter_names: None,
+        })
+    }
+
+    #[getter]
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, &self.x0)
+    }
+
+    #[setter]
+    pub fn set_x0(&mut self, x0: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.x0 = extract_vector(x0)?;
+        Ok(())
+    }
+
+    #[getter]
+    pub const fn population_size(&self) -> Option<usize> {
+        self.population_size
+    }
+
+    #[setter]
+    pub fn set_population_size(&mut self, population_size: Option<usize>) {
+        self.population_size = population_size;
+    }
+
+    #[getter]
+    pub const fn differential_weight(&self) -> Float {
+        self.differential_weight
+    }
+
+    #[setter]
+    pub fn set_differential_weight(&mut self, differential_weight: Float) {
+        self.differential_weight = differential_weight;
+    }
+
+    #[getter]
+    pub const fn crossover_probability(&self) -> Float {
+        self.crossover_probability
+    }
+
+    #[setter]
+    pub fn set_crossover_probability(&mut self, crossover_probability: Float) {
+        self.crossover_probability = crossover_probability;
+    }
+
+    #[getter]
+    pub const fn initial_scale(&self) -> Float {
+        self.initial_scale
+    }
+
+    #[setter]
+    pub fn set_initial_scale(&mut self, initial_scale: Float) {
+        self.initial_scale = initial_scale;
+    }
+
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<Float>, Option<Float>)>> {
+        self.bounds.clone()
+    }
+
+    #[setter]
+    pub fn set_bounds(&mut self, bounds: Option<Vec<(Option<Float>, Option<Float>)>>) {
+        self.bounds = bounds;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+}
+
+impl TryFrom<&PyDifferentialEvolutionConfig> for DifferentialEvolutionConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyDifferentialEvolutionConfig) -> Result<Self, Self::Error> {
+        let mut native = DifferentialEvolutionConfig::new(&config.x0)?;
+        if let Some(population_size) = config.population_size {
+            native = native.with_population_size(population_size)?;
+        }
+        native = native
+            .with_differential_weight(config.differential_weight)?
+            .with_crossover_probability(config.crossover_probability)?
+            .with_initial_scale(config.initial_scale)?;
+        let native = apply_python_bounds(native, &config.bounds);
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for DifferentialEvolutionConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyDifferentialEvolutionConfig>>()?;
+        DifferentialEvolutionConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
+/// Python-facing typed wrapper for [`CMAESConfig`].
+#[pyclass(module = "ganesh", name = "CMAESConfig")]
+#[derive(Clone)]
+pub struct PyCMAESConfig {
+    x0: Vec<Float>,
+    sigma: Float,
+    population_size: Option<usize>,
+    bounds: Option<Vec<(Option<Float>, Option<Float>)>>,
+    parameter_names: Option<Vec<String>>,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyCMAESConfig {
+    #[new]
+    pub fn new(x0: &Bound<'_, PyAny>, sigma: Float) -> PyResult<Self> {
+        Ok(Self {
+            x0: extract_vector(x0)?,
+            sigma,
+            population_size: None,
+            bounds: None,
+            parameter_names: None,
+        })
+    }
+
+    #[getter]
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, &self.x0)
+    }
+
+    #[setter]
+    pub fn set_x0(&mut self, x0: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.x0 = extract_vector(x0)?;
+        Ok(())
+    }
+
+    #[getter]
+    pub const fn sigma(&self) -> Float {
+        self.sigma
+    }
+
+    #[setter]
+    pub fn set_sigma(&mut self, sigma: Float) {
+        self.sigma = sigma;
+    }
+
+    #[getter]
+    pub const fn population_size(&self) -> Option<usize> {
+        self.population_size
+    }
+
+    #[setter]
+    pub fn set_population_size(&mut self, population_size: Option<usize>) {
+        self.population_size = population_size;
+    }
+
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<Float>, Option<Float>)>> {
+        self.bounds.clone()
+    }
+
+    #[setter]
+    pub fn set_bounds(&mut self, bounds: Option<Vec<(Option<Float>, Option<Float>)>>) {
+        self.bounds = bounds;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+}
+
+impl TryFrom<&PyCMAESConfig> for CMAESConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyCMAESConfig) -> Result<Self, Self::Error> {
+        let mut native = CMAESConfig::new(&config.x0, config.sigma)?;
+        if let Some(population_size) = config.population_size {
+            native = native.with_population_size(population_size)?;
+        }
+        let native = apply_python_bounds(native, &config.bounds);
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for CMAESConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyCMAESConfig>>()?;
+        CMAESConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::{prepare_freethreaded_python, types::PyList, Py, Python};
@@ -451,7 +673,7 @@ mod tests {
     use crate::{
         algorithms::{
             gradient::LBFGSB,
-            gradient_free::NelderMead,
+            gradient_free::{CMAES, DifferentialEvolution, NelderMead},
             mcmc::{AIES, ESS},
             particles::PSO,
         },
@@ -523,6 +745,30 @@ mod tests {
                 &(),
                 config,
                 Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap()
+    }
+
+    fn run_de_summary(config: DifferentialEvolutionConfig) -> MinimizationSummary {
+        let mut solver = DifferentialEvolution::default();
+        solver
+            .process(
+                &Quadratic,
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(8)),
+            )
+            .unwrap()
+    }
+
+    fn run_cmaes_summary(config: CMAESConfig) -> MinimizationSummary {
+        let mut solver = CMAES::default();
+        solver
+            .process(
+                &Quadratic,
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(8)),
             )
             .unwrap()
     }
@@ -721,6 +967,75 @@ mod tests {
 
             let wrapper = Py::new(py, wrapper).unwrap();
             let err = ESSConfig::from_py_config(wrapper.bind(py).as_any()).err().unwrap();
+            assert!(err.is_instance_of::<crate::python::GaneshConfigError>(py));
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn python_de_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let mut wrapper =
+                PyDifferentialEvolutionConfig::new(&py_vector(py, &[2.0, -2.0])).unwrap();
+            wrapper.set_population_size(Some(8));
+            wrapper.set_differential_weight(0.7);
+            wrapper.set_crossover_probability(0.85);
+            wrapper.set_initial_scale(0.5);
+            wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (Some(-3.0), Some(3.0))]));
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config =
+                DifferentialEvolutionConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let summary = run_de_summary(config);
+
+            assert_eq!(
+                summary.parameter_names.as_deref(),
+                Some(&["alpha".into(), "beta".into()][..])
+            );
+            assert_eq!(
+                summary.bounds.as_ref().unwrap()[0].0.as_options(),
+                (Some(-3.0), Some(3.0))
+            );
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn python_cmaes_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let mut wrapper = PyCMAESConfig::new(&py_vector(py, &[2.0, -2.0]), 0.8).unwrap();
+            wrapper.set_population_size(Some(6));
+            wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (Some(-3.0), Some(3.0))]));
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config = CMAESConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let summary = run_cmaes_summary(config);
+
+            assert_eq!(
+                summary.parameter_names.as_deref(),
+                Some(&["alpha".into(), "beta".into()][..])
+            );
+            assert_eq!(
+                summary.bounds.as_ref().unwrap()[0].0.as_options(),
+                (Some(-3.0), Some(3.0))
+            );
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn python_cmaes_invalid_sigma_maps_to_python_config_error() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let wrapper = Py::new(py, PyCMAESConfig::new(&py_vector(py, &[1.0, 1.0]), 0.0).unwrap()).unwrap();
+            let err = CMAESConfig::from_py_config(wrapper.bind(py).as_any()).err().unwrap();
             assert!(err.is_instance_of::<crate::python::GaneshConfigError>(py));
         });
     }

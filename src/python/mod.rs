@@ -16,7 +16,8 @@ pub mod numeric;
 pub mod summary;
 
 pub use config::{
-    FromPyConfig, PyAIESConfig, PyESSConfig, PyLBFGSBConfig, PyNelderMeadConfig, PyPSOConfig,
+    FromPyConfig, PyAIESConfig, PyCMAESConfig, PyDifferentialEvolutionConfig, PyESSConfig,
+    PyLBFGSBConfig, PyNelderMeadConfig, PyPSOConfig,
 };
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
