@@ -1,7 +1,7 @@
 //! Python-facing summary export traits for downstream wrapper crates.
 
 use pyo3::{
-    exceptions::PyNotImplementedError,
+    pyclass, pymethods, Py,
     types::{PyDict, PyDictMethods},
     Bound, PyAny, PyResult, Python,
 };
@@ -22,6 +22,105 @@ pub trait IntoPySummary {
 
 fn bounds_to_python(bounds: &crate::core::transforms::Bounds) -> Vec<(Option<crate::Float>, Option<crate::Float>)> {
     bounds.iter().map(|(bound, _)| bound.as_options()).collect()
+}
+
+/// Python-facing typed wrapper for [`MinimizationSummary`].
+#[pyclass(module = "ganesh", name = "MinimizationSummary")]
+#[derive(Clone)]
+pub struct PyMinimizationSummary {
+    summary: MinimizationSummary,
+}
+
+#[pymethods]
+impl PyMinimizationSummary {
+    /// Get the optional parameter bounds.
+    ///
+    /// Each bound is represented as `(lower, upper)`, where `None` means unbounded on that side.
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<crate::Float>, Option<crate::Float>)>> {
+        self.summary.bounds.as_ref().map(bounds_to_python)
+    }
+
+    /// Get the optional parameter names.
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.summary.parameter_names.clone()
+    }
+
+    /// Get the status type as a string.
+    #[getter]
+    pub fn status_type(&self) -> String {
+        self.summary.message.status_type.to_string()
+    }
+
+    /// Get the message text.
+    #[getter]
+    pub fn message_text(&self) -> String {
+        self.summary.message.text.clone()
+    }
+
+    /// Return `True` when the minimization succeeded.
+    #[getter]
+    pub fn success(&self) -> bool {
+        self.summary.message.success()
+    }
+
+    /// Get the initial parameters.
+    #[getter]
+    pub fn x0(&self) -> Vec<crate::Float> {
+        self.summary.x0.as_slice().to_vec()
+    }
+
+    /// Get the final parameters.
+    #[getter]
+    pub fn x(&self) -> Vec<crate::Float> {
+        self.summary.x.as_slice().to_vec()
+    }
+
+    /// Get the parameter standard deviations.
+    #[getter]
+    pub fn std(&self) -> Vec<crate::Float> {
+        self.summary.std.as_slice().to_vec()
+    }
+
+    /// Get the final objective value.
+    #[getter]
+    pub fn fx(&self) -> crate::Float {
+        self.summary.fx
+    }
+
+    /// Get the number of cost evaluations.
+    #[getter]
+    pub const fn cost_evals(&self) -> usize {
+        self.summary.cost_evals
+    }
+
+    /// Get the number of gradient evaluations.
+    #[getter]
+    pub const fn gradient_evals(&self) -> usize {
+        self.summary.gradient_evals
+    }
+
+    /// Get the covariance matrix as nested Python lists.
+    #[getter]
+    pub fn covariance(&self) -> Vec<Vec<crate::Float>> {
+        self.summary
+            .covariance
+            .row_iter()
+            .map(|row| row.iter().copied().collect::<Vec<_>>())
+            .collect()
+    }
+
+    /// Export the wrapped summary as a Python dictionary.
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.summary.to_py_dict(py)
+    }
+}
+
+impl From<MinimizationSummary> for PyMinimizationSummary {
+    fn from(summary: MinimizationSummary) -> Self {
+        Self { summary }
+    }
 }
 
 impl IntoPySummary for MinimizationSummary {
@@ -46,10 +145,9 @@ impl IntoPySummary for MinimizationSummary {
         Ok(dict)
     }
 
-    fn to_py_class<'py>(&self, _py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        Err(PyNotImplementedError::new_err(
-            "typed Python summary wrappers are not implemented yet",
-        ))
+    fn to_py_class<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let wrapper = Py::new(py, PyMinimizationSummary::from(self.clone()))?;
+        Ok(wrapper.into_bound(py).into_any())
     }
 }
 
@@ -58,7 +156,7 @@ mod tests {
     use pyo3::{
         prepare_freethreaded_python,
         types::PyAnyMethods,
-        Python,
+        Py, Python,
     };
 
     use super::*;
@@ -107,6 +205,30 @@ mod tests {
             assert!(
                 message.get_item("success").unwrap().unwrap().extract::<bool>().unwrap()
             );
+        });
+    }
+
+    #[test]
+    fn minimization_summary_exports_to_python_class() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let summary = sample_summary();
+            let wrapper = summary.to_py_class(py).unwrap();
+            let wrapper = wrapper.extract::<Py<PyMinimizationSummary>>().unwrap();
+            let wrapper = wrapper.bind(py).borrow();
+
+            assert_eq!(wrapper.bounds(), Some(vec![(Some(-1.0), Some(1.0)), (None, Some(2.0))]));
+            assert_eq!(wrapper.parameter_names(), Some(vec!["alpha".into(), "beta".into()]));
+            assert_eq!(wrapper.status_type(), "Success");
+            assert_eq!(wrapper.message_text(), "ok");
+            assert!(wrapper.success());
+            assert_eq!(wrapper.x0(), vec![1.0, 2.0]);
+            assert_eq!(wrapper.x(), vec![0.5, 1.5]);
+            assert_eq!(wrapper.std(), vec![0.1, 0.2]);
+            assert_eq!(wrapper.fx(), 1.25);
+            assert_eq!(wrapper.cost_evals(), 10);
+            assert_eq!(wrapper.gradient_evals(), 4);
+            assert_eq!(wrapper.covariance(), vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
         });
     }
 }

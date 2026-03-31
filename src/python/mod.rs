@@ -16,4 +16,4 @@ pub use config::{FromPyConfig, PyLBFGSBConfig};
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
 };
-pub use summary::IntoPySummary;
+pub use summary::{IntoPySummary, PyMinimizationSummary};
