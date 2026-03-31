@@ -21,3 +21,7 @@ pub use cmaes::{
     CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator,
     CMAESTolXUpTerminator, CMAES,
 };
+
+/// [`DifferentialEvolution`] type for differential evolution minimizers.
+pub mod differential_evolution;
+pub use differential_evolution::{DifferentialEvolution, DifferentialEvolutionConfig};
