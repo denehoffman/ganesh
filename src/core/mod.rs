@@ -4,7 +4,7 @@ pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
 
 /// [`Bounds`] and other implementations of [`Transform`](`crate::traits::Transform`)
 pub mod transforms;
-pub use transforms::Bounds;
+pub use transforms::{Bounds, ScaleTransform};
 
 /// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;

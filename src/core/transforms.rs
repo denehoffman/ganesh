@@ -1,4 +1,5 @@
 use crate::{
+    error::{GaneshError, GaneshResult},
     traits::{Bound, BoundLike, Transform},
     DMatrix, DVector, Float,
 };
@@ -8,6 +9,113 @@ use std::{
     borrow::Cow,
     ops::{Deref, DerefMut},
 };
+
+/// A diagonal scaling transform.
+///
+/// Internally, this transform stores multiplicative factors for the map from external to internal
+/// coordinates:
+///
+/// ```math
+/// z_i = m_i x_i,\ x_i = z_i / m_i
+/// ```
+///
+/// Use [`ScaleTransform::from_multipliers`] when those multiplicative factors are the quantities
+/// you want to specify directly. Use [`ScaleTransform::from_parameter_scales`] when you instead
+/// want to provide characteristic external parameter scales and normalize by them internally.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScaleTransform {
+    multipliers: DVector<Float>,
+}
+
+impl ScaleTransform {
+    /// Construct a new [`ScaleTransform`] from multiplicative factors applied in the
+    /// external-to-internal direction.
+    ///
+    /// For multipliers `m`, this uses:
+    ///
+    /// ```math
+    /// z_i = m_i x_i,\ x_i = z_i / m_i
+    /// ```
+    pub fn from_multipliers<I>(multipliers: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[Float]>,
+    {
+        let multipliers = DVector::from_row_slice(multipliers.as_ref());
+        if multipliers.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform requires at least one multiplier".to_string(),
+            ));
+        }
+        if multipliers.iter().any(|m| !m.is_finite() || *m == 0.0) {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform multipliers must be finite and nonzero".to_string(),
+            ));
+        }
+        Ok(Self { multipliers })
+    }
+
+    /// Construct a new [`ScaleTransform`] from characteristic external parameter scales.
+    ///
+    /// For parameter scales `s`, this normalizes by those scales internally:
+    ///
+    /// ```math
+    /// z_i = x_i / s_i,\ x_i = z_i s_i
+    /// ```
+    pub fn from_parameter_scales<I>(parameter_scales: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[Float]>,
+    {
+        let parameter_scales = parameter_scales.as_ref();
+        if parameter_scales.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform requires at least one parameter scale".to_string(),
+            ));
+        }
+        if parameter_scales
+            .iter()
+            .any(|scale| !scale.is_finite() || *scale == 0.0)
+        {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform parameter scales must be finite and nonzero".to_string(),
+            ));
+        }
+        Self::from_multipliers(
+            parameter_scales
+                .iter()
+                .map(|scale| 1.0 / scale)
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// Return the multiplicative factors used in the external-to-internal direction.
+    pub fn multipliers(&self) -> &DVector<Float> {
+        &self.multipliers
+    }
+
+    /// Return the characteristic external parameter scales normalized by this transform.
+    pub fn parameter_scales(&self) -> DVector<Float> {
+        self.multipliers.map(|m| 1.0 / m)
+    }
+}
+
+impl Transform for ScaleTransform {
+    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        Cow::Owned(z.component_div(&self.multipliers))
+    }
+
+    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        Cow::Owned(x.component_mul(&self.multipliers))
+    }
+
+    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let _ = z;
+        DMatrix::from_diagonal(&self.multipliers.map(|m| 1.0 / m))
+    }
+
+    fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+        DMatrix::zeros(z.len(), z.len())
+    }
+}
 
 /// The default bounds transformation.
 ///
@@ -794,6 +902,40 @@ mod tests {
 
         let external = sc.to_external(&internal);
         assert_eq!(external[0], 4.0);
+    }
+
+    #[test]
+    fn scale_transform_from_multipliers_uses_explicit_internal_multipliers() {
+        let sc = ScaleTransform::from_multipliers([2.0, 0.5]).unwrap();
+        let external = dvector![3.0, 8.0];
+        let internal = sc.to_internal(&external);
+        assert_eq!(internal.as_ref(), &dvector![6.0, 4.0]);
+        let roundtrip = sc.to_external(internal.as_ref());
+        assert_eq!(roundtrip.as_ref(), &external);
+        assert_eq!(sc.multipliers(), &dvector![2.0, 0.5]);
+        assert_eq!(sc.parameter_scales(), dvector![0.5, 2.0]);
+    }
+
+    #[test]
+    fn scale_transform_from_parameter_scales_normalizes_by_scales() {
+        let sc = ScaleTransform::from_parameter_scales([1e-6, 100.0]).unwrap();
+        let external = dvector![3e-6, 800.0];
+        let internal = sc.to_internal(&external);
+        assert_relative_eq!(internal[0], 3.0);
+        assert_relative_eq!(internal[1], 8.0);
+        let roundtrip = sc.to_external(internal.as_ref());
+        assert_relative_eq!(roundtrip[0], external[0]);
+        assert_relative_eq!(roundtrip[1], external[1]);
+        assert_relative_eq!(sc.multipliers()[0], 1e6);
+        assert_relative_eq!(sc.multipliers()[1], 1e-2);
+        assert_relative_eq!(sc.parameter_scales()[0], 1e-6);
+        assert_relative_eq!(sc.parameter_scales()[1], 100.0);
+    }
+
+    #[test]
+    fn scale_transform_rejects_zero_and_nonfinite_inputs() {
+        assert!(ScaleTransform::from_multipliers([1.0, 0.0]).is_err());
+        assert!(ScaleTransform::from_parameter_scales([1.0, Float::INFINITY]).is_err());
     }
 
     #[test]
