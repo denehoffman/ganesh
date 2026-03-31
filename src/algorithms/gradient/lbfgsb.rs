@@ -689,6 +689,8 @@ where
                 );
                 let t_problem = TransformedProblem::new(problem, &transform);
                 let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
+                status.inc_n_g_evals();
+                status.inc_n_h_evals();
                 let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
                 status.set_hess(&hessian);
             }

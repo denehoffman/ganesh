@@ -13,6 +13,12 @@ pub use conjugate_gradient::{
     ConjugateGradientUpdate,
 };
 
+/// Implementation of the trust-region algorithm.
+pub mod trust_region;
+pub use trust_region::{
+    TrustRegion, TrustRegionConfig, TrustRegionGTerminator, TrustRegionSubproblem,
+};
+
 /// [`GradientStatus`] type for gradient-based minimizers.
 pub mod gradient_status;
 pub use gradient_status::GradientStatus;

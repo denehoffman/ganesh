@@ -19,6 +19,9 @@ pub struct GradientStatus {
     /// The number of gradient evaluations (approximately, this is left up to individual
     /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
     pub n_g_evals: usize,
+    /// The number of Hessian evaluations (approximately, this is left up to individual
+    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
+    pub n_h_evals: usize,
     /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
     pub hess: Option<DMatrix<Float>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
@@ -34,6 +37,7 @@ impl Status for GradientStatus {
         self.fx = Default::default();
         self.n_f_evals = Default::default();
         self.n_g_evals = Default::default();
+        self.n_h_evals = Default::default();
         self.hess = Default::default();
         self.cov = Default::default();
         self.err = Default::default();
@@ -72,6 +76,10 @@ impl GradientStatus {
     /// Increments [`GradientStatus::n_g_evals`] by `1`.
     pub fn inc_n_g_evals(&mut self) {
         self.n_g_evals += 1;
+    }
+    /// Increments [`GradientStatus::n_h_evals`] by `1`.
+    pub fn inc_n_h_evals(&mut self) {
+        self.n_h_evals += 1;
     }
     /// Updates the [`GradientStatus::err`] field.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {
