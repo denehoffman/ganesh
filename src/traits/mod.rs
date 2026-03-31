@@ -10,6 +10,10 @@ pub use algorithm::{Algorithm, SupportsBounds, SupportsParameterNames, SupportsT
 pub mod callback;
 pub use callback::{Observer, Terminator};
 
+/// Module containing the [`CheckpointableAlgorithm`] trait.
+pub mod checkpoint;
+pub use checkpoint::CheckpointableAlgorithm;
+
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
 pub use cost_function::{CostFunction, GenericCostFunction, GenericGradient, Gradient, LogDensity};

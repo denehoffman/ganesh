@@ -10,6 +10,13 @@ pub use transforms::Bounds;
 pub mod callbacks;
 pub use callbacks::{Callbacks, DebugObserver, MaxSteps, ProgressObserver};
 
+/// Checkpoint helpers and signal-triggered checkpointing utilities.
+pub mod checkpoints;
+pub use checkpoints::{
+    AtomicCheckpointSignal, CheckpointAction, CheckpointOnSignal, CheckpointStore,
+    CtrlCCheckpointSignal,
+};
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
 pub use point::Point;

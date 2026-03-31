@@ -5,10 +5,11 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
+        Algorithm, CheckpointableAlgorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
         SupportsTransform, Terminator, Transform,
     },
 };
+use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, ops::ControlFlow};
 
 /// Gives a method for constructing a simplex.
@@ -247,7 +248,7 @@ impl SimplexConstructionMethod {
 
 /// A [`Simplex`] represents a list of [`Point`]s. This particular implementation is intended to be
 /// sorted.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Simplex {
     points: Vec<Point<DVector<Float>>>,
     dimension: usize,
@@ -822,6 +823,17 @@ pub struct NelderMead {
     internal_bounds: Option<Bounds>,
     resolved_transform: Option<Box<dyn Transform>>,
 }
+
+/// A step-boundary checkpoint for the [`NelderMead`] algorithm.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NelderMeadCheckpoint {
+    /// The internal simplex state.
+    pub simplex: Simplex,
+    /// The saved gradient-free status.
+    pub status: GradientFreeStatus,
+    /// The next step index to execute when resuming.
+    pub next_step: usize,
+}
 impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
 where
     P: CostFunction<U, E>,
@@ -1041,13 +1053,82 @@ where
     }
 }
 
+impl<P, U, E> CheckpointableAlgorithm<P, GradientFreeStatus, U, E> for NelderMead
+where
+    P: CostFunction<U, E>,
+{
+    type Checkpoint = NelderMeadCheckpoint;
+
+    fn checkpoint(
+        &self,
+        status: &GradientFreeStatus,
+        next_step: usize,
+    ) -> Self::Checkpoint {
+        NelderMeadCheckpoint {
+            simplex: self.simplex.clone(),
+            status: status.clone(),
+            next_step,
+        }
+    }
+
+    fn restore(
+        &mut self,
+        checkpoint: &Self::Checkpoint,
+        config: &Self::Config,
+    ) -> (GradientFreeStatus, usize) {
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        self.internal_bounds = bounds.map(|b| b.apply(&transform));
+        self.resolved_transform = transform;
+        self.simplex = checkpoint.simplex.clone();
+        (checkpoint.status.clone(), checkpoint.next_step)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::MaxSteps, test_functions::Rosenbrock};
+    use crate::{
+        core::{AtomicCheckpointSignal, CheckpointOnSignal, CheckpointStore, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::{AbortSignal, CheckpointableAlgorithm, Observer},
+    };
     use approx::assert_relative_eq;
     use nalgebra::dvector;
     use std::convert::Infallible;
+
+    #[derive(Clone)]
+    struct TriggerAbortAtStep<Sig> {
+        target_step: usize,
+        signal: Sig,
+    }
+
+    impl<Sig> TriggerAbortAtStep<Sig> {
+        fn new(target_step: usize, signal: Sig) -> Self {
+            Self { target_step, signal }
+        }
+    }
+
+    impl<P, U, E, Sig> Observer<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+        for TriggerAbortAtStep<Sig>
+    where
+        P: CostFunction<U, E>,
+        Sig: AbortSignal + Clone,
+    {
+        fn observe(
+            &mut self,
+            current_step: usize,
+            _algorithm: &NelderMead,
+            _problem: &P,
+            _status: &GradientFreeStatus,
+            _args: &U,
+            _config: &NelderMeadConfig,
+        ) {
+            if current_step == self.target_step {
+                self.signal.abort();
+            }
+        }
+    }
 
     #[test]
     fn test_nelder_mead() {
@@ -1073,6 +1154,56 @@ mod tests {
             assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
         }
+    }
+
+    #[test]
+    fn nelder_mead_checkpoint_signal_resume_matches_uninterrupted_run() {
+        let problem = Rosenbrock { n: 2 };
+        let config = NelderMeadConfig::new([2.0, 2.0]);
+        let uninterrupted = NelderMead::default()
+            .process(
+                &problem,
+                &(),
+                config.clone(),
+                NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
+            )
+            .unwrap();
+
+        let signal = AtomicCheckpointSignal::new();
+        let store = CheckpointStore::new();
+        let store_sink = store.clone();
+        let checkpointed = NelderMead::default()
+            .process(
+                &problem,
+                &(),
+                config.clone(),
+                NelderMead::default_callbacks()
+                    .with_terminator(MaxSteps(200))
+                    .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
+                    .with_terminator(CheckpointOnSignal::new(signal.clone(), move |checkpoint| {
+                        store_sink.save(checkpoint);
+                    })),
+            )
+            .unwrap();
+        assert!(checkpointed.message.text.contains("Checkpoint requested"));
+
+        let checkpoint = store.load().unwrap();
+        let checkpoint_json = serde_json::to_string(&checkpoint).unwrap();
+        let checkpoint: NelderMeadCheckpoint = serde_json::from_str(&checkpoint_json).unwrap();
+        let resumed = NelderMead::default()
+            .process_from_checkpoint(
+                &problem,
+                &(),
+                config,
+                &checkpoint,
+                NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
+            )
+            .unwrap();
+
+        assert_relative_eq!(resumed.fx, uninterrupted.fx, epsilon = Float::EPSILON.powf(0.2));
+        assert_relative_eq!(resumed.x[0], uninterrupted.x[0], epsilon = Float::EPSILON.powf(0.2));
+        assert_relative_eq!(resumed.x[1], uninterrupted.x[1], epsilon = Float::EPSILON.powf(0.2));
+        assert_eq!(resumed.cost_evals, uninterrupted.cost_evals);
     }
 
     #[test]

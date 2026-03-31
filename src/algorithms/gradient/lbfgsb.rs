@@ -5,12 +5,13 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
     traits::{
-        Algorithm, Bound, Gradient, LineSearch, Status, SupportsBounds,
+        Algorithm, Bound, CheckpointableAlgorithm, Gradient, LineSearch, Status, SupportsBounds,
         SupportsParameterNames, SupportsTransform, Terminator, Transform, TransformedProblem,
         linesearch::LineSearchOutput,
     },
 };
 use nalgebra::{Dyn, LU};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 
@@ -272,6 +273,33 @@ pub struct LBFGSB {
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
     line_search: StrongWolfeLineSearch,
+}
+
+/// A step-boundary checkpoint for the [`LBFGSB`] algorithm.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LBFGSBCheckpoint {
+    /// The saved internal parameter vector.
+    pub x: DVector<Float>,
+    /// The saved internal gradient.
+    pub g: DVector<Float>,
+    /// The internal lower bounds.
+    pub l: DVector<Float>,
+    /// The internal upper bounds.
+    pub u: DVector<Float>,
+    /// The current L-BFGS scaling parameter.
+    pub theta: Float,
+    /// The current function value.
+    pub f: Float,
+    /// The previous function value.
+    pub f_previous: Float,
+    /// Stored `y_k` correction vectors.
+    pub y_store: VecDeque<DVector<Float>>,
+    /// Stored `s_k` correction vectors.
+    pub s_store: VecDeque<DVector<Float>>,
+    /// The saved gradient status.
+    pub status: GradientStatus,
+    /// The next step index to execute when resuming.
+    pub next_step: usize,
 }
 
 impl Default for LBFGSB {
@@ -721,13 +749,96 @@ where
     }
 }
 
+impl<P, U, E> CheckpointableAlgorithm<P, GradientStatus, U, E> for LBFGSB
+where
+    P: Gradient<U, E>,
+{
+    type Checkpoint = LBFGSBCheckpoint;
+
+    fn checkpoint(&self, status: &GradientStatus, next_step: usize) -> Self::Checkpoint {
+        LBFGSBCheckpoint {
+            x: self.x.clone(),
+            g: self.g.clone(),
+            l: self.l.clone(),
+            u: self.u.clone(),
+            theta: self.theta,
+            f: self.f,
+            f_previous: self.f_previous,
+            y_store: self.y_store.clone(),
+            s_store: self.s_store.clone(),
+            status: status.clone(),
+            next_step,
+        }
+    }
+
+    fn restore(
+        &mut self,
+        checkpoint: &Self::Checkpoint,
+        config: &Self::Config,
+    ) -> (GradientStatus, usize) {
+        self.x = checkpoint.x.clone();
+        self.g = checkpoint.g.clone();
+        self.l = checkpoint.l.clone();
+        self.u = checkpoint.u.clone();
+        self.theta = checkpoint.theta;
+        self.f = checkpoint.f;
+        self.f_previous = checkpoint.f_previous;
+        self.y_store = checkpoint.y_store.clone();
+        self.s_store = checkpoint.s_store.clone();
+        self.line_search = config.line_search.clone();
+        if self.s_store.is_empty() {
+            self.w_mat = DMatrix::zeros(self.x.len(), 1);
+            self.m_mat = None;
+        } else {
+            self.update_w_mat_m_mat();
+        }
+        (checkpoint.status.clone(), checkpoint.next_step)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        algorithms::line_search::HagerZhangLineSearch, core::MaxSteps, test_functions::Rosenbrock,
+        algorithms::line_search::HagerZhangLineSearch,
+        core::{AtomicCheckpointSignal, CheckpointOnSignal, CheckpointStore, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::{AbortSignal, CheckpointableAlgorithm, Observer},
     };
     use approx::assert_relative_eq;
+
+    #[derive(Clone)]
+    struct TriggerAbortAtStep<Sig> {
+        target_step: usize,
+        signal: Sig,
+    }
+
+    impl<Sig> TriggerAbortAtStep<Sig> {
+        fn new(target_step: usize, signal: Sig) -> Self {
+            Self { target_step, signal }
+        }
+    }
+
+    impl<P, U, E, Sig> Observer<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>
+        for TriggerAbortAtStep<Sig>
+    where
+        P: Gradient<U, E>,
+        Sig: AbortSignal + Clone,
+    {
+        fn observe(
+            &mut self,
+            current_step: usize,
+            _algorithm: &LBFGSB,
+            _problem: &P,
+            _status: &GradientStatus,
+            _args: &U,
+            _config: &LBFGSBConfig,
+        ) {
+            if current_step == self.target_step {
+                self.signal.abort();
+            }
+        }
+    }
 
     #[test]
     fn test_lbfgsb() {
@@ -753,6 +864,55 @@ mod tests {
             assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
         }
+    }
+
+    #[test]
+    fn lbfgsb_checkpoint_signal_resume_matches_uninterrupted_run() {
+        let problem = Rosenbrock { n: 2 };
+        let config = LBFGSBConfig::new([2.0, 2.0]);
+        let uninterrupted = LBFGSB::default()
+            .process(
+                &problem,
+                &(),
+                config.clone(),
+                LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
+            )
+            .unwrap();
+
+        let signal = AtomicCheckpointSignal::new();
+        let store = CheckpointStore::new();
+        let store_sink = store.clone();
+        let checkpointed = LBFGSB::default()
+            .process(
+                &problem,
+                &(),
+                config.clone(),
+                LBFGSB::default_callbacks()
+                    .with_terminator(MaxSteps(50))
+                    .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
+                    .with_terminator(CheckpointOnSignal::new(signal.clone(), move |checkpoint| {
+                        store_sink.save(checkpoint);
+                    })),
+            )
+            .unwrap();
+        assert!(checkpointed.message.text.contains("Checkpoint requested"));
+
+        let checkpoint = store.load().unwrap();
+        let resumed = LBFGSB::default()
+            .process_from_checkpoint(
+                &problem,
+                &(),
+                config,
+                &checkpoint,
+                LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
+            )
+            .unwrap();
+
+        assert_relative_eq!(resumed.fx, uninterrupted.fx);
+        assert_relative_eq!(resumed.x[0], uninterrupted.x[0]);
+        assert_relative_eq!(resumed.x[1], uninterrupted.x[1]);
+        assert_eq!(resumed.cost_evals, uninterrupted.cost_evals);
+        assert_eq!(resumed.gradient_evals, uninterrupted.gradient_evals);
     }
     #[test]
     fn test_lbfgsb_hager_zhang() {
