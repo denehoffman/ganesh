@@ -4,9 +4,7 @@ use crate::{
     error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Terminator},
 };
-use nalgebra::Complex;
 use parking_lot::Mutex;
-use rustfft::FftPlanner;
 use serde::{Deserialize, Serialize};
 use std::{ops::ControlFlow, sync::Arc};
 
@@ -21,6 +19,7 @@ pub use ess::{ESS, ESSConfig, ESSMove};
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
 pub use ensemble_status::EnsembleStatus;
+pub use crate::core::mcmc_diagnostics::integrated_autocorrelation_times;
 
 /// Controls how much MCMC chain history is retained in memory.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -230,78 +229,6 @@ impl Walker {
             }
         }
     }
-}
-
-/// Calculate the integrated autocorrelation time for each parameter according to Karamanis &
-/// Beutler[^Karamanis]
-///
-/// `samples` should have the shape `(n_walkers, n_steps, n_parameters)`.
-///
-/// `c` is an optional window size (`7.0` if [`None`] provided), see Sokal[^Sokal].
-///
-/// This is a standalone function that can be used to bypass the [`EnsembleStatus`] struct and calculate
-/// IATs for custom inputs.
-///
-/// [^Karamanis]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002. 06212.
-/// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
-pub fn integrated_autocorrelation_times(
-    samples: Vec<Vec<DVector<Float>>>,
-    c: Option<Float>,
-) -> DVector<Float> {
-    let c = c.unwrap_or(7.0);
-    let n_parameters = samples[0][0].len();
-    let samples: Vec<DVector<Float>> = samples.into_iter().flatten().collect();
-    let mut n = 1usize;
-    while n < samples.len() {
-        n <<= 1;
-    }
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(2 * n);
-    let ifft = planner.plan_fft_inverse(2 * n);
-    DVector::from_iterator(
-        n_parameters,
-        (0..n_parameters).map(|i_parameter| {
-            let x: Vec<Float> = samples.iter().map(|sample| sample[i_parameter]).collect();
-            let mean = x.iter().sum::<Float>() / x.len() as Float;
-            let mut input: Vec<Complex<Float>> =
-                x.iter().map(|&val| Complex::new(val - mean, 0.0)).collect();
-            input.resize(2 * n, Complex::new(0.0, 0.0));
-
-            fft.process(&mut input);
-
-            for val in input.iter_mut() {
-                *val *= val.conj();
-            }
-
-            ifft.process(&mut input);
-
-            let mut acf: Vec<Float> = input
-                .iter()
-                .take(x.len())
-                .map(|c| c.re / (4.0 * n as Float))
-                .collect();
-
-            if !acf.is_empty() && acf[0] != 0.0 {
-                let norm_factor = acf[0];
-                acf.iter_mut().for_each(|v| *v /= norm_factor);
-            }
-
-            let taus: Vec<Float> = acf
-                .iter()
-                .scan(0.0, |acc, &x| {
-                    *acc += x;
-                    Some(*acc)
-                })
-                .map(|x| Float::mul_add(2.0, x, -1.0))
-                .collect();
-            let ind = taus
-                .iter()
-                .enumerate()
-                .position(|(idx, &tau)| (idx as Float) >= c * tau)
-                .unwrap_or(taus.len() - 1);
-            taus[ind]
-        }),
-    )
 }
 
 /// An obsever which can check the integrated autocorrelation time of the ensemble and

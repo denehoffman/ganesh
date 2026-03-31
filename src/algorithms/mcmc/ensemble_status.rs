@@ -1,7 +1,7 @@
 use crate::{
     DMatrix, DVector, Float,
-    algorithms::mcmc::{Walker, integrated_autocorrelation_times},
-    core::Point,
+    algorithms::mcmc::Walker,
+    core::{Point, mcmc_diagnostics::integrated_autocorrelation_times},
     traits::{LogDensity, Status, StatusMessage, Transform},
 };
 use fastrand::Rng;

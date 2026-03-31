@@ -1,7 +1,7 @@
 use crate::{
     DMatrix, DVector, Float,
     algorithms::mcmc::ChainStorageMode,
-    core::transforms::Bounds,
+    core::{MCMCDiagnostics, mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds},
     traits::{Bound, StatusMessage},
 };
 use serde::{Deserialize, Serialize};
@@ -251,6 +251,15 @@ pub struct MCMCSummary {
 }
 
 impl MCMCSummary {
+    /// Compute diagnostics from the retained chain.
+    ///
+    /// The diagnostics are computed from the retained chain after optional burn-in and thinning.
+    /// Acceptance rates are inferred from retained chain transitions, so `Rolling` and `Sampled`
+    /// storage modes describe the retained transitions rather than the full original run.
+    pub fn diagnostics(&self, burn: Option<usize>, thin: Option<usize>) -> MCMCDiagnostics {
+        diagnostics_from_chain(&self.get_chain(burn, thin))
+    }
+
     /// Get a [`Vec`] containing a [`Vec`] of positions for each
     /// [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble
     ///

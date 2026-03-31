@@ -17,6 +17,10 @@ pub use checkpoints::{
     CtrlCCheckpointSignal,
 };
 
+/// Diagnostics computed from retained MCMC chains.
+pub mod mcmc_diagnostics;
+pub use mcmc_diagnostics::MCMCDiagnostics;
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
 pub use point::Point;
