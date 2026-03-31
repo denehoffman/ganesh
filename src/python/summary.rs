@@ -1,12 +1,16 @@
 //! Python-facing summary export traits for downstream wrapper crates.
 
 use pyo3::{
+    exceptions::PyNotImplementedError,
     pyclass, pymethods, Py,
     types::{PyDict, PyDictMethods},
     Bound, PyAny, PyResult, Python,
 };
 
-use crate::core::MinimizationSummary;
+use crate::{
+    algorithms::mcmc::ChainStorageMode,
+    core::{MCMCSummary, MinimizationSummary},
+};
 
 /// Export a native `ganesh` summary into Python-facing forms.
 ///
@@ -22,6 +26,42 @@ pub trait IntoPySummary {
 
 fn bounds_to_python(bounds: &crate::core::transforms::Bounds) -> Vec<(Option<crate::Float>, Option<crate::Float>)> {
     bounds.iter().map(|(bound, _)| bound.as_options()).collect()
+}
+
+fn message_to_python<'py>(
+    py: Python<'py>,
+    message: &crate::traits::StatusMessage,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("status_type", message.status_type.to_string())?;
+    dict.set_item("text", message.text.clone())?;
+    dict.set_item("success", message.success())?;
+    Ok(dict)
+}
+
+fn chain_storage_to_python<'py>(
+    py: Python<'py>,
+    chain_storage: ChainStorageMode,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    match chain_storage {
+        ChainStorageMode::Full => {
+            dict.set_item("mode", "Full")?;
+        }
+        ChainStorageMode::Rolling { window } => {
+            dict.set_item("mode", "Rolling")?;
+            dict.set_item("window", window)?;
+        }
+        ChainStorageMode::Sampled {
+            keep_every,
+            max_samples,
+        } => {
+            dict.set_item("mode", "Sampled")?;
+            dict.set_item("keep_every", keep_every)?;
+            dict.set_item("max_samples", max_samples)?;
+        }
+    }
+    Ok(dict)
 }
 
 /// Python-facing typed wrapper for [`MinimizationSummary`].
@@ -128,12 +168,7 @@ impl IntoPySummary for MinimizationSummary {
         let dict = PyDict::new(py);
         dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
         dict.set_item("parameter_names", self.parameter_names.clone())?;
-
-        let message = PyDict::new(py);
-        message.set_item("status_type", self.message.status_type.to_string())?;
-        message.set_item("text", self.message.text.clone())?;
-        message.set_item("success", self.message.success())?;
-        dict.set_item("message", message)?;
+        dict.set_item("message", message_to_python(py, &self.message)?)?;
 
         dict.set_item("x0", self.x0.as_slice().to_vec())?;
         dict.set_item("x", self.x.as_slice().to_vec())?;
@@ -151,6 +186,38 @@ impl IntoPySummary for MinimizationSummary {
     }
 }
 
+impl IntoPySummary for MCMCSummary {
+    fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
+        dict.set_item("parameter_names", self.parameter_names.clone())?;
+        dict.set_item("message", message_to_python(py, &self.message)?)?;
+        dict.set_item(
+            "chain",
+            self.chain
+                .iter()
+                .map(|walker| {
+                    walker
+                        .iter()
+                        .map(|position| position.as_slice().to_vec())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>(),
+        )?;
+        dict.set_item("chain_storage", chain_storage_to_python(py, self.chain_storage)?)?;
+        dict.set_item("cost_evals", self.cost_evals)?;
+        dict.set_item("gradient_evals", self.gradient_evals)?;
+        dict.set_item("dimension", self.dimension)?;
+        Ok(dict)
+    }
+
+    fn to_py_class<'py>(&self, _py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Err(PyNotImplementedError::new_err(
+            "typed Python MCMC summary wrappers are not implemented yet",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::{
@@ -161,6 +228,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        algorithms::mcmc::ChainStorageMode,
         core::transforms::Bounds,
         traits::StatusMessage,
         DMatrix, DVector,
@@ -178,6 +246,19 @@ mod tests {
             cost_evals: 10,
             gradient_evals: 4,
             covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
+        }
+    }
+
+    fn sample_mcmc_summary() -> MCMCSummary {
+        MCMCSummary {
+            bounds: Some(Bounds::new_default([(Some(-1.0), Some(1.0))])),
+            parameter_names: Some(vec!["theta".into()]),
+            message: StatusMessage::default().set_initialized_with_message("warmup"),
+            chain: vec![vec![DVector::from_vec(vec![0.0]), DVector::from_vec(vec![0.5])]],
+            chain_storage: ChainStorageMode::Rolling { window: 16 },
+            cost_evals: 8,
+            gradient_evals: 0,
+            dimension: (1, 2, 1),
         }
     }
 
@@ -229,6 +310,86 @@ mod tests {
             assert_eq!(wrapper.cost_evals(), 10);
             assert_eq!(wrapper.gradient_evals(), 4);
             assert_eq!(wrapper.covariance(), vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+        });
+    }
+
+    #[test]
+    fn mcmc_summary_exports_to_python_dict() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let summary = sample_mcmc_summary();
+            let dict = summary.to_py_dict(py).unwrap();
+
+            let bounds = dict
+                .get_item("bounds")
+                .unwrap()
+                .unwrap()
+                .extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>()
+                .unwrap();
+            let names = dict
+                .get_item("parameter_names")
+                .unwrap()
+                .unwrap()
+                .extract::<Vec<String>>()
+                .unwrap();
+            let chain = dict
+                .get_item("chain")
+                .unwrap()
+                .unwrap()
+                .extract::<Vec<Vec<Vec<crate::Float>>>>()
+                .unwrap();
+            let chain_storage = dict
+                .get_item("chain_storage")
+                .unwrap()
+                .unwrap()
+                .downcast_into::<PyDict>()
+                .unwrap();
+            let message = dict
+                .get_item("message")
+                .unwrap()
+                .unwrap()
+                .downcast_into::<PyDict>()
+                .unwrap();
+
+            assert_eq!(bounds, vec![(Some(-1.0), Some(1.0))]);
+            assert_eq!(names, vec!["theta"]);
+            assert_eq!(chain, vec![vec![vec![0.0], vec![0.5]]]);
+            assert_eq!(
+                chain_storage
+                    .get_item("mode")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "Rolling"
+            );
+            assert_eq!(
+                chain_storage
+                    .get_item("window")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<usize>()
+                    .unwrap(),
+                16
+            );
+            assert_eq!(
+                message
+                    .get_item("status_type")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "Initialized"
+            );
+            assert_eq!(
+                message
+                    .get_item("text")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "warmup"
+            );
         });
     }
 }
