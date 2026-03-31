@@ -9,6 +9,7 @@ use pyo3::{
 use crate::{
     algorithms::mcmc::ChainStorageMode,
     core::{MCMCDiagnostics, MCMCSummary, MinimizationSummary},
+    python::numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
 };
 
 /// Export a native `ganesh` summary into Python-facing forms.
@@ -68,12 +69,9 @@ fn diagnostics_to_python<'py>(
     diagnostics: &MCMCDiagnostics,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
-    dict.set_item("r_hat", diagnostics.r_hat.as_slice().to_vec())?;
-    dict.set_item("ess", diagnostics.ess.as_slice().to_vec())?;
-    dict.set_item(
-        "acceptance_rates",
-        diagnostics.acceptance_rates.as_slice().to_vec(),
-    )?;
+    dict.set_item("r_hat", vector_to_python(py, diagnostics.r_hat.as_slice())?)?;
+    dict.set_item("ess", vector_to_python(py, diagnostics.ess.as_slice())?)?;
+    dict.set_item("acceptance_rates", vector_to_python(py, diagnostics.acceptance_rates.as_slice())?)?;
     dict.set_item("mean_acceptance_rate", diagnostics.mean_acceptance_rate)?;
     Ok(dict)
 }
@@ -138,20 +136,20 @@ impl PyMinimizationSummary {
 
     /// Get the initial parameters.
     #[getter]
-    pub fn x0(&self) -> Vec<crate::Float> {
-        self.summary.x0.as_slice().to_vec()
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, self.summary.x0.as_slice())
     }
 
     /// Get the final parameters.
     #[getter]
-    pub fn x(&self) -> Vec<crate::Float> {
-        self.summary.x.as_slice().to_vec()
+    pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, self.summary.x.as_slice())
     }
 
     /// Get the parameter standard deviations.
     #[getter]
-    pub fn std(&self) -> Vec<crate::Float> {
-        self.summary.std.as_slice().to_vec()
+    pub fn std<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, self.summary.std.as_slice())
     }
 
     /// Get the final objective value.
@@ -174,12 +172,13 @@ impl PyMinimizationSummary {
 
     /// Get the covariance matrix as nested Python lists.
     #[getter]
-    pub fn covariance(&self) -> Vec<Vec<crate::Float>> {
-        self.summary
+    pub fn covariance<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let covariance = self.summary
             .covariance
             .row_iter()
             .map(|row| row.iter().copied().collect::<Vec<_>>())
-            .collect()
+            .collect::<Vec<_>>();
+        matrix_to_python(py, &covariance)
     }
 
     /// Export the wrapped summary as a Python dictionary.
@@ -234,8 +233,8 @@ impl PyMCMCSummary {
     }
 
     /// Get the full retained chain as nested Python lists.
-    pub fn chain(&self) -> Vec<Vec<Vec<crate::Float>>> {
-        chain_to_python(&self.summary.chain)
+    pub fn chain<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        tensor3_to_python(py, &chain_to_python(&self.summary.chain))
     }
 
     /// Get the chain storage description.
@@ -275,22 +274,24 @@ impl PyMCMCSummary {
 
     /// Get the retained chain after optional burn-in and thinning.
     #[pyo3(signature = (burn=None, thin=None))]
-    pub fn get_chain(
+    pub fn get_chain<'py>(
         &self,
+        py: Python<'py>,
         burn: Option<usize>,
         thin: Option<usize>,
-    ) -> Vec<Vec<Vec<crate::Float>>> {
-        chain_to_python(&self.summary.get_chain(burn, thin))
+    ) -> PyResult<Bound<'py, PyAny>> {
+        tensor3_to_python(py, &chain_to_python(&self.summary.get_chain(burn, thin)))
     }
 
     /// Get the flattened retained chain after optional burn-in and thinning.
     #[pyo3(signature = (burn=None, thin=None))]
-    pub fn get_flat_chain(
+    pub fn get_flat_chain<'py>(
         &self,
+        py: Python<'py>,
         burn: Option<usize>,
         thin: Option<usize>,
-    ) -> Vec<Vec<crate::Float>> {
-        flat_chain_to_python(&self.summary.get_flat_chain(burn, thin))
+    ) -> PyResult<Bound<'py, PyAny>> {
+        matrix_to_python(py, &flat_chain_to_python(&self.summary.get_flat_chain(burn, thin)))
     }
 
     /// Export the wrapped summary as a Python dictionary.
@@ -312,13 +313,18 @@ impl IntoPySummary for MinimizationSummary {
         dict.set_item("parameter_names", self.parameter_names.clone())?;
         dict.set_item("message", message_to_python(py, &self.message)?)?;
 
-        dict.set_item("x0", self.x0.as_slice().to_vec())?;
-        dict.set_item("x", self.x.as_slice().to_vec())?;
-        dict.set_item("std", self.std.as_slice().to_vec())?;
+        dict.set_item("x0", vector_to_python(py, self.x0.as_slice())?)?;
+        dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
+        dict.set_item("std", vector_to_python(py, self.std.as_slice())?)?;
         dict.set_item("fx", self.fx)?;
         dict.set_item("cost_evals", self.cost_evals)?;
         dict.set_item("gradient_evals", self.gradient_evals)?;
-        dict.set_item("covariance", self.covariance.row_iter().map(|row| row.iter().copied().collect::<Vec<_>>()).collect::<Vec<_>>())?;
+        let covariance = self
+            .covariance
+            .row_iter()
+            .map(|row| row.iter().copied().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        dict.set_item("covariance", matrix_to_python(py, &covariance)?)?;
         Ok(dict)
     }
 
@@ -334,10 +340,7 @@ impl IntoPySummary for MCMCSummary {
         dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
         dict.set_item("parameter_names", self.parameter_names.clone())?;
         dict.set_item("message", message_to_python(py, &self.message)?)?;
-        dict.set_item(
-            "chain",
-            chain_to_python(&self.chain),
-        )?;
+        dict.set_item("chain", tensor3_to_python(py, &chain_to_python(&self.chain))?)?;
         dict.set_item("chain_storage", chain_storage_to_python(py, self.chain_storage)?)?;
         dict.set_item("cost_evals", self.cost_evals)?;
         dict.set_item("gradient_evals", self.gradient_evals)?;
@@ -354,6 +357,7 @@ impl IntoPySummary for MCMCSummary {
 #[cfg(test)]
 mod tests {
     use pyo3::{
+        prepare_freethreaded_python,
         types::PyAnyMethods,
         Py, Python,
     };
@@ -365,6 +369,26 @@ mod tests {
         traits::StatusMessage,
         DMatrix, DVector,
     };
+
+    fn extract_vector_like(obj: &Bound<'_, PyAny>) -> Vec<crate::Float> {
+        crate::python::numeric::extract_vector(obj).unwrap()
+    }
+
+    fn extract_matrix_like(obj: &Bound<'_, PyAny>) -> Vec<Vec<crate::Float>> {
+        crate::python::numeric::extract_matrix(obj).unwrap()
+    }
+
+    fn extract_tensor3_like(obj: &Bound<'_, PyAny>) -> Vec<Vec<Vec<crate::Float>>> {
+        crate::python::numeric::extract_tensor3(obj).unwrap()
+    }
+
+    #[cfg(feature = "python-numpy")]
+    fn ensure_numpy_initialized() {
+        crate::python::numeric::ensure_numpy_test_runtime();
+    }
+
+    #[cfg(not(feature = "python-numpy"))]
+    fn ensure_numpy_initialized() {}
 
     fn sample_summary() -> MinimizationSummary {
         MinimizationSummary {
@@ -395,15 +419,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn minimization_summary_exports_to_python_dict() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
             let summary = sample_summary();
             let dict = summary.to_py_dict(py).unwrap();
 
             let bounds = dict.get_item("bounds").unwrap().unwrap().extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>().unwrap();
             let names = dict.get_item("parameter_names").unwrap().unwrap().extract::<Vec<String>>().unwrap();
-            let x = dict.get_item("x").unwrap().unwrap().extract::<Vec<crate::Float>>().unwrap();
-            let covariance = dict.get_item("covariance").unwrap().unwrap().extract::<Vec<Vec<crate::Float>>>().unwrap();
+            let x = extract_vector_like(dict.get_item("x").unwrap().unwrap().as_any());
+            let covariance = extract_matrix_like(dict.get_item("covariance").unwrap().unwrap().as_any());
             let message = dict.get_item("message").unwrap().unwrap().downcast_into::<PyDict>().unwrap();
 
             assert_eq!(bounds, vec![(Some(-1.0), Some(1.0)), (None, Some(2.0))]);
@@ -421,7 +448,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn minimization_summary_exports_to_python_class() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
             let summary = sample_summary();
             let wrapper = summary.to_py_class(py).unwrap();
@@ -433,18 +463,24 @@ mod tests {
             assert_eq!(wrapper.status_type(), "Success");
             assert_eq!(wrapper.message_text(), "ok");
             assert!(wrapper.success());
-            assert_eq!(wrapper.x0(), vec![1.0, 2.0]);
-            assert_eq!(wrapper.x(), vec![0.5, 1.5]);
-            assert_eq!(wrapper.std(), vec![0.1, 0.2]);
+            assert_eq!(extract_vector_like(wrapper.x0(py).unwrap().as_any()), vec![1.0, 2.0]);
+            assert_eq!(extract_vector_like(wrapper.x(py).unwrap().as_any()), vec![0.5, 1.5]);
+            assert_eq!(extract_vector_like(wrapper.std(py).unwrap().as_any()), vec![0.1, 0.2]);
             assert_eq!(wrapper.fx(), 1.25);
             assert_eq!(wrapper.cost_evals(), 10);
             assert_eq!(wrapper.gradient_evals(), 4);
-            assert_eq!(wrapper.covariance(), vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+            assert_eq!(
+                extract_matrix_like(wrapper.covariance(py).unwrap().as_any()),
+                vec![vec![1.0, 0.0], vec![0.0, 1.0]]
+            );
         });
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn mcmc_summary_exports_to_python_dict() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
             let summary = sample_mcmc_summary();
             let dict = summary.to_py_dict(py).unwrap();
@@ -461,12 +497,7 @@ mod tests {
                 .unwrap()
                 .extract::<Vec<String>>()
                 .unwrap();
-            let chain = dict
-                .get_item("chain")
-                .unwrap()
-                .unwrap()
-                .extract::<Vec<Vec<Vec<crate::Float>>>>()
-                .unwrap();
+            let chain = extract_tensor3_like(dict.get_item("chain").unwrap().unwrap().as_any());
             let chain_storage = dict
                 .get_item("chain_storage")
                 .unwrap()
@@ -523,7 +554,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn mcmc_summary_exports_to_python_class_and_helpers() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
             let summary = sample_mcmc_summary();
             let wrapper = summary.to_py_class(py).unwrap();
@@ -535,13 +569,16 @@ mod tests {
             assert_eq!(wrapper.status_type(), "Initialized");
             assert_eq!(wrapper.message_text(), "warmup");
             assert!(!wrapper.success());
-            assert_eq!(wrapper.chain(), vec![vec![vec![0.0], vec![0.5]]]);
+            assert_eq!(
+                extract_tensor3_like(wrapper.chain(py).unwrap().as_any()),
+                vec![vec![vec![0.0], vec![0.5]]]
+            );
             assert_eq!(wrapper.dimension(), (1, 2, 1));
             assert_eq!(wrapper.cost_evals(), 8);
             assert_eq!(wrapper.gradient_evals(), 0);
 
-            let retained = wrapper.get_chain(Some(1), None);
-            let flat = wrapper.get_flat_chain(None, None);
+            let retained = extract_tensor3_like(wrapper.get_chain(py, Some(1), None).unwrap().as_any());
+            let flat = extract_matrix_like(wrapper.get_flat_chain(py, None, None).unwrap().as_any());
             assert_eq!(retained, vec![vec![vec![0.5]]]);
             assert_eq!(flat, vec![vec![0.0], vec![0.5]]);
 
@@ -557,12 +594,7 @@ mod tests {
             );
 
             let diagnostics = wrapper.diagnostics(py, None, None).unwrap();
-            let r_hat = diagnostics
-                .get_item("r_hat")
-                .unwrap()
-                .unwrap()
-                .extract::<Vec<crate::Float>>()
-                .unwrap();
+            let r_hat = extract_vector_like(diagnostics.get_item("r_hat").unwrap().unwrap().as_any());
             assert_eq!(r_hat.len(), 1);
         });
     }

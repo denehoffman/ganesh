@@ -34,6 +34,7 @@ rustfft = "6.4.0"
 num = "0.4.3"
 tabled = { version = "0.20.0", default-features = false, features = ["std"] }
 pyo3 = { version = "0.23.4", optional = true }
+numpy = { version = "0.23.0", optional = true }
 
 [dev-dependencies]
 criterion = { version = "3.0.5", package = "codspeed-criterion-compat", features = [
@@ -45,6 +46,7 @@ approx = "0.5.1"
 default = []
 f32 = []
 python = ["dep:pyo3"]
+python-numpy = ["python", "dep:numpy"]
 
 [[bench]]
 name = "nelder_mead_benchmark"

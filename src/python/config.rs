@@ -3,7 +3,7 @@
 use pyo3::{
     pyclass, pymethods,
     types::PyAnyMethods,
-    Bound, PyAny, PyRef, PyResult,
+    Bound, PyAny, PyRef, PyResult, Python,
 };
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
         particles::{PSOConfig, Swarm, SwarmPositionInitializer},
     },
     error::GaneshError,
+    python::numeric::{extract_matrix, extract_vector, matrix_to_python, vector_to_python},
     traits::{Bound as GaneshBound, SupportsBounds, SupportsParameterNames},
     DVector, Float,
 };
@@ -68,25 +69,26 @@ pub struct PyLBFGSBConfig {
 impl PyLBFGSBConfig {
     /// Create a new Python-facing L-BFGS-B config wrapper.
     #[new]
-    pub fn new(x0: Vec<Float>) -> Self {
-        Self {
-            x0,
+    pub fn new(x0: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            x0: extract_vector(x0)?,
             memory_limit: 10,
             bounds: None,
             parameter_names: None,
-        }
+        })
     }
 
     /// Get the starting position of the optimizer.
     #[getter]
-    pub fn x0(&self) -> Vec<Float> {
-        self.x0.clone()
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, &self.x0)
     }
 
     /// Set the starting position of the optimizer.
     #[setter]
-    pub fn set_x0(&mut self, x0: Vec<Float>) {
-        self.x0 = x0;
+    pub fn set_x0(&mut self, x0: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.x0 = extract_vector(x0)?;
+        Ok(())
     }
 
     /// Get the number of stored L-BFGS-B correction steps.
@@ -160,22 +162,23 @@ pub struct PyNelderMeadConfig {
 #[pymethods]
 impl PyNelderMeadConfig {
     #[new]
-    pub fn new(x0: Vec<Float>) -> Self {
-        Self {
-            x0,
+    pub fn new(x0: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            x0: extract_vector(x0)?,
             bounds: None,
             parameter_names: None,
-        }
+        })
     }
 
     #[getter]
-    pub fn x0(&self) -> Vec<Float> {
-        self.x0.clone()
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, &self.x0)
     }
 
     #[setter]
-    pub fn set_x0(&mut self, x0: Vec<Float>) {
-        self.x0 = x0;
+    pub fn set_x0(&mut self, x0: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.x0 = extract_vector(x0)?;
+        Ok(())
     }
 
     #[getter]
@@ -229,22 +232,23 @@ pub struct PyPSOConfig {
 #[pymethods]
 impl PyPSOConfig {
     #[new]
-    pub fn new(positions: Vec<Vec<Float>>) -> Self {
-        Self {
-            positions,
+    pub fn new(positions: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            positions: extract_matrix(positions)?,
             bounds: None,
             parameter_names: None,
-        }
+        })
     }
 
     #[getter]
-    pub fn positions(&self) -> Vec<Vec<Float>> {
-        self.positions.clone()
+    pub fn positions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        matrix_to_python(py, &self.positions)
     }
 
     #[setter]
-    pub fn set_positions(&mut self, positions: Vec<Vec<Float>>) {
-        self.positions = positions;
+    pub fn set_positions(&mut self, positions: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.positions = extract_matrix(positions)?;
+        Ok(())
     }
 
     #[getter]
@@ -298,21 +302,22 @@ pub struct PyAIESConfig {
 #[pymethods]
 impl PyAIESConfig {
     #[new]
-    pub fn new(walkers: Vec<Vec<Float>>) -> Self {
-        Self {
-            walkers,
+    pub fn new(walkers: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            walkers: extract_matrix(walkers)?,
             parameter_names: None,
-        }
+        })
     }
 
     #[getter]
-    pub fn walkers(&self) -> Vec<Vec<Float>> {
-        self.walkers.clone()
+    pub fn walkers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        matrix_to_python(py, &self.walkers)
     }
 
     #[setter]
-    pub fn set_walkers(&mut self, walkers: Vec<Vec<Float>>) {
-        self.walkers = walkers;
+    pub fn set_walkers(&mut self, walkers: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.walkers = extract_matrix(walkers)?;
+        Ok(())
     }
 
     #[getter]
@@ -357,24 +362,25 @@ pub struct PyESSConfig {
 #[pymethods]
 impl PyESSConfig {
     #[new]
-    pub fn new(walkers: Vec<Vec<Float>>) -> Self {
-        Self {
-            walkers,
+    pub fn new(walkers: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            walkers: extract_matrix(walkers)?,
             parameter_names: None,
             n_adaptive: 0,
             max_steps: 10000,
             mu: 1.0,
-        }
+        })
     }
 
     #[getter]
-    pub fn walkers(&self) -> Vec<Vec<Float>> {
-        self.walkers.clone()
+    pub fn walkers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        matrix_to_python(py, &self.walkers)
     }
 
     #[setter]
-    pub fn set_walkers(&mut self, walkers: Vec<Vec<Float>>) {
-        self.walkers = walkers;
+    pub fn set_walkers(&mut self, walkers: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.walkers = extract_matrix(walkers)?;
+        Ok(())
     }
 
     #[getter]
@@ -439,7 +445,7 @@ impl<'py> FromPyConfig<'py> for ESSConfig {
 
 #[cfg(test)]
 mod tests {
-    use pyo3::{prepare_freethreaded_python, Py, Python};
+    use pyo3::{prepare_freethreaded_python, types::PyList, Py, Python};
 
     use super::*;
     use crate::{
@@ -454,6 +460,22 @@ mod tests {
         DVector,
     };
     use std::convert::Infallible;
+
+    fn py_vector<'py>(py: Python<'py>, values: &[Float]) -> Bound<'py, PyAny> {
+        PyList::new(py, values).unwrap().into_any()
+    }
+
+    fn py_matrix<'py>(py: Python<'py>, values: &[Vec<Float>]) -> Bound<'py, PyAny> {
+        PyList::new(py, values).unwrap().into_any()
+    }
+
+    #[cfg(feature = "python-numpy")]
+    fn ensure_numpy_initialized() {
+        crate::python::numeric::ensure_numpy_test_runtime();
+    }
+
+    #[cfg(not(feature = "python-numpy"))]
+    fn ensure_numpy_initialized() {}
 
     struct Quadratic;
     struct GaussianLogDensity;
@@ -506,10 +528,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_lbfgsb_config_converts_to_native_config() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyLBFGSBConfig::new(vec![2.0, -1.0]);
+            let mut wrapper = PyLBFGSBConfig::new(&py_vector(py, &[2.0, -1.0])).unwrap();
             wrapper.set_memory_limit(5);
             wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (None, Some(2.0))]));
             wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
@@ -532,10 +556,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_lbfgsb_config_invalid_memory_limit_maps_to_python_config_error() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyLBFGSBConfig::new(vec![1.0, 1.0]);
+            let mut wrapper = PyLBFGSBConfig::new(&py_vector(py, &[1.0, 1.0])).unwrap();
             wrapper.set_memory_limit(0);
 
             let wrapper = Py::new(py, wrapper).unwrap();
@@ -545,25 +571,35 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_lbfgsb_config_accessors_roundtrip_python_facing_state() {
-        let mut wrapper = PyLBFGSBConfig::new(vec![1.0, 2.0]);
-        assert_eq!(wrapper.x0(), vec![1.0, 2.0]);
-        assert_eq!(wrapper.memory_limit(), 10);
-        assert_eq!(wrapper.bounds(), None);
-        assert_eq!(wrapper.parameter_names(), None);
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            ensure_numpy_initialized();
+            let mut wrapper = PyLBFGSBConfig::new(&py_vector(py, &[1.0, 2.0])).unwrap();
+            assert_eq!(
+                crate::python::numeric::extract_vector(wrapper.x0(py).unwrap().as_any()).unwrap(),
+                vec![1.0, 2.0]
+            );
+            assert_eq!(wrapper.memory_limit(), 10);
+            assert_eq!(wrapper.bounds(), None);
+            assert_eq!(wrapper.parameter_names(), None);
 
-        wrapper.set_bounds(Some(vec![(Some(0.0), Some(3.0)), (Some(-1.0), None)]));
-        wrapper.set_parameter_names(Some(vec!["x".into(), "y".into()]));
+            wrapper.set_bounds(Some(vec![(Some(0.0), Some(3.0)), (Some(-1.0), None)]));
+            wrapper.set_parameter_names(Some(vec!["x".into(), "y".into()]));
 
-        assert_eq!(wrapper.bounds(), Some(vec![(Some(0.0), Some(3.0)), (Some(-1.0), None)]));
-        assert_eq!(wrapper.parameter_names(), Some(vec!["x".into(), "y".into()]));
+            assert_eq!(wrapper.bounds(), Some(vec![(Some(0.0), Some(3.0)), (Some(-1.0), None)]));
+            assert_eq!(wrapper.parameter_names(), Some(vec!["x".into(), "y".into()]));
+        });
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_nelder_mead_config_converts_to_native_config() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyNelderMeadConfig::new(vec![2.0, 2.0]);
+            let mut wrapper = PyNelderMeadConfig::new(&py_vector(py, &[2.0, 2.0])).unwrap();
             wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (None, Some(2.0))]));
             wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
 
@@ -580,10 +616,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_pso_config_converts_to_native_config() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyPSOConfig::new(vec![vec![2.0, 2.0], vec![1.0, 1.0], vec![0.5, 0.5]]);
+            let mut wrapper = PyPSOConfig::new(&py_matrix(
+                py,
+                &[vec![2.0, 2.0], vec![1.0, 1.0], vec![0.5, 0.5]],
+            ))
+            .unwrap();
             wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (Some(-3.0), Some(3.0))]));
             wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
 
@@ -600,15 +642,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_aies_config_converts_to_native_config() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyAIESConfig::new(vec![
+            let mut wrapper = PyAIESConfig::new(&py_matrix(py, &[
                 vec![0.0, 0.0],
                 vec![0.1, 0.0],
                 vec![0.0, 0.1],
                 vec![0.1, 0.1],
-            ]);
+            ]))
+            .unwrap();
             wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
 
             let wrapper = Py::new(py, wrapper).unwrap();
@@ -628,14 +673,17 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_ess_config_converts_to_native_config() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyESSConfig::new(vec![
+            let mut wrapper = PyESSConfig::new(&py_matrix(py, &[
                 vec![0.0, 0.0],
                 vec![0.1, 0.0],
                 vec![0.0, 0.1],
-            ]);
+            ]))
+            .unwrap();
             wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
             wrapper.set_n_adaptive(2);
             wrapper.set_max_steps(32);
@@ -658,14 +706,17 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
     fn python_ess_config_invalid_mu_maps_to_python_config_error() {
         prepare_freethreaded_python();
+        ensure_numpy_initialized();
         Python::with_gil(|py| {
-            let mut wrapper = PyESSConfig::new(vec![
+            let mut wrapper = PyESSConfig::new(&py_matrix(py, &[
                 vec![0.0, 0.0],
                 vec![0.1, 0.0],
                 vec![0.0, 0.1],
-            ]);
+            ]))
+            .unwrap();
             wrapper.set_mu(0.0);
 
             let wrapper = Py::new(py, wrapper).unwrap();

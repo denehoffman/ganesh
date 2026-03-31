@@ -9,6 +9,9 @@ pub mod config;
 /// Wrapper-facing Python error integration scaffolding.
 pub mod errors;
 
+/// Shared numeric conversion helpers for Python-facing wrappers.
+pub mod numeric;
+
 /// Wrapper-facing Python summary export scaffolding.
 pub mod summary;
 
