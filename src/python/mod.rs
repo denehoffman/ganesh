@@ -17,7 +17,7 @@ pub mod summary;
 
 pub use config::{
     FromPyConfig, PyAIESConfig, PyCMAESConfig, PyDifferentialEvolutionConfig, PyESSConfig,
-    PyLBFGSBConfig, PyNelderMeadConfig, PyPSOConfig,
+    PyLBFGSBConfig, PyNelderMeadConfig, PyPSOConfig, PySimulatedAnnealingConfig,
 };
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,

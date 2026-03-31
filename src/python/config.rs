@@ -9,7 +9,9 @@ use pyo3::{
 use crate::{
     algorithms::{
         gradient::LBFGSBConfig,
-        gradient_free::{CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig},
+        gradient_free::{
+            CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig, SimulatedAnnealingConfig,
+        },
         mcmc::{AIESConfig, ESSConfig},
         particles::{PSOConfig, Swarm, SwarmPositionInitializer},
     },
@@ -665,6 +667,61 @@ impl<'py> FromPyConfig<'py> for CMAESConfig {
     }
 }
 
+/// Python-facing typed wrapper for [`SimulatedAnnealingConfig`].
+#[pyclass(module = "ganesh", name = "SimulatedAnnealingConfig")]
+#[derive(Clone)]
+pub struct PySimulatedAnnealingConfig {
+    initial_temperature: Float,
+    cooling_rate: Float,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PySimulatedAnnealingConfig {
+    #[new]
+    pub const fn new(initial_temperature: Float, cooling_rate: Float) -> Self {
+        Self {
+            initial_temperature,
+            cooling_rate,
+        }
+    }
+
+    #[getter]
+    pub const fn initial_temperature(&self) -> Float {
+        self.initial_temperature
+    }
+
+    #[setter]
+    pub fn set_initial_temperature(&mut self, initial_temperature: Float) {
+        self.initial_temperature = initial_temperature;
+    }
+
+    #[getter]
+    pub const fn cooling_rate(&self) -> Float {
+        self.cooling_rate
+    }
+
+    #[setter]
+    pub fn set_cooling_rate(&mut self, cooling_rate: Float) {
+        self.cooling_rate = cooling_rate;
+    }
+}
+
+impl TryFrom<&PySimulatedAnnealingConfig> for SimulatedAnnealingConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PySimulatedAnnealingConfig) -> Result<Self, Self::Error> {
+        SimulatedAnnealingConfig::new(config.initial_temperature, config.cooling_rate)
+    }
+}
+
+impl<'py> FromPyConfig<'py> for SimulatedAnnealingConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PySimulatedAnnealingConfig>>()?;
+        SimulatedAnnealingConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::{prepare_freethreaded_python, types::PyList, Py, Python};
@@ -673,12 +730,12 @@ mod tests {
     use crate::{
         algorithms::{
             gradient::LBFGSB,
-            gradient_free::{CMAES, DifferentialEvolution, NelderMead},
+            gradient_free::{CMAES, DifferentialEvolution, NelderMead, SimulatedAnnealing},
             mcmc::{AIES, ESS},
             particles::PSO,
         },
         core::{Callbacks, MaxSteps, MinimizationSummary},
-        traits::{Algorithm, CostFunction, Gradient, LogDensity},
+        traits::{Algorithm, CostFunction, GenericCostFunction, Gradient, LogDensity, Transform},
         DVector,
     };
     use std::convert::Infallible;
@@ -701,6 +758,7 @@ mod tests {
 
     struct Quadratic;
     struct GaussianLogDensity;
+    struct SimpleAnnealingProblem;
 
     impl CostFunction for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
@@ -717,6 +775,36 @@ mod tests {
     impl LogDensity for GaussianLogDensity {
         fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(-0.5 * x.dot(x))
+        }
+    }
+
+    impl GenericCostFunction<(), Infallible> for SimpleAnnealingProblem {
+        type Input = DVector<Float>;
+
+        fn evaluate_generic(&self, x: &Self::Input, _args: &()) -> Result<Float, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
+
+    impl crate::algorithms::gradient_free::simulated_annealing::SimulatedAnnealingGenerator<(), Infallible>
+        for SimpleAnnealingProblem
+    {
+        fn initial(
+            &self,
+            _transform: &Option<Box<dyn Transform>>,
+            _status: &mut crate::algorithms::gradient_free::simulated_annealing::SimulatedAnnealingStatus<DVector<Float>>,
+            _args: &(),
+        ) -> DVector<Float> {
+            DVector::from_vec(vec![1.0, 1.0])
+        }
+
+        fn generate(
+            &self,
+            _transform: &Option<Box<dyn Transform>>,
+            status: &mut crate::algorithms::gradient_free::simulated_annealing::SimulatedAnnealingStatus<DVector<Float>>,
+            _args: &(),
+        ) -> DVector<Float> {
+            status.current.x.scale(0.9)
         }
     }
 
@@ -771,6 +859,19 @@ mod tests {
                 Callbacks::empty().with_terminator(MaxSteps(8)),
             )
             .unwrap()
+    }
+
+    fn run_simulated_annealing_config(config: SimulatedAnnealingConfig) -> usize {
+        let mut solver = SimulatedAnnealing::new(Some(0));
+        let summary = solver
+            .process(
+                &SimpleAnnealingProblem,
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+        summary.cost_evals
     }
 
     #[test]
@@ -1036,6 +1137,34 @@ mod tests {
         Python::with_gil(|py| {
             let wrapper = Py::new(py, PyCMAESConfig::new(&py_vector(py, &[1.0, 1.0]), 0.0).unwrap()).unwrap();
             let err = CMAESConfig::from_py_config(wrapper.bind(py).as_any()).err().unwrap();
+            assert!(err.is_instance_of::<crate::python::GaneshConfigError>(py));
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn python_simulated_annealing_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let wrapper = Py::new(py, PySimulatedAnnealingConfig::new(1.0, 0.9)).unwrap();
+            let config =
+                SimulatedAnnealingConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let cost_evals = run_simulated_annealing_config(config);
+            assert!(cost_evals > 0);
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn python_simulated_annealing_invalid_temperature_maps_to_python_config_error() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let wrapper = Py::new(py, PySimulatedAnnealingConfig::new(0.0, 0.9)).unwrap();
+            let err = SimulatedAnnealingConfig::from_py_config(wrapper.bind(py).as_any())
+                .err()
+                .unwrap();
             assert!(err.is_instance_of::<crate::python::GaneshConfigError>(py));
         });
     }
