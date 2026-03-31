@@ -7,10 +7,15 @@ use pyo3::{
 };
 
 use crate::{
-    algorithms::gradient::LBFGSBConfig,
+    algorithms::{
+        gradient::LBFGSBConfig,
+        gradient_free::NelderMeadConfig,
+        mcmc::{AIESConfig, ESSConfig},
+        particles::{PSOConfig, Swarm, SwarmPositionInitializer},
+    },
     error::GaneshError,
     traits::{Bound as GaneshBound, SupportsBounds, SupportsParameterNames},
-    Float,
+    DVector, Float,
 };
 
 /// Convert a Python-facing wrapper object into a native `ganesh` config.
@@ -43,6 +48,10 @@ where
         config = config.with_parameter_names(parameter_names.clone());
     }
     config
+}
+
+fn vectors_to_dvectors(vectors: &[Vec<Float>]) -> Vec<DVector<Float>> {
+    vectors.iter().cloned().map(DVector::from_vec).collect()
 }
 
 /// Python-facing typed wrapper for [`LBFGSBConfig`].
@@ -138,20 +147,316 @@ impl<'py> FromPyConfig<'py> for LBFGSBConfig {
     }
 }
 
+/// Python-facing typed wrapper for [`NelderMeadConfig`].
+#[pyclass(module = "ganesh", name = "NelderMeadConfig")]
+#[derive(Clone)]
+pub struct PyNelderMeadConfig {
+    x0: Vec<Float>,
+    bounds: Option<Vec<(Option<Float>, Option<Float>)>>,
+    parameter_names: Option<Vec<String>>,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyNelderMeadConfig {
+    #[new]
+    pub fn new(x0: Vec<Float>) -> Self {
+        Self {
+            x0,
+            bounds: None,
+            parameter_names: None,
+        }
+    }
+
+    #[getter]
+    pub fn x0(&self) -> Vec<Float> {
+        self.x0.clone()
+    }
+
+    #[setter]
+    pub fn set_x0(&mut self, x0: Vec<Float>) {
+        self.x0 = x0;
+    }
+
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<Float>, Option<Float>)>> {
+        self.bounds.clone()
+    }
+
+    #[setter]
+    pub fn set_bounds(&mut self, bounds: Option<Vec<(Option<Float>, Option<Float>)>>) {
+        self.bounds = bounds;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+}
+
+impl TryFrom<&PyNelderMeadConfig> for NelderMeadConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyNelderMeadConfig) -> Result<Self, Self::Error> {
+        let native = NelderMeadConfig::new(&config.x0);
+        let native = apply_python_bounds(native, &config.bounds);
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for NelderMeadConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyNelderMeadConfig>>()?;
+        NelderMeadConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
+/// Python-facing typed wrapper for [`PSOConfig`].
+#[pyclass(module = "ganesh", name = "PSOConfig")]
+#[derive(Clone)]
+pub struct PyPSOConfig {
+    positions: Vec<Vec<Float>>,
+    bounds: Option<Vec<(Option<Float>, Option<Float>)>>,
+    parameter_names: Option<Vec<String>>,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyPSOConfig {
+    #[new]
+    pub fn new(positions: Vec<Vec<Float>>) -> Self {
+        Self {
+            positions,
+            bounds: None,
+            parameter_names: None,
+        }
+    }
+
+    #[getter]
+    pub fn positions(&self) -> Vec<Vec<Float>> {
+        self.positions.clone()
+    }
+
+    #[setter]
+    pub fn set_positions(&mut self, positions: Vec<Vec<Float>>) {
+        self.positions = positions;
+    }
+
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<Float>, Option<Float>)>> {
+        self.bounds.clone()
+    }
+
+    #[setter]
+    pub fn set_bounds(&mut self, bounds: Option<Vec<(Option<Float>, Option<Float>)>>) {
+        self.bounds = bounds;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+}
+
+impl TryFrom<&PyPSOConfig> for PSOConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyPSOConfig) -> Result<Self, Self::Error> {
+        let swarm = Swarm::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(&config.positions)));
+        let native = PSOConfig::new(swarm);
+        let native = apply_python_bounds(native, &config.bounds);
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for PSOConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyPSOConfig>>()?;
+        PSOConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
+/// Python-facing typed wrapper for [`AIESConfig`].
+#[pyclass(module = "ganesh", name = "AIESConfig")]
+#[derive(Clone)]
+pub struct PyAIESConfig {
+    walkers: Vec<Vec<Float>>,
+    parameter_names: Option<Vec<String>>,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyAIESConfig {
+    #[new]
+    pub fn new(walkers: Vec<Vec<Float>>) -> Self {
+        Self {
+            walkers,
+            parameter_names: None,
+        }
+    }
+
+    #[getter]
+    pub fn walkers(&self) -> Vec<Vec<Float>> {
+        self.walkers.clone()
+    }
+
+    #[setter]
+    pub fn set_walkers(&mut self, walkers: Vec<Vec<Float>>) {
+        self.walkers = walkers;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+}
+
+impl TryFrom<&PyAIESConfig> for AIESConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyAIESConfig) -> Result<Self, Self::Error> {
+        let native = AIESConfig::new(vectors_to_dvectors(&config.walkers))?;
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for AIESConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyAIESConfig>>()?;
+        AIESConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
+/// Python-facing typed wrapper for [`ESSConfig`].
+#[pyclass(module = "ganesh", name = "ESSConfig")]
+#[derive(Clone)]
+pub struct PyESSConfig {
+    walkers: Vec<Vec<Float>>,
+    parameter_names: Option<Vec<String>>,
+    n_adaptive: usize,
+    max_steps: usize,
+    mu: Float,
+}
+
+#[allow(missing_docs)]
+#[pymethods]
+impl PyESSConfig {
+    #[new]
+    pub fn new(walkers: Vec<Vec<Float>>) -> Self {
+        Self {
+            walkers,
+            parameter_names: None,
+            n_adaptive: 0,
+            max_steps: 10000,
+            mu: 1.0,
+        }
+    }
+
+    #[getter]
+    pub fn walkers(&self) -> Vec<Vec<Float>> {
+        self.walkers.clone()
+    }
+
+    #[setter]
+    pub fn set_walkers(&mut self, walkers: Vec<Vec<Float>>) {
+        self.walkers = walkers;
+    }
+
+    #[getter]
+    pub fn parameter_names(&self) -> Option<Vec<String>> {
+        self.parameter_names.clone()
+    }
+
+    #[setter]
+    pub fn set_parameter_names(&mut self, parameter_names: Option<Vec<String>>) {
+        self.parameter_names = parameter_names;
+    }
+
+    #[getter]
+    pub const fn n_adaptive(&self) -> usize {
+        self.n_adaptive
+    }
+
+    #[setter]
+    pub fn set_n_adaptive(&mut self, n_adaptive: usize) {
+        self.n_adaptive = n_adaptive;
+    }
+
+    #[getter]
+    pub const fn max_steps(&self) -> usize {
+        self.max_steps
+    }
+
+    #[setter]
+    pub fn set_max_steps(&mut self, max_steps: usize) {
+        self.max_steps = max_steps;
+    }
+
+    #[getter]
+    pub const fn mu(&self) -> Float {
+        self.mu
+    }
+
+    #[setter]
+    pub fn set_mu(&mut self, mu: Float) {
+        self.mu = mu;
+    }
+}
+
+impl TryFrom<&PyESSConfig> for ESSConfig {
+    type Error = GaneshError;
+
+    fn try_from(config: &PyESSConfig) -> Result<Self, Self::Error> {
+        let native = ESSConfig::new(vectors_to_dvectors(&config.walkers))?
+            .with_n_adaptive(config.n_adaptive)
+            .with_max_steps(config.max_steps)
+            .with_mu(config.mu)?;
+        Ok(apply_python_parameter_names(native, &config.parameter_names))
+    }
+}
+
+impl<'py> FromPyConfig<'py> for ESSConfig {
+    fn from_py_config(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let config = obj.extract::<PyRef<'py, PyESSConfig>>()?;
+        ESSConfig::try_from(&*config).map_err(Into::into)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::{prepare_freethreaded_python, Py, Python};
 
     use super::*;
     use crate::{
-        algorithms::gradient::LBFGSB,
-        core::MinimizationSummary,
-        traits::{Algorithm, CostFunction, Gradient},
+        algorithms::{
+            gradient::LBFGSB,
+            gradient_free::NelderMead,
+            mcmc::{AIES, ESS},
+            particles::PSO,
+        },
+        core::{Callbacks, MaxSteps, MinimizationSummary},
+        traits::{Algorithm, CostFunction, Gradient, LogDensity},
         DVector,
     };
     use std::convert::Infallible;
 
     struct Quadratic;
+    struct GaussianLogDensity;
 
     impl CostFunction for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
@@ -165,9 +470,39 @@ mod tests {
         }
     }
 
+    impl LogDensity for GaussianLogDensity {
+        fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
+            Ok(-0.5 * x.dot(x))
+        }
+    }
+
     fn run_summary(config: LBFGSBConfig) -> MinimizationSummary {
         let mut solver = LBFGSB::default();
         solver.process_default(&Quadratic, &(), config).unwrap()
+    }
+
+    fn run_nm_summary(config: NelderMeadConfig) -> MinimizationSummary {
+        let mut solver = NelderMead::default();
+        solver
+            .process(
+                &Quadratic,
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(8)),
+            )
+            .unwrap()
+    }
+
+    fn run_pso_summary(config: PSOConfig) -> MinimizationSummary {
+        let mut solver = PSO::default();
+        solver
+            .process(
+                &Quadratic,
+                &(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap()
     }
 
     #[test]
@@ -222,5 +557,120 @@ mod tests {
 
         assert_eq!(wrapper.bounds(), Some(vec![(Some(0.0), Some(3.0)), (Some(-1.0), None)]));
         assert_eq!(wrapper.parameter_names(), Some(vec!["x".into(), "y".into()]));
+    }
+
+    #[test]
+    fn python_nelder_mead_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut wrapper = PyNelderMeadConfig::new(vec![2.0, 2.0]);
+            wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (None, Some(2.0))]));
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config = NelderMeadConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let summary = run_nm_summary(config);
+
+            assert_eq!(summary.parameter_names.as_deref(), Some(&["alpha".into(), "beta".into()][..]));
+            assert_eq!(
+                summary.bounds.as_ref().unwrap()[0].0.as_options(),
+                (Some(-3.0), Some(3.0))
+            );
+        });
+    }
+
+    #[test]
+    fn python_pso_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut wrapper = PyPSOConfig::new(vec![vec![2.0, 2.0], vec![1.0, 1.0], vec![0.5, 0.5]]);
+            wrapper.set_bounds(Some(vec![(Some(-3.0), Some(3.0)), (Some(-3.0), Some(3.0))]));
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config = PSOConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let summary = run_pso_summary(config);
+
+            assert_eq!(summary.parameter_names.as_deref(), Some(&["alpha".into(), "beta".into()][..]));
+            assert_eq!(
+                summary.bounds.as_ref().unwrap()[0].0.as_options(),
+                (Some(-3.0), Some(3.0))
+            );
+        });
+    }
+
+    #[test]
+    fn python_aies_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut wrapper = PyAIESConfig::new(vec![
+                vec![0.0, 0.0],
+                vec![0.1, 0.0],
+                vec![0.0, 0.1],
+                vec![0.1, 0.1],
+            ]);
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config = AIESConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let mut solver = AIES::default();
+            let summary = solver
+                .process(
+                    &GaussianLogDensity,
+                    &(),
+                    config,
+                    AIES::default_callbacks().with_terminator(MaxSteps(1)),
+                )
+                .unwrap();
+
+            assert_eq!(summary.parameter_names.as_deref(), Some(&["alpha".into(), "beta".into()][..]));
+        });
+    }
+
+    #[test]
+    fn python_ess_config_converts_to_native_config() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut wrapper = PyESSConfig::new(vec![
+                vec![0.0, 0.0],
+                vec![0.1, 0.0],
+                vec![0.0, 0.1],
+            ]);
+            wrapper.set_parameter_names(Some(vec!["alpha".into(), "beta".into()]));
+            wrapper.set_n_adaptive(2);
+            wrapper.set_max_steps(32);
+            wrapper.set_mu(0.75);
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let config = ESSConfig::from_py_config(wrapper.bind(py).as_any()).unwrap();
+            let mut solver = ESS::default();
+            let summary = solver
+                .process(
+                    &GaussianLogDensity,
+                    &(),
+                    config,
+                    ESS::default_callbacks().with_terminator(MaxSteps(1)),
+                )
+                .unwrap();
+
+            assert_eq!(summary.parameter_names.as_deref(), Some(&["alpha".into(), "beta".into()][..]));
+        });
+    }
+
+    #[test]
+    fn python_ess_config_invalid_mu_maps_to_python_config_error() {
+        prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut wrapper = PyESSConfig::new(vec![
+                vec![0.0, 0.0],
+                vec![0.1, 0.0],
+                vec![0.0, 0.1],
+            ]);
+            wrapper.set_mu(0.0);
+
+            let wrapper = Py::new(py, wrapper).unwrap();
+            let err = ESSConfig::from_py_config(wrapper.bind(py).as_any()).err().unwrap();
+            assert!(err.is_instance_of::<crate::python::GaneshConfigError>(py));
+        });
     }
 }

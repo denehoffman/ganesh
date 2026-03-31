@@ -12,7 +12,9 @@ pub mod errors;
 /// Wrapper-facing Python summary export scaffolding.
 pub mod summary;
 
-pub use config::{FromPyConfig, PyLBFGSBConfig};
+pub use config::{
+    FromPyConfig, PyAIESConfig, PyESSConfig, PyLBFGSBConfig, PyNelderMeadConfig, PyPSOConfig,
+};
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
 };
