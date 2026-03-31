@@ -255,6 +255,10 @@ pub mod test_functions;
 /// Module containing `ganesh`-wide error types
 pub mod error;
 
+/// Feature-gated Python / `pyo3` wrapper support for downstream Rust crates with Python bindings.
+#[cfg(feature = "python")]
+pub mod python;
+
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(not(feature = "f32"))]
 pub type Float = f64;
