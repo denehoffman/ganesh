@@ -12,6 +12,9 @@ pub mod errors;
 /// Shared numeric conversion helpers for Python-facing wrappers.
 pub mod numeric;
 
+/// Machine-readable schema helpers for typed Python config wrappers.
+pub mod schema;
+
 /// Wrapper-facing Python summary export scaffolding.
 pub mod summary;
 
@@ -22,6 +25,7 @@ pub use config::{
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
 };
+pub use schema::{ConfigFieldKind, ConfigFieldSchema, ConfigSchema, HasPyConfigSchema};
 pub use summary::{
     IntoPySummary, PyMCMCSummary, PyMinimizationSummary, PySimulatedAnnealingSummary,
 };
