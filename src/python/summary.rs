@@ -8,7 +8,7 @@ use pyo3::{
 
 use crate::{
     algorithms::mcmc::ChainStorageMode,
-    core::{MCMCDiagnostics, MCMCSummary, MinimizationSummary},
+    core::{MCMCDiagnostics, MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary},
     python::numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
 };
 
@@ -306,6 +306,75 @@ impl From<MCMCSummary> for PyMCMCSummary {
     }
 }
 
+/// Python-facing typed wrapper for [`SimulatedAnnealingSummary<crate::DVector<crate::Float>>`].
+#[pyclass(module = "ganesh", name = "SimulatedAnnealingSummary")]
+#[derive(Clone)]
+pub struct PySimulatedAnnealingSummary {
+    summary: SimulatedAnnealingSummary<crate::DVector<crate::Float>>,
+}
+
+#[pymethods]
+impl PySimulatedAnnealingSummary {
+    /// Get the optional parameter bounds.
+    #[getter]
+    pub fn bounds(&self) -> Option<Vec<(Option<crate::Float>, Option<crate::Float>)>> {
+        self.summary.bounds.as_ref().map(bounds_to_python)
+    }
+
+    /// Get the status type as a string.
+    #[getter]
+    pub fn status_type(&self) -> String {
+        self.summary.message.status_type.to_string()
+    }
+
+    /// Get the message text.
+    #[getter]
+    pub fn message_text(&self) -> String {
+        self.summary.message.text.clone()
+    }
+
+    /// Return `True` when the run reports success.
+    #[getter]
+    pub fn success(&self) -> bool {
+        self.summary.message.success()
+    }
+
+    /// Get the initial state.
+    #[getter]
+    pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, self.summary.x0.as_slice())
+    }
+
+    /// Get the best state found.
+    #[getter]
+    pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        vector_to_python(py, self.summary.x.as_slice())
+    }
+
+    /// Get the best objective value.
+    #[getter]
+    pub fn fx(&self) -> crate::Float {
+        self.summary.fx
+    }
+
+    /// Get the number of cost evaluations.
+    #[getter]
+    pub const fn cost_evals(&self) -> usize {
+        self.summary.cost_evals
+    }
+
+    /// Export the wrapped summary as a Python dictionary.
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.summary.to_py_dict(py)
+    }
+}
+
+impl From<SimulatedAnnealingSummary<crate::DVector<crate::Float>>> for PySimulatedAnnealingSummary {
+    fn from(summary: SimulatedAnnealingSummary<crate::DVector<crate::Float>>) -> Self {
+        Self { summary }
+    }
+}
+
 impl IntoPySummary for MinimizationSummary {
     fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
@@ -350,6 +419,24 @@ impl IntoPySummary for MCMCSummary {
 
     fn to_py_class<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let wrapper = Py::new(py, PyMCMCSummary::from(self.clone()))?;
+        Ok(wrapper.into_bound(py).into_any())
+    }
+}
+
+impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
+    fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
+        dict.set_item("message", message_to_python(py, &self.message)?)?;
+        dict.set_item("x0", vector_to_python(py, self.x0.as_slice())?)?;
+        dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
+        dict.set_item("fx", self.fx)?;
+        dict.set_item("cost_evals", self.cost_evals)?;
+        Ok(dict)
+    }
+
+    fn to_py_class<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let wrapper = Py::new(py, PySimulatedAnnealingSummary::from(self.clone()))?;
         Ok(wrapper.into_bound(py).into_any())
     }
 }
@@ -415,6 +502,17 @@ mod tests {
             cost_evals: 8,
             gradient_evals: 0,
             dimension: (1, 2, 1),
+        }
+    }
+
+    fn sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DVector<crate::Float>> {
+        SimulatedAnnealingSummary {
+            bounds: Some(Bounds::new_default([(Some(-2.0), Some(2.0)), (None, Some(3.0))])),
+            message: StatusMessage::default().set_success_with_message("cooled"),
+            x0: DVector::from_vec(vec![1.5, -0.5]),
+            x: DVector::from_vec(vec![0.25, 1.25]),
+            fx: 0.125,
+            cost_evals: 42,
         }
     }
 
@@ -596,6 +694,64 @@ mod tests {
             let diagnostics = wrapper.diagnostics(py, None, None).unwrap();
             let r_hat = extract_vector_like(diagnostics.get_item("r_hat").unwrap().unwrap().as_any());
             assert_eq!(r_hat.len(), 1);
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn simulated_annealing_summary_exports_to_python_dict() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let summary = sample_simulated_annealing_summary();
+            let dict = summary.to_py_dict(py).unwrap();
+
+            let bounds = dict
+                .get_item("bounds")
+                .unwrap()
+                .unwrap()
+                .extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>()
+                .unwrap();
+            let x0 = extract_vector_like(dict.get_item("x0").unwrap().unwrap().as_any());
+            let x = extract_vector_like(dict.get_item("x").unwrap().unwrap().as_any());
+            let message = dict
+                .get_item("message")
+                .unwrap()
+                .unwrap()
+                .downcast_into::<PyDict>()
+                .unwrap();
+
+            assert_eq!(bounds, vec![(Some(-2.0), Some(2.0)), (None, Some(3.0))]);
+            assert_eq!(x0, vec![1.5, -0.5]);
+            assert_eq!(x, vec![0.25, 1.25]);
+            assert_eq!(dict.get_item("fx").unwrap().unwrap().extract::<crate::Float>().unwrap(), 0.125);
+            assert_eq!(dict.get_item("cost_evals").unwrap().unwrap().extract::<usize>().unwrap(), 42);
+            assert_eq!(
+                message.get_item("status_type").unwrap().unwrap().extract::<String>().unwrap(),
+                "Success"
+            );
+        });
+    }
+
+    #[test]
+    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
+    fn simulated_annealing_summary_exports_to_python_class() {
+        prepare_freethreaded_python();
+        ensure_numpy_initialized();
+        Python::with_gil(|py| {
+            let summary = sample_simulated_annealing_summary();
+            let wrapper = summary.to_py_class(py).unwrap();
+            let wrapper = wrapper.extract::<Py<PySimulatedAnnealingSummary>>().unwrap();
+            let wrapper = wrapper.bind(py).borrow();
+
+            assert_eq!(wrapper.bounds(), Some(vec![(Some(-2.0), Some(2.0)), (None, Some(3.0))]));
+            assert_eq!(wrapper.status_type(), "Success");
+            assert_eq!(wrapper.message_text(), "cooled");
+            assert!(wrapper.success());
+            assert_eq!(extract_vector_like(wrapper.x0(py).unwrap().as_any()), vec![1.5, -0.5]);
+            assert_eq!(extract_vector_like(wrapper.x(py).unwrap().as_any()), vec![0.25, 1.25]);
+            assert_eq!(wrapper.fx(), 0.125);
+            assert_eq!(wrapper.cost_evals(), 42);
         });
     }
 }

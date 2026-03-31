@@ -21,4 +21,6 @@ pub use config::{
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
 };
-pub use summary::{IntoPySummary, PyMCMCSummary, PyMinimizationSummary};
+pub use summary::{
+    IntoPySummary, PyMCMCSummary, PyMinimizationSummary, PySimulatedAnnealingSummary,
+};
