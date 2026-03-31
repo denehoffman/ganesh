@@ -13,4 +13,7 @@ pub mod errors;
 pub mod summary;
 
 pub use config::FromPyConfig;
+pub use errors::{
+    register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
+};
 pub use summary::IntoPySummary;
