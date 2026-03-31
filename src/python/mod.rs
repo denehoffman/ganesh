@@ -18,4 +18,4 @@ pub use config::{
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
 };
-pub use summary::{IntoPySummary, PyMinimizationSummary};
+pub use summary::{IntoPySummary, PyMCMCSummary, PyMinimizationSummary};
