@@ -715,6 +715,7 @@ mod tests {
     use std::convert::Infallible;
 
     use approx::assert_relative_eq;
+    use fastrand_contrib::RngExt;
     use nalgebra::dvector;
 
     use super::*;
@@ -1123,5 +1124,143 @@ mod tests {
         let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
         assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
         Ok(())
+    }
+
+    fn assert_random_transform_consistency<T>(
+        transform: &T,
+        mut sample_external: impl FnMut(&mut Rng) -> DVector<Float>,
+        n_trials: usize,
+        epsilon: Float,
+    ) -> Result<(), Infallible>
+    where
+        T: Transform,
+    {
+        let f = Quadratic;
+        let p = TransformedProblem::new(&f, transform);
+        let mut rng = Rng::with_seed(0);
+        for _ in 0..n_trials {
+            let x_ext = sample_external(&mut rng);
+            let x_int = p.to_owned_internal(&x_ext);
+            let x_roundtrip = p.to_owned_external(&x_int);
+            assert_relative_eq!(x_roundtrip, x_ext, epsilon = epsilon);
+
+            let f_int = p.evaluate(&x_int, &())?;
+            let f_ext = f.evaluate(&x_ext, &())?;
+            assert_relative_eq!(f_int, f_ext, epsilon = epsilon);
+
+            let g_int = p.gradient(&x_int, &())?;
+            let g_ext = f.gradient(&x_ext, &())?;
+            let g_int_to_ext = p.pushforward_gradient(&x_int, &g_int);
+            assert_relative_eq!(g_int_to_ext, g_ext, epsilon = epsilon);
+
+            let h_int = p.hessian(&x_int, &())?;
+            let h_ext = f.hessian(&x_ext, &())?;
+            let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
+            assert_relative_eq!(h_int_to_ext, h_ext, epsilon = epsilon);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn randomized_default_bounds_transform_consistency() -> Result<(), Infallible> {
+        let t = Bounds::from([
+            (-1.1, 2.0),
+            (Float::NEG_INFINITY, 10.0),
+            (0.2, Float::INFINITY),
+            (Float::NEG_INFINITY, Float::INFINITY),
+        ]);
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-1.05..1.95),
+                    rng.f64_range(-5.0..9.0),
+                    rng.f64_range(0.25..6.0),
+                    rng.f64_range(-3.0..3.0),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_minuit_bounds_transform_consistency() -> Result<(), Infallible> {
+        let t = Bounds::new(
+            [
+                (-1.1, 2.0),
+                (Float::NEG_INFINITY, 10.0),
+                (0.2, Float::INFINITY),
+                (Float::NEG_INFINITY, Float::INFINITY),
+            ],
+            &[
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+            ],
+        );
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-1.05..1.95),
+                    rng.f64_range(-5.0..9.0),
+                    rng.f64_range(0.25..6.0),
+                    rng.f64_range(-3.0..3.0),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_scale_transform_consistency() -> Result<(), Infallible> {
+        let t = ScaleTransform::from_parameter_scales([1e-3, 2.5, 10.0]).unwrap();
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-2e-3..3e-3),
+                    rng.f64_range(-4.0..4.0),
+                    rng.f64_range(-12.0..15.0),
+                ]
+            },
+            64,
+            1e-8,
+        )
+    }
+
+    #[test]
+    fn randomized_spherical_transform_consistency() -> Result<(), Infallible> {
+        let t = SphericalTransform::new(0, 1, 2);
+        let pi = std::f64::consts::PI as Float;
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(0.25..3.0),
+                    rng.f64_range(0.1..(pi - 0.1)),
+                    rng.f64_range(-pi + 0.1..pi - 0.1),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_composed_transform_roundtrip() {
+        let t = ScaleTransform::from_parameter_scales([2.0, 0.5])
+            .unwrap()
+            .compose(Bounds::new_default([(-3.0, 3.0), (-2.0, 2.0)]));
+        let mut rng = Rng::with_seed(1);
+        for _ in 0..64 {
+            let x_ext = dvector![rng.f64_range(-2.9..2.9), rng.f64_range(-1.9..1.9)];
+            let z = t.to_internal(&x_ext).into_owned();
+            let x_roundtrip = t.to_external(&z).into_owned();
+            assert_relative_eq!(x_roundtrip, x_ext, epsilon = 1e-8);
+        }
     }
 }
