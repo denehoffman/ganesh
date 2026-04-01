@@ -12,6 +12,9 @@ pub mod errors;
 /// Shared numeric conversion helpers for Python-facing wrappers.
 pub mod numeric;
 
+/// Python-facing run-options wrappers for built-in callbacks.
+pub mod run_options;
+
 /// Machine-readable schema helpers for typed Python config wrappers.
 pub mod schema;
 
@@ -24,6 +27,13 @@ pub use config::{
 };
 pub use errors::{
     register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError,
+};
+pub use run_options::{
+    PyAIESRunOptions, PyAutocorrelationTerminatorConfig, PyCMAESConditionCovTerminatorConfig,
+    PyCMAESEqualFunValuesTerminatorConfig, PyCMAESNoEffectAxisTerminatorConfig,
+    PyCMAESNoEffectCoordTerminatorConfig, PyCMAESRunOptions, PyCMAESSigmaTerminatorConfig,
+    PyCMAESStagnationTerminatorConfig, PyCMAESTolFunTerminatorConfig,
+    PyCMAESTolXTerminatorConfig, PyCMAESTolXUpTerminatorConfig, PyESSRunOptions,
 };
 pub use schema::{ConfigFieldKind, ConfigFieldSchema, ConfigSchema, HasPyConfigSchema};
 pub use summary::{
