@@ -1,13 +1,13 @@
 use crate::{
-    DVector, Float,
     algorithms::particles::{Swarm, SwarmPositionInitializer},
     core::Point,
     traits::{Status, StatusMessage},
+    DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 
 /// A status for particle swarm optimization and similar methods.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SwarmStatus {
     /// The global best position found by all particles
     pub gbest: Point<DVector<Float>>,

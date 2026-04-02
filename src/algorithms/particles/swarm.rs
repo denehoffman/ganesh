@@ -1,17 +1,17 @@
 use crate::{
-    DVector, Float,
     core::{
+        utils::{generate_random_vector_in_limits, SampleFloat},
         Bounds, Point,
-        utils::{SampleFloat, generate_random_vector_in_limits},
     },
     traits::{CostFunction, Transform},
+    DVector, Float,
 };
 use fastrand::Rng;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// A swarm of particles used in particle swarm optimization and similar methods.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Swarm {
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
@@ -128,7 +128,7 @@ impl Swarm {
 }
 
 /// Methods for handling boundaries in swarm optimizations
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmBoundaryMethod {
     #[default]
     /// Set infeasable values to +inf
@@ -138,7 +138,7 @@ pub enum SwarmBoundaryMethod {
 }
 
 /// Swarm topologies which determine the flow of information
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmTopology {
     /// Each particle is connected to all others
     #[default]
@@ -148,7 +148,7 @@ pub enum SwarmTopology {
 }
 
 /// The algorithmic method to update the swarm positions
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmUpdateMethod {
     /// Update the positions and targets in separate loops (slower but sometimes more stable)
     #[default]
@@ -245,7 +245,7 @@ impl SwarmPositionInitializer {
 }
 
 /// Methods for setting the initial velocity of particles in a swarm
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum SwarmVelocityInitializer {
     /// Initialize all velocities to zero
     #[default]
@@ -274,7 +274,7 @@ impl SwarmVelocityInitializer {
 }
 
 /// A particle with a position, velocity, and best known position
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SwarmParticle {
     /// The position of the particle (in unbounded space)
     pub position: Point<DVector<Float>>,
