@@ -1,9 +1,9 @@
 use fastrand::Rng;
 use ganesh::{
-    DVector, Float,
-    algorithms::mcmc::{AutocorrelationTerminator, ESS, ESSMove, ess::ESSConfig},
-    core::{Callbacks, MaxSteps, utils::SampleFloat},
+    algorithms::mcmc::{ess::ESSConfig, AutocorrelationTerminator, ESSMove, ESS},
+    core::{utils::SampleFloat, Callbacks, MaxSteps},
     traits::{Algorithm, LogDensity},
+    DVector, Float,
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 
@@ -44,13 +44,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = sampler.process(
         &problem,
         &(),
-        ESSConfig::new(x0.clone())
-            .unwrap()
-            .with_moves([
-                ESSMove::gaussian(0.1),
-                ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
-                ESSMove::differential(0.2),
-            ])?,
+        ESSConfig::new(x0.clone()).unwrap().with_moves([
+            ESSMove::gaussian(0.1),
+            ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
+            ESSMove::differential(0.2),
+        ])?,
         Callbacks::empty()
             .with_terminator(aco.clone())
             .with_terminator(MaxSteps(8000)),

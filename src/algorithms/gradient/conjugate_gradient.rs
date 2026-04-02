@@ -1,5 +1,4 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Callbacks, MaxSteps, MinimizationSummary},
     error::{GaneshError, GaneshResult},
@@ -7,6 +6,7 @@ use crate::{
         linesearch::LineSearchOutput, Algorithm, Gradient, LineSearch, Status,
         SupportsParameterNames, SupportsTransform, Terminator, Transform, TransformedProblem,
     },
+    DMatrix, DVector, Float,
 };
 use std::ops::ControlFlow;
 
@@ -211,7 +211,11 @@ impl ConjugateGradient {
             }
         };
 
-        if beta.is_finite() { beta } else { 0.0 }
+        if beta.is_finite() {
+            beta
+        } else {
+            0.0
+        }
     }
 }
 
@@ -256,9 +260,9 @@ where
             self.d = -&self.g;
         }
 
-        if let Ok(LineSearchOutput { alpha, fx, g }) =
-            self.line_search
-                .search(&self.x, &self.d, None, &t_problem, None, args, status)?
+        if let Ok(LineSearchOutput { alpha, fx, g }) = self
+            .line_search
+            .search(&self.x, &self.d, None, &t_problem, None, args, status)?
         {
             self.x += self.d.scale(alpha);
             self.f = fx;

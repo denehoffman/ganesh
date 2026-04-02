@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// An enum indicating the status of an [`Algorithm`](crate::traits::Algorithm)
 #[non_exhaustive]

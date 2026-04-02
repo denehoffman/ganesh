@@ -1,5 +1,4 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MaxSteps, MinimizationSummary},
     error::{GaneshError, GaneshResult},
@@ -7,6 +6,7 @@ use crate::{
         Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
         Terminator, Transform, TransformedProblem,
     },
+    DMatrix, DVector, Float,
 };
 use nalgebra::LU;
 use std::ops::ControlFlow;

@@ -1,8 +1,8 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::mcmc::Walker,
-    core::{Point, mcmc_diagnostics::integrated_autocorrelation_times},
+    core::{mcmc_diagnostics::integrated_autocorrelation_times, Point},
     traits::{LogDensity, Status, StatusMessage, Transform},
+    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use nalgebra::RowDVector;
@@ -74,7 +74,11 @@ impl EnsembleStatus {
     pub fn get_compliment_walker_index(&self, index: usize, rng: &mut Rng) -> usize {
         let n_tot = self.walkers.len();
         let r = rng.usize(0..n_tot - 1);
-        if r >= index { r + 1 } else { r }
+        if r >= index {
+            r + 1
+        } else {
+            r
+        }
     }
     /// Randomly draw `n` [`Walker`] indices from the [`EnsembleStatus`] other than the one at the provided `index`
     ///
@@ -98,11 +102,7 @@ impl EnsembleStatus {
     pub fn internal_mean(&self, transform: &Option<Box<dyn Transform>>) -> DVector<Float> {
         self.walkers
             .iter()
-            .map(|walker| {
-                transform
-                    .to_internal(&walker.get_latest().x)
-                    .into_owned()
-            })
+            .map(|walker| transform.to_internal(&walker.get_latest().x).into_owned())
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
@@ -118,11 +118,7 @@ impl EnsembleStatus {
             .enumerate()
             .filter_map(|(i, walker)| {
                 if i != index {
-                    Some(
-                        transform
-                            .to_internal(&walker.get_latest().x)
-                            .into_owned(),
-                    )
+                    Some(transform.to_internal(&walker.get_latest().x).into_owned())
                 } else {
                     None
                 }
@@ -196,11 +192,7 @@ impl EnsembleStatus {
         let position: Vec<RowDVector<Float>> = self
             .walkers
             .iter()
-            .map(|walker| {
-                transform
-                    .to_internal(&walker.get_latest().x)
-                    .transpose()
-            })
+            .map(|walker| transform.to_internal(&walker.get_latest().x).transpose())
             .collect::<Vec<RowDVector<Float>>>();
         DMatrix::from_rows(position.as_slice())
     }

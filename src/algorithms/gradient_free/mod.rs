@@ -16,10 +16,10 @@ pub use simulated_annealing::{
 /// [`CMAES`] type for covariance-matrix adaptation evolution strategy minimizers.
 pub mod cmaes;
 pub use cmaes::{
-    CMAESConditionCovTerminator, CMAESEqualFunValuesTerminator, CMAESConfig,
+    CMAESConditionCovTerminator, CMAESConfig, CMAESEqualFunValuesTerminator,
     CMAESNoEffectAxisTerminator, CMAESNoEffectCoordTerminator, CMAESSigmaTerminator,
-    CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator,
-    CMAESTolXUpTerminator, CMAES,
+    CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator, CMAESTolXUpTerminator,
+    CMAES,
 };
 
 /// [`DifferentialEvolution`] type for differential evolution minimizers.

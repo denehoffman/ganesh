@@ -35,8 +35,8 @@ pub use summary::{
 /// Multistart minimization orchestration helpers.
 pub mod multistart;
 pub use multistart::{
-    FixedRestarts, MultiStartState, MultiStartSummary, RestartFactory, RestartPolicy,
-    minimize_multistart, restart_seed,
+    minimize_multistart, restart_seed, FixedRestarts, MultiStartState, MultiStartSummary,
+    RestartFactory, RestartPolicy,
 };
 
 /// Utility functions.

@@ -208,8 +208,7 @@ pub(crate) fn resolve_bounds_and_transform(
             let resolved_transform = match (bounds, transform) {
                 (Some(bounds), Some(transform)) => Some(Box::new(
                     dyn_clone::clone_box(transform.as_ref()).compose(bounds.clone()),
-                )
-                    as Box<dyn Transform>),
+                ) as Box<dyn Transform>),
                 (Some(bounds), None) => Some(Box::new(bounds.clone()) as Box<dyn Transform>),
                 (None, Some(transform)) => Some(dyn_clone::clone_box(transform.as_ref())),
                 (None, None) => None,
@@ -288,11 +287,8 @@ mod tests {
         let bounds = Some(Bounds::from([(0.0, 1.0)]));
         let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
 
-        let (resolved_bounds, resolved_transform) = resolve_bounds_and_transform(
-            &bounds,
-            &transform,
-            BoundsHandlingMode::TransformBounds,
-        );
+        let (resolved_bounds, resolved_transform) =
+            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::TransformBounds);
 
         assert!(resolved_bounds.is_none());
         let resolved_transform = resolved_transform.expect("transform should be composed");
@@ -305,11 +301,8 @@ mod tests {
         let bounds = Some(Bounds::from([(0.0, 1.0)]));
         let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
 
-        let (resolved_bounds, resolved_transform) = resolve_bounds_and_transform(
-            &bounds,
-            &transform,
-            BoundsHandlingMode::NativeBounds,
-        );
+        let (resolved_bounds, resolved_transform) =
+            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::NativeBounds);
 
         assert!(resolved_bounds.is_some());
         assert!(resolved_transform.is_some());

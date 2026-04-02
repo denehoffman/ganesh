@@ -5,7 +5,9 @@ use crate::{
 use std::convert::Infallible;
 
 /// A trait for algorithms which can save and restore step-boundary checkpoints.
-pub trait CheckpointableAlgorithm<P, S: Status, U = (), E = Infallible>: Algorithm<P, S, U, E> {
+pub trait CheckpointableAlgorithm<P, S: Status, U = (), E = Infallible>:
+    Algorithm<P, S, U, E>
+{
     /// The checkpoint type used to resume the algorithm.
     type Checkpoint: Clone;
 

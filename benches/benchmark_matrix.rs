@@ -1,15 +1,15 @@
-use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
-    DVector, Float,
     algorithms::{
-        gradient::{LBFGSB, lbfgsb::LBFGSBConfig},
-        gradient_free::{NelderMead, nelder_mead::NelderMeadConfig},
-        mcmc::{AIES, AIESConfig, ESS, ESSConfig, ESSMove},
-        particles::{PSO, PSOConfig, Swarm, SwarmPositionInitializer},
+        gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
+        gradient_free::{nelder_mead::NelderMeadConfig, NelderMead},
+        mcmc::{AIESConfig, ESSConfig, ESSMove, AIES, ESS},
+        particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
     },
     core::MaxSteps,
     test_functions::{rastrigin::Rastrigin, rosenbrock::Rosenbrock},
     traits::Algorithm,
+    DVector, Float,
 };
 
 const OPT_DIMS: [usize; 2] = [2, 8];

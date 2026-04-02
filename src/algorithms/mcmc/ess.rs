@@ -1,18 +1,17 @@
 use crate::{
-    DMatrix, DVector, Float, PI,
     algorithms::mcmc::{
-        ChainStorageMode, EnsembleStatus, Walker, validate_walker_inputs,
-        validate_weighted_moves,
+        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
     },
     core::{
+        utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
         MCMCSummary, Point,
-        utils::{RandChoice, SampleFloat, generate_random_vector_in_limits},
     },
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, LogDensity, Status, SupportsParameterNames, SupportsTransform, Transform,
-        status::StatusType,
+        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
+        SupportsTransform, Transform,
     },
+    DMatrix, DVector, Float, PI,
 };
 use fastrand::Rng;
 use nalgebra::Cholesky;
@@ -304,7 +303,11 @@ impl ESSConfig {
     /// Set the moves for the [`ESS`] algorithm to use.
     pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> GaneshResult<Self> {
         validate_weighted_moves(
-            &moves.as_ref().iter().map(|move_weight| move_weight.1).collect::<Vec<_>>(),
+            &moves
+                .as_ref()
+                .iter()
+                .map(|move_weight| move_weight.1)
+                .collect::<Vec<_>>(),
             "ESS",
         )?;
         self.moves = moves.as_ref().to_vec();
@@ -1067,10 +1070,10 @@ mod tests {
         };
         assert!(err.to_string().contains("must not be empty"));
 
-        let err = match ESSConfig::new(walkers).unwrap().with_moves([
-            ESSMove::gaussian(0.0),
-            ESSMove::differential(0.0),
-        ]) {
+        let err = match ESSConfig::new(walkers)
+            .unwrap()
+            .with_moves([ESSMove::gaussian(0.0), ESSMove::differential(0.0)])
+        {
             Err(err) => err,
             Ok(_) => panic!("zero-sum ESS move weights should be rejected"),
         };
@@ -1159,9 +1162,13 @@ mod tests {
         let walkers = make_walkers(100, 2);
         let cfg = ESSConfig::new(walkers)
             .unwrap()
-            .with_moves(vec![
-                ESSMove::custom_global(1.0, Some(1.0), Some(0.001), Some(3)).unwrap(),
-            ])
+            .with_moves(vec![ESSMove::custom_global(
+                1.0,
+                Some(1.0),
+                Some(0.001),
+                Some(3),
+            )
+            .unwrap()])
             .unwrap();
         let mut status = EnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
@@ -1182,7 +1189,17 @@ mod tests {
 
         let mut mu = 1.5;
         ESSMove::Differential
-            .step(0, 1, 0, &mut mu, &problem, &None, &(), &mut status, &mut rng)
+            .step(
+                0,
+                1,
+                0,
+                &mut mu,
+                &problem,
+                &None,
+                &(),
+                &mut status,
+                &mut rng,
+            )
             .unwrap();
 
         assert!(mu.is_finite());
@@ -1207,7 +1224,10 @@ mod tests {
         assert!(result.cost_evals >= 4);
         assert_eq!(result.gradient_evals, 0);
         assert!(result.message.success());
-        assert!(result.message.text.contains("Maximum number of steps reached"));
+        assert!(result
+            .message
+            .text
+            .contains("Maximum number of steps reached"));
     }
 
     #[test]
@@ -1227,7 +1247,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 3 });
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Rolling { window: 3 }
+        );
         assert!(result.chain.iter().all(|walker| walker.len() <= 3));
         assert_eq!(result.dimension.1, 3);
     }

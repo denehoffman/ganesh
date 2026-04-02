@@ -1,11 +1,11 @@
 use fastrand::Rng;
 use ganesh::{
-    DVector, Float, PI,
     algorithms::particles::{
-        PSO, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, pso::PSOConfig,
+        pso::PSOConfig, Swarm, SwarmPositionInitializer, TrackingSwarmObserver, PSO,
     },
     core::{Callbacks, MaxSteps},
     traits::{Algorithm, CostFunction},
+    DVector, Float, PI,
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
 

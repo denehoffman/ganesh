@@ -1,13 +1,13 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::gradient_free::GradientFreeStatus,
-    core::{Bounds, Callbacks, MaxSteps, MinimizationSummary, Point, utils::SampleFloat},
+    core::{utils::SampleFloat, Bounds, Callbacks, MaxSteps, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
-    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
-        SupportsTransform, Terminator, Transform,
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
+        Terminator, Transform,
     },
+    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use nalgebra::SymmetricEigen;
@@ -46,9 +46,7 @@ where
                     .into_owned()
                     .scale(0.1 * algorithm.sigma * algorithm.d_vec[i]);
             if shifted == algorithm.mean {
-                status
-                    .set_message()
-                    .succeed_with_message("NO EFFECT AXIS");
+                status.set_message().succeed_with_message("NO EFFECT AXIS");
                 return ControlFlow::Break(());
             }
         }
@@ -78,9 +76,7 @@ where
             let mut shifted = algorithm.mean.clone();
             shifted[i] += 0.2 * algorithm.sigma * algorithm.cov[(i, i)].max(0.0).sqrt();
             if shifted == algorithm.mean {
-                status
-                    .set_message()
-                    .succeed_with_message("NO EFFECT COORD");
+                status.set_message().succeed_with_message("NO EFFECT COORD");
                 return ControlFlow::Break(());
             }
         }
@@ -97,7 +93,9 @@ pub struct CMAESConditionCovTerminator {
 
 impl Default for CMAESConditionCovTerminator {
     fn default() -> Self {
-        Self { max_condition: 1e14 }
+        Self {
+            max_condition: 1e14,
+        }
     }
 }
 
@@ -192,8 +190,7 @@ impl Default for CMAESTolXUpTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
-    for CMAESTolXUpTerminator
+impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESTolXUpTerminator
 where
     P: CostFunction<U, E>,
 {
@@ -227,8 +224,7 @@ impl Default for CMAESTolFunTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
-    for CMAESTolFunTerminator
+impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESTolFunTerminator
 where
     P: CostFunction<U, E>,
 {
@@ -531,9 +527,9 @@ impl CMAES {
             }),
         );
 
-        self.damping =
-            1.0 + 2.0 * Float::max(0.0, ((self.mu_eff - 1.0) / (n + 1.0)).sqrt() - 1.0)
-                + self.c_sigma;
+        self.damping = 1.0
+            + 2.0 * Float::max(0.0, ((self.mu_eff - 1.0) / (n + 1.0)).sqrt() - 1.0)
+            + self.c_sigma;
         self.chi_n = n.sqrt() * (1.0 - 1.0 / (4.0 * n) + 1.0 / (21.0 * n.powi(2)));
 
         self.cov = DMatrix::identity(dimension, dimension);
@@ -552,7 +548,9 @@ impl CMAES {
         let sym_cov = 0.5 * (&self.cov + self.cov.transpose());
         let eig = SymmetricEigen::new(sym_cov);
         self.b_mat = eig.eigenvectors;
-        self.d_vec = eig.eigenvalues.map(|value| Float::max(value, Float::EPSILON).sqrt());
+        self.d_vec = eig
+            .eigenvalues
+            .map(|value| Float::max(value, Float::EPSILON).sqrt());
         let inv_diag = DMatrix::from_diagonal(&self.d_vec.map(|value| 1.0 / value));
         self.inv_sqrt_c = &self.b_mat * inv_diag * self.b_mat.transpose();
         self.cov = &self.b_mat
@@ -607,8 +605,7 @@ impl CMAES {
 
         let mean_shift = (&self.mean - &mean_old).unscale(self.sigma);
         self.p_c = self.p_c.scale(1.0 - self.c_c)
-            + mean_shift
-                .scale(h_sigma * (self.c_c * (2.0 - self.c_c) * self.mu_eff).sqrt());
+            + mean_shift.scale(h_sigma * (self.c_c * (2.0 - self.c_c) * self.mu_eff).sqrt());
 
         let rank_one = &self.p_c * self.p_c.transpose();
         let mut rank_mu = DMatrix::zeros(self.mean.len(), self.mean.len());
@@ -623,13 +620,13 @@ impl CMAES {
             }
             rank_mu += (&candidate.y * candidate.y.transpose()).scale(weight);
         }
-        self.cov = self
-            .cov
-            .scale(1.0 - self.c1 - self.c_mu + (1.0 - h_sigma) * self.c1 * self.c_c * (2.0 - self.c_c))
-            + rank_one.scale(self.c1)
+        self.cov = self.cov.scale(
+            1.0 - self.c1 - self.c_mu + (1.0 - h_sigma) * self.c1 * self.c_c * (2.0 - self.c_c),
+        ) + rank_one.scale(self.c1)
             + rank_mu.scale(self.c_mu);
 
-        self.sigma *= Float::exp((self.c_sigma / self.damping) * (self.p_sigma.norm() / self.chi_n - 1.0));
+        self.sigma *=
+            Float::exp((self.c_sigma / self.damping) * (self.p_sigma.norm() / self.chi_n - 1.0));
         self.generation += 1;
         self.record_generation_history(population);
         self.update_eigendecomposition();
@@ -640,7 +637,8 @@ impl CMAES {
     }
 
     fn stagnation_window(&self) -> usize {
-        let min_window = 120 + (30.0 * self.mean.len() as Float / self.lambda as Float).ceil() as usize;
+        let min_window =
+            120 + (30.0 * self.mean.len() as Float / self.lambda as Float).ceil() as usize;
         let twenty_percent = ((self.generation as Float) * 0.2).ceil() as usize;
         twenty_percent.max(min_window).min(20_000)
     }
@@ -681,8 +679,20 @@ impl CMAES {
             return false;
         }
         let section = ((window as Float) * 0.3).ceil() as usize;
-        let best: Vec<Float> = self.best_history.iter().rev().take(window).copied().collect();
-        let median: Vec<Float> = self.median_history.iter().rev().take(window).copied().collect();
+        let best: Vec<Float> = self
+            .best_history
+            .iter()
+            .rev()
+            .take(window)
+            .copied()
+            .collect();
+        let median: Vec<Float> = self
+            .median_history
+            .iter()
+            .rev()
+            .take(window)
+            .copied()
+            .collect();
         let best_recent = Self::median(&best[..section]);
         let best_early = Self::median(&best[(window - section)..]);
         let median_recent = Self::median(&median[..section]);
@@ -714,10 +724,7 @@ impl CMAES {
             .diagonal()
             .iter()
             .all(|value| self.sigma * value.max(0.0).sqrt() < tol);
-        let path_small = self
-            .p_c
-            .iter()
-            .all(|value| self.sigma * value.abs() < tol);
+        let path_small = self.p_c.iter().all(|value| self.sigma * value.abs() < tol);
         coord_std_small && path_small
     }
 
@@ -769,7 +776,11 @@ where
         x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
         self.best = x0.clone();
         status.inc_n_f_evals();
-        status.initialize(self.best.to_external(&self.resolved_transform).destructure());
+        status.initialize(
+            self.best
+                .to_external(&self.resolved_transform)
+                .destructure(),
+        );
         Ok(())
     }
 
@@ -787,7 +798,11 @@ where
             self.best = population[0].point.clone();
         }
         self.update_distribution(&population);
-        status.set_position(self.best.to_external(&self.resolved_transform).destructure());
+        status.set_position(
+            self.best
+                .to_external(&self.resolved_transform)
+                .destructure(),
+        );
         status
             .set_message()
             .step_with_message(&format!("sigma = {}", self.sigma));

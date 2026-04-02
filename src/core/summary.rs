@@ -1,8 +1,8 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::mcmc::ChainStorageMode,
-    core::{MCMCDiagnostics, mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds},
+    core::{mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds, MCMCDiagnostics},
     traits::{Bound, StatusMessage},
+    DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeJsonError;
@@ -108,8 +108,8 @@ impl Display for MinimizationSummary {
         use tabled::{
             builder::Builder,
             settings::{
-                Alignment, Color, Padding, Span, Style, Theme, object::Row, style::HorizontalLine,
-                themes::BorderCorrection,
+                object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Color,
+                Padding, Span, Style, Theme,
             },
         };
         let mut builder = Builder::default();
@@ -372,7 +372,9 @@ mod tests {
 
         assert!(rendered.pretty.contains("FIT RESULTS"));
         assert!(rendered.json.contains("\"fx\":1.25"));
-        assert!(rendered.json.contains("\"parameter_names\":[\"alpha\",\"beta\"]"));
+        assert!(rendered
+            .json
+            .contains("\"parameter_names\":[\"alpha\",\"beta\"]"));
     }
 
     #[test]

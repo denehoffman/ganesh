@@ -1,14 +1,14 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
     core::{Bounds, Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
-    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, Bound, CheckpointableAlgorithm, Gradient, LineSearch, Status, SupportsBounds,
-        SupportsParameterNames, SupportsTransform, Terminator, Transform, TransformedProblem,
-        linesearch::LineSearchOutput,
+        linesearch::LineSearchOutput, Algorithm, Bound, CheckpointableAlgorithm, Gradient,
+        LineSearch, Status, SupportsBounds, SupportsParameterNames, SupportsTransform, Terminator,
+        Transform, TransformedProblem,
     },
+    DMatrix, DVector, Float,
 };
 use nalgebra::{Dyn, LU};
 use serde::{Deserialize, Serialize};
@@ -683,10 +683,10 @@ where
             LBFGSBErrorMode::ExactHessian => {
                 let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
                     resolve_bounds_and_transform(
-                    &config.bounds,
-                    &config.transform,
-                    config.bounds_handling,
-                );
+                        &config.bounds,
+                        &config.transform,
+                        config.bounds_handling,
+                    );
                 let t_problem = TransformedProblem::new(problem, &transform);
                 let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
                 status.inc_n_g_evals();
@@ -817,7 +817,10 @@ mod tests {
 
     impl<Sig> TriggerAbortAtStep<Sig> {
         fn new(target_step: usize, signal: Sig) -> Self {
-            Self { target_step, signal }
+            Self {
+                target_step,
+                signal,
+            }
         }
     }
 

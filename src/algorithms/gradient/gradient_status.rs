@@ -1,6 +1,6 @@
 use crate::{
-    DMatrix, DVector, Float,
     traits::{Status, StatusMessage},
+    DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 

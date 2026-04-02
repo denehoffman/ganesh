@@ -1,4 +1,7 @@
-use crate::{DMatrix, DVector, Float, error::{GaneshError, GaneshResult}};
+use crate::{
+    error::{GaneshError, GaneshResult},
+    DMatrix, DVector, Float,
+};
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use nalgebra::Cholesky;
@@ -68,7 +71,11 @@ pub trait SampleFloat {
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
     /// Get a random value from a multivariate Normal distribution, returning an error if the
     /// covariance matrix is not positive definite.
-    fn try_mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> GaneshResult<DVector<Float>> {
+    fn try_mv_normal(
+        &mut self,
+        mu: &DVector<Float>,
+        cov: &DMatrix<Float>,
+    ) -> GaneshResult<DVector<Float>> {
         let cholesky = Cholesky::new(cov.clone()).ok_or_else(|| {
             GaneshError::NumericalError("Covariance matrix is not positive definite".to_string())
         })?;

@@ -1,9 +1,9 @@
 use ganesh::{
-    DVector, Float,
-    algorithms::mcmc::{AIES, AIESConfig, ChainStorageMode, ESS, ESSConfig, ESSMove},
+    algorithms::mcmc::{AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS},
     core::MaxSteps,
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
+    DVector, Float,
 };
 use std::{env, process};
 
@@ -18,11 +18,7 @@ fn parse_usize_arg(args: &[String], index: usize, default: usize, name: &str) ->
         .unwrap_or(default)
 }
 
-fn parse_optional_usize_arg(
-    args: &[String],
-    index: usize,
-    name: &str,
-) -> Option<usize> {
+fn parse_optional_usize_arg(args: &[String], index: usize, name: &str) -> Option<usize> {
     args.get(index).map(|value| {
         value.parse::<usize>().unwrap_or_else(|_| {
             eprintln!("invalid {}: {}", name, value);
@@ -89,11 +85,7 @@ fn main() {
                 .unwrap();
             println!(
                 "sampler=aies walkers={} steps={} dim={} evals={} chain_storage={:?}",
-                n_walkers,
-                n_steps,
-                n_dim,
-                summary.cost_evals,
-                summary.chain_storage
+                n_walkers, n_steps, n_dim, summary.cost_evals, summary.chain_storage
             );
         }
         "ess" => {
@@ -114,11 +106,7 @@ fn main() {
                 .unwrap();
             println!(
                 "sampler=ess walkers={} steps={} dim={} evals={} chain_storage={:?}",
-                n_walkers,
-                n_steps,
-                n_dim,
-                summary.cost_evals,
-                summary.chain_storage
+                n_walkers, n_steps, n_dim, summary.cost_evals, summary.chain_storage
             );
         }
         other => {

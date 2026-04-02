@@ -1,18 +1,17 @@
 use crate::{
-    DVector, Float,
     algorithms::mcmc::{
-        ChainStorageMode, EnsembleStatus, Walker, validate_walker_inputs,
-        validate_weighted_moves,
+        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
     },
     core::{
-        MCMCSummary, Point,
         utils::{RandChoice, SampleFloat},
+        MCMCSummary, Point,
     },
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, LogDensity, Status, SupportsParameterNames, SupportsTransform, Transform,
-        status::StatusType,
+        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
+        SupportsTransform, Transform,
     },
+    DVector, Float,
 };
 use fastrand::Rng;
 
@@ -94,9 +93,8 @@ impl AIESMove {
                     //
                     // F⁻¹(u) = ((a-1) u + 1)² / a
                     let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
-                    let x_l = ensemble
-                        .walkers[ensemble.get_compliment_walker_index(i, rng)]
-                        .get_latest();
+                    let x_l =
+                        ensemble.walkers[ensemble.get_compliment_walker_index(i, rng)].get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
                     let mut proposal = Point::from(
                         transform.to_internal(&x_l.x).as_ref()
@@ -111,8 +109,8 @@ impl AIESMove {
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
                     let n = x_l.x.len();
-                    let r = z.ln().mul_add((n - 1) as Float, proposal.fx_checked())
-                        - x_k.fx_checked();
+                    let r =
+                        z.ln().mul_add((n - 1) as Float, proposal.fx_checked()) - x_k.fx_checked();
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -196,7 +194,11 @@ impl AIESConfig {
     /// Set the moves for the [`AIES`] algorithm to use.
     pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> GaneshResult<Self> {
         validate_weighted_moves(
-            &moves.as_ref().iter().map(|move_weight| move_weight.1).collect::<Vec<_>>(),
+            &moves
+                .as_ref()
+                .iter()
+                .map(|move_weight| move_weight.1)
+                .collect::<Vec<_>>(),
             "AIES",
         )?;
         self.moves = moves.as_ref().to_vec();
@@ -353,10 +355,10 @@ mod tests {
         };
         assert!(err.to_string().contains("finite and non-negative"));
 
-        let err = match AIESConfig::new(walkers).unwrap().with_moves([
-            AIESMove::stretch(0.0),
-            AIESMove::walk(0.0),
-        ]) {
+        let err = match AIESConfig::new(walkers)
+            .unwrap()
+            .with_moves([AIESMove::stretch(0.0), AIESMove::walk(0.0)])
+        {
             Err(err) => err,
             Ok(_) => panic!("zero-sum AIES move weights should be rejected"),
         };
@@ -479,7 +481,10 @@ mod tests {
         assert!(result.cost_evals >= 4);
         assert_eq!(result.gradient_evals, 0);
         assert!(result.message.success());
-        assert!(result.message.text.contains("Maximum number of steps reached"));
+        assert!(result
+            .message
+            .text
+            .contains("Maximum number of steps reached"));
     }
 
     #[test]
@@ -518,7 +523,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result.chain_storage, ChainStorageMode::Rolling { window: 2 });
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Rolling { window: 2 }
+        );
         assert!(result.chain.iter().all(|walker| walker.len() <= 2));
         assert_eq!(result.dimension.1, 2);
     }

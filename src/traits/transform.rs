@@ -5,8 +5,8 @@ use nalgebra::{DMatrix, DVector, LU};
 
 use crate::{
     error::{GaneshError, GaneshResult},
-    Float,
     traits::{CostFunction, Gradient},
+    Float,
 };
 
 /// A trait used to define a change of basis.
@@ -47,9 +47,9 @@ pub trait Transform: DynClone + Send + Sync {
     fn try_to_internal_jacobian(&self, x: &DVector<Float>) -> GaneshResult<DMatrix<Float>> {
         let z = self.to_internal(x);
         let j = self.to_external_jacobian(&z);
-        LU::new(j)
-            .try_inverse()
-            .ok_or_else(|| GaneshError::NumericalError("Transform Jacobian is not invertible".to_string()))
+        LU::new(j).try_inverse().ok_or_else(|| {
+            GaneshError::NumericalError("Transform Jacobian is not invertible".to_string())
+        })
     }
 
     /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.

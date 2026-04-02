@@ -1,8 +1,8 @@
 use crate::{
-    DVector, Float,
     core::Point,
     error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Terminator},
+    DVector, Float,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -10,16 +10,16 @@ use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
-pub use aies::{AIES, AIESConfig, AIESMove};
+pub use aies::{AIESConfig, AIESMove, AIES};
 
 /// Ensemble Slice Sampler
 pub mod ess;
-pub use ess::{ESS, ESSConfig, ESSMove};
+pub use ess::{ESSConfig, ESSMove, ESS};
 
 /// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
-pub use ensemble_status::EnsembleStatus;
 pub use crate::core::mcmc_diagnostics::integrated_autocorrelation_times;
+pub use ensemble_status::EnsembleStatus;
 
 /// Controls how much MCMC chain history is retained in memory.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -57,7 +57,10 @@ pub(crate) fn validate_weighted_moves(weights: &[Float], family: &str) -> Ganesh
             "{family} move weights must not be empty"
         )));
     }
-    if weights.iter().any(|&weight| !weight.is_finite() || weight < 0.0) {
+    if weights
+        .iter()
+        .any(|&weight| !weight.is_finite() || weight < 0.0)
+    {
         return Err(GaneshError::ConfigError(format!(
             "{family} move weights must be finite and non-negative"
         )));
@@ -399,9 +402,9 @@ where
 mod tests {
     use super::*;
     use crate::{
-        DVector,
-        core::{Callbacks, utils::SampleFloat},
+        core::{utils::SampleFloat, Callbacks},
         test_functions::Rosenbrock,
+        DVector,
     };
     use fastrand::Rng;
 

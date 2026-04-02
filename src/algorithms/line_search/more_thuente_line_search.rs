@@ -1,8 +1,8 @@
 use crate::{
-    DVector, Float,
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
+    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
+    DVector, Float,
 };
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical

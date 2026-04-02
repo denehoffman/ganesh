@@ -262,8 +262,8 @@ pub trait LogDensity<U = (), E = Infallible> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        DVector, Float,
         traits::{CostFunction, Gradient},
+        DVector, Float,
     };
     use approx::assert_relative_eq;
     use std::convert::Infallible;

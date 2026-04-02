@@ -132,7 +132,9 @@ pub(crate) fn split_r_hat(chains: &[Vec<DVector<Float>>]) -> DVector<Float> {
         (0..n_params).map(|param| {
             let means: Vec<Float> = split
                 .iter()
-                .map(|chain| chain.iter().map(|sample| sample[param]).sum::<Float>() / n_samples as Float)
+                .map(|chain| {
+                    chain.iter().map(|sample| sample[param]).sum::<Float>() / n_samples as Float
+                })
                 .collect();
             let variances: Vec<Float> = split
                 .iter()
@@ -150,8 +152,8 @@ pub(crate) fn split_r_hat(chains: &[Vec<DVector<Float>>]) -> DVector<Float> {
             if w <= Float::EPSILON {
                 1.0
             } else {
-                let var_hat = ((n_samples - 1) as Float / n_samples as Float) * w
-                    + b / n_samples as Float;
+                let var_hat =
+                    ((n_samples - 1) as Float / n_samples as Float) * w + b / n_samples as Float;
                 (var_hat / w).sqrt().max(1.0)
             }
         }),
@@ -179,10 +181,7 @@ pub(crate) fn acceptance_rates(chains: &[Vec<DVector<Float>>]) -> DVector<Float>
             if chain.len() <= 1 {
                 return 0.0;
             }
-            let accepted = chain
-                .windows(2)
-                .filter(|pair| pair[0] != pair[1])
-                .count();
+            let accepted = chain.windows(2).filter(|pair| pair[0] != pair[1]).count();
             accepted as Float / (chain.len() - 1) as Float
         }),
     )

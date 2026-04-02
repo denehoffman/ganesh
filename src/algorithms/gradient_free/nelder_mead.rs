@@ -1,13 +1,13 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
-    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CheckpointableAlgorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
-        SupportsTransform, Terminator, Transform,
+        Algorithm, CheckpointableAlgorithm, CostFunction, Status, SupportsBounds,
+        SupportsParameterNames, SupportsTransform, Terminator, Transform,
     },
+    DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, ops::ControlFlow};
@@ -119,8 +119,7 @@ impl SimplexConstructionMethod {
         };
         if first.len() < 2 {
             return Err(GaneshError::ConfigError(
-                "Nelder-Mead is only a suitable method for problems of dimension >= 2"
-                    .to_string(),
+                "Nelder-Mead is only a suitable method for problems of dimension >= 2".to_string(),
             ));
         }
         if simplex.iter().any(|point| point.len() != first.len()) {
@@ -1059,11 +1058,7 @@ where
 {
     type Checkpoint = NelderMeadCheckpoint;
 
-    fn checkpoint(
-        &self,
-        status: &GradientFreeStatus,
-        next_step: usize,
-    ) -> Self::Checkpoint {
+    fn checkpoint(&self, status: &GradientFreeStatus, next_step: usize) -> Self::Checkpoint {
         NelderMeadCheckpoint {
             simplex: self.simplex.clone(),
             status: status.clone(),
@@ -1105,7 +1100,10 @@ mod tests {
 
     impl<Sig> TriggerAbortAtStep<Sig> {
         fn new(target_step: usize, signal: Sig) -> Self {
-            Self { target_step, signal }
+            Self {
+                target_step,
+                signal,
+            }
         }
     }
 
@@ -1200,9 +1198,21 @@ mod tests {
             )
             .unwrap();
 
-        assert_relative_eq!(resumed.fx, uninterrupted.fx, epsilon = Float::EPSILON.powf(0.2));
-        assert_relative_eq!(resumed.x[0], uninterrupted.x[0], epsilon = Float::EPSILON.powf(0.2));
-        assert_relative_eq!(resumed.x[1], uninterrupted.x[1], epsilon = Float::EPSILON.powf(0.2));
+        assert_relative_eq!(
+            resumed.fx,
+            uninterrupted.fx,
+            epsilon = Float::EPSILON.powf(0.2)
+        );
+        assert_relative_eq!(
+            resumed.x[0],
+            uninterrupted.x[0],
+            epsilon = Float::EPSILON.powf(0.2)
+        );
+        assert_relative_eq!(
+            resumed.x[1],
+            uninterrupted.x[1],
+            epsilon = Float::EPSILON.powf(0.2)
+        );
         assert_eq!(resumed.cost_evals, uninterrupted.cost_evals);
     }
 
@@ -1731,7 +1741,10 @@ mod tests {
 
         assert!(result.cost_evals >= 3);
         assert_eq!(result.gradient_evals, 0);
-        assert!(result.message.to_string().contains("Maximum number of steps reached"));
+        assert!(result
+            .message
+            .to_string()
+            .contains("Maximum number of steps reached"));
     }
 
     #[test]

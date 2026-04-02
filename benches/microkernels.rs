@@ -1,10 +1,10 @@
-use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
-    DVector,
     algorithms::line_search::HagerZhangLineSearch,
     core::transforms::Bounds,
     test_functions::Rosenbrock,
     traits::{LineSearch, Transform},
+    DVector,
 };
 
 fn bench_hager_zhang_origin(c: &mut Criterion) {
@@ -57,9 +57,5 @@ fn bench_bounds_jacobians(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_hager_zhang_origin,
-    bench_bounds_jacobians
-);
+criterion_group!(benches, bench_hager_zhang_origin, bench_bounds_jacobians);
 criterion_main!(benches);

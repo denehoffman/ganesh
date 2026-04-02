@@ -295,7 +295,7 @@ where
     B: Into<traits::Bound>,
     P: traits::Gradient<U, E>,
 {
-    use algorithms::gradient::{LBFGSB, LBFGSBConfig};
+    use algorithms::gradient::{LBFGSBConfig, LBFGSB};
     use traits::{Algorithm, SupportsBounds};
 
     let mut solver = LBFGSB::default();
@@ -350,7 +350,7 @@ where
     P: traits::LogDensity<U, E>,
     E: From<error::GaneshError>,
 {
-    use algorithms::mcmc::{AIES, AIESConfig};
+    use algorithms::mcmc::{AIESConfig, AIES};
     use core::MaxSteps;
     use traits::Algorithm;
 

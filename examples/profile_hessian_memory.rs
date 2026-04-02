@@ -1,8 +1,4 @@
-use ganesh::{
-    DVector, Float,
-    test_functions::rosenbrock::Rosenbrock,
-    traits::Gradient,
-};
+use ganesh::{test_functions::rosenbrock::Rosenbrock, traits::Gradient, DVector, Float};
 use std::{env, process};
 
 fn parse_usize_arg(args: &[String], index: usize, default: usize, name: &str) -> usize {

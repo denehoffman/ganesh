@@ -1,11 +1,11 @@
 use crate::{
-    Float,
-    core::{Callbacks, Point, SimulatedAnnealingSummary, utils::SampleFloat},
+    core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
     error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, GenericCostFunction, Status, StatusMessage, SupportsTransform, Terminator,
         Transform,
     },
+    Float,
 };
 use serde::{Deserialize, Serialize};
 use std::ops::ControlFlow;
@@ -257,10 +257,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        DVector,
         core::{Bounds, Callbacks, MaxSteps},
         test_functions::Rosenbrock,
         traits::cost_function::GenericGradient,
+        DVector,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
@@ -392,7 +392,9 @@ mod tests {
         let config = SimulatedAnnealingConfig::new(0.01, 0.9).unwrap();
         let mut status = SimulatedAnnealingStatus::default();
 
-        solver.initialize(&problem, &mut status, &(), &config).unwrap();
+        solver
+            .initialize(&problem, &mut status, &(), &config)
+            .unwrap();
         status.best = Point {
             x: DVector::from_row_slice(&[0.0]),
             fx: Some(0.0),
@@ -417,7 +419,9 @@ mod tests {
         let config = SimulatedAnnealingConfig::new(1e-6, 0.9).unwrap();
         let mut status = SimulatedAnnealingStatus::default();
 
-        solver.initialize(&problem, &mut status, &(), &config).unwrap();
+        solver
+            .initialize(&problem, &mut status, &(), &config)
+            .unwrap();
         let current_before = status.current.clone();
         let best_before = status.best.clone();
 
@@ -443,6 +447,9 @@ mod tests {
             .unwrap();
 
         assert!(result.cost_evals > 0);
-        assert!(result.message.to_string().contains("Maximum number of steps reached"));
+        assert!(result
+            .message
+            .to_string()
+            .contains("Maximum number of steps reached"));
     }
 }

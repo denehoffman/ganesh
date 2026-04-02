@@ -1,13 +1,13 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::gradient_free::GradientFreeStatus,
     core::{Bounds, Callbacks, MaxSteps, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
-    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
         Algorithm, CostFunction, SupportsBounds, SupportsParameterNames, SupportsTransform,
         Transform,
     },
+    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 
@@ -75,9 +75,7 @@ impl DifferentialEvolutionConfig {
         mut self,
         crossover_probability: Float,
     ) -> GaneshResult<Self> {
-        if !crossover_probability.is_finite()
-            || !(0.0..=1.0).contains(&crossover_probability)
-        {
+        if !crossover_probability.is_finite() || !(0.0..=1.0).contains(&crossover_probability) {
             return Err(GaneshError::ConfigError(
                 "Crossover probability must be finite and between 0 and 1".to_string(),
             ));
@@ -211,7 +209,9 @@ where
         for _ in 1..pop_size {
             let candidate_external =
                 &config.x0 + self.sample_offset(config.x0.len(), config.initial_scale);
-            let candidate_x = self.resolved_transform.to_owned_internal(&candidate_external);
+            let candidate_x = self
+                .resolved_transform
+                .to_owned_internal(&candidate_external);
             let mut candidate = Point::from(candidate_x);
             candidate.evaluate_transformed(problem, &self.resolved_transform, args)?;
             if candidate < self.best {
@@ -221,7 +221,11 @@ where
         }
 
         status.n_f_evals += self.population.len();
-        status.initialize(self.best.to_external(&self.resolved_transform).destructure());
+        status.initialize(
+            self.best
+                .to_external(&self.resolved_transform)
+                .destructure(),
+        );
         Ok(())
     }
 
@@ -264,7 +268,11 @@ where
             }
         }
 
-        status.set_position(self.best.to_external(&self.resolved_transform).destructure());
+        status.set_position(
+            self.best
+                .to_external(&self.resolved_transform)
+                .destructure(),
+        );
         Ok(())
     }
 

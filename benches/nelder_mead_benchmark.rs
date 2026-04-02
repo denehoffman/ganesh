@@ -1,8 +1,8 @@
-use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::gradient_free::{
-        NelderMead,
         nelder_mead::{NelderMeadConfig, SimplexConstructionMethod},
+        NelderMead,
     },
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,

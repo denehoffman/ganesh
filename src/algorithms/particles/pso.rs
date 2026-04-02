@@ -1,13 +1,13 @@
 use crate::{
-    DMatrix, DVector, Float,
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
-    core::{Bounds, MinimizationSummary, utils::generate_random_vector},
+    core::{utils::generate_random_vector, Bounds, MinimizationSummary},
     error::{GaneshError, GaneshResult},
-    traits::algorithm::{BoundsHandlingMode, resolve_bounds_and_transform},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames,
-        SupportsTransform, Transform,
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
+        Transform,
     },
+    DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use std::cmp::Ordering;
@@ -306,7 +306,7 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
-        core::{Callbacks, MaxSteps, Point, utils::generate_random_vector},
+        core::{utils::generate_random_vector, Callbacks, MaxSteps, Point},
         test_functions::Rastrigin,
     };
     use approx::assert_relative_eq;
@@ -428,6 +428,9 @@ mod tests {
 
         assert!(result.cost_evals >= 8);
         assert_eq!(result.gradient_evals, 0);
-        assert!(result.message.to_string().contains("Maximum number of steps reached"));
+        assert!(result
+            .message
+            .to_string()
+            .contains("Maximum number of steps reached"));
     }
 }

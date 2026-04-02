@@ -127,8 +127,7 @@ impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
 where
     S: Status,
     A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: FnMut(usize, &MultiStartState) -> (A, A::Config, Callbacks<A, P, S, U, E, A::Config>)
-        + Send,
+    F: FnMut(usize, &MultiStartState) -> (A, A::Config, Callbacks<A, P, S, U, E, A::Config>) + Send,
 {
     fn create(
         &mut self,
@@ -180,10 +179,9 @@ where
 mod tests {
     use super::*;
     use crate::{
-        Float,
-        DMatrix, DVector,
         core::{Callbacks, MaxSteps},
         traits::{Status, StatusMessage},
+        DMatrix, DVector, Float,
     };
 
     #[derive(Clone, Default, Serialize, Deserialize)]
@@ -282,14 +280,13 @@ mod tests {
         };
         let mut policy = FixedRestarts::new(3);
 
-        let summary =
-            minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-                &(),
-                &(),
-                &mut factory,
-                &mut policy,
-            )
-            .unwrap();
+        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
+            &(),
+            &(),
+            &mut factory,
+            &mut policy,
+        )
+        .unwrap();
 
         assert_eq!(summary.completed_runs(), 3);
         assert_eq!(summary.restart_count, 2);
@@ -311,14 +308,13 @@ mod tests {
         };
         let mut policy = |_: usize, state: &MultiStartState| state.completed_runs() < 2;
 
-        let summary =
-            minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-                &(),
-                &(),
-                &mut factory,
-                &mut policy,
-            )
-            .unwrap();
+        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
+            &(),
+            &(),
+            &mut factory,
+            &mut policy,
+        )
+        .unwrap();
 
         assert_eq!(summary.completed_runs(), 2);
         assert_eq!(summary.restart_count, 1);
@@ -344,14 +340,13 @@ mod tests {
         };
         let mut policy = FixedRestarts::new(0);
 
-        let summary =
-            minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-                &(),
-                &(),
-                &mut factory,
-                &mut policy,
-            )
-            .unwrap();
+        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
+            &(),
+            &(),
+            &mut factory,
+            &mut policy,
+        )
+        .unwrap();
 
         assert_eq!(summary.completed_runs(), 0);
         assert_eq!(summary.restart_count, 0);
