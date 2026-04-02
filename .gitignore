@@ -4,3 +4,5 @@ src/main.rs
 
 *.pkl
 /*.gif
+__pycache__/
+*.pyc
