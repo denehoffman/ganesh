@@ -8,7 +8,10 @@ use pyo3::{
 
 use crate::{
     algorithms::mcmc::ChainStorageMode,
-    core::{MCMCDiagnostics, MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary},
+    core::{
+        MCMCDiagnostics, MCMCSummary, MinimizationSummary, MultiStartSummary,
+        SimulatedAnnealingSummary,
+    },
     python::numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
 };
 
@@ -28,6 +31,7 @@ pub trait IntoPySummary {
 pub fn register_summary_types(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyMinimizationSummary>()?;
     module.add_class::<PyMCMCSummary>()?;
+    module.add_class::<PyMultiStartSummary>()?;
     module.add_class::<PySimulatedAnnealingSummary>()?;
     Ok(())
 }
@@ -447,6 +451,99 @@ impl From<MCMCSummary> for PyMCMCSummary {
     }
 }
 
+/// Python-facing typed wrapper for [`MultiStartSummary`].
+///
+/// Notes
+/// -----
+/// Each completed run is exposed as a [`MinimizationSummary`] wrapper.
+#[pyclass(skip_from_py_object, module = "ganesh", name = "MultiStartSummary")]
+#[derive(Clone)]
+pub struct PyMultiStartSummary {
+    summary: MultiStartSummary,
+}
+
+#[pymethods]
+impl PyMultiStartSummary {
+    /// Completed run summaries.
+    ///
+    /// Returns
+    /// -------
+    /// list[MinimizationSummary]
+    #[getter]
+    pub fn runs<'py>(&self, py: Python<'py>) -> PyResult<Vec<Py<PyMinimizationSummary>>> {
+        self.summary
+            .runs
+            .iter()
+            .cloned()
+            .map(PyMinimizationSummary::from)
+            .map(|summary| Py::new(py, summary))
+            .collect()
+    }
+
+    /// Index of the best completed run.
+    ///
+    /// Returns
+    /// -------
+    /// int | None
+    #[getter]
+    pub const fn best_run_index(&self) -> Option<usize> {
+        self.summary.best_run_index
+    }
+
+    /// Best completed run summary.
+    ///
+    /// Returns
+    /// -------
+    /// MinimizationSummary | None
+    #[getter]
+    pub fn best_run<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<Py<PyMinimizationSummary>>> {
+        self.summary
+            .best()
+            .cloned()
+            .map(PyMinimizationSummary::from)
+            .map(|summary| Py::new(py, summary))
+            .transpose()
+    }
+
+    /// Number of completed restarts, excluding the first run.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub const fn restart_count(&self) -> usize {
+        self.summary.restart_count
+    }
+
+    /// Number of completed runs.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub fn completed_runs(&self) -> usize {
+        self.summary.completed_runs()
+    }
+
+    /// Export the wrapped summary as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.summary.to_py_dict(py)
+    }
+}
+
+impl From<MultiStartSummary> for PyMultiStartSummary {
+    fn from(summary: MultiStartSummary) -> Self {
+        Self { summary }
+    }
+}
+
 /// Python-facing typed wrapper for [`SimulatedAnnealingSummary<crate::DVector<crate::Float>>`].
 ///
 /// Notes
@@ -614,6 +711,32 @@ impl IntoPySummary for MCMCSummary {
     }
 }
 
+impl IntoPySummary for MultiStartSummary {
+    fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        let runs = self
+            .runs
+            .iter()
+            .map(|run| run.to_py_dict(py).map(|bound| bound.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let best_run = self
+            .best()
+            .map(|run| run.to_py_dict(py).map(|bound| bound.unbind()))
+            .transpose()?;
+        dict.set_item("runs", runs)?;
+        dict.set_item("best_run_index", self.best_run_index)?;
+        dict.set_item("best_run", best_run)?;
+        dict.set_item("restart_count", self.restart_count)?;
+        dict.set_item("completed_runs", self.completed_runs())?;
+        Ok(dict)
+    }
+
+    fn to_py_class<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let wrapper = Py::new(py, PyMultiStartSummary::from(self.clone()))?;
+        Ok(wrapper.into_bound(py).into_any())
+    }
+}
+
 impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
     fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
@@ -651,6 +774,18 @@ impl<'py> IntoPyObject<'py> for MCMCSummary {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         Ok(Py::new(py, PyMCMCSummary::from(self))?
+            .into_bound(py)
+            .into_any())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for MultiStartSummary {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(Py::new(py, PyMultiStartSummary::from(self))?
             .into_bound(py)
             .into_any())
     }

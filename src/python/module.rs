@@ -9,7 +9,10 @@ use pyo3::{
 use super::{errors::register_exceptions, summary::register_summary_types};
 use crate::{
     algorithms::mcmc::ChainStorageMode,
-    core::{transforms::Bounds, MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary},
+    core::{
+        transforms::Bounds, MCMCSummary, MinimizationSummary, MultiStartSummary,
+        SimulatedAnnealingSummary,
+    },
     traits::StatusMessage,
     DMatrix, DVector,
 };
@@ -66,6 +69,34 @@ fn _testing_sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DV
     }
 }
 
+#[pyfunction]
+fn _testing_sample_multistart_summary() -> MultiStartSummary {
+    let best = MinimizationSummary {
+        bounds: Some(Bounds::new_default([
+            (Some(-1.0), Some(1.0)),
+            (None, Some(2.0)),
+        ])),
+        parameter_names: Some(vec!["alpha".into(), "beta".into()]),
+        message: StatusMessage::default().set_success_with_message("best"),
+        x0: DVector::from_vec(vec![1.0, 2.0]),
+        x: DVector::from_vec(vec![0.5, 1.5]),
+        std: DVector::from_vec(vec![0.1, 0.2]),
+        fx: 1.25,
+        cost_evals: 10,
+        gradient_evals: 4,
+        covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
+    };
+    let other = MinimizationSummary {
+        fx: 2.0,
+        ..best.clone()
+    };
+    MultiStartSummary {
+        runs: vec![other, best],
+        best_run_index: Some(1),
+        restart_count: 1,
+    }
+}
+
 #[pymodule]
 pub fn _ganesh(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_exceptions(module)?;
@@ -77,6 +108,10 @@ pub fn _ganesh(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(_testing_sample_mcmc_summary, module)?)?;
     module.add_function(wrap_pyfunction!(
         _testing_sample_simulated_annealing_summary,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        _testing_sample_multistart_summary,
         module
     )?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;

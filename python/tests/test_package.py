@@ -79,6 +79,7 @@ def test_package_exports_expected_symbols() -> None:
         'SimulatedAnnealingOptions',
         'MinimizationSummary',
         'MCMCSummary',
+        'MultiStartSummary',
         'SimulatedAnnealingSummary',
         '__version__',
     }
@@ -148,6 +149,7 @@ def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
     assert ganesh.SimulatedAnnealingOptions is ganesh_run_options.SimulatedAnnealingOptions
     assert ganesh.MinimizationSummary is native.MinimizationSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.MCMCSummary is native.MCMCSummary  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.MultiStartSummary is native.MultiStartSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.SimulatedAnnealingSummary is native.SimulatedAnnealingSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.__version__ == native.__version__  # ty:ignore[possibly-missing-attribute]
 
@@ -226,3 +228,24 @@ def test_simulated_annealing_summary_wrapper_uses_numpy_arrays() -> None:
     exported = summary.to_dict()
     assert isinstance(exported['x0'], np.ndarray)
     assert isinstance(exported['x'], np.ndarray)
+
+
+def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
+    summary = native._testing_sample_multistart_summary()
+
+    assert summary.best_run_index == 1
+    assert summary.restart_count == 1
+    assert summary.completed_runs == 2
+
+    runs = summary.runs
+    assert len(runs) == 2
+    assert isinstance(runs[0], ganesh.MinimizationSummary)
+    assert isinstance(summary.best_run, ganesh.MinimizationSummary)
+    assert summary.best_run.fx == 1.25
+
+    exported = summary.to_dict()
+    assert exported['best_run_index'] == 1
+    assert exported['restart_count'] == 1
+    assert exported['completed_runs'] == 2
+    assert len(exported['runs']) == 2
+    assert exported['best_run']['fx'] == 1.25

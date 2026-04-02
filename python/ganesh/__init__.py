@@ -136,6 +136,7 @@ try:
     from ._ganesh import (  # ty:ignore[unresolved-import]
         MCMCSummary,
         MinimizationSummary,
+        MultiStartSummary,
         SimulatedAnnealingSummary,
         __version__,
     )
@@ -145,6 +146,7 @@ else:
     __all__ += [
         'MCMCSummary',
         'MinimizationSummary',
+        'MultiStartSummary',
         'SimulatedAnnealingSummary',
         '__version__',
     ]
