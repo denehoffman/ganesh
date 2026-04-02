@@ -1,6 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
+    error::{GaneshError, GaneshResult},
     traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
     DVector, Float,
 };
@@ -45,38 +46,40 @@ impl MoreThuenteLineSearch {
     }
     /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4).
     ///
-    /// # Panics
-    ///
-    /// This method will panic if the condition $`0 < c_1 < c_2`$ is not met.
-    pub fn with_c1(mut self, c1: Float) -> Self {
-        assert!(0.0 < c1);
-        assert!(c1 < self.c2);
+    /// Returns a config error if the condition $`0 < c_1 < c_2`$ is not met.
+    pub fn with_c1(mut self, c1: Float) -> GaneshResult<Self> {
+        if !(0.0 < c1 && c1 < self.c2) {
+            return Err(GaneshError::ConfigError(
+                "MoreThuenteLineSearch requires 0 < c1 < c2".to_string(),
+            ));
+        }
         self.c1 = c1;
-        self
+        Ok(self)
     }
     /// Set the second control parameter, used in the second Wolfe condition (defaults to 0.9).
     ///
-    /// # Panics
-    ///
-    /// This method will panic if the condition $`c_1 < c_2 < 1`$ is not met.
-    pub fn with_c2(mut self, c2: Float) -> Self {
-        assert!(1.0 > c2);
-        assert!(c2 > self.c1);
+    /// Returns a config error if the condition $`c_1 < c_2 < 1`$ is not met.
+    pub fn with_c2(mut self, c2: Float) -> GaneshResult<Self> {
+        if !(self.c1 < c2 && c2 < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "MoreThuenteLineSearch requires c1 < c2 < 1".to_string(),
+            ));
+        }
         self.c2 = c2;
-        self
+        Ok(self)
     }
     /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4) and the second control parameter, used in the second Wolfe condition (defaults to 0.9) simultaneously.
     ///
-    /// # Panics
-    ///
-    /// This method will panic if the condition $`0 < c_1 < c_2 < 1`$ is not met.
-    pub fn with_c1_c2(mut self, c1: Float, c2: Float) -> Self {
-        assert!(0.0 < c1);
-        assert!(1.0 > c2);
-        assert!(c1 < c2);
+    /// Returns a config error if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    pub fn with_c1_c2(mut self, c1: Float, c2: Float) -> GaneshResult<Self> {
+        if !(0.0 < c1 && c1 < c2 && c2 < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "MoreThuenteLineSearch requires 0 < c1 < c2 < 1".to_string(),
+            ));
+        }
         self.c1 = c1;
         self.c2 = c2;
-        self
+        Ok(self)
     }
 }
 
@@ -233,65 +236,68 @@ mod tests {
 
     #[test]
     fn with_c1_sets_value() {
-        let ls = MoreThuenteLineSearch::default().with_c1(1e-3);
+        let ls = MoreThuenteLineSearch::default().with_c1(1e-3).unwrap();
         assert_eq!(ls.c1, 1e-3);
         assert!(ls.c1 > 0.0 && ls.c1 < ls.c2);
     }
 
     #[test]
     fn with_c2_sets_value() {
-        let ls = MoreThuenteLineSearch::default().with_c2(0.8);
+        let ls = MoreThuenteLineSearch::default().with_c2(0.8).unwrap();
         assert_eq!(ls.c2, 0.8);
         assert!(ls.c2 < 1.0 && ls.c2 > ls.c1);
     }
 
     #[test]
     fn with_c1_c2_sets_both() {
-        let ls = MoreThuenteLineSearch::default().with_c1_c2(1e-5, 0.7);
+        let ls = MoreThuenteLineSearch::default()
+            .with_c1_c2(1e-5, 0.7)
+            .unwrap();
         assert_eq!(ls.c1, 1e-5);
         assert_eq!(ls.c2, 0.7);
         assert!(ls.c1 > 0.0 && ls.c2 < 1.0 && ls.c1 < ls.c2);
     }
 
     #[test]
-    #[should_panic]
-    fn with_c1_panics_when_nonpositive() {
-        let _ = MoreThuenteLineSearch::default().with_c1(0.0);
+    fn with_c1_errors_when_nonpositive() {
+        assert!(MoreThuenteLineSearch::default().with_c1(0.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c1_panics_when_not_less_than_c2() {
-        let _ = MoreThuenteLineSearch::default().with_c2(0.2).with_c1(0.3);
+    fn with_c1_errors_when_not_less_than_c2() {
+        let ls = MoreThuenteLineSearch::default().with_c2(0.2).unwrap();
+        assert!(ls.with_c1(0.3).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c2_panics_when_not_less_than_one() {
-        let _ = MoreThuenteLineSearch::default().with_c2(1.0);
+    fn with_c2_errors_when_not_less_than_one() {
+        assert!(MoreThuenteLineSearch::default().with_c2(1.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c2_panics_when_not_greater_than_c1() {
-        let _ = MoreThuenteLineSearch::default().with_c1(1e-4).with_c2(1e-5);
+    fn with_c2_errors_when_not_greater_than_c1() {
+        let ls = MoreThuenteLineSearch::default().with_c1(1e-4).unwrap();
+        assert!(ls.with_c2(1e-5).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c1_c2_panics_when_bad_ordering() {
-        let _ = MoreThuenteLineSearch::default().with_c1_c2(0.9, 0.1);
+    fn with_c1_c2_errors_when_bad_ordering() {
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(0.9, 0.1)
+            .is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c1_c2_panics_when_c2_not_less_than_one() {
-        let _ = MoreThuenteLineSearch::default().with_c1_c2(1e-4, 1.0);
+    fn with_c1_c2_errors_when_c2_not_less_than_one() {
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(1e-4, 1.0)
+            .is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c1_c2_panics_when_c1_not_positive() {
-        let _ = MoreThuenteLineSearch::default().with_c1_c2(0.0, 0.5);
+    fn with_c1_c2_errors_when_c1_not_positive() {
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(0.0, 0.5)
+            .is_err());
     }
 }

@@ -22,7 +22,10 @@ create_exception!(ganesh, GaneshNumericalError, GaneshPyError);
 /// Register the `ganesh` Python exception hierarchy in a downstream `pyo3` module.
 pub fn register_exceptions(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("GaneshError", module.py().get_type::<GaneshPyError>())?;
-    module.add("GaneshConfigError", module.py().get_type::<GaneshConfigError>())?;
+    module.add(
+        "GaneshConfigError",
+        module.py().get_type::<GaneshConfigError>(),
+    )?;
     module.add(
         "GaneshNumericalError",
         module.py().get_type::<GaneshNumericalError>(),
@@ -43,14 +46,11 @@ impl From<GaneshError> for PyErr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pyo3::{prepare_freethreaded_python, Python};
-
     use crate::error::GaneshError;
 
     #[test]
     fn config_error_maps_to_python_config_exception() {
-        prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        crate::python::attach_for_tests(|py| {
             let err: PyErr = GaneshError::ConfigError("bad config".into()).into();
             assert!(err.is_instance_of::<GaneshConfigError>(py));
             assert!(err.is_instance_of::<GaneshPyError>(py));
@@ -59,8 +59,7 @@ mod tests {
 
     #[test]
     fn numerical_error_maps_to_python_numerical_exception() {
-        prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        crate::python::attach_for_tests(|py| {
             let err: PyErr = GaneshError::NumericalError("bad conditioning".into()).into();
             assert!(err.is_instance_of::<GaneshNumericalError>(py));
             assert!(err.is_instance_of::<GaneshPyError>(py));

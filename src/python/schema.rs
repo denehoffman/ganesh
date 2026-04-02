@@ -1,20 +1,24 @@
-//! Machine-readable schema helpers for typed Python config wrappers.
+//! Machine-readable schema helpers for the pure Python config contract.
 
 use serde::Serialize;
 
-use crate::python::config::{
-    PyAIESConfig, PyCMAESConfig, PyDifferentialEvolutionConfig, PyESSConfig, PyLBFGSBConfig,
-    PyNelderMeadConfig, PyPSOConfig, PySimulatedAnnealingConfig,
+use crate::algorithms::{
+    gradient::{AdamConfig, ConjugateGradientConfig, LBFGSBConfig, TrustRegionConfig},
+    gradient_free::{
+        CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig, SimulatedAnnealingConfig,
+    },
+    mcmc::{AIESConfig, ESSConfig},
+    particles::PSOConfig,
 };
 
-/// A machine-readable schema for a typed Python-facing config wrapper.
+/// A machine-readable schema for a Python-facing config class.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConfigSchema {
     /// The exported Python class name.
     pub name: &'static str,
     /// The schema version for downstream compatibility checks.
     pub version: usize,
-    /// The fields exposed by the wrapper.
+    /// The fields exposed by the Python class.
     pub fields: Vec<ConfigFieldSchema>,
 }
 
@@ -41,27 +45,24 @@ pub struct ConfigFieldSchema {
 }
 
 /// A simplified logical type for Python config fields.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ConfigFieldKind {
-    /// A scalar floating-point field.
     Float,
-    /// A required integer field.
     Integer,
-    /// An optional integer field.
     OptionalInteger,
-    /// A one-dimensional float array field.
+    String,
     VectorFloat,
-    /// A two-dimensional float array field.
     MatrixFloat,
-    /// An optional per-parameter bounds field.
     Bounds,
-    /// An optional list of parameter-name strings.
     ParameterNames,
+    OptionalObject,
+    ObjectSequence,
 }
 
-/// Schema/introspection support for typed Python config wrappers.
+/// Schema/introspection support for Python-facing config classes that extract into native configs.
 pub trait HasPyConfigSchema {
-    /// Return the stable wrapper schema.
+    /// Return the stable Python config schema.
     fn schema() -> ConfigSchema;
 
     /// Return the schema as pretty JSON.
@@ -86,13 +87,19 @@ fn field(
     }
 }
 
-impl HasPyConfigSchema for PyLBFGSBConfig {
+impl HasPyConfigSchema for LBFGSBConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "LBFGSBConfig",
             version: 1,
             fields: vec![
-                field("x0", ConfigFieldKind::VectorFloat, true, None, "Initial parameter vector."),
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    true,
+                    None,
+                    "Initial parameter vector.",
+                ),
                 field(
                     "memory_limit",
                     ConfigFieldKind::Integer,
@@ -105,7 +112,7 @@ impl HasPyConfigSchema for PyLBFGSBConfig {
                     ConfigFieldKind::Bounds,
                     false,
                     Some("None"),
-                    "Optional lower/upper bounds per parameter.",
+                    "Optional lower and upper bounds per parameter.",
                 ),
                 field(
                     "parameter_names",
@@ -114,24 +121,58 @@ impl HasPyConfigSchema for PyLBFGSBConfig {
                     Some("None"),
                     "Optional parameter names propagated into summaries.",
                 ),
+                field(
+                    "bounds_handling",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional bounds handling mode: auto, native_bounds, or transform_bounds.",
+                ),
+                field(
+                    "line_search",
+                    ConfigFieldKind::OptionalObject,
+                    false,
+                    Some("None"),
+                    "Optional strong-Wolfe line-search helper object.",
+                ),
+                field(
+                    "error_mode",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional error mode: exact_hessian or skip.",
+                ),
             ],
         }
     }
 }
 
-impl HasPyConfigSchema for PyNelderMeadConfig {
+impl HasPyConfigSchema for NelderMeadConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "NelderMeadConfig",
             version: 1,
             fields: vec![
-                field("x0", ConfigFieldKind::VectorFloat, true, None, "Initial simplex anchor."),
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    false,
+                    Some("None"),
+                    "Initial simplex anchor when construction_method is not supplied.",
+                ),
+                field(
+                    "construction_method",
+                    ConfigFieldKind::OptionalObject,
+                    false,
+                    Some("None"),
+                    "Optional simplex construction helper object.",
+                ),
                 field(
                     "bounds",
                     ConfigFieldKind::Bounds,
                     false,
                     Some("None"),
-                    "Optional lower/upper bounds per parameter.",
+                    "Optional lower and upper bounds per parameter.",
                 ),
                 field(
                     "parameter_names",
@@ -140,12 +181,61 @@ impl HasPyConfigSchema for PyNelderMeadConfig {
                     Some("None"),
                     "Optional parameter names propagated into summaries.",
                 ),
+                field(
+                    "alpha",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("None"),
+                    "Optional reflection coefficient.",
+                ),
+                field(
+                    "beta",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("None"),
+                    "Optional expansion coefficient.",
+                ),
+                field(
+                    "gamma",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("None"),
+                    "Optional contraction coefficient.",
+                ),
+                field(
+                    "delta",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("None"),
+                    "Optional shrink coefficient.",
+                ),
+                field(
+                    "adaptive_dimension",
+                    ConfigFieldKind::Integer,
+                    false,
+                    Some("None"),
+                    "Optional dimension used to enable adaptive Nelder-Mead parameters.",
+                ),
+                field(
+                    "expansion_method",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional simplex expansion method.",
+                ),
+                field(
+                    "bounds_handling",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional bounds handling mode: auto, native_bounds, or transform_bounds.",
+                ),
             ],
         }
     }
 }
 
-impl HasPyConfigSchema for PyPSOConfig {
+impl HasPyConfigSchema for PSOConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "PSOConfig",
@@ -163,7 +253,7 @@ impl HasPyConfigSchema for PyPSOConfig {
                     ConfigFieldKind::Bounds,
                     false,
                     Some("None"),
-                    "Optional lower/upper bounds per parameter.",
+                    "Optional lower and upper bounds per parameter.",
                 ),
                 field(
                     "parameter_names",
@@ -172,12 +262,61 @@ impl HasPyConfigSchema for PyPSOConfig {
                     Some("None"),
                     "Optional parameter names propagated into summaries.",
                 ),
+                field(
+                    "omega",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.8"),
+                    "Inertial weight.",
+                ),
+                field(
+                    "c1",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.1"),
+                    "Cognitive weight.",
+                ),
+                field(
+                    "c2",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.1"),
+                    "Social weight.",
+                ),
+                field(
+                    "bounds_handling",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional bounds handling mode: auto, native_bounds, or transform_bounds.",
+                ),
+                field(
+                    "topology",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional swarm topology.",
+                ),
+                field(
+                    "update_method",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional swarm update method.",
+                ),
+                field(
+                    "boundary_method",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional swarm boundary handling method.",
+                ),
             ],
         }
     }
 }
 
-impl HasPyConfigSchema for PyAIESConfig {
+impl HasPyConfigSchema for AIESConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "AIESConfig",
@@ -197,12 +336,26 @@ impl HasPyConfigSchema for PyAIESConfig {
                     Some("None"),
                     "Optional parameter names propagated into summaries.",
                 ),
+                field(
+                    "moves",
+                    ConfigFieldKind::ObjectSequence,
+                    false,
+                    Some("None"),
+                    "Optional list of AIES move helper objects.",
+                ),
+                field(
+                    "chain_storage",
+                    ConfigFieldKind::OptionalObject,
+                    false,
+                    Some("None"),
+                    "Optional chain storage helper object.",
+                ),
             ],
         }
     }
 }
 
-impl HasPyConfigSchema for PyESSConfig {
+impl HasPyConfigSchema for ESSConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "ESSConfig",
@@ -221,6 +374,13 @@ impl HasPyConfigSchema for PyESSConfig {
                     false,
                     Some("None"),
                     "Optional parameter names propagated into summaries.",
+                ),
+                field(
+                    "moves",
+                    ConfigFieldKind::ObjectSequence,
+                    false,
+                    Some("None"),
+                    "Optional list of ESS move helper objects.",
                 ),
                 field(
                     "n_adaptive",
@@ -243,52 +403,65 @@ impl HasPyConfigSchema for PyESSConfig {
                     Some("1.0"),
                     "Differential-move scaling parameter.",
                 ),
+                field(
+                    "chain_storage",
+                    ConfigFieldKind::OptionalObject,
+                    false,
+                    Some("None"),
+                    "Optional chain storage helper object.",
+                ),
             ],
         }
     }
 }
 
-impl HasPyConfigSchema for PyDifferentialEvolutionConfig {
+impl HasPyConfigSchema for DifferentialEvolutionConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "DifferentialEvolutionConfig",
             version: 1,
             fields: vec![
-                field("x0", ConfigFieldKind::VectorFloat, true, None, "Initial parameter vector."),
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    true,
+                    None,
+                    "Initial parameter vector.",
+                ),
                 field(
                     "population_size",
                     ConfigFieldKind::OptionalInteger,
                     false,
                     Some("None"),
-                    "Optional population size override.",
+                    "Optional explicit population size.",
                 ),
                 field(
                     "differential_weight",
                     ConfigFieldKind::Float,
                     false,
                     Some("0.8"),
-                    "Mutation differential weight F.",
+                    "Mutation differential weight.",
                 ),
                 field(
                     "crossover_probability",
                     ConfigFieldKind::Float,
                     false,
                     Some("0.9"),
-                    "Binomial crossover probability CR.",
+                    "Binomial crossover probability.",
                 ),
                 field(
                     "initial_scale",
                     ConfigFieldKind::Float,
                     false,
                     Some("1.0"),
-                    "External-space initialization half-width around x0.",
+                    "External-coordinate initialization half-width.",
                 ),
                 field(
                     "bounds",
                     ConfigFieldKind::Bounds,
                     false,
                     Some("None"),
-                    "Optional lower/upper bounds per parameter.",
+                    "Optional lower and upper bounds per parameter.",
                 ),
                 field(
                     "parameter_names",
@@ -302,33 +475,39 @@ impl HasPyConfigSchema for PyDifferentialEvolutionConfig {
     }
 }
 
-impl HasPyConfigSchema for PyCMAESConfig {
+impl HasPyConfigSchema for CMAESConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "CMAESConfig",
             version: 1,
             fields: vec![
-                field("x0", ConfigFieldKind::VectorFloat, true, None, "Initial mean vector."),
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    true,
+                    None,
+                    "Initial mean vector.",
+                ),
                 field(
                     "sigma",
                     ConfigFieldKind::Float,
                     true,
                     None,
-                    "Initial global step size.",
+                    "Global step size.",
                 ),
                 field(
                     "population_size",
                     ConfigFieldKind::OptionalInteger,
                     false,
                     Some("None"),
-                    "Optional offspring population size.",
+                    "Optional explicit offspring population size.",
                 ),
                 field(
                     "bounds",
                     ConfigFieldKind::Bounds,
                     false,
                     Some("None"),
-                    "Optional lower/upper bounds per parameter.",
+                    "Optional lower and upper bounds per parameter.",
                 ),
                 field(
                     "parameter_names",
@@ -342,7 +521,7 @@ impl HasPyConfigSchema for PyCMAESConfig {
     }
 }
 
-impl HasPyConfigSchema for PySimulatedAnnealingConfig {
+impl HasPyConfigSchema for SimulatedAnnealingConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "SimulatedAnnealingConfig",
@@ -351,16 +530,161 @@ impl HasPyConfigSchema for PySimulatedAnnealingConfig {
                 field(
                     "initial_temperature",
                     ConfigFieldKind::Float,
-                    true,
-                    None,
-                    "Initial annealing temperature.",
+                    false,
+                    Some("1.0"),
+                    "Initial simulated annealing temperature.",
                 ),
                 field(
                     "cooling_rate",
                     ConfigFieldKind::Float,
+                    false,
+                    Some("0.999"),
+                    "Multiplicative cooling factor per step.",
+                ),
+            ],
+        }
+    }
+}
+
+impl HasPyConfigSchema for AdamConfig {
+    fn schema() -> ConfigSchema {
+        ConfigSchema {
+            name: "AdamConfig",
+            version: 1,
+            fields: vec![
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
                     true,
                     None,
-                    "Multiplicative cooling rate in (0, 1).",
+                    "Initial parameter vector.",
+                ),
+                field(
+                    "parameter_names",
+                    ConfigFieldKind::ParameterNames,
+                    false,
+                    Some("None"),
+                    "Optional parameter names propagated into summaries.",
+                ),
+                field(
+                    "alpha",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.001"),
+                    "Initial learning rate.",
+                ),
+                field(
+                    "beta_1",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.9"),
+                    "First-moment decay rate.",
+                ),
+                field(
+                    "beta_2",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("0.999"),
+                    "Second-moment decay rate.",
+                ),
+                field(
+                    "epsilon",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("1e-8"),
+                    "Divide-by-zero tolerance.",
+                ),
+            ],
+        }
+    }
+}
+
+impl HasPyConfigSchema for ConjugateGradientConfig {
+    fn schema() -> ConfigSchema {
+        ConfigSchema {
+            name: "ConjugateGradientConfig",
+            version: 1,
+            fields: vec![
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    true,
+                    None,
+                    "Initial parameter vector.",
+                ),
+                field(
+                    "parameter_names",
+                    ConfigFieldKind::ParameterNames,
+                    false,
+                    Some("None"),
+                    "Optional parameter names propagated into summaries.",
+                ),
+                field(
+                    "line_search",
+                    ConfigFieldKind::OptionalObject,
+                    false,
+                    Some("None"),
+                    "Optional strong-Wolfe line-search helper object.",
+                ),
+                field(
+                    "update",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional conjugate-gradient update rule.",
+                ),
+            ],
+        }
+    }
+}
+
+impl HasPyConfigSchema for TrustRegionConfig {
+    fn schema() -> ConfigSchema {
+        ConfigSchema {
+            name: "TrustRegionConfig",
+            version: 1,
+            fields: vec![
+                field(
+                    "x0",
+                    ConfigFieldKind::VectorFloat,
+                    true,
+                    None,
+                    "Initial parameter vector.",
+                ),
+                field(
+                    "parameter_names",
+                    ConfigFieldKind::ParameterNames,
+                    false,
+                    Some("None"),
+                    "Optional parameter names propagated into summaries.",
+                ),
+                field(
+                    "subproblem",
+                    ConfigFieldKind::String,
+                    false,
+                    Some("None"),
+                    "Optional trust-region subproblem solver.",
+                ),
+                field(
+                    "initial_radius",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("1.0"),
+                    "Initial trust-region radius.",
+                ),
+                field(
+                    "max_radius",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("1000.0"),
+                    "Maximum trust-region radius.",
+                ),
+                field(
+                    "eta",
+                    ConfigFieldKind::Float,
+                    false,
+                    Some("1e-4"),
+                    "Acceptance threshold.",
                 ),
             ],
         }
@@ -372,17 +696,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lbfgsb_schema_has_expected_fields() {
-        let schema = PyLBFGSBConfig::schema();
+    fn lbfgsb_schema_contains_python_fields() {
+        let schema = LBFGSBConfig::schema();
         assert_eq!(schema.name, "LBFGSBConfig");
-        assert_eq!(schema.version, 1);
-        assert_eq!(schema.fields[0].name, "x0");
-        assert_eq!(schema.fields[1].name, "memory_limit");
+        assert!(schema.fields.iter().any(|field| field.name == "x0"));
+        assert!(schema
+            .fields
+            .iter()
+            .any(|field| field.name == "memory_limit"));
     }
 
     #[test]
-    fn cmaes_schema_json_contains_sigma() {
-        let json = PyCMAESConfig::schema_json_pretty().unwrap();
+    fn cmaes_schema_exports_to_json() {
+        let json = CMAESConfig::schema_json_pretty().unwrap();
         assert!(json.contains("\"name\": \"CMAESConfig\""));
         assert!(json.contains("\"sigma\""));
     }

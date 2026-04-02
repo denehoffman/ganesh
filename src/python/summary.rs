@@ -1,9 +1,9 @@
 //! Python-facing summary export traits for downstream wrapper crates.
 
 use pyo3::{
-    pyclass, pymethods, Py,
-    types::{PyDict, PyDictMethods},
-    Bound, PyAny, PyResult, Python,
+    pyclass, pymethods,
+    types::{PyDict, PyDictMethods, PyModule, PyModuleMethods},
+    Bound, IntoPyObject, Py, PyAny, PyResult, Python,
 };
 
 use crate::{
@@ -24,7 +24,17 @@ pub trait IntoPySummary {
     fn to_py_class<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>;
 }
 
-fn bounds_to_python(bounds: &crate::core::transforms::Bounds) -> Vec<(Option<crate::Float>, Option<crate::Float>)> {
+/// Register the built-in Python summary wrapper classes in a native module.
+pub fn register_summary_types(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyMinimizationSummary>()?;
+    module.add_class::<PyMCMCSummary>()?;
+    module.add_class::<PySimulatedAnnealingSummary>()?;
+    Ok(())
+}
+
+fn bounds_to_python(
+    bounds: &crate::core::transforms::Bounds,
+) -> Vec<(Option<crate::Float>, Option<crate::Float>)> {
     bounds.iter().map(|(bound, _)| bound.as_options()).collect()
 }
 
@@ -71,13 +81,17 @@ fn diagnostics_to_python<'py>(
     let dict = PyDict::new(py);
     dict.set_item("r_hat", vector_to_python(py, diagnostics.r_hat.as_slice())?)?;
     dict.set_item("ess", vector_to_python(py, diagnostics.ess.as_slice())?)?;
-    dict.set_item("acceptance_rates", vector_to_python(py, diagnostics.acceptance_rates.as_slice())?)?;
+    dict.set_item(
+        "acceptance_rates",
+        vector_to_python(py, diagnostics.acceptance_rates.as_slice())?,
+    )?;
     dict.set_item("mean_acceptance_rate", diagnostics.mean_acceptance_rate)?;
     Ok(dict)
 }
 
 fn chain_to_python(chain: &[Vec<crate::DVector<crate::Float>>]) -> Vec<Vec<Vec<crate::Float>>> {
-    chain.iter()
+    chain
+        .iter()
         .map(|walker| {
             walker
                 .iter()
@@ -88,13 +102,19 @@ fn chain_to_python(chain: &[Vec<crate::DVector<crate::Float>>]) -> Vec<Vec<Vec<c
 }
 
 fn flat_chain_to_python(chain: &[crate::DVector<crate::Float>]) -> Vec<Vec<crate::Float>> {
-    chain.iter()
+    chain
+        .iter()
         .map(|position| position.as_slice().to_vec())
         .collect()
 }
 
 /// Python-facing typed wrapper for [`MinimizationSummary`].
-#[pyclass(module = "ganesh", name = "MinimizationSummary")]
+///
+/// Notes
+/// -----
+/// This wrapper is returned by Python-facing optimization APIs. Numeric vector
+/// and matrix fields are exposed as NumPy arrays.
+#[pyclass(skip_from_py_object, module = "ganesh", name = "MinimizationSummary")]
 #[derive(Clone)]
 pub struct PyMinimizationSummary {
     summary: MinimizationSummary,
@@ -102,78 +122,127 @@ pub struct PyMinimizationSummary {
 
 #[pymethods]
 impl PyMinimizationSummary {
-    /// Get the optional parameter bounds.
+    /// Optional parameter bounds.
     ///
-    /// Each bound is represented as `(lower, upper)`, where `None` means unbounded on that side.
+    /// Returns
+    /// -------
+    /// list[tuple[float | None, float | None]] | None
+    ///     Bounds represented as ``(lower, upper)`` pairs, where ``None``
+    ///     means unbounded on that side.
     #[getter]
     pub fn bounds(&self) -> Option<Vec<(Option<crate::Float>, Option<crate::Float>)>> {
         self.summary.bounds.as_ref().map(bounds_to_python)
     }
 
-    /// Get the optional parameter names.
+    /// Optional parameter names.
+    ///
+    /// Returns
+    /// -------
+    /// list[str] | None
     #[getter]
     pub fn parameter_names(&self) -> Option<Vec<String>> {
         self.summary.parameter_names.clone()
     }
 
-    /// Get the status type as a string.
+    /// Summary status type.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.summary.message.status_type.to_string()
     }
 
-    /// Get the message text.
+    /// Human-readable status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.summary.message.text.clone()
     }
 
-    /// Return `True` when the minimization succeeded.
+    /// Whether the run reported success.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub fn success(&self) -> bool {
         self.summary.message.success()
     }
 
-    /// Get the initial parameters.
+    /// Initial parameter vector.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.summary.x0.as_slice())
     }
 
-    /// Get the final parameters.
+    /// Final parameter vector.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.summary.x.as_slice())
     }
 
-    /// Get the parameter standard deviations.
+    /// Parameter standard deviations.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn std<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.summary.std.as_slice())
     }
 
-    /// Get the final objective value.
+    /// Final objective value.
+    ///
+    /// Returns
+    /// -------
+    /// float
     #[getter]
     pub fn fx(&self) -> crate::Float {
         self.summary.fx
     }
 
-    /// Get the number of cost evaluations.
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn cost_evals(&self) -> usize {
         self.summary.cost_evals
     }
 
-    /// Get the number of gradient evaluations.
+    /// Number of gradient evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn gradient_evals(&self) -> usize {
         self.summary.gradient_evals
     }
 
-    /// Get the covariance matrix as nested Python lists.
+    /// Estimated covariance matrix.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn covariance<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let covariance = self.summary
+        let covariance = self
+            .summary
             .covariance
             .row_iter()
             .map(|row| row.iter().copied().collect::<Vec<_>>())
@@ -181,7 +250,11 @@ impl PyMinimizationSummary {
         matrix_to_python(py, &covariance)
     }
 
-    /// Export the wrapped summary as a Python dictionary.
+    /// Export the wrapped summary as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
@@ -194,7 +267,13 @@ impl From<MinimizationSummary> for PyMinimizationSummary {
 }
 
 /// Python-facing typed wrapper for [`MCMCSummary`].
-#[pyclass(module = "ganesh", name = "MCMCSummary")]
+///
+/// Notes
+/// -----
+/// Numeric arrays are exposed as NumPy arrays. Chain post-processing methods
+/// use keyword-only ``burn`` and ``thin`` arguments so the retained-chain view
+/// is explicit at each call site.
+#[pyclass(skip_from_py_object, module = "ganesh", name = "MCMCSummary")]
 #[derive(Clone)]
 pub struct PyMCMCSummary {
     summary: MCMCSummary,
@@ -202,66 +281,112 @@ pub struct PyMCMCSummary {
 
 #[pymethods]
 impl PyMCMCSummary {
-    /// Get the optional parameter bounds.
+    /// Optional parameter bounds.
+    ///
+    /// Returns
+    /// -------
+    /// list[tuple[float | None, float | None]] | None
     #[getter]
     pub fn bounds(&self) -> Option<Vec<(Option<crate::Float>, Option<crate::Float>)>> {
         self.summary.bounds.as_ref().map(bounds_to_python)
     }
 
-    /// Get the optional parameter names.
+    /// Optional parameter names.
+    ///
+    /// Returns
+    /// -------
+    /// list[str] | None
     #[getter]
     pub fn parameter_names(&self) -> Option<Vec<String>> {
         self.summary.parameter_names.clone()
     }
 
-    /// Get the status type as a string.
+    /// Summary status type.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.summary.message.status_type.to_string()
     }
 
-    /// Get the message text.
+    /// Human-readable status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.summary.message.text.clone()
     }
 
-    /// Return `True` when the sampler reports success.
+    /// Whether the run reported success.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub fn success(&self) -> bool {
         self.summary.message.success()
     }
 
-    /// Get the full retained chain as nested Python lists.
-    pub fn chain<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        tensor3_to_python(py, &chain_to_python(&self.summary.chain))
-    }
-
-    /// Get the chain storage description.
+    /// Chain-storage description.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn chain_storage<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         chain_storage_to_python(py, self.summary.chain_storage)
     }
 
-    /// Get the number of cost evaluations.
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn cost_evals(&self) -> usize {
         self.summary.cost_evals
     }
 
-    /// Get the number of gradient evaluations.
+    /// Number of gradient evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn gradient_evals(&self) -> usize {
         self.summary.gradient_evals
     }
 
-    /// Get the retained chain dimensions `(n_walkers, n_steps, n_variables)`.
+    /// Retained-chain dimensions.
+    ///
+    /// Returns
+    /// -------
+    /// tuple[int, int, int]
+    ///     Dimensions in ``(n_walkers, n_steps, n_variables)`` order.
     #[getter]
     pub const fn dimension(&self) -> (usize, usize, usize) {
         self.summary.dimension
     }
 
-    /// Compute diagnostics from the retained chain after optional burn-in and thinning.
-    #[pyo3(signature = (burn=None, thin=None))]
+    /// Compute convergence and efficiency diagnostics.
+    ///
+    /// Parameters
+    /// ----------
+    /// burn : int | None, optional
+    ///     Number of retained steps discarded from the front of each walker
+    ///     chain.
+    /// thin : int | None, optional
+    ///     Retain every ``thin``-th sample after burn-in.
+    ///
+    /// Returns
+    /// -------
+    /// dict
+    ///     Dictionary with ``r_hat``, ``ess``, ``acceptance_rates``, and
+    ///     ``mean_acceptance_rate`` entries.
+    #[pyo3(signature = (*, burn=None, thin=None))]
     pub fn diagnostics<'py>(
         &self,
         py: Python<'py>,
@@ -273,28 +398,44 @@ impl PyMCMCSummary {
     }
 
     /// Get the retained chain after optional burn-in and thinning.
-    #[pyo3(signature = (burn=None, thin=None))]
-    pub fn get_chain<'py>(
+    ///
+    /// Parameters
+    /// ----------
+    /// burn : int | None, optional
+    ///     Number of retained steps discarded from the front of each walker
+    ///     chain.
+    /// thin : int | None, optional
+    ///     Retain every ``thin``-th sample after burn-in.
+    /// flat : bool, default=False
+    ///     If ``False``, return the chain with shape
+    ///     ``(n_walkers, n_steps, n_dim)``. If ``True``, flatten the walker and
+    ///     step dimensions and return shape ``(n_samples, n_dim)``.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    #[pyo3(signature = (*, burn=None, thin=None, flat=false))]
+    pub fn chain<'py>(
         &self,
         py: Python<'py>,
         burn: Option<usize>,
         thin: Option<usize>,
+        flat: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
+        if flat {
+            return matrix_to_python(
+                py,
+                &flat_chain_to_python(&self.summary.get_flat_chain(burn, thin)),
+            );
+        }
         tensor3_to_python(py, &chain_to_python(&self.summary.get_chain(burn, thin)))
     }
 
-    /// Get the flattened retained chain after optional burn-in and thinning.
-    #[pyo3(signature = (burn=None, thin=None))]
-    pub fn get_flat_chain<'py>(
-        &self,
-        py: Python<'py>,
-        burn: Option<usize>,
-        thin: Option<usize>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        matrix_to_python(py, &flat_chain_to_python(&self.summary.get_flat_chain(burn, thin)))
-    }
-
-    /// Export the wrapped summary as a Python dictionary.
+    /// Export the wrapped summary as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
@@ -307,7 +448,15 @@ impl From<MCMCSummary> for PyMCMCSummary {
 }
 
 /// Python-facing typed wrapper for [`SimulatedAnnealingSummary<crate::DVector<crate::Float>>`].
-#[pyclass(module = "ganesh", name = "SimulatedAnnealingSummary")]
+///
+/// Notes
+/// -----
+/// Numeric vector fields are exposed as NumPy arrays.
+#[pyclass(
+    skip_from_py_object,
+    module = "ganesh",
+    name = "SimulatedAnnealingSummary"
+)]
 #[derive(Clone)]
 pub struct PySimulatedAnnealingSummary {
     summary: SimulatedAnnealingSummary<crate::DVector<crate::Float>>,
@@ -315,55 +464,91 @@ pub struct PySimulatedAnnealingSummary {
 
 #[pymethods]
 impl PySimulatedAnnealingSummary {
-    /// Get the optional parameter bounds.
+    /// Optional parameter bounds.
+    ///
+    /// Returns
+    /// -------
+    /// list[tuple[float | None, float | None]] | None
     #[getter]
     pub fn bounds(&self) -> Option<Vec<(Option<crate::Float>, Option<crate::Float>)>> {
         self.summary.bounds.as_ref().map(bounds_to_python)
     }
 
-    /// Get the status type as a string.
+    /// Summary status type.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.summary.message.status_type.to_string()
     }
 
-    /// Get the message text.
+    /// Human-readable status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.summary.message.text.clone()
     }
 
-    /// Return `True` when the run reports success.
+    /// Whether the run reported success.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub fn success(&self) -> bool {
         self.summary.message.success()
     }
 
-    /// Get the initial state.
+    /// Initial state vector.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x0<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.summary.x0.as_slice())
     }
 
-    /// Get the best state found.
+    /// Best state found during the run.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.summary.x.as_slice())
     }
 
-    /// Get the best objective value.
+    /// Best objective value.
+    ///
+    /// Returns
+    /// -------
+    /// float
     #[getter]
     pub fn fx(&self) -> crate::Float {
         self.summary.fx
     }
 
-    /// Get the number of cost evaluations.
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn cost_evals(&self) -> usize {
         self.summary.cost_evals
     }
 
-    /// Export the wrapped summary as a Python dictionary.
+    /// Export the wrapped summary as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
@@ -409,8 +594,14 @@ impl IntoPySummary for MCMCSummary {
         dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
         dict.set_item("parameter_names", self.parameter_names.clone())?;
         dict.set_item("message", message_to_python(py, &self.message)?)?;
-        dict.set_item("chain", tensor3_to_python(py, &chain_to_python(&self.chain))?)?;
-        dict.set_item("chain_storage", chain_storage_to_python(py, self.chain_storage)?)?;
+        dict.set_item(
+            "chain",
+            tensor3_to_python(py, &chain_to_python(&self.chain))?,
+        )?;
+        dict.set_item(
+            "chain_storage",
+            chain_storage_to_python(py, self.chain_storage)?,
+        )?;
         dict.set_item("cost_evals", self.cost_evals)?;
         dict.set_item("gradient_evals", self.gradient_evals)?;
         dict.set_item("dimension", self.dimension)?;
@@ -441,45 +632,55 @@ impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
     }
 }
 
+impl<'py> IntoPyObject<'py> for MinimizationSummary {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(Py::new(py, PyMinimizationSummary::from(self))?
+            .into_bound(py)
+            .into_any())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for MCMCSummary {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(Py::new(py, PyMCMCSummary::from(self))?
+            .into_bound(py)
+            .into_any())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(Py::new(py, PySimulatedAnnealingSummary::from(self))?
+            .into_bound(py)
+            .into_any())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use pyo3::{
-        prepare_freethreaded_python,
-        types::PyAnyMethods,
-        Py, Python,
-    };
+    use pyo3::{types::PyAnyMethods, Py};
 
     use super::*;
-    use crate::{
-        algorithms::mcmc::ChainStorageMode,
-        core::transforms::Bounds,
-        traits::StatusMessage,
-        DMatrix, DVector,
-    };
-
-    fn extract_vector_like(obj: &Bound<'_, PyAny>) -> Vec<crate::Float> {
-        crate::python::numeric::extract_vector(obj).unwrap()
-    }
-
-    fn extract_matrix_like(obj: &Bound<'_, PyAny>) -> Vec<Vec<crate::Float>> {
-        crate::python::numeric::extract_matrix(obj).unwrap()
-    }
-
-    fn extract_tensor3_like(obj: &Bound<'_, PyAny>) -> Vec<Vec<Vec<crate::Float>>> {
-        crate::python::numeric::extract_tensor3(obj).unwrap()
-    }
-
-    #[cfg(feature = "python-numpy")]
-    fn ensure_numpy_initialized() {
-        crate::python::numeric::ensure_numpy_test_runtime();
-    }
-
-    #[cfg(not(feature = "python-numpy"))]
-    fn ensure_numpy_initialized() {}
+    use crate::{core::transforms::Bounds, traits::StatusMessage, DMatrix, DVector};
 
     fn sample_summary() -> MinimizationSummary {
         MinimizationSummary {
-            bounds: Some(Bounds::new_default([(Some(-1.0), Some(1.0)), (None, Some(2.0))])),
+            bounds: Some(Bounds::new_default([
+                (Some(-1.0), Some(1.0)),
+                (None, Some(2.0)),
+            ])),
             parameter_names: Some(vec!["alpha".into(), "beta".into()]),
             message: StatusMessage::default().set_success_with_message("ok"),
             x0: DVector::from_vec(vec![1.0, 2.0]),
@@ -492,266 +693,14 @@ mod tests {
         }
     }
 
-    fn sample_mcmc_summary() -> MCMCSummary {
-        MCMCSummary {
-            bounds: Some(Bounds::new_default([(Some(-1.0), Some(1.0))])),
-            parameter_names: Some(vec!["theta".into()]),
-            message: StatusMessage::default().set_initialized_with_message("warmup"),
-            chain: vec![vec![DVector::from_vec(vec![0.0]), DVector::from_vec(vec![0.5])]],
-            chain_storage: ChainStorageMode::Rolling { window: 16 },
-            cost_evals: 8,
-            gradient_evals: 0,
-            dimension: (1, 2, 1),
-        }
-    }
-
-    fn sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DVector<crate::Float>> {
-        SimulatedAnnealingSummary {
-            bounds: Some(Bounds::new_default([(Some(-2.0), Some(2.0)), (None, Some(3.0))])),
-            message: StatusMessage::default().set_success_with_message("cooled"),
-            x0: DVector::from_vec(vec![1.5, -0.5]),
-            x: DVector::from_vec(vec![0.25, 1.25]),
-            fx: 0.125,
-            cost_evals: 42,
-        }
-    }
-
     #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn minimization_summary_exports_to_python_dict() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_summary();
-            let dict = summary.to_py_dict(py).unwrap();
-
-            let bounds = dict.get_item("bounds").unwrap().unwrap().extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>().unwrap();
-            let names = dict.get_item("parameter_names").unwrap().unwrap().extract::<Vec<String>>().unwrap();
-            let x = extract_vector_like(dict.get_item("x").unwrap().unwrap().as_any());
-            let covariance = extract_matrix_like(dict.get_item("covariance").unwrap().unwrap().as_any());
-            let message = dict.get_item("message").unwrap().unwrap().downcast_into::<PyDict>().unwrap();
-
-            assert_eq!(bounds, vec![(Some(-1.0), Some(1.0)), (None, Some(2.0))]);
-            assert_eq!(names, vec!["alpha", "beta"]);
-            assert_eq!(x, vec![0.5, 1.5]);
-            assert_eq!(covariance, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
-            assert_eq!(
-                message.get_item("status_type").unwrap().unwrap().extract::<String>().unwrap(),
-                "Success"
-            );
-            assert!(
-                message.get_item("success").unwrap().unwrap().extract::<bool>().unwrap()
-            );
-        });
-    }
-
-    #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn minimization_summary_exports_to_python_class() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_summary();
-            let wrapper = summary.to_py_class(py).unwrap();
+    fn native_summary_into_pyobject_returns_typed_wrapper() {
+        crate::python::attach_for_tests(|py| {
+            let wrapper = sample_summary().into_pyobject(py).unwrap();
             let wrapper = wrapper.extract::<Py<PyMinimizationSummary>>().unwrap();
             let wrapper = wrapper.bind(py).borrow();
-
-            assert_eq!(wrapper.bounds(), Some(vec![(Some(-1.0), Some(1.0)), (None, Some(2.0))]));
-            assert_eq!(wrapper.parameter_names(), Some(vec!["alpha".into(), "beta".into()]));
-            assert_eq!(wrapper.status_type(), "Success");
-            assert_eq!(wrapper.message_text(), "ok");
-            assert!(wrapper.success());
-            assert_eq!(extract_vector_like(wrapper.x0(py).unwrap().as_any()), vec![1.0, 2.0]);
-            assert_eq!(extract_vector_like(wrapper.x(py).unwrap().as_any()), vec![0.5, 1.5]);
-            assert_eq!(extract_vector_like(wrapper.std(py).unwrap().as_any()), vec![0.1, 0.2]);
             assert_eq!(wrapper.fx(), 1.25);
-            assert_eq!(wrapper.cost_evals(), 10);
-            assert_eq!(wrapper.gradient_evals(), 4);
-            assert_eq!(
-                extract_matrix_like(wrapper.covariance(py).unwrap().as_any()),
-                vec![vec![1.0, 0.0], vec![0.0, 1.0]]
-            );
-        });
-    }
-
-    #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn mcmc_summary_exports_to_python_dict() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_mcmc_summary();
-            let dict = summary.to_py_dict(py).unwrap();
-
-            let bounds = dict
-                .get_item("bounds")
-                .unwrap()
-                .unwrap()
-                .extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>()
-                .unwrap();
-            let names = dict
-                .get_item("parameter_names")
-                .unwrap()
-                .unwrap()
-                .extract::<Vec<String>>()
-                .unwrap();
-            let chain = extract_tensor3_like(dict.get_item("chain").unwrap().unwrap().as_any());
-            let chain_storage = dict
-                .get_item("chain_storage")
-                .unwrap()
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-            let message = dict
-                .get_item("message")
-                .unwrap()
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            assert_eq!(bounds, vec![(Some(-1.0), Some(1.0))]);
-            assert_eq!(names, vec!["theta"]);
-            assert_eq!(chain, vec![vec![vec![0.0], vec![0.5]]]);
-            assert_eq!(
-                chain_storage
-                    .get_item("mode")
-                    .unwrap()
-                    .unwrap()
-                    .extract::<String>()
-                    .unwrap(),
-                "Rolling"
-            );
-            assert_eq!(
-                chain_storage
-                    .get_item("window")
-                    .unwrap()
-                    .unwrap()
-                    .extract::<usize>()
-                    .unwrap(),
-                16
-            );
-            assert_eq!(
-                message
-                    .get_item("status_type")
-                    .unwrap()
-                    .unwrap()
-                    .extract::<String>()
-                    .unwrap(),
-                "Initialized"
-            );
-            assert_eq!(
-                message
-                    .get_item("text")
-                    .unwrap()
-                    .unwrap()
-                    .extract::<String>()
-                    .unwrap(),
-                "warmup"
-            );
-        });
-    }
-
-    #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn mcmc_summary_exports_to_python_class_and_helpers() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_mcmc_summary();
-            let wrapper = summary.to_py_class(py).unwrap();
-            let wrapper = wrapper.extract::<Py<PyMCMCSummary>>().unwrap();
-            let wrapper = wrapper.bind(py).borrow();
-
-            assert_eq!(wrapper.bounds(), Some(vec![(Some(-1.0), Some(1.0))]));
-            assert_eq!(wrapper.parameter_names(), Some(vec!["theta".into()]));
-            assert_eq!(wrapper.status_type(), "Initialized");
-            assert_eq!(wrapper.message_text(), "warmup");
-            assert!(!wrapper.success());
-            assert_eq!(
-                extract_tensor3_like(wrapper.chain(py).unwrap().as_any()),
-                vec![vec![vec![0.0], vec![0.5]]]
-            );
-            assert_eq!(wrapper.dimension(), (1, 2, 1));
-            assert_eq!(wrapper.cost_evals(), 8);
-            assert_eq!(wrapper.gradient_evals(), 0);
-
-            let retained = extract_tensor3_like(wrapper.get_chain(py, Some(1), None).unwrap().as_any());
-            let flat = extract_matrix_like(wrapper.get_flat_chain(py, None, None).unwrap().as_any());
-            assert_eq!(retained, vec![vec![vec![0.5]]]);
-            assert_eq!(flat, vec![vec![0.0], vec![0.5]]);
-
-            let chain_storage = wrapper.chain_storage(py).unwrap();
-            assert_eq!(
-                chain_storage
-                    .get_item("mode")
-                    .unwrap()
-                    .unwrap()
-                    .extract::<String>()
-                    .unwrap(),
-                "Rolling"
-            );
-
-            let diagnostics = wrapper.diagnostics(py, None, None).unwrap();
-            let r_hat = extract_vector_like(diagnostics.get_item("r_hat").unwrap().unwrap().as_any());
-            assert_eq!(r_hat.len(), 1);
-        });
-    }
-
-    #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn simulated_annealing_summary_exports_to_python_dict() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_simulated_annealing_summary();
-            let dict = summary.to_py_dict(py).unwrap();
-
-            let bounds = dict
-                .get_item("bounds")
-                .unwrap()
-                .unwrap()
-                .extract::<Vec<(Option<crate::Float>, Option<crate::Float>)>>()
-                .unwrap();
-            let x0 = extract_vector_like(dict.get_item("x0").unwrap().unwrap().as_any());
-            let x = extract_vector_like(dict.get_item("x").unwrap().unwrap().as_any());
-            let message = dict
-                .get_item("message")
-                .unwrap()
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            assert_eq!(bounds, vec![(Some(-2.0), Some(2.0)), (None, Some(3.0))]);
-            assert_eq!(x0, vec![1.5, -0.5]);
-            assert_eq!(x, vec![0.25, 1.25]);
-            assert_eq!(dict.get_item("fx").unwrap().unwrap().extract::<crate::Float>().unwrap(), 0.125);
-            assert_eq!(dict.get_item("cost_evals").unwrap().unwrap().extract::<usize>().unwrap(), 42);
-            assert_eq!(
-                message.get_item("status_type").unwrap().unwrap().extract::<String>().unwrap(),
-                "Success"
-            );
-        });
-    }
-
-    #[test]
-    #[cfg_attr(feature = "python-numpy", ignore = "NumPy runtime is unavailable in this test environment")]
-    fn simulated_annealing_summary_exports_to_python_class() {
-        prepare_freethreaded_python();
-        ensure_numpy_initialized();
-        Python::with_gil(|py| {
-            let summary = sample_simulated_annealing_summary();
-            let wrapper = summary.to_py_class(py).unwrap();
-            let wrapper = wrapper.extract::<Py<PySimulatedAnnealingSummary>>().unwrap();
-            let wrapper = wrapper.bind(py).borrow();
-
-            assert_eq!(wrapper.bounds(), Some(vec![(Some(-2.0), Some(2.0)), (None, Some(3.0))]));
             assert_eq!(wrapper.status_type(), "Success");
-            assert_eq!(wrapper.message_text(), "cooled");
-            assert!(wrapper.success());
-            assert_eq!(extract_vector_like(wrapper.x0(py).unwrap().as_any()), vec![1.5, -0.5]);
-            assert_eq!(extract_vector_like(wrapper.x(py).unwrap().as_any()), vec![0.25, 1.25]);
-            assert_eq!(wrapper.fx(), 0.125);
-            assert_eq!(wrapper.cost_evals(), 42);
         });
     }
 }

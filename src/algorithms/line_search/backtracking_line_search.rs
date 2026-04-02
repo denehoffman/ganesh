@@ -1,6 +1,7 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::Bounds,
+    error::{GaneshError, GaneshResult},
     traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
     DVector, Float,
 };
@@ -24,26 +25,30 @@ impl BacktrackingLineSearch {
     ///
     /// On each unsuccessful Armijo check, the step is scaled by $`\rho`$.
     ///
-    /// # Panics
-    ///
-    /// Panics if $`0 \ge \rho`$ or $`\rho \ge 1`$.
-    pub fn with_rho(mut self, rho: Float) -> Self {
-        assert!(0.0 < rho && rho < 1.0);
+    /// Returns a config error if $`0 \ge \rho`$ or $`\rho \ge 1`$.
+    pub fn with_rho(mut self, rho: Float) -> GaneshResult<Self> {
+        if !(0.0 < rho && rho < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "BacktrackingLineSearch requires 0 < rho < 1".to_string(),
+            ));
+        }
         self.rho = rho;
-        self
+        Ok(self)
     }
 
     /// Set the Armijo parameter $`c`$ (default = `1e-4`).
     ///
     /// The Armijo condition is $`\phi(\alpha) \le \phi(0) + c\,\alpha\,\phi'(0)`$.
     ///
-    /// # Panics
-    ///
-    /// Panics if $`0 \ge c`$ or $`c \ge 1`$.
-    pub fn with_c(mut self, c: Float) -> Self {
-        assert!(0.0 < c && c < 1.0);
+    /// Returns a config error if $`0 \ge c`$ or $`c \ge 1`$.
+    pub fn with_c(mut self, c: Float) -> GaneshResult<Self> {
+        if !(0.0 < c && c < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "BacktrackingLineSearch requires 0 < c < 1".to_string(),
+            ));
+        }
         self.c = c;
-        self
+        Ok(self)
     }
 }
 
@@ -91,37 +96,33 @@ mod tests {
 
     #[test]
     fn with_rho_sets_value() {
-        let ls = BacktrackingLineSearch::default().with_rho(0.7);
+        let ls = BacktrackingLineSearch::default().with_rho(0.7).unwrap();
         assert_eq!(ls.rho, 0.7);
     }
 
     #[test]
     fn with_c_sets_value() {
-        let ls = BacktrackingLineSearch::default().with_c(1e-3);
+        let ls = BacktrackingLineSearch::default().with_c(1e-3).unwrap();
         assert_eq!(ls.c, 1e-3);
     }
 
     #[test]
-    #[should_panic]
-    fn with_rho_panics_when_out_of_range_low() {
-        let _ = BacktrackingLineSearch::default().with_rho(0.0);
+    fn with_rho_errors_when_out_of_range_low() {
+        assert!(BacktrackingLineSearch::default().with_rho(0.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_rho_panics_when_out_of_range_high() {
-        let _ = BacktrackingLineSearch::default().with_rho(1.0);
+    fn with_rho_errors_when_out_of_range_high() {
+        assert!(BacktrackingLineSearch::default().with_rho(1.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c_panics_when_out_of_range_low() {
-        let _ = BacktrackingLineSearch::default().with_c(0.0);
+    fn with_c_errors_when_out_of_range_low() {
+        assert!(BacktrackingLineSearch::default().with_c(0.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_c_panics_when_out_of_range_high() {
-        let _ = BacktrackingLineSearch::default().with_c(1.0);
+    fn with_c_errors_when_out_of_range_high() {
+        assert!(BacktrackingLineSearch::default().with_c(1.0).is_err());
     }
 }

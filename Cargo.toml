@@ -15,15 +15,16 @@ exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 
 [lib]
 bench = false
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-nalgebra = { version = "0.34.0", features = ["serde-serialize"] }
-ctrlc = "3.5.0"
+nalgebra = { version = "0.34.2", features = ["serde-serialize"] }
+ctrlc = "3.5.2"
 dyn-clone = "1.0.20"
 thiserror = "2.0.18"
-typetag = "0.2.20"
-serde = { version = "1.0.219", features = ["derive", "rc"] }
-serde_json = "1.0.140"
+typetag = "0.2.21"
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = "1.0.149"
 serde-pickle = "1.2.0"
 spec_math = "0.1.6"
 fastrand = "2.3.0"
@@ -33,11 +34,11 @@ parking_lot = { version = "0.12.4", features = ["serde"] }
 rustfft = "6.4.0"
 num = "0.4.3"
 tabled = { version = "0.20.0", default-features = false, features = ["std"] }
-pyo3 = { version = "0.23.4", optional = true }
-numpy = { version = "0.23.0", optional = true }
+pyo3 = { version = "0.28.2", optional = true, features = ["abi3", "generate-import-lib", "auto-initialize"] }
+numpy = { version = "0.28.0", optional = true }
 
 [dev-dependencies]
-criterion = { version = "3.0.5", package = "codspeed-criterion-compat", features = [
+criterion = { version = "4.4.1", package = "codspeed-criterion-compat", features = [
   "html_reports",
 ] }
 approx = "0.5.1"
@@ -45,8 +46,8 @@ approx = "0.5.1"
 [features]
 default = []
 f32 = []
-python = ["dep:pyo3"]
-python-numpy = ["python", "dep:numpy"]
+python = ["dep:pyo3", "dep:numpy"]
+python-module = ["python", "pyo3/extension-module"]
 
 [[bench]]
 name = "nelder_mead_benchmark"
