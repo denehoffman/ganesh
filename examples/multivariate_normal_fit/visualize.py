@@ -21,7 +21,8 @@ from matplotloom import Loom
 
 if __name__ == '__main__':
     print('Plotting dataset...')
-    data = np.array(pickle.load(Path.open('data.pkl', 'rb'))).transpose()
+    with Path('data.pkl').open('rb') as f:
+        data = np.array(pickle.load(f)).transpose()  # noqa: S301
     plt.hist2d(*data, bins=100, cmap='gist_heat_r')
     plt.xlabel('x')
     plt.ylabel('y')
@@ -31,11 +32,13 @@ if __name__ == '__main__':
 
     print('Plotting traces (no burn-in)...')
     parameter_labels = [r'$\mu_0$', r'$\mu_1$', r'$\Sigma_{00}$', r'$\Sigma_{01}$', r'$\Sigma_{11}$']
-    fit_result_data = pickle.load(Path.open('fit.pkl', 'rb'))
+    with Path('fit.pkl').open('rb') as f:
+        fit_result_data = pickle.load(f)  # noqa: S301
     truths = np.array(fit_result_data[0])
     fit_result = np.array(fit_result_data[1])
     fit_result_err = np.array(fit_result_data[2])
-    chain, burn = pickle.load(Path.open('chain.pkl', 'rb'))
+    with Path('chain.pkl').open('rb') as f:
+        chain, burn = pickle.load(f)  # noqa: S301
     chain = np.array(chain)
     n_walkers, n_steps, n_parameters = chain.shape
     _, ax = plt.subplots(nrows=n_parameters, sharex=True, figsize=(10, 50))
@@ -71,7 +74,8 @@ if __name__ == '__main__':
 
     print('Plotting corner plot...')
     ci = 68.27
-    flat_chain = np.array(pickle.load(Path.open('flat_chain.pkl', 'rb')))
+    with Path('flat_chain.pkl').open('rb') as f:
+        flat_chain = np.array(pickle.load(f))  # noqa: S301
     fig = corner(
         flat_chain,
         labels=parameter_labels,
