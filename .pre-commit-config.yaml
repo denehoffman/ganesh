@@ -1,0 +1,44 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all
+        language: system
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets
+        language: system
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy (python)
+        entry: cargo clippy --all-targets -F python
+        language: system
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test
+        language: system
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test (python)
+        entry: cargo test -F python
+        language: system
+        pass_filenames: false
+      - id: ty
+        name: ty
+        entry: ty check
+        language: system
+        pass_filenames: false
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.0
+    hooks:
+      - id: ruff-check
+        args: [ --fix ]
+      - id: ruff-format
+  - repo: https://github.com/denehoffman/yamloom
+    rev: yamloom-v0.5.5
+    hooks:
+      - id: yamloom-sync
+        files: ^(\.github/workflows/.*\.ya?ml|\.yamloom\.py)$

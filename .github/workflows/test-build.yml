@@ -1,0 +1,290 @@
+---
+name: Build ganesh-rs (Python)
+"on": workflow_dispatch
+jobs:
+  linux:
+    name: Build Linux Wheels
+    permissions:
+      contents: read
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: armv7
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: s390x
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: ppc64le
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: 2_28
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+  musllinux:
+    name: Build (musl) Linux Wheels
+    permissions:
+      contents: read
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: armv7
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: musllinux_1_2
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+  windows:
+    name: Build Windows Wheels
+    permissions:
+      contents: read
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: windows-latest
+            target: x64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: x64
+          - runner: windows-latest
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: x86
+          - runner: windows-11-arm
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: arm64
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+          architecture: ${{ matrix.platform.python_arch }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+  macos:
+    name: Build macOS Wheels
+    permissions:
+      contents: read
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-15-intel
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: macos-latest
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+  sdist:
+    name: Build Source Distribution
+    permissions:
+      contents: read
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: "--out dist"
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: sdist

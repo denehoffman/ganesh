@@ -1,0 +1,385 @@
+---
+name: Build and Release ganesh-rs (Python)
+"on":
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  workflow_dispatch: ~
+jobs:
+  build-check-test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+      - name: Clippy
+        run: cargo clippy
+      - name: Clippy (python)
+        run: cargo clippy -F python
+      - name: Test
+        run: cargo test
+      - name: Test (python)
+        run: cargo test -F python
+      - run: |-
+          uv venv
+          . .venv/bin/activate
+          echo PATH=$PATH >> $GITHUB_ENV
+          uv pip install matplotlib corner joblib polars matplotloom pytest
+      - run: "uvx --with \"maturin[patchelf]>=1.7,<2\" maturin develop --uv"
+      - run: uvx ruff check . --extend-exclude=.yamloom.py
+      - run: uvx ty check . --exclude=.yamloom.py
+      - run: uv run pytest
+  linux:
+    name: Build Linux Wheels
+    permissions:
+      contents: read
+    needs:
+      - build-check-test
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: armv7
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: s390x
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: ppc64le
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: 2_28
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: linux-${{ matrix.platform.target }}
+  musllinux:
+    name: Build (musl) Linux Wheels
+    permissions:
+      contents: read
+    needs:
+      - build-check-test
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: ubuntu-22.04
+            target: armv7
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: musllinux_1_2
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: musllinux-${{ matrix.platform.target }}
+  windows:
+    name: Build Windows Wheels
+    permissions:
+      contents: read
+    needs:
+      - build-check-test
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: windows-latest
+            target: x64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: x64
+          - runner: windows-latest
+            target: x86
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: x86
+          - runner: windows-11-arm
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+            python_arch: arm64
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+          architecture: ${{ matrix.platform.python_arch }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: windows-${{ matrix.platform.target }}
+  macos:
+    name: Build macOS Wheels
+    permissions:
+      contents: read
+    needs:
+      - build-check-test
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-15-intel
+            target: x86_64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+          - runner: macos-latest
+            target: aarch64
+            python_versions:
+              - "3.10"
+              - "3.11"
+              - "3.12"
+              - "3.13"
+              - 3.13t
+              - "3.14"
+              - 3.14t
+              - pypy3.11
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - run: printf "%s\n" ${{ join(matrix.platform.python_versions, ' ') }} >> version.txt
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: version.txt
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          sccache: ${{ !(startsWith(github.ref, 'ref/tags/')) }}
+          args: --release --out dist --interpreter ${{ join(matrix.platform.python_versions, ' ') }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: macos-${{ matrix.platform.target }}
+  sdist:
+    name: Build Source Distribution
+    permissions:
+      contents: read
+    needs:
+      - build-check-test
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: "--out dist"
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist
+          name: sdist
+  release:
+    name: Release
+    permissions:
+      contents: write
+      id-token: write
+    needs:
+      - linux
+      - musllinux
+      - windows
+      - macos
+      - sdist
+    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch')) }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Download Artifact
+        uses: actions/download-artifact@v7
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+      - run: uv publish --trusted-publishing always *.whl *.tar.gz

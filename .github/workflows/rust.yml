@@ -1,24 +1,42 @@
-name: Rust
-
-on: [pull_request, push]
-
+---
+name: Rust Checks
+"on":
+  - pull_request
+  - push
 env:
   CARGO_TERM_COLOR: always
-
 jobs:
-  build:
+  rust-checks:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Build
-        run: cargo build -r --verbose
-      - name: Run tests
-        run: cargo test -r --verbose
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Clippy
+        run: cargo clippy
+      - name: Clippy (python)
+        run: cargo clippy -F python
+      - name: Test
+        run: cargo test
+      - name: Test (python)
+        run: cargo test -F python
   check-readme:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Check if the README.md is up to date.
-        run: |
-          cargo install cargo-rdme
-          cargo rdme --check
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Rust Tool
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-rdme
+      - name: Check README
+        run: cargo rdme --check
