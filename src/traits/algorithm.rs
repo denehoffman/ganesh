@@ -324,7 +324,9 @@ mod tests {
             resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::TransformBounds);
 
         assert!(resolved_bounds.is_none());
-        let resolved_transform = resolved_transform.expect("transform should be composed");
+        let Some(resolved_transform) = resolved_transform else {
+            panic!("transform should be composed");
+        };
         let x = resolved_transform.to_owned_external(&DVector::from_row_slice(&[10.0]));
         assert!(x[0] >= 0.0 && x[0] <= 1.0);
     }

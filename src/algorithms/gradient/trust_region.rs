@@ -408,7 +408,7 @@ mod tests {
     struct IllConditionedQuadratic;
     impl crate::traits::CostFunction<(), Infallible> for IllConditionedQuadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-            Ok(0.5 * (x[0] * x[0] + 100.0 * x[1] * x[1]))
+            Ok(0.5 * x[0].mul_add(x[0], 100.0 * x[1] * x[1]))
         }
     }
     impl crate::traits::Gradient<(), Infallible> for IllConditionedQuadratic {

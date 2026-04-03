@@ -918,7 +918,7 @@ mod tests {
                 LBFGSB::default_callbacks()
                     .with_terminator(MaxSteps(50))
                     .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
-                    .with_terminator(CheckpointOnSignal::new(signal.clone(), move |checkpoint| {
+                    .with_terminator(CheckpointOnSignal::new(signal, move |checkpoint| {
                         store_sink.save(checkpoint);
                     })),
             )

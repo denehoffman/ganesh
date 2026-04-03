@@ -1251,7 +1251,7 @@ mod tests {
                 NelderMead::default_callbacks()
                     .with_terminator(MaxSteps(200))
                     .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
-                    .with_terminator(CheckpointOnSignal::new(signal.clone(), move |checkpoint| {
+                    .with_terminator(CheckpointOnSignal::new(signal, move |checkpoint| {
                         store_sink.save(checkpoint);
                     })),
             )
@@ -1623,12 +1623,14 @@ mod tests {
 
     #[test]
     fn diameter_terminator_uses_best_point_as_reference() {
-        let mut solver = NelderMead::default();
-        solver.simplex = Simplex::new(&[
-            point(&[1.0, 1.0], 0.0),
-            point(&[0.0, 0.0], 1.0),
-            point(&[2.0, 2.0], 2.0),
-        ]);
+        let mut solver = NelderMead {
+            simplex: Simplex::new(&[
+                point(&[1.0, 1.0], 0.0),
+                point(&[0.0, 0.0], 1.0),
+                point(&[2.0, 2.0], 2.0),
+            ]),
+            ..Default::default()
+        };
         let mut status = GradientFreeStatus::default();
 
         let terminated = NelderMeadXTerminator::Diameter { eps_abs: 1.5 }.check_for_termination(
@@ -1646,12 +1648,14 @@ mod tests {
 
     #[test]
     fn higham_terminator_uses_best_point_as_reference() {
-        let mut solver = NelderMead::default();
-        solver.simplex = Simplex::new(&[
-            point(&[10.0, 10.0], 0.0),
-            point(&[9.5, 10.0], 1.0),
-            point(&[0.0, 0.0], 2.0),
-        ]);
+        let mut solver = NelderMead {
+            simplex: Simplex::new(&[
+                point(&[10.0, 10.0], 0.0),
+                point(&[9.5, 10.0], 1.0),
+                point(&[0.0, 0.0], 2.0),
+            ]),
+            ..Default::default()
+        };
         let mut status = GradientFreeStatus::default();
 
         let terminated = NelderMeadXTerminator::Higham { eps_rel: 2.0 }.check_for_termination(

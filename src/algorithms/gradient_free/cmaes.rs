@@ -1008,9 +1008,11 @@ mod tests {
 
     #[test]
     fn test_cmaes_condition_cov_terminator_triggers() {
-        let mut solver = CMAES::default();
-        solver.mean = DVector::zeros(2);
-        solver.d_vec = dvector![1e8, 1e-1];
+        let mut solver = CMAES {
+            mean: DVector::zeros(2),
+            d_vec: dvector![1e8, 1e-1],
+            ..Default::default()
+        };
         let mut status = GradientFreeStatus::default();
         let mut terminator = CMAESConditionCovTerminator::default();
 
@@ -1029,9 +1031,11 @@ mod tests {
 
     #[test]
     fn test_cmaes_equal_fun_values_terminator_triggers_on_flat_history() {
-        let mut solver = CMAES::default();
-        solver.mean = DVector::zeros(2);
-        solver.lambda = 4;
+        let mut solver = CMAES {
+            mean: DVector::zeros(2),
+            lambda: 4,
+            ..Default::default()
+        };
         let window = solver.equal_fun_values_window();
         solver.best_history = std::iter::repeat_n(1.0, window).collect();
         let mut status = GradientFreeStatus::default();

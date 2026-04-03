@@ -187,6 +187,10 @@ pub trait Status: Clone + Default + Serialize + DeserializeOwned {
 /// allocations in the algorithm implementation.
 pub trait ProgressStatus: Status {
     /// Write a status-specific progress payload into `out`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a formatting error if writing into `out` fails.
     fn write_progress(&self, out: &mut String) -> std::fmt::Result {
         write!(out, "status={}", self.message())
     }

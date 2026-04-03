@@ -8,12 +8,12 @@ repos:
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets
+        entry: cargo clippy --all-targets -- -D warnings
         language: system
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy (python)
-        entry: cargo clippy --all-targets -F python
+        entry: cargo clippy --all-targets -F python -- -D warnings
         language: system
         pass_filenames: false
       - id: cargo-test
