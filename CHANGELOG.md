@@ -4,6 +4,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0](https://github.com/denehoffman/ganesh/compare/v0.25.1...v0.26.0) (2026-04-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove top-level rust helpers and split python init/config API
+* split algorithm init from config
+* add mixed Python package integration
+* add sampled MCMC chain retention
+* add rolling MCMC chain storage
+* simplify MCMC walker storage
+* standardize bounds handling modes
+* validate sampler walkers and custom simplex shapes
+* validate weighted MCMC move inputs
+* **Status:** This strongly types status messages and removes convergence flags in favor of matching the message type
+
+### Features
+
+* Add CMA-ES optimizer ([9ad2122](https://github.com/denehoffman/ganesh/commit/9ad2122d724031281fc88d5f679b56317d94f886))
+* Add convenience methods for gradient and gradient-free fits and MCMC sampling using reasonable default settings ([66e4561](https://github.com/denehoffman/ganesh/commit/66e456152b55c854a5a7e0f0565ab02a9172887a))
+* Add debug derives for swarm types ([ccd37eb](https://github.com/denehoffman/ganesh/commit/ccd37eb02d28aaf44f5efd8878929665fa48f9f2))
+* Add differential evolution optimizer ([166181e](https://github.com/denehoffman/ganesh/commit/166181ee35bc9d876bfdf99c0b8b06ce3b5657a6))
+* Add generic error type and use Results rather than panics in algorithm configuration ([8dc1e6a](https://github.com/denehoffman/ganesh/commit/8dc1e6a6d0a6d946d81f395cc259beb7394cf86a))
+* Add interval progress observer ([def4775](https://github.com/denehoffman/ganesh/commit/def477552d1e4523326e5bee27a40e9b14f767bc))
+* Add MCMC diagnostics helpers ([3a145ed](https://github.com/denehoffman/ganesh/commit/3a145ede40be6e2b1b4a481195bc0b7385fe5a30))
+* Add mixed Python package integration ([9050360](https://github.com/denehoffman/ganesh/commit/90503606962a3f47657247a63a04138e1a39adaf))
+* Add multistart minimization orchestration ([7b4553e](https://github.com/denehoffman/ganesh/commit/7b4553ea3ad2afcd8ef97db824cc84a3ff085a58))
+* Add nonlinear conjugate gradient optimizer ([550d493](https://github.com/denehoffman/ganesh/commit/550d493dff3724730e51a61b335c80dc768b469e))
+* Add numpy-backed python conversions ([7da54cb](https://github.com/denehoffman/ganesh/commit/7da54cbeb9b32467c5444352c3908b86323799a8))
+* Add python config schema exports ([eb92f4f](https://github.com/denehoffman/ganesh/commit/eb92f4fc46a70937fa6e5eca7499ee3d68dadca7))
+* Add python feature scaffolding ([d072c43](https://github.com/denehoffman/ganesh/commit/d072c437450121d35d2618a4e215511b34fdbe50))
+* Add python LBFGSB config wrapper ([756aaf3](https://github.com/denehoffman/ganesh/commit/756aaf322e0e95836cf68a7dbb999229ab845ca8))
+* Add python mcmc summary dict export ([9ee8b6c](https://github.com/denehoffman/ganesh/commit/9ee8b6c188dcfc75099f9cf3ff1014087d42acc0))
+* Add python mcmc summary wrapper ([d8790e0](https://github.com/denehoffman/ganesh/commit/d8790e05ac364a645685fc87003061b0e4078212))
+* Add python minimization summary dict export ([b8bcabe](https://github.com/denehoffman/ganesh/commit/b8bcabe31b6b5ab1f6e7524138a2e5569f8d09b2))
+* Add python minimization summary wrapper ([693af90](https://github.com/denehoffman/ganesh/commit/693af9099e00720ddd6329eeaf8223df2b1feb71))
+* Add python multistart summary wrapper ([cb1ef76](https://github.com/denehoffman/ganesh/commit/cb1ef7681a1c036ab00d7cc04b331209f95eaffc))
+* Add python run options wrappers ([beb34b4](https://github.com/denehoffman/ganesh/commit/beb34b4f45b7971b2c6dec58e01435e06fc65de8))
+* Add python simulated annealing config wrapper ([e722b04](https://github.com/denehoffman/ganesh/commit/e722b04205e140aa94641b1a4107f42e9e521a6a))
+* Add python simulated annealing summary exports ([d78232b](https://github.com/denehoffman/ganesh/commit/d78232bf8c2080825b9e13eca01b7a179f4d05da))
+* Add python wrappers for cmaes and differential evolution configs ([128cebf](https://github.com/denehoffman/ganesh/commit/128cebf0a123c9cbc58620f40715f50ccf2c7906))
+* Add python wrappers for core optimizer configs ([629c8b4](https://github.com/denehoffman/ganesh/commit/629c8b4a6d65ee1ce8e50dbf098cfa8bba0b2c90))
+* Add recoverable numerical helper errors ([769da30](https://github.com/denehoffman/ganesh/commit/769da304045f87644a0c7bfb111691d6fd664613))
+* Add rolling MCMC chain storage ([76f0dc3](https://github.com/denehoffman/ganesh/commit/76f0dc391dbc4ed7852260bcf73188631d48f380))
+* Add sampled MCMC chain retention ([ac6d174](https://github.com/denehoffman/ganesh/commit/ac6d174909b1bd2443d47f50a5624480bf6731ae))
+* Add scale transform helpers ([72dba5c](https://github.com/denehoffman/ganesh/commit/72dba5c20a5b5a7b9fe01e39c7a386d161e4eb5a))
+* Add step-boundary checkpoint and resume support ([1bce7f2](https://github.com/denehoffman/ganesh/commit/1bce7f2ce0ba911a687a0962062d778bd935e24d))
+* Add summary export helpers ([fe6a292](https://github.com/denehoffman/ganesh/commit/fe6a2927179852e268f0f9f964d2c811639fefc7))
+* Add trust-region optimizer ([23b611f](https://github.com/denehoffman/ganesh/commit/23b611fe4f8385add6ad49fa951eeebdea22c384))
+* Add typed python error mapping ([2fdd5b9](https://github.com/denehoffman/ganesh/commit/2fdd5b937c7bd598e133fa7199889f86f2798de5))
+* Propagate parameter names from config ([54cc088](https://github.com/denehoffman/ganesh/commit/54cc0885e88ba03c7b821afd8046bd706f1ba022))
+* Standardize bounds handling modes ([6f97c00](https://github.com/denehoffman/ganesh/commit/6f97c004acc0c02d3ef1d52c1f36db22e256d32b))
+* **Status:** Replace status String with a StatusMessage type and remove convergence fields in favor of StatusMessage::success() ([a28a3a3](https://github.com/denehoffman/ganesh/commit/a28a3a33523d1146188f234260236d3dd77282c3))
+
+
+### Bug Fixes
+
+* **ci:** Restore release publishing workflows ([9e24122](https://github.com/denehoffman/ganesh/commit/9e241223f9cc6a160eb54bebe5b2e7d5525418e3))
+* Ensure all Status-like structs are correctly and fully reset on reset() calls ([29ee51c](https://github.com/denehoffman/ganesh/commit/29ee51c0ecfa92d5782e33d40e9e827cd7341667))
+* Faithfully record function evaluations in NM init, MCMC, and PSO init ([e14cf24](https://github.com/denehoffman/ganesh/commit/e14cf24d6d040e9cc6cd595a664bb59692ee26b4))
+* Guard ESS adaptive scaling against zero updates ([0a13ad4](https://github.com/denehoffman/ganesh/commit/0a13ad4c047a0de97784f37ee0f8d9a4f0796edb))
+* Harden bound containment and infinite sampling ([4aa3dd8](https://github.com/denehoffman/ganesh/commit/4aa3dd80d3647f14472136fff76de2b122243f14))
+* Properly compute free indices in L-BFGS-B ([589cfde](https://github.com/denehoffman/ganesh/commit/589cfdeabc8bf38725a1f1265b05ec416bf89f8c))
+* Scale volume by delta^n rather than delta^{n+1} in shrink steps for Nelder-Mead ([cb40999](https://github.com/denehoffman/ganesh/commit/cb40999d5a452812811ad603a0c913774aad950e))
+* Use best neighbor rather than worst in PSO ring topology ([32e49dd](https://github.com/denehoffman/ganesh/commit/32e49ddb82f575ccc8390e142f275a6668490aaa))
+* Use best simplex point instead of worst in Diameter and Higham x-terminator methods of Nelder-Mead ([34d9d19](https://github.com/denehoffman/ganesh/commit/34d9d199045f9b0935e3a3fa7754e13b5f6a6b68))
+* Use correct random variable draw range in PSO ([0effd12](https://github.com/denehoffman/ganesh/commit/0effd1262b9e96ec7cd08aa0de726ddea2540cf0))
+* Use correct update step in simulated annealing ([08201fe](https://github.com/denehoffman/ganesh/commit/08201fe3728af0dfaaa79b9a923e97d2745086bd))
+* Use proper sign in stretch move proposal ([bcdd5b4](https://github.com/denehoffman/ganesh/commit/bcdd5b47c688b136d507eb7eecbb9050b2014186))
+* Validate sampler walkers and custom simplex shapes ([d6b9243](https://github.com/denehoffman/ganesh/commit/d6b9243bbb3fffcb2a4d374ebdeb985aae81e2b1))
+* Validate weighted MCMC move inputs ([6ca7561](https://github.com/denehoffman/ganesh/commit/6ca75616687db714012a9bad5387e029abadcf52))
+
+
+### Performance Improvements
+
+* Add lightweight benchmark matrix ([7929116](https://github.com/denehoffman/ganesh/commit/79291162fdb1dffce61f71ed37feaa4a847a44b5))
+* Avoid walker clones in ensemble proposals ([ecdbfb3](https://github.com/denehoffman/ganesh/commit/ecdbfb3e468cb2222606f1b2691656bb700ee0fd))
+* Cache resolved Nelder-Mead bounds state ([8da188e](https://github.com/denehoffman/ganesh/commit/8da188e48aa47d0b31f53ed150facbaecba4c87e))
+* Reduce status formatting overhead in progress paths ([0462dd7](https://github.com/denehoffman/ganesh/commit/0462dd7889ecfb21e2773254e4830ac8602533a9))
+* Simplify MCMC walker storage ([7a7cdba](https://github.com/denehoffman/ganesh/commit/7a7cdba9619f4fa74ad09016f3645c5bb8c71ffe))
+* Use fused objective and derivative evaluations ([7bf83c1](https://github.com/denehoffman/ganesh/commit/7bf83c149a0e03a8e11b85577e4004ab942fb37b))
+
+
+### Code Refactoring
+
+* Remove top-level rust helpers and split python init/config API ([3f5959c](https://github.com/denehoffman/ganesh/commit/3f5959c459b7e44f330f1ab377213e411991e4b5))
+* Split algorithm init from config ([2c82cf3](https://github.com/denehoffman/ganesh/commit/2c82cf32cc0b590458e9665cc22983f2caea7f22))
+
 ## [Unreleased]
 
 ## [0.25.1](https://github.com/denehoffman/ganesh/compare/v0.25.0...v0.25.1) - 2025-10-02
