@@ -6,8 +6,12 @@ name: Release Please
       - main
 jobs:
   release-please:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
       - name: Run release-please
         uses: googleapis/release-please-action@v4
         with:

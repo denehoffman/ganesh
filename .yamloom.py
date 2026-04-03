@@ -111,6 +111,7 @@ release_please_workflow = Workflow(
         'release-please': Job(
             runs_on='ubuntu-latest',
             steps=[
+                Checkout(),
                 ReleasePlease(id='release', token=context.secrets.RELEASE_PLEASE),
                 script(
                     'cargo publish',
