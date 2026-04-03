@@ -414,7 +414,10 @@ class NelderMeadInit(_GaneshInitMixin):
     def __init__(
         self,
         x0: FloatVectorLike | None = None,
-        construction_method: ScaledOrthogonalSimplex | OrthogonalSimplex | CustomSimplex | None = None,
+        construction_method: ScaledOrthogonalSimplex
+        | OrthogonalSimplex
+        | CustomSimplex
+        | None = None,
     ) -> None:
         if x0 is not None and construction_method is not None:
             msg = 'NelderMeadInit accepts either x0 or construction_method, not both'
@@ -593,7 +596,10 @@ class AIESConfig(_GaneshConfigMixin):
         self,
         parameter_names: list[str] | None = None,
         moves: list[AIESStretchMove | AIESWalkMove] | None = None,
-        chain_storage: ChainStorageFull | ChainStorageRolling | ChainStorageSampled | None = None,
+        chain_storage: ChainStorageFull
+        | ChainStorageRolling
+        | ChainStorageSampled
+        | None = None,
     ) -> None:
         self.parameter_names = parameter_names
         self.moves = moves
@@ -654,7 +660,10 @@ class ESSConfig(_GaneshConfigMixin):
         n_adaptive: int = 0,
         max_steps: int = 10000,
         mu: float = 1.0,
-        chain_storage: ChainStorageFull | ChainStorageRolling | ChainStorageSampled | None = None,
+        chain_storage: ChainStorageFull
+        | ChainStorageRolling
+        | ChainStorageSampled
+        | None = None,
     ) -> None:
         self.parameter_names = parameter_names
         self.moves = moves

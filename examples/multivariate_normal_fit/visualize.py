@@ -22,7 +22,7 @@ from matplotloom import Loom
 if __name__ == '__main__':
     print('Plotting dataset...')
     with Path('data.pkl').open('rb') as f:
-        data = np.array(pickle.load(f)).transpose()  # noqa: S301
+        data = np.array(pickle.load(f)).transpose()
     plt.hist2d(*data, bins=100, cmap='gist_heat_r')
     plt.xlabel('x')
     plt.ylabel('y')
@@ -31,14 +31,20 @@ if __name__ == '__main__':
     plt.close()
 
     print('Plotting traces (no burn-in)...')
-    parameter_labels = [r'$\mu_0$', r'$\mu_1$', r'$\Sigma_{00}$', r'$\Sigma_{01}$', r'$\Sigma_{11}$']
+    parameter_labels = [
+        r'$\mu_0$',
+        r'$\mu_1$',
+        r'$\Sigma_{00}$',
+        r'$\Sigma_{01}$',
+        r'$\Sigma_{11}$',
+    ]
     with Path('fit.pkl').open('rb') as f:
-        fit_result_data = pickle.load(f)  # noqa: S301
+        fit_result_data = pickle.load(f)
     truths = np.array(fit_result_data[0])
     fit_result = np.array(fit_result_data[1])
     fit_result_err = np.array(fit_result_data[2])
     with Path('chain.pkl').open('rb') as f:
-        chain, burn = pickle.load(f)  # noqa: S301
+        chain, burn = pickle.load(f)
     chain = np.array(chain)
     n_walkers, n_steps, n_parameters = chain.shape
     _, ax = plt.subplots(nrows=n_parameters, sharex=True, figsize=(10, 50))
@@ -48,7 +54,13 @@ if __name__ == '__main__':
             ax[i].plot(steps[burn:], chain[j, burn:, i], color='k', alpha=0.1)
             ax[i].plot(steps[:burn], chain[j, :burn, i], color='k', ls='--', alpha=0.1)
         ax[i].plot(steps[burn:], chain[0, burn:, i], color='m', label='Walker 0')
-        ax[i].plot(steps[:burn], chain[0, :burn, i], color='m', ls='--', label='Walker 0 (burn-in)')
+        ax[i].plot(
+            steps[:burn],
+            chain[0, :burn, i],
+            color='m',
+            ls='--',
+            label='Walker 0 (burn-in)',
+        )
         ax[i].axhline(fit_result[i], color='b', label='Best fit')
         ax[i].axhline(truths[i], color='r', label='Truth')
         ax[i].set_xlabel('Step')
@@ -75,7 +87,7 @@ if __name__ == '__main__':
     print('Plotting corner plot...')
     ci = 68.27
     with Path('flat_chain.pkl').open('rb') as f:
-        flat_chain = np.array(pickle.load(f))  # noqa: S301
+        flat_chain = np.array(pickle.load(f))
     fig = corner(
         flat_chain,
         labels=parameter_labels,
@@ -99,7 +111,7 @@ if __name__ == '__main__':
         widths = np.maximum(maxs - mins, 1e-9)
         mins = mins - pad_frac * widths
         maxs = maxs + pad_frac * widths
-        return [(float(a), float(b)) for a, b in zip(mins, maxs)]
+        return [(float(a), float(b)) for a, b in zip(mins, maxs, strict=True)]
 
     def make_frame(i, chain, labels, ranges, loom):
         j0 = max(0, i - 10)
@@ -123,7 +135,8 @@ if __name__ == '__main__':
     print('Making animated corner plot...')
     with Loom('walkers_corner.gif', fps=20, parallel=True, overwrite=True) as loom:
         Parallel(n_jobs=-1, prefer='processes')(
-            delayed(make_frame)(i, burned_chain, parameter_labels, ranges, loom) for i in range(n_steps)
+            delayed(make_frame)(i, burned_chain, parameter_labels, ranges, loom)
+            for i in range(n_steps)
         )
 
     parameter_labels_unicode = ['μ₀', 'μ₁', 'Σ₀₀', 'Σ₀₁', 'Σ₁₁']
@@ -133,7 +146,10 @@ if __name__ == '__main__':
     mcmc_err_plus = hi - mid
     fit_col = [f'{v:.6g}' for v in fit_result]
     cov_col = [f'±{e:.3g}' for e in fit_result_err]
-    mcmc_col = [f'-{em:.3g} / +{ep:.3g}' for em, ep in zip(mcmc_err_minus, mcmc_err_plus)]
+    mcmc_col = [
+        f'-{em:.3g} / +{ep:.3g}'
+        for em, ep in zip(mcmc_err_minus, mcmc_err_plus, strict=True)
+    ]
     truth_col = [f'{t:.6g}' for t in truths]
     print('Summary')
     print(

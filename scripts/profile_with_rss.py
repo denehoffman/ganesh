@@ -6,12 +6,12 @@ import time
 
 
 def main() -> int:
-    if len(sys.argv) < 2:  # noqa: PLR2004
+    if len(sys.argv) < 2:
         print('usage: profile_with_rss.py <command> [args...]', file=sys.stderr)
         return 2
 
     start = time.perf_counter()
-    completed = subprocess.run(sys.argv[1:], check=False)  # noqa: S603
+    completed = subprocess.run(sys.argv[1:], check=False)
     elapsed = time.perf_counter() - start
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
 

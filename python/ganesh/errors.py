@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 try:
-    from ._ganesh import GaneshConfigError, GaneshError, GaneshNumericalError  # ty:ignore[unresolved-import]
+    from ._ganesh import (  # ty:ignore[unresolved-import]
+        GaneshConfigError,
+        GaneshError,
+        GaneshNumericalError,
+    )
 except ImportError:
 
     class GaneshError(Exception):

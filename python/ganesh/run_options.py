@@ -492,7 +492,9 @@ class LBFGSBOptions(_GaneshRunOptionsMixin):
         progress_every: int | None = None,
         f_tolerance: LBFGSBFTerminator | DefaultType | None = Default,
         g_tolerance: LBFGSBGTerminator | DefaultType | None = Default,
-        projected_gradient_tolerance: LBFGSBInfNormGTerminator | DefaultType | None = Default,
+        projected_gradient_tolerance: LBFGSBInfNormGTerminator
+        | DefaultType
+        | None = Default,
     ) -> None:
         self.max_steps = max_steps
         self.debug = debug
@@ -925,7 +927,9 @@ class SimulatedAnnealingOptions(_GaneshRunOptionsMixin):
         max_steps: int | None = None,
         debug: bool = False,
         progress_every: int | None = None,
-        temperature: SimulatedAnnealingTemperatureTerminator | DefaultType | None = Default,
+        temperature: SimulatedAnnealingTemperatureTerminator
+        | DefaultType
+        | None = Default,
     ) -> None:
         self.max_steps = max_steps
         self.debug = debug

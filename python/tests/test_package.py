@@ -1,4 +1,3 @@
-# ruff: noqa: S101, INP001, PLR2004
 from __future__ import annotations
 
 import inspect
@@ -9,7 +8,7 @@ import ganesh.config as ganesh_config
 import ganesh.errors as ganesh_errors
 import ganesh.run_options as ganesh_run_options
 import numpy as np
-import pytest  # ty:ignore[unresolved-import]
+import pytest
 
 
 def test_package_exports_expected_symbols() -> None:
@@ -99,7 +98,7 @@ def test_package_exports_expected_symbols() -> None:
     assert isinstance(ganesh.__version__, str)  # ty:ignore[possibly-missing-attribute]
 
 
-def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
+def test_package_reexports_match_submodules() -> None:
     assert ganesh.GaneshError is ganesh_errors.GaneshError
     assert ganesh.GaneshConfigError is ganesh_errors.GaneshConfigError
     assert ganesh.GaneshNumericalError is ganesh_errors.GaneshNumericalError
@@ -123,27 +122,69 @@ def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
     assert ganesh.ConjugateGradientConfig is ganesh_config.ConjugateGradientConfig
     assert ganesh.TrustRegionConfig is ganesh_config.TrustRegionConfig
 
-    assert ganesh.AutocorrelationTerminator is ganesh_run_options.AutocorrelationTerminator
+    assert (
+        ganesh.AutocorrelationTerminator is ganesh_run_options.AutocorrelationTerminator
+    )
     assert ganesh.LBFGSBFTerminator is ganesh_run_options.LBFGSBFTerminator
     assert ganesh.LBFGSBGTerminator is ganesh_run_options.LBFGSBGTerminator
     assert ganesh.LBFGSBInfNormGTerminator is ganesh_run_options.LBFGSBInfNormGTerminator
-    assert ganesh.NelderMeadAmoebaFTerminator is ganesh_run_options.NelderMeadAmoebaFTerminator
-    assert ganesh.NelderMeadAbsoluteFTerminator is ganesh_run_options.NelderMeadAbsoluteFTerminator
-    assert ganesh.NelderMeadStdDevFTerminator is ganesh_run_options.NelderMeadStdDevFTerminator
-    assert ganesh.NelderMeadDiameterXTerminator is ganesh_run_options.NelderMeadDiameterXTerminator
-    assert ganesh.NelderMeadHighamXTerminator is ganesh_run_options.NelderMeadHighamXTerminator
-    assert ganesh.NelderMeadRowanXTerminator is ganesh_run_options.NelderMeadRowanXTerminator
-    assert ganesh.NelderMeadSingerXTerminator is ganesh_run_options.NelderMeadSingerXTerminator
+    assert (
+        ganesh.NelderMeadAmoebaFTerminator
+        is ganesh_run_options.NelderMeadAmoebaFTerminator
+    )
+    assert (
+        ganesh.NelderMeadAbsoluteFTerminator
+        is ganesh_run_options.NelderMeadAbsoluteFTerminator
+    )
+    assert (
+        ganesh.NelderMeadStdDevFTerminator
+        is ganesh_run_options.NelderMeadStdDevFTerminator
+    )
+    assert (
+        ganesh.NelderMeadDiameterXTerminator
+        is ganesh_run_options.NelderMeadDiameterXTerminator
+    )
+    assert (
+        ganesh.NelderMeadHighamXTerminator
+        is ganesh_run_options.NelderMeadHighamXTerminator
+    )
+    assert (
+        ganesh.NelderMeadRowanXTerminator is ganesh_run_options.NelderMeadRowanXTerminator
+    )
+    assert (
+        ganesh.NelderMeadSingerXTerminator
+        is ganesh_run_options.NelderMeadSingerXTerminator
+    )
     assert ganesh.AdamEMATerminator is ganesh_run_options.AdamEMATerminator
-    assert ganesh.ConjugateGradientGTerminator is ganesh_run_options.ConjugateGradientGTerminator
+    assert (
+        ganesh.ConjugateGradientGTerminator
+        is ganesh_run_options.ConjugateGradientGTerminator
+    )
     assert ganesh.TrustRegionGTerminator is ganesh_run_options.TrustRegionGTerminator
-    assert ganesh.SimulatedAnnealingTemperatureTerminator is ganesh_run_options.SimulatedAnnealingTemperatureTerminator
+    assert (
+        ganesh.SimulatedAnnealingTemperatureTerminator
+        is ganesh_run_options.SimulatedAnnealingTemperatureTerminator
+    )
     assert ganesh.CMAESSigmaTerminator is ganesh_run_options.CMAESSigmaTerminator
-    assert ganesh.CMAESNoEffectAxisTerminator is ganesh_run_options.CMAESNoEffectAxisTerminator
-    assert ganesh.CMAESNoEffectCoordTerminator is ganesh_run_options.CMAESNoEffectCoordTerminator
-    assert ganesh.CMAESConditionCovTerminator is ganesh_run_options.CMAESConditionCovTerminator
-    assert ganesh.CMAESEqualFunValuesTerminator is ganesh_run_options.CMAESEqualFunValuesTerminator
-    assert ganesh.CMAESStagnationTerminator is ganesh_run_options.CMAESStagnationTerminator
+    assert (
+        ganesh.CMAESNoEffectAxisTerminator
+        is ganesh_run_options.CMAESNoEffectAxisTerminator
+    )
+    assert (
+        ganesh.CMAESNoEffectCoordTerminator
+        is ganesh_run_options.CMAESNoEffectCoordTerminator
+    )
+    assert (
+        ganesh.CMAESConditionCovTerminator
+        is ganesh_run_options.CMAESConditionCovTerminator
+    )
+    assert (
+        ganesh.CMAESEqualFunValuesTerminator
+        is ganesh_run_options.CMAESEqualFunValuesTerminator
+    )
+    assert (
+        ganesh.CMAESStagnationTerminator is ganesh_run_options.CMAESStagnationTerminator
+    )
     assert ganesh.CMAESTolXUpTerminator is ganesh_run_options.CMAESTolXUpTerminator
     assert ganesh.CMAESTolFunTerminator is ganesh_run_options.CMAESTolFunTerminator
     assert ganesh.CMAESTolXTerminator is ganesh_run_options.CMAESTolXTerminator
@@ -151,14 +192,19 @@ def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
     assert ganesh.LBFGSBOptions is ganesh_run_options.LBFGSBOptions
     assert ganesh.NelderMeadOptions is ganesh_run_options.NelderMeadOptions
     assert ganesh.PSOOptions is ganesh_run_options.PSOOptions
-    assert ganesh.DifferentialEvolutionOptions is ganesh_run_options.DifferentialEvolutionOptions
+    assert (
+        ganesh.DifferentialEvolutionOptions
+        is ganesh_run_options.DifferentialEvolutionOptions
+    )
     assert ganesh.AIESOptions is ganesh_run_options.AIESOptions
     assert ganesh.ESSOptions is ganesh_run_options.ESSOptions
     assert ganesh.CMAESOptions is ganesh_run_options.CMAESOptions
     assert ganesh.AdamOptions is ganesh_run_options.AdamOptions
     assert ganesh.ConjugateGradientOptions is ganesh_run_options.ConjugateGradientOptions
     assert ganesh.TrustRegionOptions is ganesh_run_options.TrustRegionOptions
-    assert ganesh.SimulatedAnnealingOptions is ganesh_run_options.SimulatedAnnealingOptions
+    assert (
+        ganesh.SimulatedAnnealingOptions is ganesh_run_options.SimulatedAnnealingOptions
+    )
     assert ganesh.MinimizationSummary is native.MinimizationSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.MCMCSummary is native.MCMCSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.MultiStartSummary is native.MultiStartSummary  # ty:ignore[possibly-missing-attribute]
@@ -240,7 +286,7 @@ def test_mcmc_summary_chain_and_diagnostics_use_keyword_only_options() -> None:
         summary.chain(1)
 
     with pytest.raises(TypeError):
-        summary.chain(None, None, True)  # noqa: FBT003
+        summary.chain(None, None, True)
 
     with pytest.raises(TypeError):
         summary.diagnostics(1, 1)
@@ -266,8 +312,8 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
 
     runs = summary.runs
     assert len(runs) == 2
-    assert isinstance(runs[0], ganesh.MinimizationSummary)
-    assert isinstance(summary.best_run, ganesh.MinimizationSummary)
+    assert isinstance(runs[0], ganesh.MinimizationSummary)  # ty:ignore[possibly-missing-attribute]
+    assert isinstance(summary.best_run, ganesh.MinimizationSummary)  # ty:ignore[possibly-missing-attribute]
     assert summary.best_run.fx == 1.25
 
     exported = summary.to_dict()
