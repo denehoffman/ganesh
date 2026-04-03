@@ -13,3 +13,7 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE }}
         id: release
+      - if: ${{ fromJSON(steps.release.outputs.releases_created) }}
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

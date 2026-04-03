@@ -112,6 +112,13 @@ release_please_workflow = Workflow(
             runs_on='ubuntu-latest',
             steps=[
                 ReleasePlease(id='release', token=context.secrets.RELEASE_PLEASE),
+                script(
+                    'cargo publish',
+                    condition=ReleasePlease.releases_created(
+                        'release'
+                    ).from_json_to_bool(),
+                    env={'CARGO_REGISTRY_TOKEN': context.secrets.CARGO_REGISTRY_TOKEN},
+                ),
             ],
         )
     },
@@ -311,7 +318,7 @@ python_release_workflow = Workflow(
             environment=Environment('pypi'),
             steps=[
                 Checkout(),
-                DownloadArtifact(),
+                DownloadArtifact(merge_multiple=True),
                 SetupUV(),
                 script(
                     'uv publish --trusted-publishing always *.whl *.tar.gz',
