@@ -233,9 +233,13 @@ TARGET_JOBS = [
         'Build Windows Wheels',
         'windows',
         [
-            Target('windows-latest', 'x64'),
-            Target('windows-latest', 'x86'),
-            Target('windows-11-arm', 'aarch64'),
+            Target('windows-latest', 'x64', skip_python_versions=['pypy3.11']),
+            Target('windows-latest', 'x86', skip_python_versions=['pypy3.11']),
+            Target(
+                'windows-11-arm',
+                'aarch64',
+                skip_python_versions=['3.10', '3.11', '3.13t', '3.14t', 'pypy3.11'],
+            ),
         ],
     ),
     TargetJob(
