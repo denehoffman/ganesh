@@ -3,8 +3,8 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "ganesh"
-description = "Function minimization in Rust, simplified"
+name = "ganesh-rs"
+description = "Helper library for the ganesh Rust crate"
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["version"]
