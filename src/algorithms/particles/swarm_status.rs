@@ -1,7 +1,7 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmPositionInitializer},
     core::Point,
-    traits::{Status, StatusMessage},
+    traits::{ProgressStatus, Status, StatusMessage},
     DVector, Float,
 };
 use serde::{Deserialize, Serialize};
@@ -55,5 +55,18 @@ impl Status for SwarmStatus {
 
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
+    }
+}
+
+impl ProgressStatus for SwarmStatus {
+    fn write_progress(&self, out: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
+        write!(
+            out,
+            "status={} gbest_fx={} n_f_evals={}",
+            self.message,
+            self.gbest.fx.unwrap_or(Float::NAN),
+            self.n_f_evals
+        )
     }
 }

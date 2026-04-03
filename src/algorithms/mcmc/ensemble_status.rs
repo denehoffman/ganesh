@@ -1,7 +1,7 @@
 use crate::{
     algorithms::mcmc::Walker,
     core::{mcmc_diagnostics::integrated_autocorrelation_times, Point},
-    traits::{LogDensity, Status, StatusMessage, Transform},
+    traits::{LogDensity, ProgressStatus, Status, StatusMessage, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -239,3 +239,5 @@ impl Status for EnsembleStatus {
         &mut self.message
     }
 }
+
+impl ProgressStatus for EnsembleStatus {}

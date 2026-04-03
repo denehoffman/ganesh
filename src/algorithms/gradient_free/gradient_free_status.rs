@@ -1,5 +1,5 @@
 use crate::{
-    traits::{Status, StatusMessage},
+    traits::{ProgressStatus, Status, StatusMessage},
     DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,12 @@ impl GradientFreeStatus {
         self.x = pos.0;
         self.fx = pos.1;
     }
+    /// Updates the [`GradientFreeStatus::x`] and [`GradientFreeStatus::fx`] fields without
+    /// touching the status message.
+    pub fn set_position_silent(&mut self, pos: (DVector<Float>, Float)) {
+        self.x = pos.0;
+        self.fx = pos.1;
+    }
     /// Increments [`GradientFreeStatus::n_f_evals`] by `1`.
     pub fn inc_n_f_evals(&mut self) {
         self.n_f_evals += 1;
@@ -81,5 +87,12 @@ impl GradientFreeStatus {
             self.err = Some(cov_mat.diagonal().map(Float::sqrt));
         }
         self.cov = covariance;
+    }
+}
+
+impl ProgressStatus for GradientFreeStatus {
+    fn write_progress(&self, out: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
+        write!(out, "status={} fx={}", self.message, self.fx)
     }
 }

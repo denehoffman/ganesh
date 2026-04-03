@@ -30,7 +30,7 @@ use crate::{
     python::extract::{
         extract_optional_field, extract_optional_one_or_many_field, resolve_protocol,
     },
-    traits::{Algorithm, CostFunction, Gradient, LogDensity, Status},
+    traits::{Algorithm, CostFunction, Gradient, LogDensity, ProgressStatus, Status},
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ fn apply_common_callbacks<A, P, S, U, E, C>(
 ) -> Callbacks<A, P, S, U, E, C>
 where
     A: Algorithm<P, S, U, E, Config = C>,
-    S: Status + std::fmt::Debug,
+    S: Status + ProgressStatus + std::fmt::Debug,
     U: std::fmt::Debug,
 {
     if let Some(max_steps) = max_steps {

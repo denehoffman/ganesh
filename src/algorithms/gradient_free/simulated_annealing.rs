@@ -2,8 +2,8 @@ use crate::{
     core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, GenericCostFunction, Status, StatusMessage, SupportsTransform, Terminator,
-        Transform,
+        Algorithm, GenericCostFunction, ProgressStatus, Status, StatusMessage, SupportsTransform,
+        Terminator, Transform,
     },
     Float,
 };
@@ -153,6 +153,23 @@ where
 
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
+    }
+}
+
+impl<I> ProgressStatus for SimulatedAnnealingStatus<I>
+where
+    I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
+{
+    fn write_progress(&self, out: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
+        write!(
+            out,
+            "status={} temperature={} best_fx={} current_fx={}",
+            self.message,
+            self.temperature,
+            self.best.fx.unwrap_or(Float::NAN),
+            self.current.fx.unwrap_or(Float::NAN)
+        )
     }
 }
 

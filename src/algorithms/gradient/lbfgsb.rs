@@ -282,6 +282,7 @@ pub struct LBFGSB {
     g: DVector<Float>,
     l: DVector<Float>,
     u: DVector<Float>,
+    resolved_transform: Option<Box<dyn Transform>>,
     m_mat: Option<LU<Float, Dyn, Dyn>>,
     w_mat: DMatrix<Float>,
     theta: Float,
@@ -326,6 +327,7 @@ impl Default for LBFGSB {
             g: Default::default(),
             l: Default::default(),
             u: Default::default(),
+            resolved_transform: Default::default(),
             m_mat: Default::default(),
             w_mat: Default::default(),
             theta: 1.0,
@@ -602,10 +604,11 @@ where
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         let internal_bounds = bounds.map(|b| b.apply(&transform));
+        self.resolved_transform = transform;
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         self.line_search = config.line_search.clone();
-        let x0 = transform.to_internal(init);
+        let x0 = self.resolved_transform.to_internal(init);
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = &internal_bounds {
@@ -630,11 +633,11 @@ where
                 x0[i]
             }
         });
-        let t_problem = TransformedProblem::new(problem, &transform);
+        let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
         (self.f, self.g) = t_problem.evaluate_with_gradient(&self.x, args)?;
         status.inc_n_f_evals();
         status.inc_n_g_evals();
-        status.initialize((transform.to_owned_external(&self.x), self.f));
+        status.initialize_silent((self.resolved_transform.to_owned_external(&self.x), self.f));
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = None;
         Ok(())
@@ -648,9 +651,7 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let t_problem = TransformedProblem::new(problem, &transform);
+        let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d, config.max_step);
         if let Ok(LineSearchOutput {
@@ -679,7 +680,7 @@ where
             }
             self.g = grad_kp1_vec;
             self.f = f_kp1;
-            status.set_position((transform.to_owned_external(&self.x), f_kp1));
+            status.set_position_silent((self.resolved_transform.to_owned_external(&self.x), f_kp1));
         } else {
             // reboot
             self.s_store.clear();
@@ -700,13 +701,7 @@ where
     ) -> Result<(), E> {
         match config.error_mode {
             LBFGSBErrorMode::ExactHessian => {
-                let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-                    resolve_bounds_and_transform(
-                        &config.bounds,
-                        &config.transform,
-                        config.bounds_handling,
-                    );
-                let t_problem = TransformedProblem::new(problem, &transform);
+                let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
                 let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
                 status.inc_n_g_evals();
                 status.inc_n_h_evals();
@@ -751,6 +746,7 @@ where
         self.g = Default::default();
         self.l = Default::default();
         self.u = Default::default();
+        self.resolved_transform = Default::default();
         self.m_mat = Default::default();
         self.w_mat = Default::default();
         self.theta = 1.0;
@@ -807,6 +803,9 @@ where
         self.f_previous = checkpoint.f_previous;
         self.y_store = checkpoint.y_store.clone();
         self.s_store = checkpoint.s_store.clone();
+        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        self.resolved_transform = transform;
         self.line_search = config.line_search.clone();
         if self.s_store.is_empty() {
             self.w_mat = DMatrix::zeros(self.x.len(), 1);

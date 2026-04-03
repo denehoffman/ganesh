@@ -1,5 +1,8 @@
-use crate::traits::{Algorithm, Observer, Status, Terminator};
-use std::{fmt::Debug, ops::ControlFlow};
+use crate::traits::{Algorithm, Observer, ProgressStatus, Status, Terminator};
+use std::{
+    fmt::{Debug, Write},
+    ops::ControlFlow,
+};
 
 enum CallbackLike<A, P, S, U, E, C> {
     Terminator(Box<dyn Terminator<A, P, S, U, E, C>>),
@@ -183,6 +186,7 @@ where
 pub struct ProgressObserver {
     interval: usize,
     emitted_lines: usize,
+    line_buffer: String,
 }
 
 impl ProgressObserver {
@@ -191,6 +195,7 @@ impl ProgressObserver {
         Self {
             interval: interval.max(1),
             emitted_lines: 0,
+            line_buffer: String::new(),
         }
     }
 
@@ -207,10 +212,6 @@ impl ProgressObserver {
     const fn should_emit(&self, current_step: usize) -> bool {
         current_step % self.interval == 0
     }
-
-    fn format_line<S: Status>(current_step: usize, status: &S) -> String {
-        format!("step={} status={}", current_step, status.message())
-    }
 }
 
 impl Default for ProgressObserver {
@@ -222,7 +223,7 @@ impl Default for ProgressObserver {
 impl<A, P, S, U, E, C> Observer<A, P, S, U, E, C> for ProgressObserver
 where
     A: Algorithm<P, S, U, E, Config = C>,
-    S: Status,
+    S: ProgressStatus,
 {
     fn observe(
         &mut self,
@@ -234,7 +235,10 @@ where
         _config: &C,
     ) {
         if self.should_emit(current_step) {
-            println!("{}", Self::format_line(current_step, status));
+            self.line_buffer.clear();
+            let _ = write!(&mut self.line_buffer, "step={} ", current_step);
+            let _ = status.write_progress(&mut self.line_buffer);
+            println!("{}", self.line_buffer);
             self.emitted_lines += 1;
         }
     }
@@ -243,7 +247,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::{StatusMessage, StatusType};
+    use crate::traits::{ProgressStatus, StatusMessage, StatusType};
     use serde::{Deserialize, Serialize};
     use std::{cell::RefCell, convert::Infallible, rc::Rc};
 
@@ -265,6 +269,8 @@ mod tests {
             &mut self.message
         }
     }
+
+    impl ProgressStatus for DummyStatus {}
 
     #[derive(Default)]
     struct DummyAlgorithm;
@@ -322,7 +328,9 @@ mod tests {
             },
         };
         status.set_message().step_with_message("EXPAND");
-        let line = ProgressObserver::format_line(7, &status);
+        let mut line = String::new();
+        write!(&mut line, "step={} ", 7).unwrap();
+        status.write_progress(&mut line).unwrap();
 
         assert_eq!(line, "step=7 status=Step: EXPAND");
     }

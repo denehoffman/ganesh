@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -181,4 +181,13 @@ pub trait Status: Clone + Default + Serialize + DeserializeOwned {
     fn message(&self) -> &StatusMessage;
     /// Sets the message of the minimization.
     fn set_message(&mut self) -> &mut StatusMessage;
+}
+
+/// A trait for statuses that can render a concise progress line without forcing per-step
+/// allocations in the algorithm implementation.
+pub trait ProgressStatus: Status {
+    /// Write a status-specific progress payload into `out`.
+    fn write_progress(&self, out: &mut String) -> std::fmt::Result {
+        write!(out, "status={}", self.message())
+    }
 }

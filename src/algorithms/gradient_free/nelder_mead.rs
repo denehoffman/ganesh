@@ -869,6 +869,7 @@ pub struct NelderMead {
     simplex: Simplex,
     internal_bounds: Option<Bounds>,
     resolved_transform: Option<Box<dyn Transform>>,
+    initial_x0: DVector<Float>,
 }
 
 /// A step-boundary checkpoint for the [`NelderMead`] algorithm.
@@ -876,6 +877,8 @@ pub struct NelderMead {
 pub struct NelderMeadCheckpoint {
     /// The internal simplex state.
     pub simplex: Simplex,
+    /// The original starting point used for summary output.
+    pub initial_x0: DVector<Float>,
     /// The saved gradient-free status.
     pub status: GradientFreeStatus,
     /// The next step index to execute when resuming.
@@ -908,6 +911,7 @@ where
             args,
         )?;
         status.n_f_evals += self.simplex.size();
+        self.initial_x0 = init.starting_point();
         status.initialize(self.simplex.best_position(&self.resolved_transform));
         Ok(())
     }
@@ -937,7 +941,6 @@ where
             // it should go. We have to do a sort, but it should be quick since most of the simplex
             // is already sorted.
             self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.set_position(self.simplex.best_position(&self.resolved_transform));
             status.set_message().step_with_message("REFLECT");
             self.simplex.scale_volume(config.alpha);
             return Ok(());
@@ -953,20 +956,20 @@ where
             let mut xe = Point::from(xex);
             xe.evaluate_transformed(problem, &self.resolved_transform, args)?;
             status.inc_n_f_evals();
-            self.simplex.insert_sorted(
-                0,
-                match config.expansion_method {
-                    SimplexExpansionMethod::GreedyMinimization => {
-                        if xe < xr {
-                            xe
-                        } else {
-                            xr
-                        }
+            let accepted = match config.expansion_method {
+                SimplexExpansionMethod::GreedyMinimization => {
+                    if xe < xr {
+                        xe
+                    } else {
+                        xr
                     }
-                    SimplexExpansionMethod::GreedyExpansion => xe,
-                },
-            );
-            status.set_position(self.simplex.best_position(&self.resolved_transform));
+                }
+                SimplexExpansionMethod::GreedyExpansion => xe,
+            };
+            let accepted_fx = accepted.fx_checked();
+            let accepted_x = self.resolved_transform.to_owned_external(&accepted.x);
+            self.simplex.insert_sorted(0, accepted);
+            status.set_position_silent((accepted_x, accepted_fx));
             status.set_message().step_with_message("EXPAND");
             self.simplex.scale_volume(config.alpha * config.beta);
             return Ok(());
@@ -998,8 +1001,14 @@ where
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
+                        let xc_is_new_best = &xc < l;
+                        let xc_fx = xc.fx_checked();
+                        let xc_x = xc_is_new_best
+                            .then(|| self.resolved_transform.to_owned_external(&xc.x));
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&self.resolved_transform));
+                        if let Some(xc_x) = xc_x {
+                            status.set_position_silent((xc_x, xc_fx));
+                        }
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -1023,8 +1032,14 @@ where
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
+                        let xc_is_new_best = &xc < l;
+                        let xc_fx = xc.fx_checked();
+                        let xc_x = xc_is_new_best
+                            .then(|| self.resolved_transform.to_owned_external(&xc.x));
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        status.set_position(self.simplex.best_position(&self.resolved_transform));
+                        if let Some(xc_x) = xc_x {
+                            status.set_position_silent((xc_x, xc_fx));
+                        }
                     } else {
                         // Otherwise, we don't even need to update the best position, this was just
                         // a new worst or equal to second worst.
@@ -1053,7 +1068,7 @@ where
         self.simplex.sort();
         // We also need to recalculate the centroid and figure out if there's a new best position:
         self.simplex.compute_total_centroid();
-        status.set_position(self.simplex.best_position(&self.resolved_transform));
+        status.set_position_silent(self.simplex.best_position(&self.resolved_transform));
         status.set_message().step_with_message("SHRINK");
         self.simplex
             .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
@@ -1066,11 +1081,11 @@ where
         _func: &P,
         status: &GradientFreeStatus,
         _args: &U,
-        init: &Self::Init,
+        _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<MinimizationSummary, E> {
         Ok(MinimizationSummary {
-            x0: init.starting_point(),
+            x0: self.initial_x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
@@ -1100,6 +1115,7 @@ where
 
     fn reset(&mut self) {
         self.simplex = Simplex::default();
+        self.initial_x0 = DVector::default();
     }
 }
 
@@ -1112,6 +1128,7 @@ where
     fn checkpoint(&self, status: &GradientFreeStatus, next_step: usize) -> Self::Checkpoint {
         NelderMeadCheckpoint {
             simplex: self.simplex.clone(),
+            initial_x0: self.initial_x0.clone(),
             status: status.clone(),
             next_step,
         }
@@ -1127,6 +1144,7 @@ where
         self.internal_bounds = bounds.map(|b| b.apply(&transform));
         self.resolved_transform = transform;
         self.simplex = checkpoint.simplex.clone();
+        self.initial_x0 = checkpoint.initial_x0.clone();
         (checkpoint.status.clone(), checkpoint.next_step)
     }
 }
