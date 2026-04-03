@@ -146,7 +146,7 @@ impl Walker {
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> &Point<DVector<Float>> {
+    pub const fn get_latest(&self) -> &Point<DVector<Float>> {
         &self.current
     }
     /// Get a mutable reference to the most recent (current) [`Walker`]'s position
@@ -200,11 +200,11 @@ impl Walker {
         self.history.len() + usize::from(!self.current_retained)
     }
 
-    fn should_retain_current(&self) -> bool {
+    const fn should_retain_current(&self) -> bool {
         match self.chain_storage {
             ChainStorageMode::Full | ChainStorageMode::Rolling { .. } => true,
             ChainStorageMode::Sampled { keep_every, .. } => {
-                keep_every == 0 || (self.total_samples_seen - 1).is_multiple_of(keep_every)
+                keep_every == 0 || (self.total_samples_seen - 1) % keep_every == 0
             }
         }
     }

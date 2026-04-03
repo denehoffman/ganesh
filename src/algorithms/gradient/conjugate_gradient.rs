@@ -27,6 +27,10 @@ impl Default for ConjugateGradientGTerminator {
 
 impl ConjugateGradientGTerminator {
     /// Generate a new [`ConjugateGradientGTerminator`] with a given absolute tolerance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eps_abs` is not strictly positive.
     pub fn new(eps_abs: Float) -> GaneshResult<Self> {
         if eps_abs <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -88,7 +92,7 @@ pub enum ConjugateGradientUpdate {
 }
 
 /// Configuration for the [`ConjugateGradient`] algorithm.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ConjugateGradientConfig {
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
@@ -112,17 +116,6 @@ impl ConjugateGradientConfig {
     pub const fn with_update(mut self, update: ConjugateGradientUpdate) -> Self {
         self.update = update;
         self
-    }
-}
-
-impl Default for ConjugateGradientConfig {
-    fn default() -> Self {
-        Self {
-            parameter_names: None,
-            transform: None,
-            line_search: StrongWolfeLineSearch::default(),
-            update: ConjugateGradientUpdate::default(),
-        }
     }
 }
 

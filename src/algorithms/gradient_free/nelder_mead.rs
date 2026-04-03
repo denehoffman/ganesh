@@ -44,10 +44,7 @@ impl SimplexConstructionMethod {
     fn starting_point(&self) -> DVector<Float> {
         match self {
             Self::ScaledOrthogonal { x0, .. } | Self::Orthogonal { x0, .. } => x0.clone(),
-            Self::Custom { simplex } => simplex
-                .first()
-                .cloned()
-                .expect("Custom simplex must not be empty"),
+            Self::Custom { simplex } => simplex.first().cloned().unwrap_or_default(),
         }
     }
 
@@ -65,6 +62,10 @@ impl SimplexConstructionMethod {
     }
     /// Create a new [`SimplexConstructionMethod::ScaledOrthogonal`] with the given `x0` and
     /// custom settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if either step parameter is not strictly positive.
     pub fn custom_scaled_orthogonal<I>(
         x0: I,
         orthogonal_multiplier: Float,
@@ -102,6 +103,10 @@ impl SimplexConstructionMethod {
     }
     /// Create a new [`SimplexConstructionMethod::Orthogonal`] with the given `x0` and
     /// custom settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `simplex_size` is not strictly positive.
     pub fn custom_orthogonal<I>(x0: I, simplex_size: Float) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -117,6 +122,11 @@ impl SimplexConstructionMethod {
         })
     }
     /// Create a new [`SimplexConstructionMethod::Custom`] from the given points.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the simplex is empty, has inconsistent dimensions, or
+    /// does not contain exactly `n + 1` points for an `n`-dimensional problem.
     pub fn custom<I>(simplex: I) -> GaneshResult<Self>
     where
         I: AsRef<[DVector<Float>]>,
@@ -170,6 +180,10 @@ impl NelderMeadInit {
         }
     }
     /// Construct an initialization payload from a custom simplex.
+    ///
+    /// # Errors
+    ///
+    /// Returns any validation error raised by [`SimplexConstructionMethod::custom`].
     pub fn custom<I>(simplex: I) -> GaneshResult<Self>
     where
         I: AsRef<[DVector<Float>]>,
@@ -662,6 +676,10 @@ impl NelderMeadConfig {
         Self::default()
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not strictly positive.
     pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
         if value <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -672,6 +690,11 @@ impl NelderMeadConfig {
         Ok(self)
     }
     /// Set the expansion coefficient $`\beta`$ (default = `2`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not greater than `1` and the configured
+    /// reflection coefficient.
     pub fn with_beta(mut self, value: Float) -> GaneshResult<Self> {
         if value <= 1.0 {
             return Err(GaneshError::ConfigError(
@@ -687,7 +710,11 @@ impl NelderMeadConfig {
         self.beta = value;
         Ok(self)
     }
-    /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously
+    /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `alpha <= 0`, `beta <= 1`, or `beta <= alpha`.
     pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> GaneshResult<Self> {
         if alpha <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -710,6 +737,10 @@ impl NelderMeadConfig {
         Ok(self)
     }
     /// Set the contraction coefficient $`\gamma`$ (default = `0.5`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `(0, 1)`.
     pub fn with_gamma(mut self, value: Float) -> GaneshResult<Self> {
         if value >= 1.0 || value <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -720,6 +751,10 @@ impl NelderMeadConfig {
         Ok(self)
     }
     /// Set the shrink coefficient $`\delta`$ (default = `0.5`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `(0, 1)`.
     pub fn with_delta(mut self, value: Float) -> GaneshResult<Self> {
         if value >= 1.0 || value <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -740,6 +775,10 @@ impl NelderMeadConfig {
     /// **Table 4** in the paper for more details).
     ///
     /// [^1]: [Gao, F., Han, L. Implementing the Nelder-Mead simplex algorithm with adaptive parameters. *Comput Optim Appl* **51**, 259–277 (2012).](https://doi.org/10.1007/s10589-010-9329-3)
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `n < 1`.
     pub fn with_adaptive(mut self, n: usize) -> GaneshResult<Self> {
         if n < 1 {
             return Err(GaneshError::ConfigError(
@@ -859,7 +898,7 @@ where
     ) -> Result<(), E> {
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
+        let internal_bounds = bounds.map(|b| b.apply(&transform));
         self.internal_bounds = internal_bounds;
         self.resolved_transform = transform;
         self.simplex = init.construction_method.generate(

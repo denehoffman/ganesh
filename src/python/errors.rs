@@ -1,5 +1,6 @@
 //! Python error integration for downstream wrapper crates.
 #![allow(missing_docs)]
+#![allow(clippy::missing_errors_doc)]
 
 use pyo3::{
     create_exception,

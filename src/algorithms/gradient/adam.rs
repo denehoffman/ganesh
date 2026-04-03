@@ -80,6 +80,10 @@ impl AdamConfig {
         Self::default()
     }
     /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not strictly positive.
     pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
         if value <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -92,8 +96,12 @@ impl AdamConfig {
     /// Set the value for the hyperparameter $`\beta_1`$ (default = `0.9`).
     ///
     /// This represents the exponential decay rate of the first moment estimate, $`m`$.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `[0, 1)`.
     pub fn with_beta_1(mut self, value: Float) -> GaneshResult<Self> {
-        if value < 0.0 || value >= 1.0 {
+        if !(0.0..1.0).contains(&value) {
             return Err(GaneshError::ConfigError(
                 "beta_1 must be in the range [0, 1)".to_string(),
             ));
@@ -104,8 +112,12 @@ impl AdamConfig {
     /// Set the value for the hyperparameter $`\beta_2`$ (default = `0.999`).
     ///
     /// This represents the exponential decay rate of the second moment estimate, $`v`$.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `[0, 1)`.
     pub fn with_beta_2(mut self, value: Float) -> GaneshResult<Self> {
-        if value < 0.0 || value >= 1.0 {
+        if !(0.0..1.0).contains(&value) {
             return Err(GaneshError::ConfigError(
                 "beta_2 must be in the range [0, 1)".to_string(),
             ));
@@ -117,6 +129,10 @@ impl AdamConfig {
     ///
     /// This ensures the update does not divide by zero if the bias-corrected second raw moment
     /// estimate is zero for any parameter.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not strictly positive.
     pub fn with_epsilon(mut self, value: Float) -> GaneshResult<Self> {
         if value <= 0.0 {
             return Err(GaneshError::ConfigError(

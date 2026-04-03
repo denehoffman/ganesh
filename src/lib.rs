@@ -265,7 +265,9 @@ pub mod test_functions;
 /// Module containing `ganesh`-wide error types
 pub mod error;
 
-/// Feature-gated Python / `pyo3` wrapper support for downstream Rust crates with Python bindings.
+/// Feature-gated Python / `pyo3` wrapper support.
+///
+/// This module is intended for downstream Rust crates with Python bindings.
 #[cfg(feature = "python")]
 pub mod python;
 

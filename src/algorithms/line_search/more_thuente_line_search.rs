@@ -46,7 +46,9 @@ impl MoreThuenteLineSearch {
     }
     /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4).
     ///
-    /// Returns a config error if the condition $`0 < c_1 < c_2`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `c1` does not satisfy `0 < c1 < c2`.
     pub fn with_c1(mut self, c1: Float) -> GaneshResult<Self> {
         if !(0.0 < c1 && c1 < self.c2) {
             return Err(GaneshError::ConfigError(
@@ -58,7 +60,9 @@ impl MoreThuenteLineSearch {
     }
     /// Set the second control parameter, used in the second Wolfe condition (defaults to 0.9).
     ///
-    /// Returns a config error if the condition $`c_1 < c_2 < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `c2` does not satisfy `c1 < c2 < 1`.
     pub fn with_c2(mut self, c2: Float) -> GaneshResult<Self> {
         if !(self.c1 < c2 && c2 < 1.0) {
             return Err(GaneshError::ConfigError(
@@ -70,7 +74,9 @@ impl MoreThuenteLineSearch {
     }
     /// Set the first control parameter, used in the Armijo condition evaluation (defaults to 1e-4) and the second control parameter, used in the second Wolfe condition (defaults to 0.9) simultaneously.
     ///
-    /// Returns a config error if the condition $`0 < c_1 < c_2 < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `c1` and `c2` do not satisfy `0 < c1 < c2 < 1`.
     pub fn with_c1_c2(mut self, c1: Float, c2: Float) -> GaneshResult<Self> {
         if !(0.0 < c1 && c1 < c2 && c2 < 1.0) {
             return Err(GaneshError::ConfigError(

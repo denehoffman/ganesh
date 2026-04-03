@@ -24,6 +24,11 @@ pub trait CheckpointableAlgorithm<P, S: Status, U = (), E = Infallible>:
     ///
     /// This resumes from the saved `next_step` boundary recorded in the checkpoint rather than
     /// rerunning initialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any subsequent algorithm step, postprocessing hook, or summary
+    /// construction fails.
     fn process_from_checkpoint<C>(
         &mut self,
         problem: &P,

@@ -29,6 +29,10 @@ impl PSOConfig {
         Self::default()
     }
     /// Sets the inertial weight $`\omega`$ (default = `0.8`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
     pub fn with_omega(mut self, value: Float) -> GaneshResult<Self> {
         if value < 0.0 {
             return Err(GaneshError::ConfigError(
@@ -40,6 +44,10 @@ impl PSOConfig {
     }
     /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
     /// to move towards its personal best (default = `0.1`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
     pub fn with_c1(mut self, value: Float) -> GaneshResult<Self> {
         if value < 0.0 {
             return Err(GaneshError::ConfigError(
@@ -52,6 +60,10 @@ impl PSOConfig {
     /// Sets the social weight $`c_2`$ which controls the particle's tendency
     /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
     /// (default = `0.1`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
     pub fn with_c2(mut self, value: Float) -> GaneshResult<Self> {
         if value < 0.0 {
             return Err(GaneshError::ConfigError(

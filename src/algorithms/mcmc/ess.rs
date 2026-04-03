@@ -47,7 +47,7 @@ impl ESSMove {
         (Self::Gaussian, weight)
     }
     /// Create a new [`ESSMove::Global`] with a usage weight
-    pub fn global(weight: Float) -> WeightedESSMove {
+    pub const fn global(weight: Float) -> WeightedESSMove {
         (
             Self::Global {
                 scale: 1.0,
@@ -58,6 +58,10 @@ impl ESSMove {
         )
     }
     /// Create a new [`ESSMove::Global`] with a usage weight and custom hyperparameters
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if any provided hyperparameter is outside its valid range.
     pub fn custom_global(
         weight: Float,
         scale: Option<Float>,
@@ -285,6 +289,10 @@ impl ESSConfig {
         Self::default()
     }
     /// Set the moves for the [`ESS`] algorithm to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the provided move weights are invalid.
     pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> GaneshResult<Self> {
         validate_weighted_moves(
             &moves
@@ -308,6 +316,10 @@ impl ESSConfig {
         self
     }
     /// Set the adaptive scaling parameter, $`\mu`$ (default: `1.0`)
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `mu` is not strictly positive.
     pub fn with_mu(mut self, mu: Float) -> GaneshResult<Self> {
         if mu <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -344,6 +356,11 @@ pub struct ESSInit {
 }
 impl ESSInit {
     /// Create a new initialization payload with the starting walker positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the walker set has inconsistent dimensions or fewer than
+    /// three walkers.
     pub fn new(walkers: Vec<DVector<Float>>) -> GaneshResult<Self> {
         validate_walker_inputs(&walkers, "ESS", 3)?;
         Ok(Self { walkers })
@@ -425,7 +442,9 @@ where
         let step_type_index = self
             .rng
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .expect("ESS move weights should be validated by ESSConfig::with_moves");
+            .unwrap_or_else(|| {
+                unreachable!("ESSConfig validates that move weights contain a positive entry")
+            });
         let step_type = config.moves[step_type_index].0;
         step_type.step(
             current_step,

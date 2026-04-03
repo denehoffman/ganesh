@@ -79,7 +79,7 @@ pub fn integrated_autocorrelation_times(
 ///
 /// Split-`R-hat` follows the modern recommendation in Vehtari et al.[^Vehtari].
 ///
-/// [^Vehtari]: Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: An improved R-hat for assessing convergence of MCMC. Bayesian Analysis, 16(2), 667-718. https://doi.org/10.1214/20-BA1221
+/// [^Vehtari]: Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: An improved R-hat for assessing convergence of MCMC. Bayesian Analysis, 16(2), 667-718. <https://doi.org/10.1214/20-BA1221>
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MCMCDiagnostics {
     /// Split-`R-hat` for each parameter.
@@ -152,8 +152,8 @@ pub(crate) fn split_r_hat(chains: &[Vec<DVector<Float>>]) -> DVector<Float> {
             if w <= Float::EPSILON {
                 1.0
             } else {
-                let var_hat =
-                    ((n_samples - 1) as Float / n_samples as Float) * w + b / n_samples as Float;
+                let var_hat = ((n_samples - 1) as Float / n_samples as Float)
+                    .mul_add(w, b / n_samples as Float);
                 (var_hat / w).sqrt().max(1.0)
             }
         }),

@@ -1,4 +1,5 @@
 //! Python-facing summary export traits for downstream wrapper crates.
+#![allow(clippy::doc_markdown, clippy::missing_errors_doc)]
 
 use pyo3::{
     pyclass, pymethods,
@@ -117,7 +118,7 @@ fn flat_chain_to_python(chain: &[crate::DVector<crate::Float>]) -> Vec<Vec<crate
 /// Notes
 /// -----
 /// This wrapper is returned by Python-facing optimization APIs. Numeric vector
-/// and matrix fields are exposed as NumPy arrays.
+/// and matrix fields are exposed as `NumPy` arrays.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MinimizationSummary")]
 #[derive(Clone)]
 pub struct PyMinimizationSummary {
@@ -174,7 +175,7 @@ impl PyMinimizationSummary {
     /// -------
     /// bool
     #[getter]
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         self.summary.message.success()
     }
 
@@ -214,7 +215,7 @@ impl PyMinimizationSummary {
     /// -------
     /// float
     #[getter]
-    pub fn fx(&self) -> crate::Float {
+    pub const fn fx(&self) -> crate::Float {
         self.summary.fx
     }
 
@@ -274,7 +275,7 @@ impl From<MinimizationSummary> for PyMinimizationSummary {
 ///
 /// Notes
 /// -----
-/// Numeric arrays are exposed as NumPy arrays. Chain post-processing methods
+/// Numeric arrays are exposed as `NumPy` arrays. Chain post-processing methods
 /// use keyword-only ``burn`` and ``thin`` arguments so the retained-chain view
 /// is explicit at each call site.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MCMCSummary")]
@@ -331,7 +332,7 @@ impl PyMCMCSummary {
     /// -------
     /// bool
     #[getter]
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         self.summary.message.success()
     }
 
@@ -468,7 +469,7 @@ impl PyMultiStartSummary {
     ///
     /// Returns
     /// -------
-    /// list[MinimizationSummary]
+    /// list[`MinimizationSummary`]
     #[getter]
     pub fn runs<'py>(&self, py: Python<'py>) -> PyResult<Vec<Py<PyMinimizationSummary>>> {
         self.summary
@@ -494,7 +495,7 @@ impl PyMultiStartSummary {
     ///
     /// Returns
     /// -------
-    /// MinimizationSummary | None
+    /// `MinimizationSummary` | None
     #[getter]
     pub fn best_run<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyMinimizationSummary>>> {
         self.summary
@@ -545,7 +546,7 @@ impl From<MultiStartSummary> for PyMultiStartSummary {
 ///
 /// Notes
 /// -----
-/// Numeric vector fields are exposed as NumPy arrays.
+/// Numeric vector fields are exposed as `NumPy` arrays.
 #[pyclass(
     skip_from_py_object,
     module = "ganesh",
@@ -594,7 +595,7 @@ impl PySimulatedAnnealingSummary {
     /// -------
     /// bool
     #[getter]
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         self.summary.message.success()
     }
 
@@ -624,7 +625,7 @@ impl PySimulatedAnnealingSummary {
     /// -------
     /// float
     #[getter]
-    pub fn fx(&self) -> crate::Float {
+    pub const fn fx(&self) -> crate::Float {
         self.summary.fx
     }
 

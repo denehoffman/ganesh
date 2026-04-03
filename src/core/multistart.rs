@@ -110,34 +110,35 @@ impl RestartPolicy for FixedRestarts {
     }
 }
 
-/// Produces the algorithm, config, and callbacks for each multistart run.
+/// Produces the algorithm, init payload, config, and callbacks for each multistart run.
+pub type RestartBundle<A, P, S, U, E> = (
+    A,
+    <A as Algorithm<P, S, U, E>>::Init,
+    <A as Algorithm<P, S, U, E>>::Config,
+    Callbacks<A, P, S, U, E, <A as Algorithm<P, S, U, E>>::Config>,
+);
+
+/// Produces the algorithm, init payload, config, and callbacks for each multistart run.
 pub trait RestartFactory<A, P, S: Status, U = (), E = Infallible>: Send
 where
     A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
 {
     /// Create the next run bundle for the given `run_index`.
-    fn create(
-        &mut self,
-        run_index: usize,
-        state: &MultiStartState,
-    ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>);
+    fn create(&mut self, run_index: usize, state: &MultiStartState)
+        -> RestartBundle<A, P, S, U, E>;
 }
 
 impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
 where
     S: Status,
     A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: FnMut(
-            usize,
-            &MultiStartState,
-        ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>)
-        + Send,
+    F: FnMut(usize, &MultiStartState) -> RestartBundle<A, P, S, U, E> + Send,
 {
     fn create(
         &mut self,
         run_index: usize,
         state: &MultiStartState,
-    ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>) {
+    ) -> RestartBundle<A, P, S, U, E> {
         self(run_index, state)
     }
 }
@@ -151,6 +152,10 @@ pub const fn restart_seed(base_seed: u64, run_index: usize) -> u64 {
 ///
 /// Each run is created by `restart_factory`, and `restart_policy` decides whether the next run
 /// should be launched based on the current [`MultiStartState`].
+///
+/// # Errors
+///
+/// Returns an error if any individual run created by `restart_factory` fails.
 pub fn minimize_multistart<P, U, E, A, S, F, R>(
     problem: &P,
     user_data: &U,

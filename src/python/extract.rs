@@ -9,7 +9,7 @@ use pyo3::{
 
 use crate::error::GaneshError;
 
-pub(crate) fn resolve_protocol<'py>(
+pub(super) fn resolve_protocol<'py>(
     obj: &Bound<'py, PyAny>,
     method: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
@@ -20,7 +20,7 @@ pub(crate) fn resolve_protocol<'py>(
     }
 }
 
-pub(crate) fn get_field<'py>(
+pub(super) fn get_field<'py>(
     obj: &Bound<'py, PyAny>,
     name: &str,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
@@ -35,7 +35,7 @@ pub(crate) fn get_field<'py>(
     }
 }
 
-pub(crate) fn extract_required_field<'py, T>(obj: &Bound<'py, PyAny>, name: &str) -> PyResult<T>
+pub(super) fn extract_required_field<'py, T>(obj: &Bound<'py, PyAny>, name: &str) -> PyResult<T>
 where
     T: FromPyObjectOwned<'py>,
     for<'a> <T as pyo3::FromPyObject<'a, 'py>>::Error: Into<pyo3::PyErr>,
@@ -54,7 +54,7 @@ where
     field.extract::<T>().map_err(Into::into)
 }
 
-pub(crate) fn extract_optional_field<'py, T>(
+pub(super) fn extract_optional_field<'py, T>(
     obj: &Bound<'py, PyAny>,
     name: &str,
 ) -> PyResult<Option<T>>
@@ -68,7 +68,7 @@ where
     }
 }
 
-pub(crate) fn extract_optional_one_or_many_field<'py, T>(
+pub(super) fn extract_optional_one_or_many_field<'py, T>(
     obj: &Bound<'py, PyAny>,
     name: &str,
 ) -> PyResult<Option<Vec<T>>>
@@ -77,16 +77,15 @@ where
     for<'a> <T as pyo3::FromPyObject<'a, 'py>>::Error: Into<pyo3::PyErr>,
 {
     match get_field(obj, name)? {
-        Some(field) if !field.is_none() => {
-            if let Ok(values) = field.extract::<Vec<T>>() {
-                Ok(Some(values))
-            } else {
+        Some(field) if !field.is_none() => field.extract::<Vec<T>>().map_or_else(
+            |_| {
                 field
                     .extract::<T>()
                     .map(|value| Some(vec![value]))
                     .map_err(Into::into)
-            }
-        }
+            },
+            |values| Ok(Some(values)),
+        ),
         _ => Ok(None),
     }
 }

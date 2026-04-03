@@ -43,6 +43,10 @@ pub trait Transform: DynClone + Send + Sync {
     }
 
     /// The Jacobian of the map from external to internal coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
     #[inline]
     fn try_to_internal_jacobian(&self, x: &DVector<Float>) -> GaneshResult<DMatrix<Float>> {
         let z = self.to_internal(x);
@@ -61,6 +65,10 @@ pub trait Transform: DynClone + Send + Sync {
     }
 
     /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
     #[inline]
     fn try_to_internal_component_hessian(
         &self,

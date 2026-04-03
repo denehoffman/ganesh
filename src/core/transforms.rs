@@ -36,6 +36,11 @@ impl ScaleTransform {
     /// ```math
     /// z_i = m_i x_i,\ x_i = z_i / m_i
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `multipliers` is empty or contains non-finite or zero
+    /// values.
     pub fn from_multipliers<I>(multipliers: I) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -61,6 +66,11 @@ impl ScaleTransform {
     /// ```math
     /// z_i = x_i / s_i,\ x_i = z_i s_i
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `parameter_scales` is empty or contains non-finite or
+    /// zero values.
     pub fn from_parameter_scales<I>(parameter_scales: I) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -88,7 +98,7 @@ impl ScaleTransform {
     }
 
     /// Return the multiplicative factors used in the external-to-internal direction.
-    pub fn multipliers(&self) -> &DVector<Float> {
+    pub const fn multipliers(&self) -> &DVector<Float> {
         &self.multipliers
     }
 

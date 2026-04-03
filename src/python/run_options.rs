@@ -1,7 +1,7 @@
 //! Python-facing run-option extraction support for built-in terminators and observers.
 #![allow(missing_docs)]
 
-use pyo3::{Borrowed, FromPyObject, PyAny};
+use pyo3::{Borrowed, FromPyObject, PyAny, PyResult};
 
 use crate::{
     algorithms::{
@@ -238,15 +238,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadFTerminator {
         {
             "amoeba" => Ok(Self::Amoeba {
                 eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             "absolute" => Ok(Self::Absolute {
                 eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             "stddev" => Ok(Self::StdDev {
                 eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             other => Err(GaneshError::ConfigError(format!(
                 "unknown Nelder-Mead f terminator kind `{other}`"
@@ -287,19 +287,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadXTerminator {
         {
             "diameter" => Ok(Self::Diameter {
                 eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             "higham" => Ok(Self::Higham {
                 eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             "rowan" => Ok(Self::Rowan {
                 eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             "singer" => Ok(Self::Singer {
                 eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or(Float::EPSILON.powf(0.25)),
+                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
             }),
             other => Err(GaneshError::ConfigError(format!(
                 "unknown Nelder-Mead x terminator kind `{other}`"
@@ -604,9 +604,13 @@ pub struct PyLBFGSBOptions {
 }
 
 impl PyLBFGSBOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>
+    ) -> PyResult<Callbacks<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>>
     where
         P: Gradient<U, E>,
         U: std::fmt::Debug,
@@ -618,24 +622,17 @@ impl PyLBFGSBOptions {
             self.progress_every,
         );
         if let Some(f_tolerance) = &self.f_tolerance {
-            callbacks = callbacks.with_terminator(
-                LBFGSBFTerminator::new(f_tolerance.eps_abs)
-                    .expect("PyLBFGSBFTerminator should be validated by Python wrapper"),
-            );
+            callbacks = callbacks.with_terminator(LBFGSBFTerminator::new(f_tolerance.eps_abs)?);
         }
         if let Some(g_tolerance) = &self.g_tolerance {
-            callbacks = callbacks.with_terminator(
-                LBFGSBGTerminator::new(g_tolerance.eps_abs)
-                    .expect("PyLBFGSBGTerminator should be validated by Python wrapper"),
-            );
+            callbacks = callbacks.with_terminator(LBFGSBGTerminator::new(g_tolerance.eps_abs)?);
         }
         if let Some(projected_gradient_tolerance) = &self.projected_gradient_tolerance {
-            callbacks = callbacks.with_terminator(
-                LBFGSBInfNormGTerminator::new(projected_gradient_tolerance.eps_abs)
-                    .expect("PyLBFGSBInfNormGTerminator should be validated by Python wrapper"),
-            );
+            callbacks = callbacks.with_terminator(LBFGSBInfNormGTerminator::new(
+                projected_gradient_tolerance.eps_abs,
+            )?);
         }
-        callbacks
+        Ok(callbacks)
     }
 }
 
@@ -760,7 +757,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PyPSOOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
@@ -801,7 +798,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyPSOOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PyDifferentialEvolutionOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
@@ -1121,9 +1118,13 @@ pub struct PyConjugateGradientOptions {
 }
 
 impl PyConjugateGradientOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<ConjugateGradient, P, GradientStatus, U, E, ConjugateGradientConfig>
+    ) -> PyResult<Callbacks<ConjugateGradient, P, GradientStatus, U, E, ConjugateGradientConfig>>
     where
         P: Gradient<U, E>,
         U: std::fmt::Debug,
@@ -1135,12 +1136,10 @@ impl PyConjugateGradientOptions {
             self.progress_every,
         );
         if let Some(g_tolerance) = &self.g_tolerance {
-            callbacks = callbacks.with_terminator(
-                ConjugateGradientGTerminator::new(g_tolerance.eps_abs)
-                    .expect("PyConjugateGradientGTerminator should be validated by Python wrapper"),
-            );
+            callbacks =
+                callbacks.with_terminator(ConjugateGradientGTerminator::new(g_tolerance.eps_abs)?);
         }
-        callbacks
+        Ok(callbacks)
     }
 }
 
@@ -1175,9 +1174,13 @@ pub struct PyTrustRegionOptions {
 }
 
 impl PyTrustRegionOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<TrustRegion, P, GradientStatus, U, E, TrustRegionConfig>
+    ) -> PyResult<Callbacks<TrustRegion, P, GradientStatus, U, E, TrustRegionConfig>>
     where
         P: Gradient<U, E>,
         U: std::fmt::Debug,
@@ -1189,12 +1192,10 @@ impl PyTrustRegionOptions {
             self.progress_every,
         );
         if let Some(g_tolerance) = &self.g_tolerance {
-            callbacks = callbacks.with_terminator(
-                TrustRegionGTerminator::new(g_tolerance.eps_abs)
-                    .expect("PyTrustRegionGTerminator should be validated by Python wrapper"),
-            );
+            callbacks =
+                callbacks.with_terminator(TrustRegionGTerminator::new(g_tolerance.eps_abs)?);
         }
-        callbacks
+        Ok(callbacks)
     }
 }
 
@@ -1481,7 +1482,9 @@ mod tests {
                 .call((), Some(&kwargs))
                 .unwrap();
             let options: PyLBFGSBOptions = obj.extract().unwrap();
-            let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
+            let callbacks = options
+                .build_callbacks::<Quadratic, (), Infallible>()
+                .unwrap();
             let config = LBFGSBConfig::default();
             let _summary = LBFGSB::default()
                 .process(
@@ -1594,7 +1597,9 @@ mod tests {
                 .call((), Some(&kwargs))
                 .unwrap();
             let options: PyConjugateGradientOptions = obj.extract().unwrap();
-            let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
+            let callbacks = options
+                .build_callbacks::<Quadratic, (), Infallible>()
+                .unwrap();
             let config = ConjugateGradientConfig::default();
             let _summary = ConjugateGradient::default()
                 .process(
@@ -1630,7 +1635,9 @@ mod tests {
                 .call((), Some(&kwargs))
                 .unwrap();
             let options: PyTrustRegionOptions = obj.extract().unwrap();
-            let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
+            let callbacks = options
+                .build_callbacks::<Quadratic, (), Infallible>()
+                .unwrap();
             let config = TrustRegionConfig::default();
             let _summary = TrustRegion::default()
                 .process(

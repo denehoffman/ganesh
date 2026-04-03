@@ -204,8 +204,8 @@ impl ProgressObserver {
         self.emitted_lines
     }
 
-    fn should_emit(&self, current_step: usize) -> bool {
-        current_step.is_multiple_of(self.interval)
+    const fn should_emit(&self, current_step: usize) -> bool {
+        current_step % self.interval == 0
     }
 
     fn format_line<S: Status>(current_step: usize, status: &S) -> String {

@@ -36,6 +36,10 @@ impl AIESMove {
         (Self::Stretch { a: 2.0 }, weight)
     }
     /// Create a new [`AIESMove::Stretch`] with a usage weight and custom scaling parameter
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `a` is not strictly positive.
     pub fn custom_stretch(a: Float, weight: Float) -> GaneshResult<WeightedAIESMove> {
         if a <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -179,6 +183,10 @@ impl AIESConfig {
         Self::default()
     }
     /// Set the moves for the [`AIES`] algorithm to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the provided move weights are invalid.
     pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> GaneshResult<Self> {
         validate_weighted_moves(
             &moves
@@ -215,6 +223,11 @@ pub struct AIESInit {
 }
 impl AIESInit {
     /// Create a new initialization payload with the starting walker positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the walker set has inconsistent dimensions or fewer than
+    /// two walkers.
     pub fn new(walkers: Vec<DVector<Float>>) -> GaneshResult<Self> {
         validate_walker_inputs(&walkers, "AIES", 2)?;
         Ok(Self { walkers })
@@ -283,7 +296,9 @@ where
         let step_type_index = self
             .rng
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .expect("AIES move weights should be validated by AIESConfig::with_moves");
+            .unwrap_or_else(|| {
+                unreachable!("AIESConfig validates that move weights contain a positive entry")
+            });
         let step_type = config.moves[step_type_index].0;
         step_type.step(problem, &config.transform, args, status, &mut self.rng)
     }

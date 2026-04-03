@@ -148,7 +148,7 @@ impl StatusMessage {
         self
     }
     /// Returns `true` if the status message is [`StatusType::Success`]
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         matches!(self.status_type, StatusType::Success)
     }
 }

@@ -1,4 +1,5 @@
 //! Shared numeric conversion helpers for Python-facing wrapper types.
+#![allow(clippy::doc_markdown, clippy::missing_errors_doc)]
 
 use pyo3::{types::PyAnyMethods, Bound, PyAny, PyResult, Python};
 

@@ -1,4 +1,5 @@
 //! Machine-readable schema helpers for the pure Python config contract.
+#![allow(clippy::missing_errors_doc)]
 
 use serde::Serialize;
 
@@ -71,7 +72,7 @@ pub trait HasPyConfigSchema {
     }
 }
 
-fn field(
+const fn field(
     name: &'static str,
     kind: ConfigFieldKind,
     required: bool,

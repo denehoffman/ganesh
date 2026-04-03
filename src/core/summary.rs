@@ -45,16 +45,28 @@ pub trait SummaryExport: Display + Serialize {
     }
 
     /// Render the summary as a compact JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
     fn to_json_string(&self) -> Result<String, SerdeJsonError> {
         serde_json::to_string(self)
     }
 
     /// Render the summary as an indented JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
     fn to_json_string_pretty(&self) -> Result<String, SerdeJsonError> {
         serde_json::to_string_pretty(self)
     }
 
     /// Render the summary as both a display string and compact JSON in one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
     fn render(&self) -> Result<RenderedSummary, SerdeJsonError> {
         Ok(RenderedSummary {
             pretty: self.to_pretty_string(),
@@ -63,6 +75,10 @@ pub trait SummaryExport: Display + Serialize {
     }
 
     /// Render the summary as both a display string and indented JSON in one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to indented JSON.
     fn render_pretty_json(&self) -> Result<RenderedSummary, SerdeJsonError> {
         Ok(RenderedSummary {
             pretty: self.to_pretty_string(),

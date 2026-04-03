@@ -25,7 +25,9 @@ impl BacktrackingLineSearch {
     ///
     /// On each unsuccessful Armijo check, the step is scaled by $`\rho`$.
     ///
-    /// Returns a config error if $`0 \ge \rho`$ or $`\rho \ge 1`$.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `rho` is not in the interval `(0, 1)`.
     pub fn with_rho(mut self, rho: Float) -> GaneshResult<Self> {
         if !(0.0 < rho && rho < 1.0) {
             return Err(GaneshError::ConfigError(
@@ -40,7 +42,9 @@ impl BacktrackingLineSearch {
     ///
     /// The Armijo condition is $`\phi(\alpha) \le \phi(0) + c\,\alpha\,\phi'(0)`$.
     ///
-    /// Returns a config error if $`0 \ge c`$ or $`c \ge 1`$.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `c` is not in the interval `(0, 1)`.
     pub fn with_c(mut self, c: Float) -> GaneshResult<Self> {
         if !(0.0 < c && c < 1.0) {
             return Err(GaneshError::ConfigError(

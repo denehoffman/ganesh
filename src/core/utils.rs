@@ -71,6 +71,10 @@ pub trait SampleFloat {
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
     /// Get a random value from a multivariate Normal distribution, returning an error if the
     /// covariance matrix is not positive definite.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if `cov` is not positive definite.
     fn try_mv_normal(
         &mut self,
         mu: &DVector<Float>,

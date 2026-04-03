@@ -47,7 +47,9 @@ impl HagerZhangLineSearch {
     }
     /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1).
     ///
-    /// Returns a config error if the condition $`0 < \delta < \sigma`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `delta` does not satisfy `0 < delta < sigma`.
     pub fn with_delta(mut self, delta: Float) -> GaneshResult<Self> {
         if !(0.0 < delta && delta < self.sigma) {
             return Err(GaneshError::ConfigError(
@@ -59,7 +61,9 @@ impl HagerZhangLineSearch {
     }
     /// Set the parameter $`\sigma`$ used in the second Wolfe condition (defaults to 0.9).
     ///
-    /// Returns a config error if the condition $`\delta < \sigma < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `sigma` does not satisfy `delta < sigma < 1`.
     pub fn with_sigma(mut self, sigma: Float) -> GaneshResult<Self> {
         if !(self.delta < sigma && sigma < 1.0) {
             return Err(GaneshError::ConfigError(
@@ -71,7 +75,9 @@ impl HagerZhangLineSearch {
     }
     /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1) and the parameter $`\sigma`$ used in the second Wolfe condition (defaults to 0.9) simultaneously.
     ///
-    /// Returns a config error if the condition $`0 < \delta < \sigma < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `delta` and `sigma` do not satisfy `0 < delta < sigma < 1`.
     pub fn with_delta_sigma(mut self, delta: Float, sigma: Float) -> GaneshResult<Self> {
         if !(0.0 < delta && delta < sigma && sigma < 1.0) {
             return Err(GaneshError::ConfigError(
@@ -85,7 +91,9 @@ impl HagerZhangLineSearch {
     /// Set the tolerance parameter $`\epsilon`$ used in the approximate Wolfe termination
     /// conditions (defaults to `MACH_EPS^(1/3)`).
     ///
-    /// Returns a config error if $`\epsilon > 0`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `epsilon` is not strictly positive.
     pub fn with_epsilon(mut self, epsilon: Float) -> GaneshResult<Self> {
         if epsilon <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -98,7 +106,9 @@ impl HagerZhangLineSearch {
 
     /// Set the parameter $`\theta`$ used in interval updates (defaults to 0.5).
     ///
-    /// Returns a config error if $`0 < \theta < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `theta` is not in the interval `(0, 1)`.
     pub fn with_theta(mut self, theta: Float) -> GaneshResult<Self> {
         if !(0.0 < theta && theta < 1.0) {
             return Err(GaneshError::ConfigError(
@@ -111,7 +121,9 @@ impl HagerZhangLineSearch {
 
     /// Set the parameter $`\gamma`$ which determines when a bisection is performed (defaults to 0.66).
     ///
-    /// Returns a config error if $`0 < \gamma < 1`$ is not met.
+    /// # Errors
+    ///
+    /// Returns a configuration error if `gamma` is not in the interval `(0, 1)`.
     pub fn with_gamma(mut self, gamma: Float) -> GaneshResult<Self> {
         if !(0.0 < gamma && gamma < 1.0) {
             return Err(GaneshError::ConfigError(

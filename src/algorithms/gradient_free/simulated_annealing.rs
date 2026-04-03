@@ -83,6 +83,11 @@ impl Default for SimulatedAnnealingConfig {
 }
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `initial_temperature <= 0` or `cooling_rate` is not in
+    /// the interval `(0, 1)`.
     pub fn new(initial_temperature: Float, cooling_rate: Float) -> GaneshResult<Self> {
         if initial_temperature <= 0.0 {
             return Err(GaneshError::ConfigError(

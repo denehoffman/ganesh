@@ -194,7 +194,7 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
             let max_bisects: Option<usize> = extract_optional_field(&obj, "max_bisects")?;
             let mut line_search = HagerZhangLineSearch::default()
                 .with_delta_sigma(delta.unwrap_or(0.1), sigma.unwrap_or(0.9))?
-                .with_epsilon(epsilon.unwrap_or(Float::EPSILON.cbrt()))?
+                .with_epsilon(epsilon.unwrap_or_else(|| Float::EPSILON.cbrt()))?
                 .with_theta(theta.unwrap_or(0.5))?
                 .with_gamma(gamma.unwrap_or(0.66))?;
             if let Some(max_iterations) = max_iterations {
@@ -285,10 +285,10 @@ fn parse_aies_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedAIESMove> {
     match normalize_choice(&kind).as_str() {
         "stretch" => {
             let a: Option<Float> = extract_optional_field(&obj, "a")?;
-            match a {
-                Some(a) => AIESMove::custom_stretch(a, weight).map_err(Into::into),
-                None => Ok(AIESMove::stretch(weight)),
-            }
+            a.map_or_else(
+                || Ok(AIESMove::stretch(weight)),
+                |a| AIESMove::custom_stretch(a, weight).map_err(Into::into),
+            )
         }
         "walk" => Ok(AIESMove::walk(weight)),
         _ => Err(config_error(format!(
@@ -351,7 +351,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
         let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
         let error_mode: Option<String> = extract_optional_field(&obj, "error_mode")?;
 
-        let mut native = LBFGSBConfig::default();
+        let mut native = Self::default();
         if let Some(memory_limit) = memory_limit {
             native = native.with_memory_limit(memory_limit)?;
         }
@@ -385,7 +385,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
         let expansion_method: Option<String> = extract_optional_field(&obj, "expansion_method")?;
         let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
 
-        let mut native = NelderMeadConfig::default();
+        let mut native = Self::default();
         if let Some(alpha) = alpha {
             native = native.with_alpha(alpha)?;
         }
@@ -427,14 +427,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
             ));
         }
         if let Some(construction_method) = construction_method {
-            Ok(NelderMeadInit::new_with_method(parse_simplex_construction(
+            Ok(Self::new_with_method(parse_simplex_construction(
                 &construction_method,
             )?))
         } else {
             let x0 = x0.ok_or_else(|| {
                 config_error("NelderMeadInit requires either `x0` or `construction_method`")
             })?;
-            Ok(NelderMeadInit::new(extract_vector(&x0)?))
+            Ok(Self::new(extract_vector(&x0)?))
         }
     }
 }
@@ -451,7 +451,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
         let c1: Option<Float> = extract_optional_field(&obj, "c1")?;
         let c2: Option<Float> = extract_optional_field(&obj, "c2")?;
         let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
-        let mut native = PSOConfig::default();
+        let mut native = Self::default();
         if let Some(omega) = omega {
             native = native.with_omega(omega)?;
         }
@@ -481,7 +481,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
         let topology: Option<String> = extract_optional_field(&obj, "topology")?;
         let update_method: Option<String> = extract_optional_field(&obj, "update_method")?;
         let boundary_method: Option<String> = extract_optional_field(&obj, "boundary_method")?;
-        let mut swarm = Swarm::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(
+        let mut swarm = Self::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(
             &positions,
         )));
         if let Some(topology) = topology {
@@ -507,7 +507,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
         let chain_storage: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "chain_storage")?;
 
-        let mut native = AIESConfig::default();
+        let mut native = Self::default();
         if let Some(moves) = moves {
             native = native.with_moves(parse_aies_moves(&moves)?)?;
         }
@@ -526,7 +526,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESInit {
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
-        AIESInit::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+        Self::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
     }
 }
 
@@ -542,7 +542,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
         let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
         let chain_storage: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "chain_storage")?;
-        let mut native = ESSConfig::default();
+        let mut native = Self::default();
         if let Some(moves) = moves {
             native = native.with_moves(parse_ess_moves(&moves)?)?;
         }
@@ -570,7 +570,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
-        ESSInit::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+        Self::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
     }
 }
 
@@ -588,7 +588,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
 
-        let mut native = DifferentialEvolutionConfig::default();
+        let mut native = Self::default();
         if let Some(population_size) = population_size {
             native = native.with_population_size(population_size)?;
         }
@@ -611,7 +611,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
 
-        let mut native = DifferentialEvolutionInit::new(&x0)?;
+        let mut native = Self::new(&x0)?;
         if let Some(initial_scale) = initial_scale {
             native = native.with_initial_scale(initial_scale)?;
         }
@@ -629,7 +629,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
 
-        let mut native = CMAESConfig::default();
+        let mut native = Self::default();
         if let Some(population_size) = population_size {
             native = native.with_population_size(population_size)?;
         }
@@ -645,7 +645,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESInit {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let sigma: Float = extract_required_field(&obj, "sigma")?;
-        CMAESInit::new(&x0, sigma).map_err(Into::into)
+        Self::new(&x0, sigma).map_err(Into::into)
     }
 }
 
@@ -658,7 +658,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SimulatedAnnealingConfig {
             extract_optional_field(&obj, "initial_temperature")?;
         let cooling_rate: Option<Float> = extract_optional_field(&obj, "cooling_rate")?;
 
-        SimulatedAnnealingConfig::new(
+        Self::new(
             initial_temperature.unwrap_or(1.0),
             cooling_rate.unwrap_or(0.999),
         )
@@ -677,7 +677,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
         let beta_2: Option<Float> = extract_optional_field(&obj, "beta_2")?;
         let epsilon: Option<Float> = extract_optional_field(&obj, "epsilon")?;
 
-        let mut native = AdamConfig::default();
+        let mut native = Self::default();
         if let Some(alpha) = alpha {
             native = native.with_alpha(alpha)?;
         }
@@ -703,7 +703,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
         let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
         let update: Option<String> = extract_optional_field(&obj, "update")?;
 
-        let mut native = ConjugateGradientConfig::default();
+        let mut native = Self::default();
         if let Some(line_search) = line_search {
             native = native.with_line_search(parse_line_search(&line_search)?);
         }
@@ -725,7 +725,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
         let max_radius: Option<Float> = extract_optional_field(&obj, "max_radius")?;
         let eta: Option<Float> = extract_optional_field(&obj, "eta")?;
 
-        let mut native = TrustRegionConfig::default();
+        let mut native = Self::default();
         if let Some(subproblem) = subproblem {
             native = native.with_subproblem(parse_trust_region_subproblem(&subproblem)?);
         }

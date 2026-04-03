@@ -34,6 +34,10 @@ impl Default for LBFGSBFTerminator {
 }
 impl LBFGSBFTerminator {
     /// Generate a new [`LBFGSBFTerminator`] with a given absolute tolerance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eps_abs` is not strictly positive.
     pub fn new(eps_abs: Float) -> GaneshResult<Self> {
         if eps_abs <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -87,6 +91,10 @@ impl Default for LBFGSBGTerminator {
 
 impl LBFGSBGTerminator {
     /// Generate a new [`LBFGSBGTerminator`] with a given absolute tolerance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eps_abs` is not strictly positive.
     pub fn new(eps_abs: Float) -> GaneshResult<Self> {
         if eps_abs <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -134,6 +142,10 @@ impl Default for LBFGSBInfNormGTerminator {
 }
 impl LBFGSBInfNormGTerminator {
     /// Generate a new [`LBFGSBInfNormGTerminator`] with a given absolute tolerance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eps_abs` is not strictly positive.
     pub fn new(eps_abs: Float) -> GaneshResult<Self> {
         if eps_abs <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -210,6 +222,10 @@ impl LBFGSBConfig {
     }
     /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `limit < 1`.
     pub fn with_memory_limit(mut self, limit: usize) -> GaneshResult<Self> {
         if limit < 1 {
             return Err(GaneshError::ConfigError(
@@ -585,7 +601,7 @@ where
     ) -> Result<(), E> {
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
+        let internal_bounds = bounds.map(|b| b.apply(&transform));
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         self.line_search = config.line_search.clone();

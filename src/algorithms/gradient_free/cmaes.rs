@@ -314,7 +314,7 @@ where
 }
 
 /// Configuration for the [`CMAES`] algorithm.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CMAESConfig {
     population_size: Option<usize>,
     bounds: Option<Bounds>,
@@ -329,6 +329,10 @@ impl CMAESConfig {
     }
 
     /// Set the offspring population size `lambda`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `population_size < 2`.
     pub fn with_population_size(mut self, population_size: usize) -> GaneshResult<Self> {
         if population_size < 2 {
             return Err(GaneshError::ConfigError(
@@ -337,17 +341,6 @@ impl CMAESConfig {
         }
         self.population_size = Some(population_size);
         Ok(self)
-    }
-}
-
-impl Default for CMAESConfig {
-    fn default() -> Self {
-        Self {
-            population_size: None,
-            bounds: None,
-            parameter_names: None,
-            transform: None,
-        }
     }
 }
 
@@ -360,6 +353,11 @@ pub struct CMAESInit {
 
 impl CMAESInit {
     /// Create a new initialization payload from the initial mean and global step size.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `x0` is empty or `sigma` is not finite and strictly
+    /// positive.
     pub fn new<I>(x0: I, sigma: Float) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -512,10 +510,10 @@ impl CMAES {
 
         self.c_c = (4.0 + self.mu_eff / n) / (n + 4.0 + 2.0 * self.mu_eff / n);
         self.c_sigma = (self.mu_eff + 2.0) / (n + self.mu_eff + 5.0);
-        self.c1 = 2.0 / ((n + 1.3).powi(2) + self.mu_eff);
+        self.c1 = 2.0 / (n + 1.3).mul_add(n + 1.3, self.mu_eff);
         self.c_mu = Float::min(
             1.0 - self.c1,
-            2.0 * (self.mu_eff - 2.0 + 1.0 / self.mu_eff) / ((n + 2.0).powi(2) + self.mu_eff),
+            2.0 * (self.mu_eff - 2.0 + 1.0 / self.mu_eff) / (n + 2.0).mul_add(n + 2.0, self.mu_eff),
         );
         let negative_weights: Vec<Float> = w_prime
             .iter()
@@ -543,9 +541,10 @@ impl CMAES {
             }),
         );
 
-        self.damping = 1.0
-            + 2.0 * Float::max(0.0, ((self.mu_eff - 1.0) / (n + 1.0)).sqrt() - 1.0)
-            + self.c_sigma;
+        self.damping = 2.0f64.mul_add(
+            Float::max(0.0, ((self.mu_eff - 1.0) / (n + 1.0)).sqrt() - 1.0),
+            1.0,
+        ) + self.c_sigma;
         self.chi_n = n.sqrt() * (1.0 - 1.0 / (4.0 * n) + 1.0 / (21.0 * n.powi(2)));
 
         self.cov = DMatrix::identity(dimension, dimension);
@@ -637,7 +636,8 @@ impl CMAES {
             rank_mu += (&candidate.y * candidate.y.transpose()).scale(weight);
         }
         self.cov = self.cov.scale(
-            1.0 - self.c1 - self.c_mu + (1.0 - h_sigma) * self.c1 * self.c_c * (2.0 - self.c_c),
+            ((1.0 - h_sigma) * self.c1 * self.c_c)
+                .mul_add(2.0 - self.c_c, 1.0 - self.c1 - self.c_mu),
         ) + rank_one.scale(self.c1)
             + rank_mu.scale(self.c_mu);
 
@@ -758,7 +758,7 @@ impl CMAES {
         let mut sorted = values.to_vec();
         sorted.sort_by(|a, b| a.total_cmp(b));
         let mid = sorted.len() / 2;
-        if sorted.len().is_multiple_of(2) {
+        if sorted.len() % 2 == 0 {
             (sorted[mid - 1] + sorted[mid]) / 2.0
         } else {
             sorted[mid]

@@ -28,6 +28,10 @@ impl Default for TrustRegionGTerminator {
 
 impl TrustRegionGTerminator {
     /// Generate a new [`TrustRegionGTerminator`] with a given absolute tolerance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eps_abs` is not strictly positive.
     pub fn new(eps_abs: Float) -> GaneshResult<Self> {
         if eps_abs <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -100,6 +104,10 @@ impl TrustRegionConfig {
     }
 
     /// Set the initial trust-region radius.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `initial_radius` is not finite and strictly positive.
     pub fn with_initial_radius(mut self, initial_radius: Float) -> GaneshResult<Self> {
         if !initial_radius.is_finite() || initial_radius <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -111,6 +119,10 @@ impl TrustRegionConfig {
     }
 
     /// Set the maximum trust-region radius.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `max_radius` is not finite and strictly positive.
     pub fn with_max_radius(mut self, max_radius: Float) -> GaneshResult<Self> {
         if !max_radius.is_finite() || max_radius <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -122,6 +134,10 @@ impl TrustRegionConfig {
     }
 
     /// Set the step-acceptance threshold on the ratio of actual to predicted reduction.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `eta` is not finite or not in the interval `[0, 1)`.
     pub fn with_eta(mut self, eta: Float) -> GaneshResult<Self> {
         if !eta.is_finite() || !(0.0..1.0).contains(&eta) {
             return Err(GaneshError::ConfigError(
@@ -189,7 +205,7 @@ impl Default for TrustRegion {
 
 impl TrustRegion {
     fn predicted_reduction(&self, p: &DVector<Float>) -> Float {
-        -(self.g.dot(p) + 0.5 * p.dot(&(&self.h * p)))
+        -0.5f64.mul_add(p.dot(&(&self.h * p)), self.g.dot(p))
     }
 
     fn cauchy_point(&self) -> DVector<Float> {
@@ -232,7 +248,7 @@ impl TrustRegion {
         let diff = &p_b - &p_u;
         let a = diff.dot(&diff);
         let b = 2.0 * p_u.dot(&diff);
-        let c = p_u.dot(&p_u) - self.radius.powi(2);
+        let c = self.radius.mul_add(-self.radius, p_u.dot(&p_u));
         let disc = b.mul_add(b, -4.0 * a * c).max(0.0);
         let tau = (-b + disc.sqrt()) / (2.0 * a);
         &p_u + diff.scale(tau)

@@ -29,6 +29,10 @@ impl DifferentialEvolutionConfig {
     }
 
     /// Set the population size.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `population_size < 4`.
     pub fn with_population_size(mut self, population_size: usize) -> GaneshResult<Self> {
         if population_size < 4 {
             return Err(GaneshError::ConfigError(
@@ -40,6 +44,11 @@ impl DifferentialEvolutionConfig {
     }
 
     /// Set the differential weight `F` used in mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `differential_weight` is not finite and strictly
+    /// positive.
     pub fn with_differential_weight(mut self, differential_weight: Float) -> GaneshResult<Self> {
         if !differential_weight.is_finite() || differential_weight <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -51,6 +60,11 @@ impl DifferentialEvolutionConfig {
     }
 
     /// Set the binomial crossover probability `CR`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `crossover_probability` is not finite or not in
+    /// `[0, 1]`.
     pub fn with_crossover_probability(
         mut self,
         crossover_probability: Float,
@@ -87,6 +101,10 @@ pub struct DifferentialEvolutionInit {
 
 impl DifferentialEvolutionInit {
     /// Create a new initialization payload from the initial point.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `x0` is empty.
     pub fn new<I>(x0: I) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -104,6 +122,10 @@ impl DifferentialEvolutionInit {
     }
 
     /// Set the half-width of the uniform perturbation used to initialize the population around `x0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `initial_scale` is not finite and strictly positive.
     pub fn with_initial_scale(mut self, initial_scale: Float) -> GaneshResult<Self> {
         if !initial_scale.is_finite() || initial_scale <= 0.0 {
             return Err(GaneshError::ConfigError(
@@ -173,7 +195,7 @@ impl DifferentialEvolution {
     fn sample_offset(&mut self, dim: usize, scale: Float) -> DVector<Float> {
         DVector::from_iterator(
             dim,
-            (0..dim).map(|_| self.rng.f64() * (2.0 * scale) - scale),
+            (0..dim).map(|_| self.rng.f64().mul_add(2.0 * scale, -scale)),
         )
     }
 
@@ -222,7 +244,7 @@ where
         let pop_size = self.population_size(config);
         self.population.reserve(pop_size);
 
-        let mut x0 = Point::from(x0_internal.clone());
+        let mut x0 = Point::from(x0_internal);
         x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
         self.population.push(x0.clone());
         self.best = x0;
