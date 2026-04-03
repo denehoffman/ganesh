@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 pub struct SwarmStatus {
     /// The global best position found by all particles
     pub gbest: Point<DVector<Float>>,
+    /// The global best position among the initial swarm before any updates.
+    pub initial_gbest: Point<DVector<Float>>,
     /// A message containing information about the condition of the swarm or convergence
     pub message: StatusMessage,
     /// The swarm
@@ -23,6 +25,7 @@ impl Default for SwarmStatus {
     fn default() -> Self {
         Self {
             gbest: Default::default(),
+            initial_gbest: Default::default(),
             message: Default::default(),
             swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::default())),
             n_f_evals: Default::default(),
@@ -40,6 +43,7 @@ impl SwarmStatus {
 impl Status for SwarmStatus {
     fn reset(&mut self) {
         self.gbest = Default::default();
+        self.initial_gbest = Default::default();
         self.message = Default::default();
         self.swarm.particles = Default::default();
         self.n_f_evals = Default::default();

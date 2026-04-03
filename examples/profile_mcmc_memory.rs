@@ -1,5 +1,5 @@
 use ganesh::{
-    algorithms::mcmc::{AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS},
+    algorithms::mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS},
     core::MaxSteps,
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
@@ -73,13 +73,14 @@ fn main() {
     match sampler {
         "aies" => {
             let mut solver = AIES::default();
+            let init = AIESInit::new(x0).unwrap();
+            let config = AIESConfig::default().with_chain_storage(chain_storage);
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    AIESConfig::new(x0)
-                        .unwrap()
-                        .with_chain_storage(chain_storage),
+                    init,
+                    config,
                     AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
@@ -90,17 +91,19 @@ fn main() {
         }
         "ess" => {
             let mut solver = ESS::default();
+            let init = ESSInit::new(x0).unwrap();
+            let config = ESSConfig::default()
+                .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                .unwrap()
+                .with_n_adaptive(10)
+                .with_max_steps(128)
+                .with_chain_storage(chain_storage);
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    ESSConfig::new(x0)
-                        .unwrap()
-                        .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
-                        .unwrap()
-                        .with_n_adaptive(10)
-                        .with_max_steps(128)
-                        .with_chain_storage(chain_storage),
+                    init,
+                    config,
                     ESS::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();

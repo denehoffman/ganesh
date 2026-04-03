@@ -1,8 +1,8 @@
 use ganesh::{
     algorithms::{
         gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        gradient_free::{nelder_mead::NelderMeadConfig, NelderMead},
-        mcmc::{AIESConfig, ESSConfig, ESSMove, AIES, ESS},
+        gradient_free::{nelder_mead::{NelderMeadConfig, NelderMeadInit}, NelderMead},
+        mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, ESSMove, AIES, ESS},
         particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
     },
     core::MaxSteps,
@@ -65,7 +65,8 @@ fn main() {
                 .process(
                     &problem,
                     &(),
-                    LBFGSBConfig::new(vec![5.0; dim]),
+                    DVector::from_vec(vec![5.0; dim]),
+                    LBFGSBConfig::default(),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps(80)),
                 )
                 .unwrap();
@@ -82,11 +83,14 @@ fn main() {
         "nelder_mead" => {
             let problem = Rosenbrock { n: dim };
             let mut solver = NelderMead::default();
+            let init = NelderMeadInit::new(vec![5.0; dim]);
+            let config = NelderMeadConfig::default();
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(vec![5.0; dim]),
+                    init,
+                    config,
                     NelderMead::default_callbacks().with_terminator(MaxSteps(120)),
                 )
                 .unwrap();
@@ -104,20 +108,23 @@ fn main() {
             let problem = Rastrigin { n: dim };
             let mut solver = PSO::default();
             let bounds = vec![(-5.12, 5.12); dim];
+            let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+                bounds,
+                n_particles: 24,
+            });
+            let config = PSOConfig::default()
+                .with_c1(0.1)
+                .unwrap()
+                .with_c2(0.1)
+                .unwrap()
+                .with_omega(0.8)
+                .unwrap();
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                        bounds,
-                        n_particles: 24,
-                    }))
-                    .with_c1(0.1)
-                    .unwrap()
-                    .with_c2(0.1)
-                    .unwrap()
-                    .with_omega(0.8)
-                    .unwrap(),
+                    init,
+                    config,
                     PSO::default_callbacks().with_terminator(MaxSteps(60)),
                 )
                 .unwrap();
@@ -136,11 +143,14 @@ fn main() {
             let steps = parse_usize_arg(&args, 4, 40, "step count");
             let problem = Rosenbrock { n: dim };
             let mut solver = AIES::default();
+            let init = AIESInit::new(make_walkers(dim, n_walkers)).unwrap();
+            let config = AIESConfig::default();
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    AIESConfig::new(make_walkers(dim, n_walkers)).unwrap(),
+                    init,
+                    config,
                     AIES::default_callbacks().with_terminator(MaxSteps(steps)),
                 )
                 .unwrap();
@@ -159,16 +169,18 @@ fn main() {
             let steps = parse_usize_arg(&args, 4, 40, "step count");
             let problem = Rosenbrock { n: dim };
             let mut solver = ESS::default();
+            let init = ESSInit::new(make_walkers(dim, n_walkers)).unwrap();
+            let config = ESSConfig::default()
+                .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                .unwrap()
+                .with_n_adaptive(5)
+                .with_max_steps(64);
             let summary = solver
                 .process(
                     &problem,
                     &(),
-                    ESSConfig::new(make_walkers(dim, n_walkers))
-                        .unwrap()
-                        .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
-                        .unwrap()
-                        .with_n_adaptive(5)
-                        .with_max_steps(64),
+                    init,
+                    config,
                     ESS::default_callbacks().with_terminator(MaxSteps(steps)),
                 )
                 .unwrap();

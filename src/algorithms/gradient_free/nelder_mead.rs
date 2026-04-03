@@ -41,6 +41,16 @@ pub enum SimplexConstructionMethod {
     },
 }
 impl SimplexConstructionMethod {
+    fn starting_point(&self) -> DVector<Float> {
+        match self {
+            Self::ScaledOrthogonal { x0, .. } | Self::Orthogonal { x0, .. } => x0.clone(),
+            Self::Custom { simplex } => simplex
+                .first()
+                .cloned()
+                .expect("Custom simplex must not be empty"),
+        }
+    }
+
     /// Create a new [`SimplexConstructionMethod::ScaledOrthogonal`] with the given `x0` and
     /// default settings.
     pub fn scaled_orthogonal<I>(x0: I) -> Self
@@ -135,6 +145,41 @@ impl SimplexConstructionMethod {
         Ok(Self::Custom {
             simplex: simplex.to_vec(),
         })
+    }
+}
+
+/// Initialization payload for a [`NelderMead`] run.
+#[derive(Clone)]
+pub struct NelderMeadInit {
+    construction_method: SimplexConstructionMethod,
+}
+impl NelderMeadInit {
+    /// Construct an initial simplex using the default scaled-orthogonal method from `x0`.
+    pub fn new<I>(x0: I) -> Self
+    where
+        I: AsRef<[Float]>,
+    {
+        Self {
+            construction_method: SimplexConstructionMethod::scaled_orthogonal(x0),
+        }
+    }
+    /// Construct an initialization payload from an explicit simplex construction method.
+    pub const fn new_with_method(construction_method: SimplexConstructionMethod) -> Self {
+        Self {
+            construction_method,
+        }
+    }
+    /// Construct an initialization payload from a custom simplex.
+    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[DVector<Float>]>,
+    {
+        Ok(Self {
+            construction_method: SimplexConstructionMethod::custom(simplex)?,
+        })
+    }
+    fn starting_point(&self) -> DVector<Float> {
+        self.construction_method.starting_point()
     }
 }
 
@@ -609,63 +654,12 @@ pub struct NelderMeadConfig {
     beta: Float,
     gamma: Float,
     delta: Float,
-    construction_method: SimplexConstructionMethod,
     expansion_method: SimplexExpansionMethod,
 }
 impl NelderMeadConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    ///
-    /// This method constructs the simplex according to the [`SimplexConstructionMethod::ScaledOrthogonal`]
-    /// method with default settings.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            alpha: 1.0,
-            beta: 2.0,
-            gamma: 0.5,
-            delta: 0.5,
-            construction_method: SimplexConstructionMethod::scaled_orthogonal(x0),
-            expansion_method: SimplexExpansionMethod::default(),
-        }
-    }
-    /// Create a new configuration by specifying the simplex construction method.
-    pub fn new_with_method(construction_method: SimplexConstructionMethod) -> Self {
-        Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            alpha: 1.0,
-            beta: 2.0,
-            gamma: 0.5,
-            delta: 0.5,
-            construction_method,
-            expansion_method: SimplexExpansionMethod::default(),
-        }
-    }
-    /// Create a new configuration by setting all of the simplex positions manually.
-    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
-    where
-        I: AsRef<[DVector<Float>]>,
-    {
-        Ok(Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            alpha: 1.0,
-            beta: 2.0,
-            gamma: 0.5,
-            delta: 0.5,
-            construction_method: SimplexConstructionMethod::custom(simplex)?,
-            expansion_method: SimplexExpansionMethod::default(),
-        })
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
     /// Set the reflection coefficient $`\alpha`$ (default = `1`).
     pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
@@ -770,6 +764,21 @@ impl NelderMeadConfig {
         self
     }
 }
+impl Default for NelderMeadConfig {
+    fn default() -> Self {
+        Self {
+            bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
+            transform: None,
+            alpha: 1.0,
+            beta: 2.0,
+            gamma: 0.5,
+            delta: 0.5,
+            expansion_method: SimplexExpansionMethod::default(),
+        }
+    }
+}
 impl SupportsBounds for NelderMeadConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
@@ -839,11 +848,13 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = NelderMeadConfig;
+    type Init = NelderMeadInit;
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientFreeStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
@@ -851,7 +862,7 @@ where
         let internal_bounds = bounds.clone().map(|b| b.apply(&transform));
         self.internal_bounds = internal_bounds;
         self.resolved_transform = transform;
-        self.simplex = config.construction_method.generate(
+        self.simplex = init.construction_method.generate(
             problem,
             &self.resolved_transform,
             self.internal_bounds.as_ref(),
@@ -1016,10 +1027,11 @@ where
         _func: &P,
         status: &GradientFreeStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<MinimizationSummary, E> {
         Ok(MinimizationSummary {
-            x0: DVector::zeros(status.x.len()),
+            x0: init.starting_point(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
@@ -1145,7 +1157,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(starting_value),
+                    NelderMeadInit::new(starting_value),
+                    NelderMeadConfig::default(),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -1157,11 +1170,13 @@ mod tests {
     #[test]
     fn nelder_mead_checkpoint_signal_resume_matches_uninterrupted_run() {
         let problem = Rosenbrock { n: 2 };
-        let config = NelderMeadConfig::new([2.0, 2.0]);
+        let init = NelderMeadInit::new([2.0, 2.0]);
+        let config = NelderMeadConfig::default();
         let uninterrupted = NelderMead::default()
             .process(
                 &problem,
                 &(),
+                init.clone(),
                 config.clone(),
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
             )
@@ -1174,6 +1189,7 @@ mod tests {
             .process(
                 &problem,
                 &(),
+                init.clone(),
                 config.clone(),
                 NelderMead::default_callbacks()
                     .with_terminator(MaxSteps(200))
@@ -1192,6 +1208,7 @@ mod tests {
             .process_from_checkpoint(
                 &problem,
                 &(),
+                init,
                 config,
                 &checkpoint,
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
@@ -1233,7 +1250,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    NelderMeadInit::new(starting_value),
+                    NelderMeadConfig::default().with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -1259,7 +1277,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(starting_value)
+                    NelderMeadInit::new(starting_value),
+                    NelderMeadConfig::default()
                         .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
@@ -1286,9 +1305,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    NelderMeadConfig::new(starting_value)
-                        .with_adaptive(2)
-                        .unwrap(),
+                    NelderMeadInit::new(starting_value),
+                    NelderMeadConfig::default().with_adaptive(2).unwrap(),
                     NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -1303,6 +1321,7 @@ mod tests {
             fx: Some(fx),
         }
     }
+
     #[test]
     fn test_corrected_centroid() {
         let pts = vec![
@@ -1358,12 +1377,14 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks =
             Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba { eps_rel: 0.01 });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = AMOEBA"));
     }
@@ -1373,13 +1394,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Absolute {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = ABSOLUTE"));
     }
@@ -1389,13 +1412,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::StdDev {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = STDDEV"));
     }
@@ -1405,13 +1430,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Diameter {
             eps_abs: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = DIAMETER"));
     }
@@ -1421,13 +1448,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Higham {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = HIGHAM"));
     }
@@ -1437,13 +1466,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Rowan {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = ROWAN"));
     }
@@ -1453,13 +1484,15 @@ mod tests {
         let mut solver = NelderMead::default();
         let problem = Rosenbrock { n: 2 };
 
-        let cfg = NelderMeadConfig::new([0.5, -0.5]);
+        let cfg = NelderMeadConfig::default();
 
         let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Singer {
             eps_rel: Float::EPSILON.powf(0.25),
         });
 
-        let result = solver.process(&problem, &(), cfg, callbacks).unwrap();
+        let result = solver
+            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = SINGER"));
     }
@@ -1505,7 +1538,7 @@ mod tests {
             &Rosenbrock { n: 2 },
             &mut status,
             &(),
-            &NelderMeadConfig::new([0.0, 0.0]),
+            &NelderMeadConfig::default(),
         );
 
         assert!(terminated.is_break());
@@ -1528,7 +1561,7 @@ mod tests {
             &Rosenbrock { n: 2 },
             &mut status,
             &(),
-            &NelderMeadConfig::new([0.0, 0.0]),
+            &NelderMeadConfig::default(),
         );
 
         assert!(terminated.is_break());
@@ -1587,7 +1620,7 @@ mod tests {
     #[test]
     fn adaptive_parameters_match_gao_han() {
         // For n=2, ANMS sets: alpha=1, beta=1+2/n=2, gamma=0.75-1/(2n)=0.5, delta=1-1/n=0.5
-        let cfg = NelderMeadConfig::new([1.0, 1.0]).with_adaptive(2).unwrap();
+        let cfg = NelderMeadConfig::default().with_adaptive(2).unwrap();
         assert_relative_eq!(cfg.alpha, 1.0);
         assert_relative_eq!(cfg.beta, 2.0);
         assert_relative_eq!(cfg.gamma, 0.5);
@@ -1602,13 +1635,15 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                NelderMeadConfig::custom(vec![
+                NelderMeadInit::custom(vec![
                     dvector![0.5, -0.5],
                     dvector![1.5, -0.5],
                     dvector![0.5, 0.5],
                 ])
                 .unwrap()
-                .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
+                ,
+                NelderMeadConfig::default()
+                    .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
                 NelderMead::default_callbacks(),
             )
             .unwrap();
@@ -1617,13 +1652,13 @@ mod tests {
 
     #[test]
     fn custom_simplex_config_rejects_invalid_shapes() {
-        let err = match NelderMeadConfig::custom(Vec::<DVector<Float>>::new()) {
+        let err = match NelderMeadInit::custom(Vec::<DVector<Float>>::new()) {
             Err(err) => err,
             Ok(_) => panic!("empty custom simplex should be rejected"),
         };
         assert!(err.to_string().contains("must not be empty"));
 
-        let err = match NelderMeadConfig::custom(vec![
+        let err = match NelderMeadInit::custom(vec![
             dvector![1.0, 2.0],
             dvector![3.0],
             dvector![4.0, 5.0],
@@ -1633,7 +1668,7 @@ mod tests {
         };
         assert!(err.to_string().contains("same dimension"));
 
-        let err = match NelderMeadConfig::custom(vec![dvector![1.0, 2.0], dvector![3.0, 4.0]]) {
+        let err = match NelderMeadInit::custom(vec![dvector![1.0, 2.0], dvector![3.0, 4.0]]) {
             Err(err) => err,
             Ok(_) => panic!("wrong-size custom simplex should be rejected"),
         };
@@ -1643,18 +1678,18 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_panics_on_nonpositive() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha(0.0).unwrap();
+        let _ = NelderMeadConfig::default().with_alpha(0.0).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_beta_panics_when_not_gt_one() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_beta(1.0).unwrap();
+        let _ = NelderMeadConfig::default().with_beta(1.0).unwrap();
     }
 
     #[test]
     fn with_alpha_beta_sets_values() {
-        let nmc = NelderMeadConfig::new([1.0, 1.0])
+        let nmc = NelderMeadConfig::default()
             .with_alpha_beta(1.1, 2.2)
             .unwrap();
         assert_eq!(nmc.alpha, 1.1);
@@ -1664,7 +1699,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_alpha_nonpositive() {
-        let _ = NelderMeadConfig::new([1.0, 1.0])
+        let _ = NelderMeadConfig::default()
             .with_alpha_beta(0.0, 2.0)
             .unwrap();
     }
@@ -1672,7 +1707,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_beta_not_gt_one() {
-        let _ = NelderMeadConfig::new([1.0, 1.0])
+        let _ = NelderMeadConfig::default()
             .with_alpha_beta(0.5, 1.0)
             .unwrap();
     }
@@ -1680,7 +1715,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
-        let _ = NelderMeadConfig::new([1.0, 1.0])
+        let _ = NelderMeadConfig::default()
             .with_alpha_beta(1.6, 1.5)
             .unwrap();
     }
@@ -1688,7 +1723,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn with_beta_panics_when_not_gt_alpha() {
-        let _ = NelderMeadConfig::new([1.0, 1.0])
+        let _ = NelderMeadConfig::default()
             .with_alpha(1.5)
             .unwrap()
             .with_beta(1.4)
@@ -1699,14 +1734,14 @@ mod tests {
     #[should_panic]
     fn with_gamma_panics_if_not_in_unit() {
         // gamma must be in (0,1)
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_gamma(0.0).unwrap();
+        let _ = NelderMeadConfig::default().with_gamma(0.0).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn with_delta_panics_if_not_in_unit() {
         // delta must be in (0,1)
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_delta(1.0).unwrap();
+        let _ = NelderMeadConfig::default().with_delta(1.0).unwrap();
     }
 
     #[test]
@@ -1717,7 +1752,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                NelderMeadConfig::new([-3.0, 3.0])
+                NelderMeadInit::new([-3.0, 3.0]),
+                NelderMeadConfig::default()
                     .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                 NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),
             )
@@ -1734,7 +1770,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                NelderMeadConfig::new([0.5, -0.5]),
+                NelderMeadInit::new([0.5, -0.5]),
+                NelderMeadConfig::default(),
                 Callbacks::empty().with_terminator(MaxSteps(2)),
             )
             .unwrap();
@@ -1749,7 +1786,7 @@ mod tests {
 
     #[test]
     fn transform_bounds_mode_is_selectable_for_nelder_mead() {
-        let config = NelderMeadConfig::new([2.0, 2.0])
+        let config = NelderMeadConfig::default()
             .with_bounds([(0.0, 1.0), (0.0, 1.0)])
             .with_bounds_handling(BoundsHandlingMode::TransformBounds);
 

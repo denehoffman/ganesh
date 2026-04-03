@@ -120,20 +120,21 @@ where
         &mut self,
         run_index: usize,
         state: &MultiStartState,
-    ) -> (A, A::Config, Callbacks<A, P, S, U, E, A::Config>);
+    ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>);
 }
 
 impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
 where
     S: Status,
     A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: FnMut(usize, &MultiStartState) -> (A, A::Config, Callbacks<A, P, S, U, E, A::Config>) + Send,
+    F: FnMut(usize, &MultiStartState) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>)
+        + Send,
 {
     fn create(
         &mut self,
         run_index: usize,
         state: &MultiStartState,
-    ) -> (A, A::Config, Callbacks<A, P, S, U, E, A::Config>) {
+    ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>) {
         self(run_index, state)
     }
 }
@@ -162,8 +163,8 @@ where
     let mut state = MultiStartState::new();
     while restart_policy.should_run(state.completed_runs(), &state) {
         let run_index = state.completed_runs();
-        let (mut algorithm, config, callbacks) = restart_factory.create(run_index, &state);
-        let summary = algorithm.process(problem, user_data, config, callbacks)?;
+        let (mut algorithm, init, config, callbacks) = restart_factory.create(run_index, &state);
+        let summary = algorithm.process(problem, user_data, init, config, callbacks)?;
         state.push(summary);
     }
 
@@ -215,12 +216,14 @@ mod tests {
     impl Algorithm<(), DummyStatus, (), Infallible> for DummyAlgorithm {
         type Summary = MinimizationSummary;
         type Config = DummyConfig;
+        type Init = DummyConfig;
 
         fn initialize(
             &mut self,
             _problem: &(),
             status: &mut DummyStatus,
             _args: &(),
+            _init: &Self::Init,
             _config: &Self::Config,
         ) -> Result<(), Infallible> {
             status.set_message().initialize();
@@ -245,6 +248,7 @@ mod tests {
             _problem: &(),
             status: &DummyStatus,
             _args: &(),
+            _init: &Self::Init,
             config: &Self::Config,
         ) -> Result<Self::Summary, Infallible> {
             Ok(MinimizationSummary {
@@ -271,6 +275,10 @@ mod tests {
         let mut factory = |run_index: usize, _state: &MultiStartState| {
             (
                 DummyAlgorithm,
+                DummyConfig {
+                    x: DVector::from_element(1, run_index as Float),
+                    fx: (3 - run_index) as Float,
+                },
                 DummyConfig {
                     x: DVector::from_element(1, run_index as Float),
                     fx: (3 - run_index) as Float,
@@ -303,6 +311,10 @@ mod tests {
                     x: DVector::from_element(1, run_index as Float),
                     fx: run_index as Float,
                 },
+                DummyConfig {
+                    x: DVector::from_element(1, run_index as Float),
+                    fx: run_index as Float,
+                },
                 DummyAlgorithm::default_callbacks(),
             )
         };
@@ -331,6 +343,10 @@ mod tests {
         let mut factory = |run_index: usize, _state: &MultiStartState| {
             (
                 DummyAlgorithm,
+                DummyConfig {
+                    x: DVector::from_element(1, run_index as Float),
+                    fx: run_index as Float,
+                },
                 DummyConfig {
                     x: DVector::from_element(1, run_index as Float),
                     fx: run_index as Float,

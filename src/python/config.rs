@@ -9,13 +9,15 @@ use crate::{
             LBFGSBConfig, TrustRegionConfig, TrustRegionSubproblem,
         },
         gradient_free::{
-            nelder_mead::{SimplexConstructionMethod, SimplexExpansionMethod},
-            CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig, SimulatedAnnealingConfig,
+            nelder_mead::{NelderMeadInit, SimplexConstructionMethod, SimplexExpansionMethod},
+            CMAESConfig, CMAESInit, DifferentialEvolutionConfig, DifferentialEvolutionInit,
+            NelderMeadConfig, SimulatedAnnealingConfig,
         },
         line_search::{HagerZhangLineSearch, MoreThuenteLineSearch, StrongWolfeLineSearch},
         mcmc::{
-            aies::WeightedAIESMove, ess::WeightedESSMove, AIESConfig, AIESMove, ChainStorageMode,
-            ESSConfig, ESSMove,
+            aies::{AIESInit, WeightedAIESMove},
+            ess::{ESSInit, WeightedESSMove},
+            AIESConfig, AIESMove, ChainStorageMode, ESSConfig, ESSMove,
         },
         particles::{
             PSOConfig, Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology,
@@ -340,8 +342,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let _x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let memory_limit: Option<usize> = extract_optional_field(&obj, "memory_limit")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
@@ -350,7 +352,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
         let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
         let error_mode: Option<String> = extract_optional_field(&obj, "error_mode")?;
 
-        let mut native = LBFGSBConfig::new(&x0);
+        let mut native = LBFGSBConfig::default();
         if let Some(memory_limit) = memory_limit {
             native = native.with_memory_limit(memory_limit)?;
         }
@@ -372,10 +374,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
-        let construction_method: Option<Bound<'py, PyAny>> =
-            extract_optional_field(&obj, "construction_method")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -387,14 +386,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
         let expansion_method: Option<String> = extract_optional_field(&obj, "expansion_method")?;
         let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
 
-        let mut native = if let Some(construction_method) = construction_method {
-            NelderMeadConfig::new_with_method(parse_simplex_construction(&construction_method)?)
-        } else {
-            let x0 = x0.ok_or_else(|| {
-                config_error("NelderMeadConfig requires either `x0` or `construction_method`")
-            })?;
-            NelderMeadConfig::new(&extract_vector(&x0)?)
-        };
+        let mut native = NelderMeadConfig::default();
         if let Some(alpha) = alpha {
             native = native.with_alpha(alpha)?;
         }
@@ -422,15 +414,32 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
     }
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
+        let construction_method: Option<Bound<'py, PyAny>> =
+            extract_optional_field(&obj, "construction_method")?;
+        if let Some(construction_method) = construction_method {
+            Ok(NelderMeadInit::new_with_method(parse_simplex_construction(
+                &construction_method,
+            )?))
+        } else {
+            let x0 = x0.ok_or_else(|| {
+                config_error("NelderMeadConfig requires either `x0` or `construction_method`")
+            })?;
+            Ok(NelderMeadInit::new(extract_vector(&x0)?))
+        }
+    }
+}
+
 impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let positions = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-            &obj,
-            "positions",
-        )?)?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -438,23 +447,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
         let c1: Option<Float> = extract_optional_field(&obj, "c1")?;
         let c2: Option<Float> = extract_optional_field(&obj, "c2")?;
         let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
-        let topology: Option<String> = extract_optional_field(&obj, "topology")?;
-        let update_method: Option<String> = extract_optional_field(&obj, "update_method")?;
-        let boundary_method: Option<String> = extract_optional_field(&obj, "boundary_method")?;
-
-        let mut swarm = Swarm::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(
-            &positions,
-        )));
-        if let Some(topology) = topology {
-            swarm = swarm.with_topology(parse_swarm_topology(&topology)?);
-        }
-        if let Some(update_method) = update_method {
-            swarm = swarm.with_update_method(parse_swarm_update_method(&update_method)?);
-        }
-        if let Some(boundary_method) = boundary_method {
-            swarm = swarm.with_boundary_method(parse_swarm_boundary_method(&boundary_method)?);
-        }
-        let mut native = PSOConfig::new(swarm);
+        let mut native = PSOConfig::default();
         if let Some(omega) = omega {
             native = native.with_omega(omega)?;
         }
@@ -472,20 +465,45 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
     }
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let positions = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
+            &obj,
+            "positions",
+        )?)?;
+        let topology: Option<String> = extract_optional_field(&obj, "topology")?;
+        let update_method: Option<String> = extract_optional_field(&obj, "update_method")?;
+        let boundary_method: Option<String> = extract_optional_field(&obj, "boundary_method")?;
+        let mut swarm = Swarm::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(
+            &positions,
+        )));
+        if let Some(topology) = topology {
+            swarm = swarm.with_topology(parse_swarm_topology(&topology)?);
+        }
+        if let Some(update_method) = update_method {
+            swarm = swarm.with_update_method(parse_swarm_update_method(&update_method)?);
+        }
+        if let Some(boundary_method) = boundary_method {
+            swarm = swarm.with_boundary_method(parse_swarm_boundary_method(&boundary_method)?);
+        }
+        Ok(swarm)
+    }
+}
+
 impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-            &obj, "walkers",
-        )?)?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
         let chain_storage: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "chain_storage")?;
 
-        let mut native = AIESConfig::new(vectors_to_dvectors(&walkers))?;
+        let mut native = AIESConfig::default();
         if let Some(moves) = moves {
             native = native.with_moves(parse_aies_moves(&moves)?)?;
         }
@@ -496,7 +514,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for AIESInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
@@ -504,6 +522,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
+        AIESInit::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let n_adaptive: Option<usize> = extract_optional_field(&obj, "n_adaptive")?;
         let max_steps: Option<usize> = extract_optional_field(&obj, "max_steps")?;
@@ -511,7 +538,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
         let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
         let chain_storage: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "chain_storage")?;
-        let mut native = ESSConfig::new(vectors_to_dvectors(&walkers))?;
+        let mut native = ESSConfig::default();
         if let Some(moves) = moves {
             native = native.with_moves(parse_ess_moves(&moves)?)?;
         }
@@ -531,23 +558,33 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
     }
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
+            &obj, "walkers",
+        )?)?;
+        ESSInit::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+    }
+}
+
 impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let differential_weight: Option<Float> =
             extract_optional_field(&obj, "differential_weight")?;
         let crossover_probability: Option<Float> =
             extract_optional_field(&obj, "crossover_probability")?;
-        let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
 
-        let mut native = DifferentialEvolutionConfig::new(&x0)?;
+        let mut native = DifferentialEvolutionConfig::default();
         if let Some(population_size) = population_size {
             native = native.with_population_size(population_size)?;
         }
@@ -557,11 +594,24 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
         if let Some(crossover_probability) = crossover_probability {
             native = native.with_crossover_probability(crossover_probability)?;
         }
+        let native = apply_python_bounds(native, bounds);
+        Ok(apply_python_parameter_names(native, parameter_names))
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
+        let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
+
+        let mut native = DifferentialEvolutionInit::new(&x0)?;
         if let Some(initial_scale) = initial_scale {
             native = native.with_initial_scale(initial_scale)?;
         }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
+        Ok(native)
     }
 }
 
@@ -570,19 +620,28 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
-        let sigma: Float = extract_required_field(&obj, "sigma")?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
 
-        let mut native = CMAESConfig::new(&x0, sigma)?;
+        let mut native = CMAESConfig::default();
         if let Some(population_size) = population_size {
             native = native.with_population_size(population_size)?;
         }
         let native = apply_python_bounds(native, bounds);
         Ok(apply_python_parameter_names(native, parameter_names))
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for CMAESInit {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
+        let sigma: Float = extract_required_field(&obj, "sigma")?;
+        CMAESInit::new(&x0, sigma).map_err(Into::into)
     }
 }
 
@@ -608,14 +667,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let alpha: Option<Float> = extract_optional_field(&obj, "alpha")?;
         let beta_1: Option<Float> = extract_optional_field(&obj, "beta_1")?;
         let beta_2: Option<Float> = extract_optional_field(&obj, "beta_2")?;
         let epsilon: Option<Float> = extract_optional_field(&obj, "epsilon")?;
 
-        let mut native = AdamConfig::new(&x0);
+        let mut native = AdamConfig::default();
         if let Some(alpha) = alpha {
             native = native.with_alpha(alpha)?;
         }
@@ -637,12 +695,11 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
         let update: Option<String> = extract_optional_field(&obj, "update")?;
 
-        let mut native = ConjugateGradientConfig::new(&x0);
+        let mut native = ConjugateGradientConfig::default();
         if let Some(line_search) = line_search {
             native = native.with_line_search(parse_line_search(&line_search)?);
         }
@@ -658,14 +715,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let subproblem: Option<String> = extract_optional_field(&obj, "subproblem")?;
         let initial_radius: Option<Float> = extract_optional_field(&obj, "initial_radius")?;
         let max_radius: Option<Float> = extract_optional_field(&obj, "max_radius")?;
         let eta: Option<Float> = extract_optional_field(&obj, "eta")?;
 
-        let mut native = TrustRegionConfig::new(&x0);
+        let mut native = TrustRegionConfig::default();
         if let Some(subproblem) = subproblem {
             native = native.with_subproblem(parse_trust_region_subproblem(&subproblem)?);
         }
@@ -693,9 +749,12 @@ mod tests {
     use crate::{
         algorithms::{
             gradient::{Adam, ConjugateGradient, TrustRegion, LBFGSB},
-            gradient_free::{DifferentialEvolution, NelderMead, CMAES},
-            mcmc::{AIES, ESS},
-            particles::PSO,
+            gradient_free::{
+                nelder_mead::NelderMeadInit, CMAESInit, DifferentialEvolution,
+                DifferentialEvolutionInit, NelderMead, CMAES,
+            },
+            mcmc::{aies::AIESInit, ess::ESSInit, AIES, ESS},
+            particles::{PSO, Swarm},
         },
         core::{Callbacks, MaxSteps},
         traits::{Algorithm, CostFunction, Gradient, LogDensity},
@@ -766,6 +825,7 @@ mod tests {
                 .process(
                     &Quadratic,
                     &(),
+                    DVector::from_row_slice(&[2.0, -1.0]),
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(2)),
                 )
@@ -813,6 +873,7 @@ mod tests {
                 .process(
                     &Quadratic,
                     &(),
+                    DVector::from_row_slice(&[1.5, -1.0]),
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(2)),
                 )
@@ -832,11 +893,13 @@ mod tests {
             dict.set_item("population_size", 8).unwrap();
             dict.set_item("initial_scale", 0.5).unwrap();
 
+            let init: DifferentialEvolutionInit = dict.as_any().extract().unwrap();
             let config: DifferentialEvolutionConfig = dict.as_any().extract().unwrap();
             let _summary = DifferentialEvolution::default()
                 .process(
                     &Quadratic,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -865,11 +928,13 @@ mod tests {
                 .call((py_vector(py, &[0.5, -0.5]), 0.3), Some(&kwargs))
                 .unwrap();
 
+            let init: CMAESInit = config_like.extract().unwrap();
             let config: CMAESConfig = config_like.extract().unwrap();
             let summary = CMAES::default()
                 .process(
                     &Quadratic,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -921,11 +986,13 @@ mod tests {
                 .call((), Some(&kwargs))
                 .unwrap();
 
+            let init: NelderMeadInit = config_like.extract().unwrap();
             let config: NelderMeadConfig = config_like.extract().unwrap();
             let summary = NelderMead::default()
                 .process(
                     &Quadratic,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -972,11 +1039,13 @@ mod tests {
                 .call((positions,), Some(&kwargs))
                 .unwrap();
 
+            let init: Swarm = config_like.extract().unwrap();
             let config: PSOConfig = config_like.extract().unwrap();
             let summary = PSO::default()
                 .process(
                     &Quadratic,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1053,11 +1122,13 @@ mod tests {
                 .call((walkers,), Some(&kwargs))
                 .unwrap();
 
+            let init: AIESInit = config_like.extract().unwrap();
             let config: AIESConfig = config_like.extract().unwrap();
             let summary = AIES::default()
                 .process(
                     &GaussianLogDensity,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1092,11 +1163,13 @@ class DuckESS:
             let module_name = CString::new("duck_ess").unwrap();
             let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
             let obj = module.getattr("DuckESS").unwrap().call0().unwrap();
+            let init: ESSInit = obj.extract().unwrap();
             let config: ESSConfig = obj.extract().unwrap();
             let _summary = ESS::default()
                 .process(
                     &GaussianLogDensity,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1178,11 +1251,13 @@ class DuckESS:
                 .call((walkers,), Some(&kwargs))
                 .unwrap();
 
+            let init: ESSInit = config_like.extract().unwrap();
             let config: ESSConfig = config_like.extract().unwrap();
             let summary = ESS::default()
                 .process(
                     &GaussianLogDensity,
                     &(),
+                    init,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1219,11 +1294,14 @@ class DuckESS:
                 .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
                 .unwrap();
 
+            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
+            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: AdamConfig = config_like.extract().unwrap();
             let summary = Adam::default()
                 .process(
                     &Quadratic,
                     &(),
+                    x0,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1260,11 +1338,14 @@ class DuckESS:
                 .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
                 .unwrap();
 
+            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
+            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: ConjugateGradientConfig = config_like.extract().unwrap();
             let summary = ConjugateGradient::default()
                 .process(
                     &Quadratic,
                     &(),
+                    x0,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1294,11 +1375,14 @@ class DuckESS:
                 .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
                 .unwrap();
 
+            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
+            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: TrustRegionConfig = config_like.extract().unwrap();
             let summary = TrustRegion::default()
                 .process(
                     &Quadratic,
                     &(),
+                    x0,
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )

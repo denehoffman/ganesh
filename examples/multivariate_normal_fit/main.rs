@@ -2,8 +2,8 @@ use fastrand::Rng;
 use ganesh::{
     algorithms::{
         gradient::{LBFGSBConfig, LBFGSB},
-        gradient_free::{NelderMead, NelderMeadConfig},
-        mcmc::{AutocorrelationTerminator, ESSConfig, ESS},
+        gradient_free::{nelder_mead::{NelderMeadConfig, NelderMeadInit}, NelderMead},
+        mcmc::{ess::ESSInit, AutocorrelationTerminator, ESSConfig, ESS},
     },
     core::{summary::HasParameterNames, utils::SampleFloat, Bounds},
     traits::{
@@ -174,22 +174,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let transform = internal_bounds.compose(spd_transform);
 
     println!("Running fit (Nelder-Mead)...");
+    let nm_init = NelderMeadInit::new([0.5, 1.0, 0.7, 0.1, 0.7]);
+    let nm_config = NelderMeadConfig::default().with_transform(&transform);
     let res = NelderMead::default()
-        .process_default(
-            &Problem,
-            &data,
-            NelderMeadConfig::new([0.5, 1.0, 0.7, 0.1, 0.7]).with_transform(&transform),
-        )?
+        .process_with_default_callbacks(&Problem, &data, nm_init, nm_config)?
         .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
     println!("{}", res);
 
     println!("Running fit (L-BFGS-B)...");
+    let lbfgsb_init = DVector::from_row_slice(&[0.5, 1.0, 0.7, 0.1, 0.7]);
+    let lbfgsb_config = LBFGSBConfig::default().with_transform(&transform);
     let res = LBFGSB::default()
-        .process_default(
-            &Problem,
-            &data,
-            LBFGSBConfig::new([0.5, 1.0, 0.7, 0.1, 0.7]).with_transform(&transform),
-        )?
+        .process_with_default_callbacks(&Problem, &data, lbfgsb_init, lbfgsb_config)?
         .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
     println!("{}", res);
     write_fit_result(&truths, &res.x, &res.std, "fit.pkl")?;
@@ -202,10 +198,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         transform.to_owned_external(&DVector::from_fn(5, |i, _| rng.normal(x_min_int[i], 0.2)))
     }));
     println!("Running MCMC (ESS)...");
+    let ess_init = ESSInit::new(walkers)?;
+    let ess_config = ESSConfig::default().with_transform(&transform);
     let sample = ESS::default().process(
         &Problem,
         &data,
-        ESSConfig::new(walkers)?.with_transform(&transform),
+        ess_init,
+        ess_config,
         ESS::default_callbacks().with_terminator(aco.clone()),
     )?;
 

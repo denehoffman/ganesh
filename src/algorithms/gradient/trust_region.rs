@@ -79,7 +79,6 @@ pub enum TrustRegionSubproblem {
 /// Configuration for the [`TrustRegion`] algorithm.
 #[derive(Clone)]
 pub struct TrustRegionConfig {
-    x0: DVector<Float>,
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     subproblem: TrustRegionSubproblem,
@@ -89,20 +88,9 @@ pub struct TrustRegionConfig {
 }
 
 impl TrustRegionConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            parameter_names: None,
-            transform: None,
-            subproblem: TrustRegionSubproblem::default(),
-            initial_radius: 1.0,
-            max_radius: 1_000.0,
-            eta: 1e-4,
-        }
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Set the trust-region subproblem solver.
@@ -142,6 +130,19 @@ impl TrustRegionConfig {
         }
         self.eta = eta;
         Ok(self)
+    }
+}
+
+impl Default for TrustRegionConfig {
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            transform: None,
+            subproblem: TrustRegionSubproblem::default(),
+            initial_radius: 1.0,
+            max_radius: 1_000.0,
+            eta: 1e-4,
+        }
     }
 }
 
@@ -251,16 +252,18 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = TrustRegionConfig;
+    type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
-        self.x = t_problem.to_owned_internal(&config.x0);
+        self.x = t_problem.to_owned_internal(init);
         let (f, g, h) = t_problem.evaluate_with_gradient_and_hessian(&self.x, args)?;
         self.f = f;
         self.g = g;
@@ -270,7 +273,7 @@ where
         status.n_f_evals += 1;
         status.n_g_evals += 1;
         status.n_h_evals += 1;
-        status.initialize((config.x0.clone(), self.f));
+        status.initialize((init.clone(), self.f));
         Ok(())
     }
 
@@ -338,10 +341,11 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
@@ -382,6 +386,7 @@ mod tests {
         test_functions::Rosenbrock,
     };
     use approx::assert_relative_eq;
+    use nalgebra::dvector;
     use std::convert::Infallible;
 
     struct IllConditionedQuadratic;
@@ -407,7 +412,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                TrustRegionConfig::new([-1.2, 1.0]),
+                dvector![-1.2, 1.0],
+                TrustRegionConfig::default(),
                 Callbacks::empty()
                     .with_terminator(TrustRegionGTerminator::default())
                     .with_terminator(MaxSteps(200)),
@@ -427,7 +433,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                TrustRegionConfig::new([10.0, -2.0])
+                dvector![10.0, -2.0],
+                TrustRegionConfig::default()
                     .with_subproblem(TrustRegionSubproblem::CauchyPoint)
                     .with_initial_radius(1.0)
                     .unwrap(),
@@ -448,7 +455,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                TrustRegionConfig::new([1.5, -1.5])
+                dvector![1.5, -1.5],
+                TrustRegionConfig::default()
                     .with_transform(&ScaleTransform::from_parameter_scales([2.0, 0.5]).unwrap()),
                 Callbacks::empty()
                     .with_terminator(TrustRegionGTerminator::new(1e-4).unwrap())

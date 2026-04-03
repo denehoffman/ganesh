@@ -134,13 +134,23 @@ where
 ///
 /// ```rust
 /// use ganesh::traits::*;
-/// use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
+/// use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::core::DebugObserver;
 ///
 /// let problem = Rosenbrock { n: 2 };
 /// let mut nm = NelderMead::default();
-/// let result = nm.process(&problem, &(), NelderMeadConfig::new([2.3, 3.4]), NelderMead::default_callbacks().with_observer(DebugObserver)).unwrap();
+/// let init = NelderMeadInit::new([2.3, 3.4]);
+/// let config = NelderMeadConfig::default();
+/// let result = nm
+///     .process(
+///         &problem,
+///         &(),
+///         init,
+///         config,
+///         NelderMead::default_callbacks().with_observer(DebugObserver),
+///     )
+///     .unwrap();
 /// // ^ This will print debug messages for each step
 /// assert!(result.message.success());
 /// ```
@@ -262,12 +272,14 @@ mod tests {
     impl Algorithm<(), DummyStatus, (), Infallible> for DummyAlgorithm {
         type Summary = ();
         type Config = ();
+        type Init = ();
 
         fn initialize(
             &mut self,
             _problem: &(),
             status: &mut DummyStatus,
             _args: &(),
+            _init: &Self::Init,
             _config: &Self::Config,
         ) -> Result<(), Infallible> {
             status.set_message().initialize();
@@ -294,6 +306,7 @@ mod tests {
             _problem: &(),
             _status: &DummyStatus,
             _args: &(),
+            _init: &Self::Init,
             _config: &Self::Config,
         ) -> Result<Self::Summary, Infallible> {
             Ok(())
@@ -322,7 +335,7 @@ mod tests {
             .with_terminator(MaxSteps(5))
             .with_observer(observer.clone());
 
-        algorithm.process(&(), &(), (), callbacks).unwrap();
+        algorithm.process(&(), &(), (), (), callbacks).unwrap();
 
         assert_eq!(observer.borrow().interval(), 2);
         assert_eq!(observer.borrow().emitted_lines(), 2);

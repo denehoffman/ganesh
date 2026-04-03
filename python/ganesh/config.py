@@ -10,6 +10,9 @@ class _GaneshConfigMixin:
     def __ganesh_config__(self):
         return self
 
+    def __ganesh_init__(self):
+        return self
+
 
 class _GaneshLineSearchMixin:
     def __ganesh_line_search__(self):

@@ -1,6 +1,6 @@
 use fastrand::Rng;
 use ganesh::{
-    algorithms::mcmc::{ess::ESSConfig, AutocorrelationTerminator, ESSMove, ESS},
+    algorithms::mcmc::{ess::{ESSConfig, ESSInit}, AutocorrelationTerminator, ESSMove, ESS},
     core::{utils::SampleFloat, Callbacks, MaxSteps},
     traits::{Algorithm, LogDensity},
     DMatrix, DVector, Float,
@@ -42,6 +42,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     let mut sampler = ESS::default();
+    let init = ESSInit::new(x0.clone()).unwrap();
+    let config = ESSConfig::default().with_moves([
+        ESSMove::gaussian(0.1),
+        ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
+        ESSMove::differential(0.2),
+    ])?;
 
     // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
     // and Gaussian steps the other 10%
@@ -49,11 +55,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = sampler.process(
         &problem,
         &cov_inv,
-        ESSConfig::new(x0.clone()).unwrap().with_moves([
-            ESSMove::gaussian(0.1),
-            ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
-            ESSMove::differential(0.2),
-        ])?,
+        init,
+        config,
         Callbacks::empty()
             .with_terminator(aco.clone())
             .with_terminator(MaxSteps(1000)),

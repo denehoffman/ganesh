@@ -32,16 +32,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Create a particle swarm optimizer algorithm and set some hyperparameters
     // Run the particle swarm optimizer
     let mut pso = PSO::default();
+    let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+        bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
+        n_particles: 50,
+    });
+    let config = PSOConfig::default()
+        .with_c1(0.1)?
+        .with_c2(0.1)?
+        .with_omega(0.8)?;
     let result = pso.process(
         &problem,
         &(),
-        PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
-            n_particles: 50,
-        }))
-        .with_c1(0.1)?
-        .with_c2(0.1)?
-        .with_omega(0.8)?,
+        init,
+        config,
         Callbacks::empty()
             .with_observer(tracker.clone())
             .with_terminator(MaxSteps(200)),

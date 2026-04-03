@@ -1288,10 +1288,13 @@ mod tests {
                 Adam, AdamConfig, ConjugateGradient, ConjugateGradientConfig, LBFGSBConfig,
                 TrustRegion, TrustRegionConfig, LBFGSB,
             },
-            gradient_free::{CMAESConfig, NelderMead, NelderMeadConfig, CMAES},
-            mcmc::{AIESConfig, ESSConfig, AIES, ESS},
+            gradient_free::{
+                nelder_mead::NelderMeadInit, CMAESConfig, CMAESInit, NelderMead,
+                NelderMeadConfig, CMAES,
+            },
+            mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, AIES, ESS},
         },
-        traits::{CostFunction, Gradient, LogDensity},
+        traits::{Algorithm, CostFunction, Gradient, LogDensity},
         DVector,
     };
     use std::convert::Infallible;
@@ -1354,15 +1357,16 @@ mod tests {
                 .unwrap();
             let options: PyAIESOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<GaussianLogDensity, (), Infallible>();
-            let config = AIESConfig::new(vec![
+            let init = AIESInit::new(vec![
                 DVector::from_vec(vec![0.0, 0.0]),
                 DVector::from_vec(vec![0.1, 0.0]),
                 DVector::from_vec(vec![0.0, 0.1]),
                 DVector::from_vec(vec![0.1, 0.1]),
             ])
             .unwrap();
+            let config = AIESConfig::default();
             let _summary = AIES::default()
-                .process(&GaussianLogDensity, &(), config, callbacks)
+                .process(&GaussianLogDensity, &(), init, config, callbacks)
                 .unwrap();
         });
     }
@@ -1390,15 +1394,16 @@ mod tests {
                 .unwrap();
             let options: PyESSOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<GaussianLogDensity, (), Infallible>();
-            let config = ESSConfig::new(vec![
+            let init = ESSInit::new(vec![
                 DVector::from_vec(vec![0.0, 0.0]),
                 DVector::from_vec(vec![0.1, 0.0]),
                 DVector::from_vec(vec![0.0, 0.1]),
                 DVector::from_vec(vec![0.1, 0.1]),
             ])
             .unwrap();
+            let config = ESSConfig::default();
             let _summary = ESS::default()
-                .process(&GaussianLogDensity, &(), config, callbacks)
+                .process(&GaussianLogDensity, &(), init, config, callbacks)
                 .unwrap();
         });
     }
@@ -1436,9 +1441,10 @@ mod tests {
                 .unwrap();
             let options: PyCMAESOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = CMAESConfig::new([0.5, -0.5], 0.3).unwrap();
+            let init = CMAESInit::new([0.5, -0.5], 0.3).unwrap();
+            let config = CMAESConfig::default();
             let _summary = CMAES::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(&Quadratic, &(), init, config, callbacks)
                 .unwrap();
         });
     }
@@ -1476,9 +1482,15 @@ mod tests {
                 .unwrap();
             let options: PyLBFGSBOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = LBFGSBConfig::new([1.0, -1.0]);
+            let config = LBFGSBConfig::default();
             let _summary = LBFGSB::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_row_slice(&[1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
                 .unwrap();
         });
     }
@@ -1516,9 +1528,10 @@ mod tests {
                 .unwrap();
             let options: PyNelderMeadOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = NelderMeadConfig::new([1.0, -1.0]);
+            let init = NelderMeadInit::new([1.0, -1.0]);
+            let config = NelderMeadConfig::default();
             let _summary = NelderMead::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(&Quadratic, &(), init, config, callbacks)
                 .unwrap();
         });
     }
@@ -1546,9 +1559,15 @@ mod tests {
                 .unwrap();
             let options: PyAdamOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = AdamConfig::new([1.0, -1.0]);
+            let config = AdamConfig::default();
             let _summary = Adam::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_row_slice(&[1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
                 .unwrap();
         });
     }
@@ -1576,9 +1595,15 @@ mod tests {
                 .unwrap();
             let options: PyConjugateGradientOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = ConjugateGradientConfig::new([1.0, -1.0]);
+            let config = ConjugateGradientConfig::default();
             let _summary = ConjugateGradient::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_row_slice(&[1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
                 .unwrap();
         });
     }
@@ -1606,9 +1631,15 @@ mod tests {
                 .unwrap();
             let options: PyTrustRegionOptions = obj.extract().unwrap();
             let callbacks = options.build_callbacks::<Quadratic, (), Infallible>();
-            let config = TrustRegionConfig::new([1.0, -1.0]);
+            let config = TrustRegionConfig::default();
             let _summary = TrustRegion::default()
-                .process(&Quadratic, &(), config, callbacks)
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_row_slice(&[1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
                 .unwrap();
         });
     }

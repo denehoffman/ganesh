@@ -316,8 +316,6 @@ where
 /// Configuration for the [`CMAES`] algorithm.
 #[derive(Clone)]
 pub struct CMAESConfig {
-    x0: DVector<Float>,
-    sigma: Float,
     population_size: Option<usize>,
     bounds: Option<Bounds>,
     parameter_names: Option<Vec<String>>,
@@ -325,7 +323,43 @@ pub struct CMAESConfig {
 }
 
 impl CMAESConfig {
-    /// Create a new [`CMAESConfig`] from the initial mean and global step size.
+    /// Create a new [`CMAESConfig`] with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the offspring population size `lambda`.
+    pub fn with_population_size(mut self, population_size: usize) -> GaneshResult<Self> {
+        if population_size < 2 {
+            return Err(GaneshError::ConfigError(
+                "CMA-ES population size must be at least 2".to_string(),
+            ));
+        }
+        self.population_size = Some(population_size);
+        Ok(self)
+    }
+}
+
+impl Default for CMAESConfig {
+    fn default() -> Self {
+        Self {
+            population_size: None,
+            bounds: None,
+            parameter_names: None,
+            transform: None,
+        }
+    }
+}
+
+/// Initialization payload for a [`CMAES`] run.
+#[derive(Clone)]
+pub struct CMAESInit {
+    x0: DVector<Float>,
+    sigma: Float,
+}
+
+impl CMAESInit {
+    /// Create a new initialization payload from the initial mean and global step size.
     pub fn new<I>(x0: I, sigma: Float) -> GaneshResult<Self>
     where
         I: AsRef<[Float]>,
@@ -341,25 +375,7 @@ impl CMAESConfig {
                 "CMA-ES sigma must be finite and greater than 0".to_string(),
             ));
         }
-        Ok(Self {
-            x0,
-            sigma,
-            population_size: None,
-            bounds: None,
-            parameter_names: None,
-            transform: None,
-        })
-    }
-
-    /// Set the offspring population size `lambda`.
-    pub fn with_population_size(mut self, population_size: usize) -> GaneshResult<Self> {
-        if population_size < 2 {
-            return Err(GaneshError::ConfigError(
-                "CMA-ES population size must be at least 2".to_string(),
-            ));
-        }
-        self.population_size = Some(population_size);
-        Ok(self)
+        Ok(Self { x0, sigma })
     }
 }
 
@@ -465,9 +481,9 @@ impl CMAES {
         }
     }
 
-    fn initialize_strategy(&mut self, dimension: usize, config: &CMAESConfig) {
-        self.sigma = config.sigma;
-        self.initial_sigma = config.sigma;
+    fn initialize_strategy(&mut self, dimension: usize, init: &CMAESInit, config: &CMAESConfig) {
+        self.sigma = init.sigma;
+        self.initial_sigma = init.sigma;
         self.lambda = config
             .population_size
             .unwrap_or_else(|| 4 + (3.0 * (dimension as Float).ln()).floor() as usize);
@@ -756,12 +772,14 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = CMAESConfig;
+    type Init = CMAESInit;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientFreeStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let (_bounds, transform) = resolve_bounds_and_transform(
@@ -770,8 +788,8 @@ where
             BoundsHandlingMode::TransformBounds,
         );
         self.resolved_transform = transform;
-        self.mean = self.resolved_transform.to_owned_internal(&config.x0);
-        self.initialize_strategy(self.mean.len(), config);
+        self.mean = self.resolved_transform.to_owned_internal(&init.x0);
+        self.initialize_strategy(self.mean.len(), init, config);
         let mut x0 = Point::from(self.mean.clone());
         x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
         self.best = x0.clone();
@@ -815,10 +833,11 @@ where
         _problem: &P,
         status: &GradientFreeStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
@@ -878,11 +897,14 @@ mod tests {
     fn test_cmaes_quadratic() {
         let problem = Quadratic;
         let mut solver = CMAES::new(Some(0));
+        let init = CMAESInit::new([3.0, -2.0], 0.8).unwrap();
+        let config = CMAESConfig::default();
         let result = solver
             .process(
                 &problem,
                 &(),
-                CMAESConfig::new([3.0, -2.0], 0.8).unwrap(),
+                init,
+                config,
                 CMAES::default_callbacks().with_terminator(MaxSteps(120)),
             )
             .unwrap();
@@ -894,12 +916,14 @@ mod tests {
     #[test]
     fn test_cmaes_seed_is_deterministic() {
         let problem = Quadratic;
-        let config = CMAESConfig::new([3.0, -2.0], 0.8).unwrap();
+        let init = CMAESInit::new([3.0, -2.0], 0.8).unwrap();
+        let config = CMAESConfig::default();
         let result_a = CMAES::new(Some(7))
             .process(
                 &problem,
                 &(),
-                config.clone(),
+                init.clone(),
+                config,
                 CMAES::default_callbacks().with_terminator(MaxSteps(40)),
             )
             .unwrap();
@@ -907,7 +931,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                config,
+                init,
+                CMAESConfig::default(),
                 CMAES::default_callbacks().with_terminator(MaxSteps(40)),
             )
             .unwrap();
@@ -919,13 +944,15 @@ mod tests {
     fn test_cmaes_bounds_via_transform() {
         let problem = Quadratic;
         let mut solver = CMAES::new(Some(0));
+        let init = CMAESInit::new([1.5, -1.5], 0.4).unwrap();
+        let config = CMAESConfig::default()
+            .with_bounds([(-2.0, 2.0), (-2.0, 2.0)]);
         let result = solver
             .process(
                 &problem,
                 &(),
-                CMAESConfig::new([1.5, -1.5], 0.4)
-                    .unwrap()
-                    .with_bounds([(-2.0, 2.0), (-2.0, 2.0)]),
+                init,
+                config,
                 CMAES::default_callbacks().with_terminator(MaxSteps(120)),
             )
             .unwrap();
@@ -935,12 +962,12 @@ mod tests {
 
     #[test]
     fn test_cmaes_uses_hansen_active_weights() {
-        let config = CMAESConfig::new([0.0, 0.0, 0.0, 0.0], 1.0)
-            .unwrap()
+        let init = CMAESInit::new([0.0, 0.0, 0.0, 0.0], 1.0).unwrap();
+        let config = CMAESConfig::default()
             .with_population_size(8)
             .unwrap();
         let mut solver = CMAES::default();
-        solver.initialize_strategy(4, &config);
+        solver.initialize_strategy(4, &init, &config);
 
         let lambda = solver.lambda;
         let w_prime: Vec<Float> = (0..lambda)
@@ -996,7 +1023,7 @@ mod tests {
             &Quadratic,
             &mut status,
             &(),
-            &CMAESConfig::new([0.0, 0.0], 1.0).unwrap(),
+            &CMAESConfig::default(),
         );
 
         assert!(result.is_break());
@@ -1019,7 +1046,7 @@ mod tests {
             &Quadratic,
             &mut status,
             &(),
-            &CMAESConfig::new([0.0, 0.0], 1.0).unwrap(),
+            &CMAESConfig::default(),
         );
 
         assert!(result.is_break());

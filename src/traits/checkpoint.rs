@@ -28,6 +28,7 @@ pub trait CheckpointableAlgorithm<P, S: Status, U = (), E = Infallible>:
         &mut self,
         problem: &P,
         args: &U,
+        init: Self::Init,
         config: Self::Config,
         checkpoint: &Self::Checkpoint,
         callbacks: C,
@@ -50,6 +51,6 @@ pub trait CheckpointableAlgorithm<P, S: Status, U = (), E = Infallible>:
             current_step += 1;
         }
         self.postprocessing(problem, &mut status, args, &config)?;
-        self.summarize(current_step, problem, &status, args, &config)
+        self.summarize(current_step, problem, &status, args, &init, &config)
     }
 }

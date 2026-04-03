@@ -2,8 +2,8 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Benchmark
 use ganesh::{
     algorithms::{
         gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        gradient_free::{nelder_mead::NelderMeadConfig, NelderMead},
-        mcmc::{AIESConfig, ESSConfig, ESSMove, AIES, ESS},
+        gradient_free::{nelder_mead::{NelderMeadConfig, NelderMeadInit}, NelderMead},
+        mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, ESSMove, AIES, ESS},
         particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
     },
     core::MaxSteps,
@@ -39,18 +39,18 @@ fn benchmark_lbfgsb(c: &mut Criterion) {
     let mut group = c.benchmark_group("Matrix/LBFGSB");
     for n in OPT_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            let base_cfg = LBFGSBConfig::new(rosenbrock_start(ndim));
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
                         LBFGSB::default(),
-                        base_cfg.clone(),
+                        DVector::from_vec(rosenbrock_start(ndim)),
+                        LBFGSBConfig::default(),
                         LBFGSB::default_callbacks().with_terminator(MaxSteps(LBFGSB_STEPS)),
                     )
                 },
-                |(problem, mut solver, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), cfg, callbacks).unwrap());
+                |(problem, mut solver, init, cfg, callbacks)| {
+                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
                 },
                 BatchSize::SmallInput,
             );
@@ -63,19 +63,19 @@ fn benchmark_nelder_mead(c: &mut Criterion) {
     let mut group = c.benchmark_group("Matrix/Nelder-Mead");
     for n in OPT_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            let base_cfg = NelderMeadConfig::new(rosenbrock_start(ndim));
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
                         NelderMead::default(),
-                        base_cfg.clone(),
+                        NelderMeadInit::new(rosenbrock_start(ndim)),
+                        NelderMeadConfig::default(),
                         NelderMead::default_callbacks()
                             .with_terminator(MaxSteps(NELDER_MEAD_STEPS)),
                     )
                 },
-                |(problem, mut solver, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), cfg, callbacks).unwrap());
+                |(problem, mut solver, init, cfg, callbacks)| {
+                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
                 },
                 BatchSize::SmallInput,
             );
@@ -89,27 +89,27 @@ fn benchmark_pso(c: &mut Criterion) {
     for n in OPT_DIMS {
         group.bench_with_input(BenchmarkId::new("Rastrigin", n), &n, |b, &ndim| {
             let bounds = vec![(-5.12, 5.12); ndim];
-            let base_cfg = PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                bounds,
-                n_particles: 24,
-            }))
-            .with_c1(0.1)
-            .unwrap()
-            .with_c2(0.1)
-            .unwrap()
-            .with_omega(0.8)
-            .unwrap();
             b.iter_batched(
                 || {
                     (
                         Rastrigin { n: ndim },
                         PSO::default(),
-                        base_cfg.clone(),
+                        Swarm::new(SwarmPositionInitializer::RandomInLimits {
+                            bounds: bounds.clone(),
+                            n_particles: 24,
+                        }),
+                        PSOConfig::default()
+                            .with_c1(0.1)
+                            .unwrap()
+                            .with_c2(0.1)
+                            .unwrap()
+                            .with_omega(0.8)
+                            .unwrap(),
                         PSO::default_callbacks().with_terminator(MaxSteps(PSO_STEPS)),
                     )
                 },
-                |(problem, mut solver, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), cfg, callbacks).unwrap());
+                |(problem, mut solver, init, cfg, callbacks)| {
+                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
                 },
                 BatchSize::SmallInput,
             );
@@ -122,18 +122,18 @@ fn benchmark_aies(c: &mut Criterion) {
     let mut group = c.benchmark_group("Matrix/AIES");
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            let base_cfg = AIESConfig::new(matrix_walkers(ndim)).unwrap();
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
                         AIES::default(),
-                        base_cfg.clone(),
+                        AIESInit::new(matrix_walkers(ndim)).unwrap(),
+                        AIESConfig::default(),
                         AIES::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
                     )
                 },
-                |(problem, mut solver, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), cfg, callbacks).unwrap());
+                |(problem, mut solver, init, cfg, callbacks)| {
+                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
                 },
                 BatchSize::SmallInput,
             );
@@ -146,23 +146,22 @@ fn benchmark_ess(c: &mut Criterion) {
     let mut group = c.benchmark_group("Matrix/ESS");
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            let base_cfg = ESSConfig::new(matrix_walkers(ndim))
-                .unwrap()
-                .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
-                .unwrap()
-                .with_n_adaptive(5)
-                .with_max_steps(64);
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
                         ESS::default(),
-                        base_cfg.clone(),
+                        ESSInit::new(matrix_walkers(ndim)).unwrap(),
+                        ESSConfig::default()
+                            .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
+                            .unwrap()
+                            .with_n_adaptive(5)
+                            .with_max_steps(64),
                         ESS::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
                     )
                 },
-                |(problem, mut solver, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), cfg, callbacks).unwrap());
+                |(problem, mut solver, init, cfg, callbacks)| {
+                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
                 },
                 BatchSize::SmallInput,
             );

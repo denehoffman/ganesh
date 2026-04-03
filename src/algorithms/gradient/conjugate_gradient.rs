@@ -90,7 +90,6 @@ pub enum ConjugateGradientUpdate {
 /// Configuration for the [`ConjugateGradient`] algorithm.
 #[derive(Clone)]
 pub struct ConjugateGradientConfig {
-    x0: DVector<Float>,
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     line_search: StrongWolfeLineSearch,
@@ -98,18 +97,9 @@ pub struct ConjugateGradientConfig {
 }
 
 impl ConjugateGradientConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            parameter_names: None,
-            transform: None,
-            line_search: StrongWolfeLineSearch::default(),
-            update: ConjugateGradientUpdate::default(),
-        }
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Set the line search algorithm to use.
@@ -122,6 +112,17 @@ impl ConjugateGradientConfig {
     pub const fn with_update(mut self, update: ConjugateGradientUpdate) -> Self {
         self.update = update;
         self
+    }
+}
+
+impl Default for ConjugateGradientConfig {
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            transform: None,
+            line_search: StrongWolfeLineSearch::default(),
+            update: ConjugateGradientUpdate::default(),
+        }
     }
 }
 
@@ -225,16 +226,18 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = ConjugateGradientConfig;
+    type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
-        self.x = t_problem.to_owned_internal(&config.x0);
+        self.x = t_problem.to_owned_internal(init);
         let (f, g) = t_problem.evaluate_with_gradient(&self.x, args)?;
         self.f = f;
         self.g = g;
@@ -243,7 +246,7 @@ where
         self.line_search = config.line_search.clone();
         status.n_f_evals += 1;
         status.n_g_evals += 1;
-        status.initialize((config.x0.clone(), self.f));
+        status.initialize((init.clone(), self.f));
         Ok(())
     }
 
@@ -286,10 +289,11 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
@@ -331,6 +335,7 @@ mod tests {
         test_functions::Rosenbrock,
     };
     use approx::assert_relative_eq;
+    use nalgebra::dvector;
 
     #[test]
     fn test_conjugate_gradient_polak_ribiere_plus() {
@@ -340,7 +345,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                ConjugateGradientConfig::new([-1.2, 1.0])
+                dvector![-1.2, 1.0],
+                ConjugateGradientConfig::default()
                     .with_update(ConjugateGradientUpdate::PolakRibierePlus),
                 ConjugateGradient::default_callbacks().with_terminator(MaxSteps(1_000)),
             )
@@ -359,7 +365,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                ConjugateGradientConfig::new([-1.2, 1.0])
+                dvector![-1.2, 1.0],
+                ConjugateGradientConfig::default()
                     .with_update(ConjugateGradientUpdate::HagerZhang)
                     .with_line_search(StrongWolfeLineSearch::default()),
                 ConjugateGradient::default_callbacks().with_terminator(MaxSteps(1_000)),
@@ -377,7 +384,8 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                ConjugateGradientConfig::new([-1.2, 1.0])
+                dvector![-1.2, 1.0],
+                ConjugateGradientConfig::default()
                     .with_update(ConjugateGradientUpdate::FletcherReeves)
                     .with_transform(&Bounds::from([(-2.0, 2.0), (-1.0, 3.0)])),
                 ConjugateGradient::default_callbacks().with_terminator(MaxSteps(1_000)),

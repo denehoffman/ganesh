@@ -13,6 +13,8 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     type Summary;
     /// The configuration struct for the algorithm.
     type Config;
+    /// The initialization payload for a single run.
+    type Init;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -24,6 +26,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         problem: &P,
         status: &mut S,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
@@ -70,6 +73,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         problem: &P,
         status: &S,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E>;
 
@@ -91,6 +95,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         &mut self,
         problem: &P,
         args: &U,
+        init: Self::Init,
         config: Self::Config,
         callbacks: C,
     ) -> Result<Self::Summary, E>
@@ -100,7 +105,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     {
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E, Self::Config> = callbacks.into();
-        self.initialize(problem, &mut status, args, &config)?;
+        self.initialize(problem, &mut status, args, &init, &config)?;
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, args, &config)?;
@@ -114,17 +119,38 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
             current_step += 1;
         }
         self.postprocessing(problem, &mut status, args, &config)?;
-        self.summarize(current_step, problem, &status, args, &config)
+        self.summarize(current_step, problem, &status, args, &init, &config)
     }
 
-    /// Process the given problem using this [`Algorithm`].
+    /// Process the given problem using this [`Algorithm`] and the algorithm's default callbacks.
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if any of the [`Algorithm::default_callbacks`] return
     /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
-    /// summary of the [`Algorithm`]'s state. This method is similar to [`Algorithm::process`],
-    /// except it uses the default callbacks and configuration for the algorithm.
+    /// summary of the [`Algorithm`]'s state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
+    fn process_with_default_callbacks(
+        &mut self,
+        problem: &P,
+        user_data: &U,
+        init: Self::Init,
+        config: Self::Config,
+    ) -> Result<Self::Summary, E>
+    where
+        Self: Sized,
+    {
+        self.process(problem, user_data, init, config, Self::default_callbacks())
+    }
+
+    /// Process the given problem using this [`Algorithm`] with default config and default callbacks.
+    ///
+    /// This method is similar to [`Algorithm::process`], except it uses
+    /// [`Default::default`] for the algorithm configuration and
+    /// [`Algorithm::default_callbacks`] for the callback set.
     ///
     /// # Errors
     ///
@@ -133,12 +159,19 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         &mut self,
         problem: &P,
         user_data: &U,
-        config: Self::Config,
+        init: Self::Init,
     ) -> Result<Self::Summary, E>
     where
         Self: Sized,
+        Self::Config: Default,
     {
-        self.process(problem, user_data, config, Self::default_callbacks())
+        self.process(
+            problem,
+            user_data,
+            init,
+            Self::Config::default(),
+            Self::default_callbacks(),
+        )
     }
 
     /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].

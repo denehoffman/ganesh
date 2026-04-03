@@ -14,38 +14,18 @@ use fastrand::Rng;
 /// Configuration for the [`DifferentialEvolution`] algorithm.
 #[derive(Clone)]
 pub struct DifferentialEvolutionConfig {
-    x0: DVector<Float>,
     population_size: Option<usize>,
     differential_weight: Float,
     crossover_probability: Float,
-    initial_scale: Float,
     bounds: Option<Bounds>,
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
 }
 
 impl DifferentialEvolutionConfig {
-    /// Create a new [`DifferentialEvolutionConfig`] from the initial point.
-    pub fn new<I>(x0: I) -> GaneshResult<Self>
-    where
-        I: AsRef<[Float]>,
-    {
-        let x0 = DVector::from_row_slice(x0.as_ref());
-        if x0.is_empty() {
-            return Err(GaneshError::ConfigError(
-                "Differential Evolution requires at least one parameter".to_string(),
-            ));
-        }
-        Ok(Self {
-            x0,
-            population_size: None,
-            differential_weight: 0.8,
-            crossover_probability: 0.9,
-            initial_scale: 1.0,
-            bounds: None,
-            parameter_names: None,
-            transform: None,
-        })
+    /// Create a new [`DifferentialEvolutionConfig`] with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Set the population size.
@@ -82,6 +62,45 @@ impl DifferentialEvolutionConfig {
         }
         self.crossover_probability = crossover_probability;
         Ok(self)
+    }
+}
+
+impl Default for DifferentialEvolutionConfig {
+    fn default() -> Self {
+        Self {
+            population_size: None,
+            differential_weight: 0.8,
+            crossover_probability: 0.9,
+            bounds: None,
+            parameter_names: None,
+            transform: None,
+        }
+    }
+}
+
+/// Initialization payload for a [`DifferentialEvolution`] run.
+#[derive(Clone)]
+pub struct DifferentialEvolutionInit {
+    x0: DVector<Float>,
+    initial_scale: Float,
+}
+
+impl DifferentialEvolutionInit {
+    /// Create a new initialization payload from the initial point.
+    pub fn new<I>(x0: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[Float]>,
+    {
+        let x0 = DVector::from_row_slice(x0.as_ref());
+        if x0.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "Differential Evolution requires at least one parameter".to_string(),
+            ));
+        }
+        Ok(Self {
+            x0,
+            initial_scale: 1.0,
+        })
     }
 
     /// Set the half-width of the uniform perturbation used to initialize the population around `x0`.
@@ -148,7 +167,7 @@ impl DifferentialEvolution {
     fn population_size(&self, config: &DifferentialEvolutionConfig) -> usize {
         config
             .population_size
-            .unwrap_or_else(|| (10 * config.x0.len()).max(4))
+            .unwrap_or_else(|| (10 * self.best.x.len()).max(4))
     }
 
     fn sample_offset(&mut self, dim: usize, scale: Float) -> DVector<Float> {
@@ -181,12 +200,14 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = DifferentialEvolutionConfig;
+    type Init = DifferentialEvolutionInit;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientFreeStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let (_bounds, transform) = resolve_bounds_and_transform(
@@ -197,7 +218,7 @@ where
         self.resolved_transform = transform;
         self.population.clear();
 
-        let x0_internal = self.resolved_transform.to_owned_internal(&config.x0);
+        let x0_internal = self.resolved_transform.to_owned_internal(&init.x0);
         let pop_size = self.population_size(config);
         self.population.reserve(pop_size);
 
@@ -208,7 +229,7 @@ where
 
         for _ in 1..pop_size {
             let candidate_external =
-                &config.x0 + self.sample_offset(config.x0.len(), config.initial_scale);
+                &init.x0 + self.sample_offset(init.x0.len(), init.initial_scale);
             let candidate_x = self
                 .resolved_transform
                 .to_owned_internal(&candidate_external);
@@ -282,10 +303,11 @@ where
         _problem: &P,
         status: &GradientFreeStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
@@ -333,16 +355,19 @@ mod tests {
     fn test_de_quadratic() {
         let problem = Quadratic;
         let mut solver = DifferentialEvolution::new(Some(0));
+        let init = DifferentialEvolutionInit::new([3.0, -2.0])
+            .unwrap()
+            .with_initial_scale(2.0)
+            .unwrap();
+        let config = DifferentialEvolutionConfig::default()
+            .with_population_size(24)
+            .unwrap();
         let result = solver
             .process(
                 &problem,
                 &(),
-                DifferentialEvolutionConfig::new([3.0, -2.0])
-                    .unwrap()
-                    .with_population_size(24)
-                    .unwrap()
-                    .with_initial_scale(2.0)
-                    .unwrap(),
+                init,
+                config,
                 DifferentialEvolution::default_callbacks().with_terminator(MaxSteps(150)),
             )
             .unwrap();
@@ -354,15 +379,16 @@ mod tests {
     #[test]
     fn test_de_seed_is_deterministic() {
         let problem = Quadratic;
-        let config = DifferentialEvolutionConfig::new([3.0, -2.0])
-            .unwrap()
+        let init = DifferentialEvolutionInit::new([3.0, -2.0]).unwrap();
+        let config = DifferentialEvolutionConfig::default()
             .with_population_size(20)
             .unwrap();
         let result_a = DifferentialEvolution::new(Some(7))
             .process(
                 &problem,
                 &(),
-                config.clone(),
+                init.clone(),
+                config,
                 DifferentialEvolution::default_callbacks().with_terminator(MaxSteps(60)),
             )
             .unwrap();
@@ -370,7 +396,10 @@ mod tests {
             .process(
                 &problem,
                 &(),
-                config,
+                init,
+                DifferentialEvolutionConfig::default()
+                    .with_population_size(20)
+                    .unwrap(),
                 DifferentialEvolution::default_callbacks().with_terminator(MaxSteps(60)),
             )
             .unwrap();
@@ -382,17 +411,20 @@ mod tests {
     fn test_de_bounds_via_transform() {
         let problem = Quadratic;
         let mut solver = DifferentialEvolution::new(Some(0));
+        let init = DifferentialEvolutionInit::new([1.5, -1.5])
+            .unwrap()
+            .with_initial_scale(1.5)
+            .unwrap();
+        let config = DifferentialEvolutionConfig::default()
+            .with_population_size(20)
+            .unwrap()
+            .with_bounds([(-2.0, 2.0), (-2.0, 2.0)]);
         let result = solver
             .process(
                 &problem,
                 &(),
-                DifferentialEvolutionConfig::new([1.5, -1.5])
-                    .unwrap()
-                    .with_population_size(20)
-                    .unwrap()
-                    .with_initial_scale(1.5)
-                    .unwrap()
-                    .with_bounds([(-2.0, 2.0), (-2.0, 2.0)]),
+                init,
+                config,
                 DifferentialEvolution::default_callbacks().with_terminator(MaxSteps(120)),
             )
             .unwrap();

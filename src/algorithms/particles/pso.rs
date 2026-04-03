@@ -15,7 +15,6 @@ use std::cmp::Ordering;
 /// The internal configuration struct for the [`PSO`] algorithm.
 #[derive(Clone)]
 pub struct PSOConfig {
-    swarm: Swarm,
     bounds: Option<Bounds>,
     bounds_handling: BoundsHandlingMode,
     parameter_names: Option<Vec<String>>,
@@ -25,18 +24,9 @@ pub struct PSOConfig {
     c2: Float,
 }
 impl PSOConfig {
-    /// Create a new configuration by defining the [`Swarm`].
-    pub const fn new(swarm: Swarm) -> Self {
-        Self {
-            swarm,
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::Auto,
-            parameter_names: None,
-            transform: None,
-            omega: 0.8,
-            c1: 0.1,
-            c2: 0.1,
-        }
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
     /// Sets the inertial weight $`\omega`$ (default = `0.8`).
     pub fn with_omega(mut self, value: Float) -> GaneshResult<Self> {
@@ -77,6 +67,20 @@ impl PSOConfig {
         self
     }
 }
+impl Default for PSOConfig {
+    fn default() -> Self {
+        Self {
+            bounds: None,
+            bounds_handling: BoundsHandlingMode::Auto,
+            parameter_names: None,
+            transform: None,
+            omega: 0.8,
+            c1: 0.1,
+            c2: 0.1,
+        }
+    }
+}
+
 impl SupportsBounds for PSOConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
@@ -243,16 +247,18 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = PSOConfig;
+    type Init = Swarm;
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut SwarmStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        status.swarm = config.swarm.clone();
+        status.swarm = init.clone();
         status
             .swarm
             .initialize(&mut self.rng, &transform, problem, args)?;
@@ -263,6 +269,7 @@ where
                 status.gbest = particle.best.clone();
             }
         }
+        status.initial_gbest = status.gbest.clone();
         status.set_message().initialize();
         Ok(())
     }
@@ -284,10 +291,11 @@ where
         _func: &P,
         status: &SwarmStatus,
         _args: &U,
+        _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: DVector::from_element(status.gbest.x.len(), 0.0),
+            x0: status.initial_gbest.x.clone(),
             x: status.gbest.x.clone(),
             fx: status.gbest.fx_checked(),
             bounds: config.bounds.clone(),
@@ -333,22 +341,25 @@ mod tests {
 
         // Create a new Sampler
         let mut solver = PSO::default();
+        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
+            n_particles: 50,
+        });
+        let config = PSOConfig::default()
+            .with_c1(0.1)
+            .unwrap()
+            .with_c2(0.1)
+            .unwrap()
+            .with_omega(0.8)
+            .unwrap();
 
         // Run the particle swarm optimizer
         let result = solver
             .process(
                 &problem,
                 &(),
-                PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                    bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
-                    n_particles: 50,
-                }))
-                .with_c1(0.1)
-                .unwrap()
-                .with_c2(0.1)
-                .unwrap()
-                .with_omega(0.8)
-                .unwrap(),
+                init,
+                config,
                 callbacks,
             )
             .unwrap();
@@ -377,7 +388,7 @@ mod tests {
         };
         status.swarm.particles = vec![particle];
 
-        let config = PSOConfig::new(Swarm::new(SwarmPositionInitializer::Custom(Vec::new())))
+        let config = PSOConfig::default()
             .with_omega(0.0)
             .unwrap()
             .with_c1(1.0)
@@ -398,7 +409,7 @@ mod tests {
 
     #[test]
     fn transform_bounds_mode_is_selectable_for_pso() {
-        let config = PSOConfig::new(Swarm::new(SwarmPositionInitializer::Custom(Vec::new())))
+        let config = PSOConfig::default()
             .with_bounds([(0.0, 1.0)])
             .with_bounds_handling(BoundsHandlingMode::TransformBounds);
 
@@ -413,15 +424,18 @@ mod tests {
         let problem = Rastrigin { n: 2 };
         let callbacks = Callbacks::empty().with_terminator(MaxSteps(2));
         let mut solver = PSO::default();
+        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-5.0, 5.0), (-5.0, 5.0)],
+            n_particles: 8,
+        });
+        let config = PSOConfig::default();
 
         let result = solver
             .process(
                 &problem,
                 &(),
-                PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                    bounds: vec![(-5.0, 5.0), (-5.0, 5.0)],
-                    n_particles: 8,
-                })),
+                init,
+                config,
                 callbacks,
             )
             .unwrap();

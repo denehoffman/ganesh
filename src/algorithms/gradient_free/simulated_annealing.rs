@@ -156,6 +156,12 @@ pub struct SimulatedAnnealing {
     rng: fastrand::Rng,
 }
 
+impl Default for SimulatedAnnealing {
+    fn default() -> Self {
+        Self::new(Some(0))
+    }
+}
+
 impl SimulatedAnnealing {
     /// Creates a new instance of the simulated annealing algorithm.
     pub fn new(seed: Option<u64>) -> Self {
@@ -172,6 +178,7 @@ where
 {
     type Summary = SimulatedAnnealingSummary<I>;
     type Config = SimulatedAnnealingConfig;
+    type Init = ();
 
     #[allow(clippy::expect_used)]
     fn initialize(
@@ -179,6 +186,7 @@ where
         problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
+        _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let x0 = problem.initial(&config.transform, status, args);
@@ -233,6 +241,7 @@ where
         _problem: &P,
         status: &SimulatedAnnealingStatus<I>,
         _args: &U,
+        _init: &Self::Init,
         _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(SimulatedAnnealingSummary {
@@ -326,12 +335,13 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let mut solver = SimulatedAnnealing::new(Some(0));
+        let mut solver = SimulatedAnnealing::default();
         let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
         let result = solver
             .process(
                 &problem,
                 &(),
+                (),
                 SimulatedAnnealingConfig::new(1.0, 0.999)
                     .unwrap()
                     .with_transform(&Bounds::from([(-5.0, 5.0), (-5.0, 5.0)])),
@@ -387,13 +397,13 @@ mod tests {
 
     #[test]
     fn accepts_improving_proposal_even_if_not_new_best() {
-        let mut solver = SimulatedAnnealing::new(Some(0));
+        let mut solver = SimulatedAnnealing::default();
         let problem = SequenceAnnealingProblem::new(&[2.0], vec![&[1.0]]);
         let config = SimulatedAnnealingConfig::new(0.01, 0.9).unwrap();
         let mut status = SimulatedAnnealingStatus::default();
 
         solver
-            .initialize(&problem, &mut status, &(), &config)
+            .initialize(&problem, &mut status, &(), &(), &config)
             .unwrap();
         status.best = Point {
             x: DVector::from_row_slice(&[0.0]),
@@ -414,13 +424,13 @@ mod tests {
 
     #[test]
     fn rejected_proposal_does_not_advance_current() {
-        let mut solver = SimulatedAnnealing::new(Some(0));
+        let mut solver = SimulatedAnnealing::default();
         let problem = SequenceAnnealingProblem::new(&[0.0], vec![&[1.0]]);
         let config = SimulatedAnnealingConfig::new(1e-6, 0.9).unwrap();
         let mut status = SimulatedAnnealingStatus::default();
 
         solver
-            .initialize(&problem, &mut status, &(), &config)
+            .initialize(&problem, &mut status, &(), &(), &config)
             .unwrap();
         let current_before = status.current.clone();
         let best_before = status.best.clone();
@@ -435,12 +445,13 @@ mod tests {
 
     #[test]
     fn summary_reports_nonzero_evals_and_terminal_message() {
-        let mut solver = SimulatedAnnealing::new(Some(0));
+        let mut solver = SimulatedAnnealing::default();
         let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
         let result = solver
             .process(
                 &problem,
                 &(),
+                (),
                 SimulatedAnnealingConfig::new(1.0, 0.999).unwrap(),
                 Callbacks::empty().with_terminator(MaxSteps(2)),
             )

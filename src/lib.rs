@@ -80,10 +80,15 @@
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
 //!     let mut nm = NelderMead::default();
-//!     let result = nm.process(&problem,
-//!                             &(),
-//!                             NelderMeadConfig::new([2.0, 2.0]),
-//!                             NelderMead::default_callbacks())?;
+//!     let init = ganesh::algorithms::gradient_free::nelder_mead::NelderMeadInit::new([2.0, 2.0]);
+//!     let config = NelderMeadConfig::default();
+//!     let result = nm.process(
+//!         &problem,
+//!         &(),
+//!         init,
+//!         config,
+//!         NelderMead::default_callbacks(),
+//!     )?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }
@@ -299,11 +304,12 @@ where
     use traits::{Algorithm, SupportsBounds};
 
     let mut solver = LBFGSB::default();
-    let mut config = LBFGSBConfig::new(x0);
+    let init = DVector::from_row_slice(x0.as_ref());
+    let mut config = LBFGSBConfig::default();
     if let Some(bounds) = bounds {
         config = config.with_bounds(bounds);
     }
-    solver.process_default(problem, user_data, config)
+    solver.process_with_default_callbacks(problem, user_data, init, config)
 }
 
 /// A preset minimization algorithm which uses the [Nelder-Mead](`algorithms::gradient_free::NelderMead`) algorithm.
@@ -323,15 +329,16 @@ where
     B: Into<traits::Bound>,
     P: traits::CostFunction<U, E>,
 {
-    use algorithms::gradient_free::{NelderMead, NelderMeadConfig};
+    use algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
     use traits::{Algorithm, SupportsBounds};
 
     let mut solver = NelderMead::default();
-    let mut config = NelderMeadConfig::new(x0);
+    let init = NelderMeadInit::new(x0);
+    let mut config = NelderMeadConfig::default();
     if let Some(bounds) = bounds {
         config = config.with_bounds(bounds);
     }
-    solver.process_default(problem, user_data, config)
+    solver.process_with_default_callbacks(problem, user_data, init, config)
 }
 
 /// A preset Markov Chain Monte Carlo algorithm which uses the [AIES](`algorithms::mcmc::AIES`) algorithm.
@@ -350,15 +357,17 @@ where
     P: traits::LogDensity<U, E>,
     E: From<error::GaneshError>,
 {
-    use algorithms::mcmc::{AIESConfig, AIES};
+    use algorithms::mcmc::{aies::AIESInit, AIESConfig, AIES};
     use core::MaxSteps;
     use traits::Algorithm;
 
     let mut solver = AIES::default();
-    let config = AIESConfig::new(x0.as_ref().to_vec())?;
+    let init = AIESInit::new(x0.as_ref().to_vec())?;
+    let config = AIESConfig::default();
     solver.process(
         problem,
         user_data,
+        init,
         config,
         AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
     )

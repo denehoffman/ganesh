@@ -247,7 +247,7 @@ impl Walker {
 /// ```rust
 /// use fastrand::Rng;
 /// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
-/// use ganesh::algorithms::mcmc::{ESSMove, ESS, ESSConfig};
+/// use ganesh::algorithms::mcmc::{ess::ESSInit, ESSMove, ESS, ESSConfig};
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::{core::{utils::SampleFloat, Callbacks}, Float, DVector};
 /// use ganesh::traits::*;
@@ -265,9 +265,19 @@ impl Walker {
 ///     .with_verbose(true)
 ///     .build();
 /// let mut sampler = ESS::new(Some(1));
-/// let result = sampler.process(&problem, &(),
-/// ESSConfig::new(x0.clone()).unwrap().with_moves([ESSMove::gaussian(0.1),
-/// ESSMove::differential(0.9)]).unwrap(), Callbacks::empty().with_terminator(aco.clone())).unwrap();
+/// let init = ESSInit::new(x0.clone()).unwrap();
+/// let config = ESSConfig::default()
+///     .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
+///     .unwrap();
+/// let result = sampler
+///     .process(
+///         &problem,
+///         &(),
+///         init,
+///         config,
+///         Callbacks::empty().with_terminator(aco.clone()),
+///     )
+///     .unwrap();
 ///
 /// println!(
 ///     "Walker 0 Final Position: {}",
@@ -426,14 +436,16 @@ mod tests {
             .with_verbose(false)
             .build();
         let mut sampler = ESS::new(Some(1));
+        let init = crate::algorithms::mcmc::ess::ESSInit::new(x0).unwrap();
+        let config = ESSConfig::default()
+            .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
+            .unwrap();
         let result = sampler
             .process(
                 &problem,
                 &(),
-                ESSConfig::new(x0)
-                    .unwrap()
-                    .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
-                    .unwrap(),
+                init,
+                config,
                 Callbacks::empty().with_terminator(aco.clone()),
             )
             .unwrap();

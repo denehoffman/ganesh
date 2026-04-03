@@ -179,7 +179,6 @@ pub enum LBFGSBErrorMode {
 /// The internal configuration struct for the [`LBFGSB`] algorithm.
 #[derive(Clone)]
 pub struct LBFGSBConfig {
-    x0: DVector<Float>,
     bounds: Option<Bounds>,
     bounds_handling: BoundsHandlingMode,
     parameter_names: Option<Vec<String>>,
@@ -205,22 +204,9 @@ impl SupportsParameterNames for LBFGSBConfig {
     }
 }
 impl LBFGSBConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            line_search: StrongWolfeLineSearch::default(),
-            m: 10,
-            max_step: 1e8,
-            error_mode: Default::default(),
-        }
+    /// Create a default configuration for the algorithm.
+    pub fn new() -> Self {
+        Self::default()
     }
     /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
     /// while sacrificing memory usage (default = `10`).
@@ -248,6 +234,21 @@ impl LBFGSBConfig {
     pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
         self.bounds_handling = bounds_handling;
         self
+    }
+}
+
+impl Default for LBFGSBConfig {
+    fn default() -> Self {
+        Self {
+            bounds: None,
+            bounds_handling: BoundsHandlingMode::default(),
+            parameter_names: None,
+            transform: None,
+            line_search: StrongWolfeLineSearch::default(),
+            m: 10,
+            max_step: 1e8,
+            error_mode: Default::default(),
+        }
     }
 }
 
@@ -573,11 +574,13 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = LBFGSBConfig;
+    type Init = DVector<Float>;
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
@@ -586,7 +589,7 @@ where
         self.f_previous = Float::INFINITY;
         self.theta = 1.0;
         self.line_search = config.line_search.clone();
-        let x0 = transform.to_internal(&config.x0);
+        let x0 = transform.to_internal(init);
         self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
         self.u = DVector::from_element(x0.len(), Float::INFINITY);
         if let Some(bounds_vec) = &internal_bounds {
@@ -705,10 +708,11 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
@@ -862,7 +866,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    LBFGSBConfig::new(starting_value),
+                    DVector::from_row_slice(&starting_value),
+                    LBFGSBConfig::default(),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
@@ -874,11 +879,13 @@ mod tests {
     #[test]
     fn lbfgsb_checkpoint_signal_resume_matches_uninterrupted_run() {
         let problem = Rosenbrock { n: 2 };
-        let config = LBFGSBConfig::new([2.0, 2.0]);
+        let init = DVector::from_row_slice(&[2.0, 2.0]);
+        let config = LBFGSBConfig::default();
         let uninterrupted = LBFGSB::default()
             .process(
                 &problem,
                 &(),
+                init.clone(),
                 config.clone(),
                 LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
             )
@@ -891,6 +898,7 @@ mod tests {
             .process(
                 &problem,
                 &(),
+                init.clone(),
                 config.clone(),
                 LBFGSB::default_callbacks()
                     .with_terminator(MaxSteps(50))
@@ -907,6 +915,7 @@ mod tests {
             .process_from_checkpoint(
                 &problem,
                 &(),
+                init,
                 config,
                 &checkpoint,
                 LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
@@ -936,7 +945,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    LBFGSBConfig::new(starting_value).with_line_search(
+                    DVector::from_row_slice(&starting_value),
+                    LBFGSBConfig::default().with_line_search(
                         StrongWolfeLineSearch::HagerZhang(HagerZhangLineSearch::default()),
                     ),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
@@ -964,7 +974,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    LBFGSBConfig::new(starting_value).with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
+                    DVector::from_row_slice(&starting_value),
+                    LBFGSBConfig::default().with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();
@@ -998,7 +1009,8 @@ mod tests {
             .process(
                 &Rosenbrock { n: 2 },
                 &(),
-                LBFGSBConfig::new([-1.0, 1.0]),
+                DVector::from_row_slice(&[-1.0, 1.0]),
+                LBFGSBConfig::default(),
                 LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
             )
             .unwrap();
@@ -1010,7 +1022,7 @@ mod tests {
 
     #[test]
     fn transform_bounds_mode_disables_native_lbfgsb_bounds() {
-        let config = LBFGSBConfig::new([2.0])
+        let config = LBFGSBConfig::default()
             .with_bounds([(0.0, 1.0)])
             .with_bounds_handling(BoundsHandlingMode::TransformBounds);
 
@@ -1027,7 +1039,8 @@ mod tests {
             .process(
                 &Rosenbrock { n: 2 },
                 &(),
-                LBFGSBConfig::new([-1.0, 1.0]).with_parameter_names(["alpha", "beta"]),
+                DVector::from_row_slice(&[-1.0, 1.0]),
+                LBFGSBConfig::default().with_parameter_names(["alpha", "beta"]),
                 LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
             )
             .unwrap();

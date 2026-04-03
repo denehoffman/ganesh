@@ -67,7 +67,6 @@ where
 /// The internal configuration struct for the [`Adam`] algorithm.
 #[derive(Clone)]
 pub struct AdamConfig {
-    x0: DVector<Float>,
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     alpha: Float,
@@ -76,20 +75,9 @@ pub struct AdamConfig {
     epsilon: Float,
 }
 impl AdamConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            parameter_names: None,
-            transform: None,
-            alpha: 0.001,
-            beta_1: 0.9,
-            beta_2: 0.999,
-            epsilon: 1e-8, // NOTE: I think this can be independent of bit precision
-        }
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
     }
     /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
     pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
@@ -139,6 +127,19 @@ impl AdamConfig {
         Ok(self)
     }
 }
+
+impl Default for AdamConfig {
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            transform: None,
+            alpha: 0.001,
+            beta_1: 0.9,
+            beta_2: 0.999,
+            epsilon: 1e-8, // NOTE: I think this can be independent of bit precision
+        }
+    }
+}
 impl SupportsTransform for AdamConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
@@ -172,19 +173,21 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = AdamConfig;
+    type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
-        self.x = t_problem.to_owned_internal(&config.x0);
+        self.x = t_problem.to_owned_internal(init);
         self.g = DVector::zeros(self.x.len());
         self.f = t_problem.evaluate(&self.x, args)?;
-        status.initialize((config.x0.clone(), self.f));
+        status.initialize((init.clone(), self.f));
         status.inc_n_f_evals();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
@@ -223,10 +226,11 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
@@ -284,7 +288,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    AdamConfig::new(starting_value),
+                    DVector::from_row_slice(&starting_value),
+                    AdamConfig::default(),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
@@ -310,7 +315,8 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    AdamConfig::new(starting_value)
+                    DVector::from_row_slice(&starting_value),
+                    AdamConfig::default()
                         .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
