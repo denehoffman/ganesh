@@ -10,6 +10,8 @@ class _GaneshConfigMixin:
     def __ganesh_config__(self):
         return self
 
+
+class _GaneshInitMixin:
     def __ganesh_init__(self):
         return self
 
@@ -351,8 +353,6 @@ class LBFGSBConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    x0 : FloatVectorLike
-        Initial point in external coordinates.
     memory_limit : int, default=10
         Number of correction pairs retained by the limited-memory update.
     bounds : BoundsLike | None, default=None
@@ -377,12 +377,10 @@ class LBFGSBConfig(_GaneshConfigMixin):
         'line_search',
         'memory_limit',
         'parameter_names',
-        'x0',
     )
 
     def __init__(
         self,
-        x0: FloatVectorLike,
         memory_limit: int = 10,
         bounds: BoundsLike | None = None,
         parameter_names: list[str] | None = None,
@@ -390,7 +388,6 @@ class LBFGSBConfig(_GaneshConfigMixin):
         line_search: MoreThuenteLineSearch | HagerZhangLineSearch | None = None,
         error_mode: str | None = None,
     ) -> None:
-        self.x0 = x0
         self.memory_limit = memory_limit
         self.bounds = bounds
         self.parameter_names = parameter_names
@@ -399,17 +396,42 @@ class LBFGSBConfig(_GaneshConfigMixin):
         self.error_mode = error_mode
 
 
-class NelderMeadConfig(_GaneshConfigMixin):
+class NelderMeadInit(_GaneshInitMixin):
     """
-    Configuration for the Nelder-Mead optimizer.
+    Initialization payload for the Nelder-Mead optimizer.
 
     Parameters
     ----------
     x0 : FloatVectorLike | None, default=None
         Initial point used when ``construction_method`` is not provided.
     construction_method : ScaledOrthogonalSimplex | OrthogonalSimplex | CustomSimplex | None, default=None
-        Optional simplex construction strategy. ``None`` uses the library
-        default.
+        Optional simplex construction strategy.
+
+    """
+
+    __slots__ = ('construction_method', 'x0')
+
+    def __init__(
+        self,
+        x0: FloatVectorLike | None = None,
+        construction_method: ScaledOrthogonalSimplex | OrthogonalSimplex | CustomSimplex | None = None,
+    ) -> None:
+        if x0 is not None and construction_method is not None:
+            msg = 'NelderMeadInit accepts either x0 or construction_method, not both'
+            raise ValueError(msg)
+        if x0 is None and construction_method is None:
+            msg = 'NelderMeadInit requires either x0 or construction_method'
+            raise ValueError(msg)
+        self.x0 = x0
+        self.construction_method = construction_method
+
+
+class NelderMeadConfig(_GaneshConfigMixin):
+    """
+    Configuration for the Nelder-Mead optimizer.
+
+    Parameters
+    ----------
     bounds : BoundsLike | None, default=None
         Optional parameter bounds as ``(lower, upper)`` pairs.
     parameter_names : list[str] | None, default=None
@@ -432,18 +454,14 @@ class NelderMeadConfig(_GaneshConfigMixin):
         'beta',
         'bounds',
         'bounds_handling',
-        'construction_method',
         'delta',
         'expansion_method',
         'gamma',
         'parameter_names',
-        'x0',
     )
 
     def __init__(
         self,
-        x0: FloatVectorLike | None = None,
-        construction_method: ScaledOrthogonalSimplex | OrthogonalSimplex | CustomSimplex | None = None,
         bounds: BoundsLike | None = None,
         parameter_names: list[str] | None = None,
         alpha: float | None = None,
@@ -454,8 +472,6 @@ class NelderMeadConfig(_GaneshConfigMixin):
         expansion_method: str | None = None,
         bounds_handling: str | None = None,
     ) -> None:
-        self.x0 = x0
-        self.construction_method = construction_method
         self.bounds = bounds
         self.parameter_names = parameter_names
         self.alpha = alpha
@@ -467,14 +483,44 @@ class NelderMeadConfig(_GaneshConfigMixin):
         self.bounds_handling = bounds_handling
 
 
+class PSOInit(_GaneshInitMixin):
+    """
+    Initialization payload for particle swarm optimization.
+
+    Parameters
+    ----------
+    positions : FloatMatrixLike
+        Initial particle positions with shape ``(n_particles, n_dim)``.
+    topology : str | None, default=None
+        Optional swarm-topology selector.
+    update_method : str | None, default=None
+        Optional velocity update strategy.
+    boundary_method : str | None, default=None
+        Optional particle-boundary response strategy.
+
+    """
+
+    __slots__ = ('boundary_method', 'positions', 'topology', 'update_method')
+
+    def __init__(
+        self,
+        positions: FloatMatrixLike,
+        topology: str | None = None,
+        update_method: str | None = None,
+        boundary_method: str | None = None,
+    ) -> None:
+        self.positions = positions
+        self.topology = topology
+        self.update_method = update_method
+        self.boundary_method = boundary_method
+
+
 class PSOConfig(_GaneshConfigMixin):
     """
     Configuration for particle swarm optimization.
 
     Parameters
     ----------
-    positions : FloatMatrixLike
-        Initial particle positions with shape ``(n_particles, n_dim)``.
     bounds : BoundsLike | None, default=None
         Optional parameter bounds as ``(lower, upper)`` pairs.
     parameter_names : list[str] | None, default=None
@@ -487,51 +533,43 @@ class PSOConfig(_GaneshConfigMixin):
         Social acceleration coefficient.
     bounds_handling : str | None, default=None
         Optional bounds-handling mode.
-    topology : str | None, default=None
-        Optional swarm-topology selector.
-    update_method : str | None, default=None
-        Optional velocity update strategy.
-    boundary_method : str | None, default=None
-        Optional particle-boundary response strategy.
 
     """
 
-    __slots__ = (
-        'boundary_method',
-        'bounds',
-        'bounds_handling',
-        'c1',
-        'c2',
-        'omega',
-        'parameter_names',
-        'positions',
-        'topology',
-        'update_method',
-    )
+    __slots__ = ('bounds', 'bounds_handling', 'c1', 'c2', 'omega', 'parameter_names')
 
     def __init__(
         self,
-        positions: FloatMatrixLike,
         bounds: BoundsLike | None = None,
         parameter_names: list[str] | None = None,
         omega: float = 0.8,
         c1: float = 0.1,
         c2: float = 0.1,
         bounds_handling: str | None = None,
-        topology: str | None = None,
-        update_method: str | None = None,
-        boundary_method: str | None = None,
     ) -> None:
-        self.positions = positions
         self.bounds = bounds
         self.parameter_names = parameter_names
         self.omega = omega
         self.c1 = c1
         self.c2 = c2
         self.bounds_handling = bounds_handling
-        self.topology = topology
-        self.update_method = update_method
-        self.boundary_method = boundary_method
+
+
+class AIESInit(_GaneshInitMixin):
+    """
+    Initialization payload for the affine-invariant ensemble sampler.
+
+    Parameters
+    ----------
+    walkers : FloatMatrixLike
+        Initial walker positions with shape ``(n_walkers, n_dim)``.
+
+    """
+
+    __slots__ = ('walkers',)
+
+    def __init__(self, walkers: FloatMatrixLike) -> None:
+        self.walkers = walkers
 
 
 class AIESConfig(_GaneshConfigMixin):
@@ -540,8 +578,6 @@ class AIESConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    walkers : FloatMatrixLike
-        Initial walker positions with shape ``(n_walkers, n_dim)``.
     parameter_names : list[str] | None, default=None
         Optional names used in summaries and diagnostics.
     moves : list[AIESStretchMove | AIESWalkMove] | None, default=None
@@ -551,19 +587,34 @@ class AIESConfig(_GaneshConfigMixin):
 
     """
 
-    __slots__ = ('chain_storage', 'moves', 'parameter_names', 'walkers')
+    __slots__ = ('chain_storage', 'moves', 'parameter_names')
 
     def __init__(
         self,
-        walkers: FloatMatrixLike,
         parameter_names: list[str] | None = None,
         moves: list[AIESStretchMove | AIESWalkMove] | None = None,
         chain_storage: ChainStorageFull | ChainStorageRolling | ChainStorageSampled | None = None,
     ) -> None:
-        self.walkers = walkers
         self.parameter_names = parameter_names
         self.moves = moves
         self.chain_storage = chain_storage
+
+
+class ESSInit(_GaneshInitMixin):
+    """
+    Initialization payload for ensemble slice sampling.
+
+    Parameters
+    ----------
+    walkers : FloatMatrixLike
+        Initial walker positions with shape ``(n_walkers, n_dim)``.
+
+    """
+
+    __slots__ = ('walkers',)
+
+    def __init__(self, walkers: FloatMatrixLike) -> None:
+        self.walkers = walkers
 
 
 class ESSConfig(_GaneshConfigMixin):
@@ -572,8 +623,6 @@ class ESSConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    walkers : FloatMatrixLike
-        Initial walker positions with shape ``(n_walkers, n_dim)``.
     parameter_names : list[str] | None, default=None
         Optional names used in summaries and diagnostics.
     moves : list[ESSDifferentialMove | ESSGaussianMove | ESSGlobalMove] | None, default=None
@@ -596,12 +645,10 @@ class ESSConfig(_GaneshConfigMixin):
         'mu',
         'n_adaptive',
         'parameter_names',
-        'walkers',
     )
 
     def __init__(
         self,
-        walkers: FloatMatrixLike,
         parameter_names: list[str] | None = None,
         moves: list[ESSDifferentialMove | ESSGaussianMove | ESSGlobalMove] | None = None,
         n_adaptive: int = 0,
@@ -609,7 +656,6 @@ class ESSConfig(_GaneshConfigMixin):
         mu: float = 1.0,
         chain_storage: ChainStorageFull | ChainStorageRolling | ChainStorageSampled | None = None,
     ) -> None:
-        self.walkers = walkers
         self.parameter_names = parameter_names
         self.moves = moves
         self.n_adaptive = n_adaptive
@@ -618,23 +664,39 @@ class ESSConfig(_GaneshConfigMixin):
         self.chain_storage = chain_storage
 
 
-class DifferentialEvolutionConfig(_GaneshConfigMixin):
+class DifferentialEvolutionInit(_GaneshInitMixin):
     """
-    Configuration for differential evolution.
+    Initialization payload for differential evolution.
 
     Parameters
     ----------
     x0 : FloatVectorLike
         Central point used to initialize the population in external
         coordinates.
+    initial_scale : float, default=1.0
+        Initial population spread in external coordinates.
+
+    """
+
+    __slots__ = ('initial_scale', 'x0')
+
+    def __init__(self, x0: FloatVectorLike, initial_scale: float = 1.0) -> None:
+        self.x0 = x0
+        self.initial_scale = initial_scale
+
+
+class DifferentialEvolutionConfig(_GaneshConfigMixin):
+    """
+    Configuration for differential evolution.
+
+    Parameters
+    ----------
     population_size : int | None, default=None
         Optional population size. ``None`` uses the library default.
     differential_weight : float, default=0.8
         Mutation scaling factor.
     crossover_probability : float, default=0.9
         Binomial crossover probability.
-    initial_scale : float, default=1.0
-        Initial population spread in external coordinates.
     bounds : BoundsLike | None, default=None
         Optional parameter bounds as ``(lower, upper)`` pairs.
     parameter_names : list[str] | None, default=None
@@ -646,29 +708,43 @@ class DifferentialEvolutionConfig(_GaneshConfigMixin):
         'bounds',
         'crossover_probability',
         'differential_weight',
-        'initial_scale',
         'parameter_names',
         'population_size',
-        'x0',
     )
 
     def __init__(
         self,
-        x0: FloatVectorLike,
         population_size: int | None = None,
         differential_weight: float = 0.8,
         crossover_probability: float = 0.9,
-        initial_scale: float = 1.0,
         bounds: BoundsLike | None = None,
         parameter_names: list[str] | None = None,
     ) -> None:
-        self.x0 = x0
         self.population_size = population_size
         self.differential_weight = differential_weight
         self.crossover_probability = crossover_probability
-        self.initial_scale = initial_scale
         self.bounds = bounds
         self.parameter_names = parameter_names
+
+
+class CMAESInit(_GaneshInitMixin):
+    """
+    Initialization payload for CMA-ES.
+
+    Parameters
+    ----------
+    x0 : FloatVectorLike
+        Initial mean of the search distribution in external coordinates.
+    sigma : float
+        Initial global step size.
+
+    """
+
+    __slots__ = ('sigma', 'x0')
+
+    def __init__(self, x0: FloatVectorLike, sigma: float) -> None:
+        self.x0 = x0
+        self.sigma = sigma
 
 
 class CMAESConfig(_GaneshConfigMixin):
@@ -677,10 +753,6 @@ class CMAESConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    x0 : FloatVectorLike
-        Initial mean of the search distribution in external coordinates.
-    sigma : float
-        Initial global step size.
     population_size : int | None, default=None
         Optional offspring population size. ``None`` uses the library default.
     bounds : BoundsLike | None, default=None
@@ -690,18 +762,14 @@ class CMAESConfig(_GaneshConfigMixin):
 
     """
 
-    __slots__ = ('bounds', 'parameter_names', 'population_size', 'sigma', 'x0')
+    __slots__ = ('bounds', 'parameter_names', 'population_size')
 
     def __init__(
         self,
-        x0: FloatVectorLike,
-        sigma: float,
         population_size: int | None = None,
         bounds: BoundsLike | None = None,
         parameter_names: list[str] | None = None,
     ) -> None:
-        self.x0 = x0
-        self.sigma = sigma
         self.population_size = population_size
         self.bounds = bounds
         self.parameter_names = parameter_names
@@ -737,8 +805,6 @@ class AdamConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    x0 : FloatVectorLike
-        Initial point in external coordinates.
     parameter_names : list[str] | None, default=None
         Optional names used in summaries and diagnostics.
     alpha : float, default=0.001
@@ -752,18 +818,16 @@ class AdamConfig(_GaneshConfigMixin):
 
     """
 
-    __slots__ = ('alpha', 'beta_1', 'beta_2', 'epsilon', 'parameter_names', 'x0')
+    __slots__ = ('alpha', 'beta_1', 'beta_2', 'epsilon', 'parameter_names')
 
     def __init__(
         self,
-        x0: FloatVectorLike,
         parameter_names: list[str] | None = None,
         alpha: float = 0.001,
         beta_1: float = 0.9,
         beta_2: float = 0.999,
         epsilon: float = 1e-8,
     ) -> None:
-        self.x0 = x0
         self.parameter_names = parameter_names
         self.alpha = alpha
         self.beta_1 = beta_1
@@ -777,8 +841,6 @@ class ConjugateGradientConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    x0 : FloatVectorLike
-        Initial point in external coordinates.
     parameter_names : list[str] | None, default=None
         Optional names used in summaries and diagnostics.
     line_search : MoreThuenteLineSearch | HagerZhangLineSearch | None, default=None
@@ -788,16 +850,14 @@ class ConjugateGradientConfig(_GaneshConfigMixin):
 
     """
 
-    __slots__ = ('line_search', 'parameter_names', 'update', 'x0')
+    __slots__ = ('line_search', 'parameter_names', 'update')
 
     def __init__(
         self,
-        x0: FloatVectorLike,
         parameter_names: list[str] | None = None,
         line_search: MoreThuenteLineSearch | HagerZhangLineSearch | None = None,
         update: str | None = None,
     ) -> None:
-        self.x0 = x0
         self.parameter_names = parameter_names
         self.line_search = line_search
         self.update = update
@@ -809,8 +869,6 @@ class TrustRegionConfig(_GaneshConfigMixin):
 
     Parameters
     ----------
-    x0 : FloatVectorLike
-        Initial point in external coordinates.
     parameter_names : list[str] | None, default=None
         Optional names used in summaries and diagnostics.
     subproblem : str | None, default=None
@@ -830,19 +888,16 @@ class TrustRegionConfig(_GaneshConfigMixin):
         'max_radius',
         'parameter_names',
         'subproblem',
-        'x0',
     )
 
     def __init__(
         self,
-        x0: FloatVectorLike,
         parameter_names: list[str] | None = None,
         subproblem: str | None = None,
         initial_radius: float = 1.0,
         max_radius: float = 1000.0,
         eta: float = 1e-4,
     ) -> None:
-        self.x0 = x0
         self.parameter_names = parameter_names
         self.subproblem = subproblem
         self.initial_radius = initial_radius
@@ -852,26 +907,32 @@ class TrustRegionConfig(_GaneshConfigMixin):
 
 __all__ = [
     'AIESConfig',
+    'AIESInit',
     'AIESStretchMove',
     'AIESWalkMove',
     'AdamConfig',
     'CMAESConfig',
+    'CMAESInit',
     'ChainStorageFull',
     'ChainStorageRolling',
     'ChainStorageSampled',
     'ConjugateGradientConfig',
     'CustomSimplex',
     'DifferentialEvolutionConfig',
+    'DifferentialEvolutionInit',
     'ESSConfig',
     'ESSDifferentialMove',
     'ESSGaussianMove',
     'ESSGlobalMove',
+    'ESSInit',
     'HagerZhangLineSearch',
     'LBFGSBConfig',
     'MoreThuenteLineSearch',
     'NelderMeadConfig',
+    'NelderMeadInit',
     'OrthogonalSimplex',
     'PSOConfig',
+    'PSOInit',
     'ScaledOrthogonalSimplex',
     'SimulatedAnnealingConfig',
     'TrustRegionConfig',

@@ -343,7 +343,6 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
-        let _x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let memory_limit: Option<usize> = extract_optional_field(&obj, "memory_limit")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
@@ -374,7 +373,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -422,13 +421,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
         let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
         let construction_method: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "construction_method")?;
+        if x0.is_some() && construction_method.is_some() {
+            return Err(config_error(
+                "NelderMeadInit accepts either `x0` or `construction_method`, not both",
+            ));
+        }
         if let Some(construction_method) = construction_method {
             Ok(NelderMeadInit::new_with_method(parse_simplex_construction(
                 &construction_method,
             )?))
         } else {
             let x0 = x0.ok_or_else(|| {
-                config_error("NelderMeadConfig requires either `x0` or `construction_method`")
+                config_error("NelderMeadInit requires either `x0` or `construction_method`")
             })?;
             Ok(NelderMeadInit::new(extract_vector(&x0)?))
         }
@@ -439,7 +443,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -469,7 +473,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let positions = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj,
             "positions",
@@ -497,7 +501,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
         let chain_storage: Option<Bound<'py, PyAny>> =
@@ -530,7 +534,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let n_adaptive: Option<usize> = extract_optional_field(&obj, "n_adaptive")?;
         let max_steps: Option<usize> = extract_optional_field(&obj, "max_steps")?;
@@ -562,7 +566,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
@@ -574,7 +578,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let differential_weight: Option<Float> =
             extract_optional_field(&obj, "differential_weight")?;
@@ -603,7 +607,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
 
@@ -619,7 +623,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
@@ -807,7 +811,7 @@ mod tests {
             let config_like = ganesh
                 .getattr("LBFGSBConfig")
                 .unwrap()
-                .call1((py_vector(py, &[2.0, -1.0]),))
+                .call0()
                 .unwrap();
             config_like.setattr("memory_limit", 5).unwrap();
             config_like
@@ -865,7 +869,7 @@ mod tests {
             let config_like = ganesh
                 .getattr("LBFGSBConfig")
                 .unwrap()
-                .call((py_vector(py, &[1.5, -1.0]),), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
             let config: LBFGSBConfig = config_like.extract().unwrap();
@@ -922,13 +926,18 @@ mod tests {
             kwargs
                 .set_item("parameter_names", vec!["u".to_string(), "v".to_string()])
                 .unwrap();
+            let init_like = ganesh
+                .getattr("CMAESInit")
+                .unwrap()
+                .call1((py_vector(py, &[0.5, -0.5]), 0.3))
+                .unwrap();
             let config_like = ganesh
                 .getattr("CMAESConfig")
                 .unwrap()
-                .call((py_vector(py, &[0.5, -0.5]), 0.3), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let init: CMAESInit = config_like.extract().unwrap();
+            let init: CMAESInit = init_like.extract().unwrap();
             let config: CMAESConfig = config_like.extract().unwrap();
             let summary = CMAES::default()
                 .process(
@@ -950,8 +959,8 @@ mod tests {
     fn pure_python_nelder_mead_config_extracts_extended_options() {
         crate::python::attach_for_tests(|py| {
             let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
+            let init_kwargs = PyDict::new(py);
+            init_kwargs
                 .set_item(
                     "construction_method",
                     ganesh
@@ -961,6 +970,7 @@ mod tests {
                         .unwrap(),
                 )
                 .unwrap();
+            let kwargs = PyDict::new(py);
             kwargs
                 .set_item(
                     "bounds",
@@ -980,13 +990,18 @@ mod tests {
             kwargs
                 .set_item("bounds_handling", "transform_bounds")
                 .unwrap();
+            let init_like = ganesh
+                .getattr("NelderMeadInit")
+                .unwrap()
+                .call((), Some(&init_kwargs))
+                .unwrap();
             let config_like = ganesh
                 .getattr("NelderMeadConfig")
                 .unwrap()
                 .call((), Some(&kwargs))
                 .unwrap();
 
-            let init: NelderMeadInit = config_like.extract().unwrap();
+            let init: NelderMeadInit = init_like.extract().unwrap();
             let config: NelderMeadConfig = config_like.extract().unwrap();
             let summary = NelderMead::default()
                 .process(
@@ -1024,22 +1039,28 @@ mod tests {
             kwargs
                 .set_item("bounds_handling", "transform_bounds")
                 .unwrap();
-            kwargs.set_item("topology", "ring").unwrap();
-            kwargs.set_item("update_method", "synchronous").unwrap();
-            kwargs.set_item("boundary_method", "shr").unwrap();
             let positions = vec![
                 vec![1.0, -1.0],
                 vec![0.5, -0.5],
                 vec![-1.0, 1.0],
                 vec![0.25, 0.75],
             ];
+            let init_kwargs = PyDict::new(py);
+            init_kwargs.set_item("topology", "ring").unwrap();
+            init_kwargs.set_item("update_method", "synchronous").unwrap();
+            init_kwargs.set_item("boundary_method", "shr").unwrap();
+            let init_like = ganesh
+                .getattr("PSOInit")
+                .unwrap()
+                .call((positions,), Some(&init_kwargs))
+                .unwrap();
             let config_like = ganesh
                 .getattr("PSOConfig")
                 .unwrap()
-                .call((positions,), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let init: Swarm = config_like.extract().unwrap();
+            let init: Swarm = init_like.extract().unwrap();
             let config: PSOConfig = config_like.extract().unwrap();
             let summary = PSO::default()
                 .process(
@@ -1116,13 +1137,18 @@ mod tests {
                 vec![0.0, 0.1],
                 vec![0.1, 0.1],
             ];
+            let init_like = ganesh
+                .getattr("AIESInit")
+                .unwrap()
+                .call1((walkers,))
+                .unwrap();
             let config_like = ganesh
                 .getattr("AIESConfig")
                 .unwrap()
-                .call((walkers,), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let init: AIESInit = config_like.extract().unwrap();
+            let init: AIESInit = init_like.extract().unwrap();
             let config: AIESConfig = config_like.extract().unwrap();
             let summary = AIES::default()
                 .process(
@@ -1150,12 +1176,16 @@ mod tests {
             let code = CString::new(
                 "\
 class DuckESS:
-    def __init__(self):
+    def __ganesh_init__(self):
         self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
+        return self
+
+    def __ganesh_config__(self):
         self.parameter_names = ['a', 'b']
         self.n_adaptive = 2
         self.max_steps = 20
         self.mu = 1.5
+        return self
 ",
             )
             .unwrap();
@@ -1245,13 +1275,18 @@ class DuckESS:
                 vec![0.0, 0.1],
                 vec![0.1, 0.1],
             ];
+            let init_like = ganesh
+                .getattr("ESSInit")
+                .unwrap()
+                .call1((walkers,))
+                .unwrap();
             let config_like = ganesh
                 .getattr("ESSConfig")
                 .unwrap()
-                .call((walkers,), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let init: ESSInit = config_like.extract().unwrap();
+            let init: ESSInit = init_like.extract().unwrap();
             let config: ESSConfig = config_like.extract().unwrap();
             let summary = ESS::default()
                 .process(
@@ -1291,17 +1326,15 @@ class DuckESS:
             let config_like = ganesh
                 .getattr("AdamConfig")
                 .unwrap()
-                .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
-            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: AdamConfig = config_like.extract().unwrap();
             let summary = Adam::default()
                 .process(
                     &Quadratic,
                     &(),
-                    x0,
+                    DVector::from_row_slice(&[1.0, -1.0]),
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1335,17 +1368,15 @@ class DuckESS:
             let config_like = ganesh
                 .getattr("ConjugateGradientConfig")
                 .unwrap()
-                .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
-            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: ConjugateGradientConfig = config_like.extract().unwrap();
             let summary = ConjugateGradient::default()
                 .process(
                     &Quadratic,
                     &(),
-                    x0,
+                    DVector::from_row_slice(&[1.0, -1.0]),
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
@@ -1372,17 +1403,15 @@ class DuckESS:
             let config_like = ganesh
                 .getattr("TrustRegionConfig")
                 .unwrap()
-                .call((py_vector(py, &[1.0, -1.0]),), Some(&kwargs))
+                .call((), Some(&kwargs))
                 .unwrap();
 
-            let x0_obj: Bound<'_, PyAny> = extract_required_field(&config_like, "x0").unwrap();
-            let x0 = DVector::from_vec(extract_vector(&x0_obj).unwrap());
             let config: TrustRegionConfig = config_like.extract().unwrap();
             let summary = TrustRegion::default()
                 .process(
                     &Quadratic,
                     &(),
-                    x0,
+                    DVector::from_row_slice(&[1.0, -1.0]),
                     config,
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )

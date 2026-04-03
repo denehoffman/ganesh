@@ -1,4 +1,4 @@
-# ruff: noqa: S101, INP001
+# ruff: noqa: S101, INP001, PLR2004
 from __future__ import annotations
 
 import inspect
@@ -35,13 +35,19 @@ def test_package_exports_expected_symbols() -> None:
         'NelderMeadConfig',
         'PSOConfig',
         'AIESConfig',
+        'AIESInit',
         'ESSConfig',
+        'ESSInit',
         'DifferentialEvolutionConfig',
+        'DifferentialEvolutionInit',
         'CMAESConfig',
+        'CMAESInit',
         'SimulatedAnnealingConfig',
         'AdamConfig',
         'ConjugateGradientConfig',
         'TrustRegionConfig',
+        'NelderMeadInit',
+        'PSOInit',
         'AutocorrelationTerminator',
         'LBFGSBFTerminator',
         'LBFGSBGTerminator',
@@ -101,11 +107,17 @@ def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
     assert ganesh.Default is not None
     assert ganesh.LBFGSBConfig is ganesh_config.LBFGSBConfig
     assert ganesh.NelderMeadConfig is ganesh_config.NelderMeadConfig
+    assert ganesh.NelderMeadInit is ganesh_config.NelderMeadInit
     assert ganesh.PSOConfig is ganesh_config.PSOConfig
+    assert ganesh.PSOInit is ganesh_config.PSOInit
     assert ganesh.AIESConfig is ganesh_config.AIESConfig
+    assert ganesh.AIESInit is ganesh_config.AIESInit
     assert ganesh.ESSConfig is ganesh_config.ESSConfig
+    assert ganesh.ESSInit is ganesh_config.ESSInit
     assert ganesh.DifferentialEvolutionConfig is ganesh_config.DifferentialEvolutionConfig
+    assert ganesh.DifferentialEvolutionInit is ganesh_config.DifferentialEvolutionInit
     assert ganesh.CMAESConfig is ganesh_config.CMAESConfig
+    assert ganesh.CMAESInit is ganesh_config.CMAESInit
     assert ganesh.SimulatedAnnealingConfig is ganesh_config.SimulatedAnnealingConfig
     assert ganesh.AdamConfig is ganesh_config.AdamConfig
     assert ganesh.ConjugateGradientConfig is ganesh_config.ConjugateGradientConfig
@@ -156,10 +168,17 @@ def test_package_reexports_match_submodules() -> None:  # noqa: PLR0915
 
 def test_package_signatures_show_default_sentinel() -> None:
     assert 'line_search' in str(inspect.signature(ganesh.LBFGSBConfig))
+    assert 'x0' not in str(inspect.signature(ganesh.LBFGSBConfig))
     assert '= None' in str(inspect.signature(ganesh.LBFGSBConfig))
+    assert 'construction_method' not in str(inspect.signature(ganesh.NelderMeadConfig))
+    assert 'x0' in str(inspect.signature(ganesh.NelderMeadInit))
     assert 'moves' in str(inspect.signature(ganesh.AIESConfig))
+    assert 'walkers' not in str(inspect.signature(ganesh.AIESConfig))
+    assert 'walkers' in str(inspect.signature(ganesh.AIESInit))
     assert 'chain_storage' in str(inspect.signature(ganesh.AIESConfig))
     assert 'population_size' in str(inspect.signature(ganesh.CMAESConfig))
+    assert 'sigma' not in str(inspect.signature(ganesh.CMAESConfig))
+    assert 'sigma' in str(inspect.signature(ganesh.CMAESInit))
     assert 'f_tolerance' in str(inspect.signature(ganesh.LBFGSBOptions))
     assert '= Default' in str(inspect.signature(ganesh.LBFGSBOptions))
     assert 'f_terminators' in str(inspect.signature(ganesh.NelderMeadOptions))
@@ -168,6 +187,14 @@ def test_package_signatures_show_default_sentinel() -> None:
     assert 'sigma' in str(inspect.signature(ganesh.CMAESOptions))
     assert 'autocorrelation' in str(inspect.signature(ganesh.AIESOptions))
     assert '= None' in str(inspect.signature(ganesh.AIESOptions))
+
+
+def test_nelder_mead_init_rejects_ambiguous_shape() -> None:
+    with pytest.raises(ValueError, match='either x0 or construction_method'):
+        ganesh.NelderMeadInit(
+            x0=[1.0, 1.0],
+            construction_method=ganesh.OrthogonalSimplex([1.0, 1.0], simplex_size=0.5),
+        )
 
 
 def test_exception_hierarchy_is_exposed() -> None:

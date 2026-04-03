@@ -37,9 +37,9 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
+//! use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
-//! use ganesh::{Float, DVector, minimize_gradient_free};
+//! use ganesh::{Float, DVector};
 //! use std::convert::Infallible;
 //!
 //! # pub struct Rosenbrock {
@@ -54,7 +54,9 @@
 //! # }
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
-//!     let result = minimize_gradient_free(&problem, [2.0, 2.0], &(), None::<Vec<Bound>>)?;
+//!     let mut nm = NelderMead::default();
+//!     let init = NelderMeadInit::new([2.0, 2.0]);
+//!     let result = nm.process_default(&problem, &(), init)?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }
@@ -118,7 +120,10 @@
 //! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
 //!
-//! The `ganesh` crate provides convenience functions for some of the most common minimization/MCMC algorithms, including [`minimize`] (L-BFGS-B), [`minimize_gradient_free`] (Nelder-Mead), and [`sample`] (AIES).
+//! The `ganesh` crate uses algorithm methods such as [`Algorithm::process`](`crate::traits::algorithm::Algorithm::process`),
+//! [`Algorithm::process_with_default_callbacks`](`crate::traits::algorithm::Algorithm::process_with_default_callbacks`),
+//! and [`Algorithm::process_default`](`crate::traits::algorithm::Algorithm::process_default`) as the primary
+//! entrypoints for running optimizers and samplers.
 //!
 //! ## Algorithms
 //!
@@ -283,113 +288,3 @@ pub const PI: Float = std::f64::consts::PI;
 /// The mathematical constant $`\pi`$.
 #[cfg(feature = "f32")]
 pub const PI: Float = std::f32::consts::PI;
-
-/// A preset minimization algorithm which uses the [L-BFGS-B](`algorithms::gradient::LBFGSB`) algorithm.
-///
-/// Using the given starting position and optional bounds, this method will attempt to minimize the
-/// given problem which must implement the [Gradient](traits::Gradient) trait.
-pub fn minimize<P, I, U, Bounds, B, E>(
-    problem: &P,
-    x0: I,
-    user_data: &U,
-    bounds: Option<Bounds>,
-) -> Result<core::MinimizationSummary, E>
-where
-    I: AsRef<[Float]>,
-    Bounds: IntoIterator<Item = B>,
-    B: Into<traits::Bound>,
-    P: traits::Gradient<U, E>,
-{
-    use algorithms::gradient::{LBFGSBConfig, LBFGSB};
-    use traits::{Algorithm, SupportsBounds};
-
-    let mut solver = LBFGSB::default();
-    let init = DVector::from_row_slice(x0.as_ref());
-    let mut config = LBFGSBConfig::default();
-    if let Some(bounds) = bounds {
-        config = config.with_bounds(bounds);
-    }
-    solver.process_with_default_callbacks(problem, user_data, init, config)
-}
-
-/// A preset minimization algorithm which uses the [Nelder-Mead](`algorithms::gradient_free::NelderMead`) algorithm.
-///
-/// Using the given starting position and optional bounds, this method will attempt to minimize the
-/// given problem which must implement the [CostFunction](traits::CostFunction) trait. This can be
-/// used for functions which do not have easily-defined gradients.
-pub fn minimize_gradient_free<P, I, U, Bounds, B, E>(
-    problem: &P,
-    x0: I,
-    user_data: &U,
-    bounds: Option<Bounds>,
-) -> Result<core::MinimizationSummary, E>
-where
-    I: AsRef<[Float]>,
-    Bounds: IntoIterator<Item = B>,
-    B: Into<traits::Bound>,
-    P: traits::CostFunction<U, E>,
-{
-    use algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
-    use traits::{Algorithm, SupportsBounds};
-
-    let mut solver = NelderMead::default();
-    let init = NelderMeadInit::new(x0);
-    let mut config = NelderMeadConfig::default();
-    if let Some(bounds) = bounds {
-        config = config.with_bounds(bounds);
-    }
-    solver.process_with_default_callbacks(problem, user_data, init, config)
-}
-
-/// A preset Markov Chain Monte Carlo algorithm which uses the [AIES](`algorithms::mcmc::AIES`) algorithm.
-///
-/// Using a set of starting positions for each walker, this method will attempt to sample `n_steps`
-/// positions for each walker from the target distribution. The problem must implement the
-/// [`LogDensity`](traits::LogDensity) trait.
-pub fn sample<P, I, U, Bounds, B, E>(
-    problem: &P,
-    x0: I,
-    n_steps: usize,
-    user_data: &U,
-) -> Result<core::MCMCSummary, E>
-where
-    I: AsRef<[DVector<Float>]>,
-    P: traits::LogDensity<U, E>,
-    E: From<error::GaneshError>,
-{
-    use algorithms::mcmc::{aies::AIESInit, AIESConfig, AIES};
-    use core::MaxSteps;
-    use traits::Algorithm;
-
-    let mut solver = AIES::default();
-    let init = AIESInit::new(x0.as_ref().to_vec())?;
-    let config = AIESConfig::default();
-    solver.process(
-        problem,
-        user_data,
-        init,
-        config,
-        AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
-    )
-}
-
-/// Run a multistart minimization workflow and collect all run summaries.
-///
-/// Each run is created by `restart_factory`, and `restart_policy` decides whether another run
-/// should be launched based on the current [`core::MultiStartState`]. This lets callers implement
-/// fixed restart counts or more adaptive policies that depend on the number of completed restarts
-/// and the minima already found.
-pub fn minimize_multistart<P, U, E, A, S, F, R>(
-    problem: &P,
-    user_data: &U,
-    restart_factory: &mut F,
-    restart_policy: &mut R,
-) -> Result<core::MultiStartSummary, E>
-where
-    S: traits::Status,
-    A: traits::Algorithm<P, S, U, E, Summary = core::MinimizationSummary>,
-    F: core::RestartFactory<A, P, S, U, E>,
-    R: core::RestartPolicy,
-{
-    core::minimize_multistart(problem, user_data, restart_factory, restart_policy)
-}

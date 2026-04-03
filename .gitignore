@@ -6,3 +6,4 @@ src/main.rs
 /*.gif
 __pycache__/
 *.pyc
+*.so
