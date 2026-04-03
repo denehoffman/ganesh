@@ -2,7 +2,10 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Benchmark
 use ganesh::{
     algorithms::{
         gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        gradient_free::{nelder_mead::{NelderMeadConfig, NelderMeadInit}, NelderMead},
+        gradient_free::{
+            nelder_mead::{NelderMeadConfig, NelderMeadInit},
+            NelderMead,
+        },
         mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, ESSMove, AIES, ESS},
         particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
     },

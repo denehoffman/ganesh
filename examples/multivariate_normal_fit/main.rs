@@ -2,7 +2,10 @@ use fastrand::Rng;
 use ganesh::{
     algorithms::{
         gradient::{LBFGSBConfig, LBFGSB},
-        gradient_free::{nelder_mead::{NelderMeadConfig, NelderMeadInit}, NelderMead},
+        gradient_free::{
+            nelder_mead::{NelderMeadConfig, NelderMeadInit},
+            NelderMead,
+        },
         mcmc::{ess::ESSInit, AutocorrelationTerminator, ESSConfig, ESS},
     },
     core::{summary::HasParameterNames, utils::SampleFloat, Bounds},

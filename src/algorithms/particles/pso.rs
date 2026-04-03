@@ -355,13 +355,7 @@ mod tests {
 
         // Run the particle swarm optimizer
         let result = solver
-            .process(
-                &problem,
-                &(),
-                init,
-                config,
-                callbacks,
-            )
+            .process(&problem, &(), init, config, callbacks)
             .unwrap();
 
         println!("{}", result);
@@ -431,13 +425,7 @@ mod tests {
         let config = PSOConfig::default();
 
         let result = solver
-            .process(
-                &problem,
-                &(),
-                init,
-                config,
-                callbacks,
-            )
+            .process(&problem, &(), init, config, callbacks)
             .unwrap();
 
         assert!(result.cost_evals >= 8);

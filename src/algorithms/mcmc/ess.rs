@@ -1072,9 +1072,7 @@ mod tests {
         };
         assert!(err.to_string().contains("finite and non-negative"));
 
-        let err = match ESSConfig::default()
-            .with_moves(Vec::<WeightedESSMove>::new())
-        {
+        let err = match ESSConfig::default().with_moves(Vec::<WeightedESSMove>::new()) {
             Err(err) => err,
             Ok(_) => panic!("empty ESS move lists should be rejected"),
         };
@@ -1252,8 +1250,7 @@ mod tests {
     fn rolling_chain_storage_limits_retained_history() {
         let walkers = make_walkers(4, 2);
         let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default()
-            .with_chain_storage(ChainStorageMode::Rolling { window: 3 });
+        let cfg = ESSConfig::default().with_chain_storage(ChainStorageMode::Rolling { window: 3 });
         let mut ess = ESS::default();
 
         let result = ess
@@ -1278,11 +1275,10 @@ mod tests {
     fn sampled_chain_storage_downsamples_retained_history() {
         let walkers = make_walkers(4, 2);
         let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default()
-            .with_chain_storage(ChainStorageMode::Sampled {
-                keep_every: 2,
-                max_samples: Some(3),
-            });
+        let cfg = ESSConfig::default().with_chain_storage(ChainStorageMode::Sampled {
+            keep_every: 2,
+            max_samples: Some(3),
+        });
         let mut ess = ESS::default();
 
         let result = ess

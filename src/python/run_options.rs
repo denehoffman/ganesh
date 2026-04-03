@@ -1289,8 +1289,8 @@ mod tests {
                 TrustRegion, TrustRegionConfig, LBFGSB,
             },
             gradient_free::{
-                nelder_mead::NelderMeadInit, CMAESConfig, CMAESInit, NelderMead,
-                NelderMeadConfig, CMAES,
+                nelder_mead::NelderMeadInit, CMAESConfig, CMAESInit, NelderMead, NelderMeadConfig,
+                CMAES,
             },
             mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, AIES, ESS},
         },

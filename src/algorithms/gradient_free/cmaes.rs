@@ -945,8 +945,7 @@ mod tests {
         let problem = Quadratic;
         let mut solver = CMAES::new(Some(0));
         let init = CMAESInit::new([1.5, -1.5], 0.4).unwrap();
-        let config = CMAESConfig::default()
-            .with_bounds([(-2.0, 2.0), (-2.0, 2.0)]);
+        let config = CMAESConfig::default().with_bounds([(-2.0, 2.0), (-2.0, 2.0)]);
         let result = solver
             .process(
                 &problem,
@@ -963,9 +962,7 @@ mod tests {
     #[test]
     fn test_cmaes_uses_hansen_active_weights() {
         let init = CMAESInit::new([0.0, 0.0, 0.0, 0.0], 1.0).unwrap();
-        let config = CMAESConfig::default()
-            .with_population_size(8)
-            .unwrap();
+        let config = CMAESConfig::default().with_population_size(8).unwrap();
         let mut solver = CMAES::default();
         solver.initialize_strategy(4, &init, &config);
 

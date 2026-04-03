@@ -127,7 +127,10 @@ impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
 where
     S: Status,
     A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: FnMut(usize, &MultiStartState) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>)
+    F: FnMut(
+            usize,
+            &MultiStartState,
+        ) -> (A, A::Init, A::Config, Callbacks<A, P, S, U, E, A::Config>)
         + Send,
 {
     fn create(

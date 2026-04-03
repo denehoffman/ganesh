@@ -496,10 +496,7 @@ impl PyMultiStartSummary {
     /// -------
     /// MinimizationSummary | None
     #[getter]
-    pub fn best_run<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<Option<Py<PyMinimizationSummary>>> {
+    pub fn best_run<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyMinimizationSummary>>> {
         self.summary
             .best()
             .cloned()

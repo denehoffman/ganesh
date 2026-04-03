@@ -316,8 +316,7 @@ mod tests {
                     &problem,
                     &(),
                     DVector::from_row_slice(&starting_value),
-                    AdamConfig::default()
-                        .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
+                    AdamConfig::default().with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();

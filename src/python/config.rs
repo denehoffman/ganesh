@@ -758,7 +758,7 @@ mod tests {
                 DifferentialEvolutionInit, NelderMead, CMAES,
             },
             mcmc::{aies::AIESInit, ess::ESSInit, AIES, ESS},
-            particles::{PSO, Swarm},
+            particles::{Swarm, PSO},
         },
         core::{Callbacks, MaxSteps},
         traits::{Algorithm, CostFunction, Gradient, LogDensity},
@@ -808,11 +808,7 @@ mod tests {
     fn pure_python_lbfgsb_config_extracts_and_runs() {
         crate::python::attach_for_tests(|py| {
             let ganesh = import_ganesh(py);
-            let config_like = ganesh
-                .getattr("LBFGSBConfig")
-                .unwrap()
-                .call0()
-                .unwrap();
+            let config_like = ganesh.getattr("LBFGSBConfig").unwrap().call0().unwrap();
             config_like.setattr("memory_limit", 5).unwrap();
             config_like
                 .setattr(
@@ -1047,7 +1043,9 @@ mod tests {
             ];
             let init_kwargs = PyDict::new(py);
             init_kwargs.set_item("topology", "ring").unwrap();
-            init_kwargs.set_item("update_method", "synchronous").unwrap();
+            init_kwargs
+                .set_item("update_method", "synchronous")
+                .unwrap();
             init_kwargs.set_item("boundary_method", "shr").unwrap();
             let init_like = ganesh
                 .getattr("PSOInit")

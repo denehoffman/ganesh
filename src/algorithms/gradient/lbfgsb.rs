@@ -946,9 +946,9 @@ mod tests {
                     &problem,
                     &(),
                     DVector::from_row_slice(&starting_value),
-                    LBFGSBConfig::default().with_line_search(
-                        StrongWolfeLineSearch::HagerZhang(HagerZhangLineSearch::default()),
-                    ),
+                    LBFGSBConfig::default().with_line_search(StrongWolfeLineSearch::HagerZhang(
+                        HagerZhangLineSearch::default(),
+                    )),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();

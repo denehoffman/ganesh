@@ -1383,7 +1383,13 @@ mod tests {
             Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba { eps_rel: 0.01 });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = AMOEBA"));
@@ -1401,7 +1407,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = ABSOLUTE"));
@@ -1419,7 +1431,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_f = STDDEV"));
@@ -1437,7 +1455,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = DIAMETER"));
@@ -1455,7 +1479,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = HIGHAM"));
@@ -1473,7 +1503,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = ROWAN"));
@@ -1491,7 +1527,13 @@ mod tests {
         });
 
         let result = solver
-            .process(&problem, &(), NelderMeadInit::new([0.5, -0.5]), cfg, callbacks)
+            .process(
+                &problem,
+                &(),
+                NelderMeadInit::new([0.5, -0.5]),
+                cfg,
+                callbacks,
+            )
             .unwrap();
         assert!(result.message.success());
         assert!(result.message.to_string().contains("term_x = SINGER"));
@@ -1640,8 +1682,7 @@ mod tests {
                     dvector![1.5, -0.5],
                     dvector![0.5, 0.5],
                 ])
-                .unwrap()
-                ,
+                .unwrap(),
                 NelderMeadConfig::default()
                     .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
                 NelderMead::default_callbacks(),

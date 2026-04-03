@@ -363,12 +363,11 @@ mod tests {
         };
         assert!(err.to_string().contains("finite and non-negative"));
 
-        let err = match AIESConfig::default()
-            .with_moves([AIESMove::stretch(0.0), AIESMove::walk(0.0)])
-        {
-            Err(err) => err,
-            Ok(_) => panic!("zero-sum AIES move weights should be rejected"),
-        };
+        let err =
+            match AIESConfig::default().with_moves([AIESMove::stretch(0.0), AIESMove::walk(0.0)]) {
+                Err(err) => err,
+                Ok(_) => panic!("zero-sum AIES move weights should be rejected"),
+            };
         assert!(err.to_string().contains("sum to a positive finite value"));
     }
 
@@ -525,7 +524,8 @@ mod tests {
     fn rolling_chain_storage_limits_retained_history() {
         let mut aies = AIES::default();
         let init = AIESInit::new(make_walkers(4, 2)).unwrap();
-        let config = AIESConfig::default().with_chain_storage(ChainStorageMode::Rolling { window: 2 });
+        let config =
+            AIESConfig::default().with_chain_storage(ChainStorageMode::Rolling { window: 2 });
 
         let result = aies
             .process(
@@ -549,11 +549,10 @@ mod tests {
     fn sampled_chain_storage_downsamples_retained_history() {
         let mut aies = AIES::default();
         let init = AIESInit::new(make_walkers(4, 2)).unwrap();
-        let config = AIESConfig::default()
-            .with_chain_storage(ChainStorageMode::Sampled {
-                keep_every: 2,
-                max_samples: Some(3),
-            });
+        let config = AIESConfig::default().with_chain_storage(ChainStorageMode::Sampled {
+            keep_every: 2,
+            max_samples: Some(3),
+        });
 
         let result = aies
             .process(

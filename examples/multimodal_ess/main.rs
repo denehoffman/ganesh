@@ -1,6 +1,9 @@
 use fastrand::Rng;
 use ganesh::{
-    algorithms::mcmc::{ess::{ESSConfig, ESSInit}, AutocorrelationTerminator, ESSMove, ESS},
+    algorithms::mcmc::{
+        ess::{ESSConfig, ESSInit},
+        AutocorrelationTerminator, ESSMove, ESS,
+    },
     core::{utils::SampleFloat, Callbacks, MaxSteps},
     traits::{Algorithm, LogDensity},
     DVector, Float,

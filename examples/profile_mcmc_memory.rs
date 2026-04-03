@@ -1,5 +1,7 @@
 use ganesh::{
-    algorithms::mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS},
+    algorithms::mcmc::{
+        aies::AIESInit, ess::ESSInit, AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS,
+    },
     core::MaxSteps,
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
