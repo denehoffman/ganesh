@@ -12,6 +12,12 @@ import numpy as np
 import pytest
 
 
+def exported_type(name: str) -> type[object]:
+    value = getattr(ganesh, name)
+    assert isinstance(value, type)
+    return value
+
+
 def test_package_exports_expected_symbols() -> None:
     expected_public = {
         'Default',
@@ -102,7 +108,7 @@ def test_package_exports_expected_symbols() -> None:
         assert isinstance(exported, type), name
 
     assert repr(ganesh.Default) == 'Default'
-    assert isinstance(ganesh.__version__, str)  # ty:ignore[possibly-missing-attribute]
+    assert isinstance(ganesh.__version__, str)
 
 
 def test_package_reexports_match_submodules() -> None:
@@ -212,17 +218,17 @@ def test_package_reexports_match_submodules() -> None:
     assert (
         ganesh.SimulatedAnnealingOptions is ganesh_run_options.SimulatedAnnealingOptions
     )
-    assert ganesh.MinimizationSummary is native.MinimizationSummary  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.MCMCSummary is native.MCMCSummary  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.MultiStartSummary is native.MultiStartSummary  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.SimulatedAnnealingSummary is native.SimulatedAnnealingSummary  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.StatusMessage is native.StatusMessage  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.GradientStatus is native.GradientStatus  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.GradientFreeStatus is native.GradientFreeStatus  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.EnsembleStatus is native.EnsembleStatus  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.SwarmStatus is native.SwarmStatus  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.SimulatedAnnealingStatus is native.SimulatedAnnealingStatus  # ty:ignore[possibly-missing-attribute]
-    assert ganesh.__version__ == native.__version__  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.MinimizationSummary is native.MinimizationSummary
+    assert ganesh.MCMCSummary is native.MCMCSummary
+    assert ganesh.MultiStartSummary is native.MultiStartSummary
+    assert ganesh.SimulatedAnnealingSummary is native.SimulatedAnnealingSummary
+    assert ganesh.StatusMessage is native.StatusMessage
+    assert ganesh.GradientStatus is native.GradientStatus
+    assert ganesh.GradientFreeStatus is native.GradientFreeStatus
+    assert ganesh.EnsembleStatus is native.EnsembleStatus
+    assert ganesh.SwarmStatus is native.SwarmStatus
+    assert ganesh.SimulatedAnnealingStatus is native.SimulatedAnnealingStatus
+    assert ganesh.__version__ == native.__version__
 
 
 def test_package_signatures_show_default_sentinel() -> None:
@@ -325,8 +331,8 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
 
     runs = summary.runs
     assert len(runs) == 2
-    assert isinstance(runs[0], ganesh.MinimizationSummary)  # ty:ignore[possibly-missing-attribute]
-    assert isinstance(summary.best_run, ganesh.MinimizationSummary)  # ty:ignore[possibly-missing-attribute]
+    assert isinstance(runs[0], exported_type('MinimizationSummary'))
+    assert isinstance(summary.best_run, exported_type('MinimizationSummary'))
     assert summary.best_run.fx == 1.25
 
     exported = summary.to_dict()
@@ -340,12 +346,15 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
 @pytest.mark.parametrize(
     ('factory', 'expected_type'),
     [
-        (native._testing_sample_minimization_summary, ganesh.MinimizationSummary),
-        (native._testing_sample_mcmc_summary, ganesh.MCMCSummary),
-        (native._testing_sample_multistart_summary, ganesh.MultiStartSummary),
+        (
+            native._testing_sample_minimization_summary,
+            exported_type('MinimizationSummary'),
+        ),
+        (native._testing_sample_mcmc_summary, exported_type('MCMCSummary')),
+        (native._testing_sample_multistart_summary, exported_type('MultiStartSummary')),
         (
             native._testing_sample_simulated_annealing_summary,
-            ganesh.SimulatedAnnealingSummary,
+            exported_type('SimulatedAnnealingSummary'),
         ),
     ],
 )
@@ -362,7 +371,7 @@ def test_summary_wrappers_support_pickling(
 def test_status_message_wrapper_exposes_fields() -> None:
     status = native._testing_sample_gradient_status().message
 
-    assert isinstance(status, ganesh.StatusMessage)  # ty:ignore[possibly-missing-attribute]
+    assert isinstance(status, exported_type('StatusMessage'))
     assert status.status_type == 'Step'
     assert status.text == 'iterating'
     assert status.success is False
