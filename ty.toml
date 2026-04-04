@@ -1,0 +1,5 @@
+[[overrides]]
+include = ["python/tests/test_package.py"]
+
+[overrides.rules]
+possibly-missing-attribute = "ignore"

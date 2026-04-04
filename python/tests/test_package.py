@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import inspect
 import pickle
+from collections.abc import Callable
+from typing import Protocol
 
 import ganesh
 import ganesh._ganesh as native  # ty:ignore[unresolved-import]
@@ -12,10 +14,8 @@ import numpy as np
 import pytest
 
 
-def exported_type(name: str) -> type[object]:
-    value = getattr(ganesh, name)
-    assert isinstance(value, type)
-    return value
+class DictExportingSummary(Protocol):
+    def to_dict(self) -> dict[object, object]: ...
 
 
 def test_package_exports_expected_symbols() -> None:
@@ -331,8 +331,8 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
 
     runs = summary.runs
     assert len(runs) == 2
-    assert isinstance(runs[0], exported_type('MinimizationSummary'))
-    assert isinstance(summary.best_run, exported_type('MinimizationSummary'))
+    assert isinstance(runs[0], ganesh.MinimizationSummary)
+    assert isinstance(summary.best_run, ganesh.MinimizationSummary)
     assert summary.best_run.fx == 1.25
 
     exported = summary.to_dict()
@@ -346,22 +346,19 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
 @pytest.mark.parametrize(
     ('factory', 'expected_type'),
     [
-        (
-            native._testing_sample_minimization_summary,
-            exported_type('MinimizationSummary'),
-        ),
-        (native._testing_sample_mcmc_summary, exported_type('MCMCSummary')),
-        (native._testing_sample_multistart_summary, exported_type('MultiStartSummary')),
+        (native._testing_sample_minimization_summary, ganesh.MinimizationSummary),
+        (native._testing_sample_mcmc_summary, ganesh.MCMCSummary),
+        (native._testing_sample_multistart_summary, ganesh.MultiStartSummary),
         (
             native._testing_sample_simulated_annealing_summary,
-            exported_type('SimulatedAnnealingSummary'),
+            ganesh.SimulatedAnnealingSummary,
         ),
     ],
 )
 def test_summary_wrappers_support_pickling(
-    factory: object, expected_type: type[object]
+    factory: Callable[[], DictExportingSummary], expected_type: type[object]
 ) -> None:
-    summary = factory()  # type:ignore[operator]
+    summary = factory()
     restored = pickle.loads(pickle.dumps(summary))
 
     assert isinstance(restored, expected_type)
@@ -371,7 +368,7 @@ def test_summary_wrappers_support_pickling(
 def test_status_message_wrapper_exposes_fields() -> None:
     status = native._testing_sample_gradient_status().message
 
-    assert isinstance(status, exported_type('StatusMessage'))
+    assert isinstance(status, ganesh.StatusMessage)
     assert status.status_type == 'Step'
     assert status.text == 'iterating'
     assert status.success is False
