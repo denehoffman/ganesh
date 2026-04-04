@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1](https://github.com/denehoffman/ganesh/compare/v0.26.0...v0.26.1) (2026-04-04)
+
+
+### Features
+
+* **python:** Add status wrappers and summary conversions ([fc2b855](https://github.com/denehoffman/ganesh/commit/fc2b8559de8361f69b091ab8cd26ca2dd6a7d198))
+
+
+### Bug Fixes
+
+* **ci:** Checkout repo before cargo publish ([d07137d](https://github.com/denehoffman/ganesh/commit/d07137d81a584f69161dfdb64c29cc3e4b4b56fd))
+* **python:** Stabilize ty checks for dynamic exports ([0810ef7](https://github.com/denehoffman/ganesh/commit/0810ef71126d7087576e98ed1afdabd9a13270ea))
+
 ## [0.26.0](https://github.com/denehoffman/ganesh/compare/v0.25.1...v0.26.0) (2026-04-03)
 
 
