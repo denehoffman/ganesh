@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import pickle
 
 import ganesh
 import ganesh._ganesh as native  # ty:ignore[unresolved-import]
@@ -82,6 +83,12 @@ def test_package_exports_expected_symbols() -> None:
         'ConjugateGradientOptions',
         'TrustRegionOptions',
         'SimulatedAnnealingOptions',
+        'StatusMessage',
+        'GradientStatus',
+        'GradientFreeStatus',
+        'EnsembleStatus',
+        'SwarmStatus',
+        'SimulatedAnnealingStatus',
         'MinimizationSummary',
         'MCMCSummary',
         'MultiStartSummary',
@@ -209,6 +216,12 @@ def test_package_reexports_match_submodules() -> None:
     assert ganesh.MCMCSummary is native.MCMCSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.MultiStartSummary is native.MultiStartSummary  # ty:ignore[possibly-missing-attribute]
     assert ganesh.SimulatedAnnealingSummary is native.SimulatedAnnealingSummary  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.StatusMessage is native.StatusMessage  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.GradientStatus is native.GradientStatus  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.GradientFreeStatus is native.GradientFreeStatus  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.EnsembleStatus is native.EnsembleStatus  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.SwarmStatus is native.SwarmStatus  # ty:ignore[possibly-missing-attribute]
+    assert ganesh.SimulatedAnnealingStatus is native.SimulatedAnnealingStatus  # ty:ignore[possibly-missing-attribute]
     assert ganesh.__version__ == native.__version__  # ty:ignore[possibly-missing-attribute]
 
 
@@ -322,3 +335,120 @@ def test_multistart_summary_wrapper_exposes_runs_and_best_run() -> None:
     assert exported['completed_runs'] == 2
     assert len(exported['runs']) == 2
     assert exported['best_run']['fx'] == 1.25
+
+
+@pytest.mark.parametrize(
+    ('factory', 'expected_type'),
+    [
+        (native._testing_sample_minimization_summary, ganesh.MinimizationSummary),
+        (native._testing_sample_mcmc_summary, ganesh.MCMCSummary),
+        (native._testing_sample_multistart_summary, ganesh.MultiStartSummary),
+        (
+            native._testing_sample_simulated_annealing_summary,
+            ganesh.SimulatedAnnealingSummary,
+        ),
+    ],
+)
+def test_summary_wrappers_support_pickling(
+    factory: object, expected_type: type[object]
+) -> None:
+    summary = factory()  # type:ignore[operator]
+    restored = pickle.loads(pickle.dumps(summary))
+
+    assert isinstance(restored, expected_type)
+    assert restored.to_dict().keys() == summary.to_dict().keys()
+
+
+def test_status_message_wrapper_exposes_fields() -> None:
+    status = native._testing_sample_gradient_status().message
+
+    assert isinstance(status, ganesh.StatusMessage)  # ty:ignore[possibly-missing-attribute]
+    assert status.status_type == 'Step'
+    assert status.text == 'iterating'
+    assert status.success is False
+    assert status.to_dict()['text'] == 'iterating'
+
+
+def test_gradient_status_wrapper_uses_numpy_arrays() -> None:
+    status = native._testing_sample_gradient_status()
+
+    assert isinstance(status.x, np.ndarray)
+    assert isinstance(status.hess, np.ndarray)
+    assert isinstance(status.cov, np.ndarray)
+    assert isinstance(status.err, np.ndarray)
+    assert status.n_f_evals == 12
+    assert status.n_g_evals == 7
+    assert status.n_h_evals == 2
+
+    exported = status.to_dict()
+    assert exported['message']['text'] == 'iterating'
+    assert isinstance(exported['x'], np.ndarray)
+    assert isinstance(exported['hess'], np.ndarray)
+    assert isinstance(exported['cov'], np.ndarray)
+    assert isinstance(exported['err'], np.ndarray)
+
+
+def test_gradient_free_status_wrapper_uses_numpy_arrays() -> None:
+    status = native._testing_sample_gradient_free_status()
+
+    assert isinstance(status.x, np.ndarray)
+    assert isinstance(status.hess, np.ndarray)
+    assert isinstance(status.cov, np.ndarray)
+    assert isinstance(status.err, np.ndarray)
+    assert status.n_f_evals == 18
+
+    exported = status.to_dict()
+    assert exported['message']['text'] == 'simplex updated'
+    assert isinstance(exported['x'], np.ndarray)
+
+
+def test_ensemble_status_wrapper_uses_numpy_arrays() -> None:
+    status = native._testing_sample_ensemble_status()
+
+    assert isinstance(status.get_chain(), np.ndarray)
+    assert isinstance(status.get_flat_chain(), np.ndarray)
+    assert status.n_f_evals == 14
+    assert status.n_g_evals == 0
+
+    exported = status.to_dict()
+    assert isinstance(exported['chain'], np.ndarray)
+    assert exported['dimension'] == (2, 2, 2)
+
+
+def test_ensemble_status_chain_uses_keyword_only_options() -> None:
+    status = native._testing_sample_ensemble_status()
+
+    with pytest.raises(TypeError):
+        status.get_chain(1)
+
+    with pytest.raises(TypeError):
+        status.get_flat_chain(1, 1)
+
+
+def test_swarm_status_wrapper_exposes_swarm() -> None:
+    status = native._testing_sample_swarm_status()
+
+    particles = status.swarm['particles']
+    assert len(particles) == 2
+    assert isinstance(particles[0]['position']['x'], np.ndarray)
+    assert isinstance(particles[0]['velocity'], np.ndarray)
+    assert status.n_f_evals == 22
+    assert status.get_best()['fx'] == 0.125
+
+    exported = status.to_dict()
+    assert exported['swarm']['topology'] == 'Ring'
+    assert exported['swarm']['update_method'] == 'Asynchronous'
+    assert exported['swarm']['boundary_method'] == 'Shr'
+
+
+def test_simulated_annealing_status_wrapper_uses_numpy_arrays() -> None:
+    status = native._testing_sample_simulated_annealing_status()
+
+    assert isinstance(status.initial['x'], np.ndarray)
+    assert isinstance(status.best['x'], np.ndarray)
+    assert isinstance(status.current['x'], np.ndarray)
+    assert status.n_f_evals == 33
+
+    exported = status.to_dict()
+    assert exported['temperature'] == 0.75
+    assert isinstance(exported['initial']['x'], np.ndarray)

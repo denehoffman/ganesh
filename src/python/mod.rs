@@ -25,6 +25,9 @@ pub mod run_options;
 /// Machine-readable schema helpers for the pure Python config contract.
 pub mod schema;
 
+/// Wrapper-facing Python status export scaffolding.
+pub mod status;
+
 /// Wrapper-facing Python summary export scaffolding.
 pub mod summary;
 
@@ -41,9 +44,13 @@ pub use run_options::{
     PySimulatedAnnealingTemperatureTerminator, PyTrustRegionGTerminator, PyTrustRegionOptions,
 };
 pub use schema::{ConfigFieldKind, ConfigFieldSchema, ConfigSchema, HasPyConfigSchema};
+pub use status::{
+    register_status_types, PyEnsembleStatus, PyGradientFreeStatus, PyGradientStatus,
+    PySimulatedAnnealingStatus, PyStatusMessage, PySwarmStatus,
+};
 pub use summary::{
     register_summary_types, IntoPySummary, PyMCMCSummary, PyMinimizationSummary,
-    PySimulatedAnnealingSummary,
+    PyMultiStartSummary, PySimulatedAnnealingSummary,
 };
 
 #[cfg(test)]

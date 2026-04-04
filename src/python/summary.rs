@@ -2,10 +2,12 @@
 #![allow(clippy::doc_markdown, clippy::missing_errors_doc)]
 
 use pyo3::{
+    exceptions::PyValueError,
     pyclass, pymethods,
-    types::{PyDict, PyDictMethods, PyModule, PyModuleMethods},
+    types::{PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyModule, PyModuleMethods},
     Bound, IntoPyObject, Py, PyAny, PyResult, Python,
 };
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     algorithms::mcmc::ChainStorageMode,
@@ -35,6 +37,68 @@ pub fn register_summary_types(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyMultiStartSummary>()?;
     module.add_class::<PySimulatedAnnealingSummary>()?;
     Ok(())
+}
+
+fn serialize_pickle<T>(value: &T) -> PyResult<Vec<u8>>
+where
+    T: Serialize,
+{
+    serde_pickle::to_vec(value, Default::default())
+        .map_err(|err| PyValueError::new_err(format!("failed to serialize Python summary: {err}")))
+}
+
+#[allow(dead_code)]
+fn deserialize_pickle<T>(state: &[u8], type_name: &str) -> PyResult<T>
+where
+    T: DeserializeOwned,
+{
+    serde_pickle::from_slice(state, Default::default()).map_err(|err| {
+        PyValueError::new_err(format!("failed to restore pickled {type_name}: {err}"))
+    })
+}
+
+fn reduce_with_restore<'py, T>(
+    py: Python<'py>,
+    restore_name: &str,
+    value: &T,
+) -> PyResult<Py<PyAny>>
+where
+    T: Serialize,
+{
+    let module = py.import("ganesh._ganesh")?;
+    let restore = module.getattr(restore_name)?;
+    let state = serialize_pickle(value)?;
+    Ok((restore, (PyBytes::new(py, &state),))
+        .into_pyobject(py)?
+        .into_any()
+        .unbind())
+}
+
+#[allow(dead_code)]
+pub(crate) fn restore_minimization_summary(state: &[u8]) -> PyResult<PyMinimizationSummary> {
+    let summary: MinimizationSummary = deserialize_pickle(state, "MinimizationSummary")?;
+    Ok(PyMinimizationSummary::from(summary))
+}
+
+#[allow(dead_code)]
+pub(crate) fn restore_mcmc_summary(state: &[u8]) -> PyResult<PyMCMCSummary> {
+    let summary: MCMCSummary = deserialize_pickle(state, "MCMCSummary")?;
+    Ok(PyMCMCSummary::from(summary))
+}
+
+#[allow(dead_code)]
+pub(crate) fn restore_multistart_summary(state: &[u8]) -> PyResult<PyMultiStartSummary> {
+    let summary: MultiStartSummary = deserialize_pickle(state, "MultiStartSummary")?;
+    Ok(PyMultiStartSummary::from(summary))
+}
+
+#[allow(dead_code)]
+pub(crate) fn restore_simulated_annealing_summary(
+    state: &[u8],
+) -> PyResult<PySimulatedAnnealingSummary> {
+    let summary: SimulatedAnnealingSummary<crate::DVector<crate::Float>> =
+        deserialize_pickle(state, "SimulatedAnnealingSummary")?;
+    Ok(PySimulatedAnnealingSummary::from(summary))
 }
 
 fn bounds_to_python(
@@ -263,11 +327,28 @@ impl PyMinimizationSummary {
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
+
+    /// Support Python pickle round-tripping for this summary wrapper.
+    pub fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        reduce_with_restore(py, "_restore_minimization_summary", &self.summary)
+    }
 }
 
 impl From<MinimizationSummary> for PyMinimizationSummary {
     fn from(summary: MinimizationSummary) -> Self {
         Self { summary }
+    }
+}
+
+impl From<PyMinimizationSummary> for MinimizationSummary {
+    fn from(summary: PyMinimizationSummary) -> Self {
+        summary.summary
+    }
+}
+
+impl From<&PyMinimizationSummary> for MinimizationSummary {
+    fn from(summary: &PyMinimizationSummary) -> Self {
+        summary.summary.clone()
     }
 }
 
@@ -444,11 +525,28 @@ impl PyMCMCSummary {
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
+
+    /// Support Python pickle round-tripping for this summary wrapper.
+    pub fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        reduce_with_restore(py, "_restore_mcmc_summary", &self.summary)
+    }
 }
 
 impl From<MCMCSummary> for PyMCMCSummary {
     fn from(summary: MCMCSummary) -> Self {
         Self { summary }
+    }
+}
+
+impl From<PyMCMCSummary> for MCMCSummary {
+    fn from(summary: PyMCMCSummary) -> Self {
+        summary.summary
+    }
+}
+
+impl From<&PyMCMCSummary> for MCMCSummary {
+    fn from(summary: &PyMCMCSummary) -> Self {
+        summary.summary.clone()
     }
 }
 
@@ -534,11 +632,28 @@ impl PyMultiStartSummary {
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
+
+    /// Support Python pickle round-tripping for this summary wrapper.
+    pub fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        reduce_with_restore(py, "_restore_multistart_summary", &self.summary)
+    }
 }
 
 impl From<MultiStartSummary> for PyMultiStartSummary {
     fn from(summary: MultiStartSummary) -> Self {
         Self { summary }
+    }
+}
+
+impl From<PyMultiStartSummary> for MultiStartSummary {
+    fn from(summary: PyMultiStartSummary) -> Self {
+        summary.summary
+    }
+}
+
+impl From<&PyMultiStartSummary> for MultiStartSummary {
+    fn from(summary: &PyMultiStartSummary) -> Self {
+        summary.summary.clone()
     }
 }
 
@@ -647,11 +762,30 @@ impl PySimulatedAnnealingSummary {
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.summary.to_py_dict(py)
     }
+
+    /// Support Python pickle round-tripping for this summary wrapper.
+    pub fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        reduce_with_restore(py, "_restore_simulated_annealing_summary", &self.summary)
+    }
 }
 
 impl From<SimulatedAnnealingSummary<crate::DVector<crate::Float>>> for PySimulatedAnnealingSummary {
     fn from(summary: SimulatedAnnealingSummary<crate::DVector<crate::Float>>) -> Self {
         Self { summary }
+    }
+}
+
+impl From<PySimulatedAnnealingSummary> for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
+    fn from(summary: PySimulatedAnnealingSummary) -> Self {
+        summary.summary
+    }
+}
+
+impl From<&PySimulatedAnnealingSummary>
+    for SimulatedAnnealingSummary<crate::DVector<crate::Float>>
+{
+    fn from(summary: &PySimulatedAnnealingSummary) -> Self {
+        summary.summary.clone()
     }
 }
 
@@ -835,5 +969,23 @@ mod tests {
             assert_eq!(wrapper.fx(), 1.25);
             assert_eq!(wrapper.status_type(), "Success");
         });
+    }
+
+    #[test]
+    fn summary_wrapper_roundtrip_converts_back_to_native() {
+        let native = sample_summary();
+        let wrapper = PyMinimizationSummary::from(native.clone());
+        let roundtrip = MinimizationSummary::from(wrapper);
+        assert_eq!(roundtrip.fx, native.fx);
+        assert_eq!(roundtrip.cost_evals, native.cost_evals);
+        assert_eq!(roundtrip.message.text, native.message.text);
+    }
+
+    #[test]
+    fn borrowed_summary_wrapper_converts_back_to_native() {
+        let wrapper = PyMinimizationSummary::from(sample_summary());
+        let native = MinimizationSummary::from(&wrapper);
+        assert_eq!(native.fx, 1.25);
+        assert_eq!(native.parameter_names.unwrap(), vec!["alpha", "beta"]);
     }
 }

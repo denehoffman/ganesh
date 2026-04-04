@@ -146,19 +146,31 @@ __all__ = [
 
 try:
     from ._ganesh import (  # ty:ignore[unresolved-import]
+        EnsembleStatus,
+        GradientFreeStatus,
+        GradientStatus,
         MCMCSummary,
         MinimizationSummary,
         MultiStartSummary,
+        SimulatedAnnealingStatus,
         SimulatedAnnealingSummary,
+        StatusMessage,
+        SwarmStatus,
         __version__,
     )
 except ImportError:
     pass
 else:
     __all__ += [
+        'EnsembleStatus',
+        'GradientFreeStatus',
+        'GradientStatus',
         'MCMCSummary',
         'MinimizationSummary',
         'MultiStartSummary',
+        'SimulatedAnnealingStatus',
         'SimulatedAnnealingSummary',
+        'StatusMessage',
+        'SwarmStatus',
         '__version__',
     ]
