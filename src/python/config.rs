@@ -1120,7 +1120,9 @@ class StructuralLBFGSB:
 
             let config_dict = PyDict::new(py);
             config_dict.set_item("population_size", 8).unwrap();
-            config_dict.set_item("differential_weight", py.None()).unwrap();
+            config_dict
+                .set_item("differential_weight", py.None())
+                .unwrap();
             config_dict
                 .set_item("crossover_probability", py.None())
                 .unwrap();
