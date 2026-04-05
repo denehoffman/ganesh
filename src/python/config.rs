@@ -1114,13 +1114,21 @@ class StructuralLBFGSB:
     #[test]
     fn differential_evolution_accepts_dictionary_fallback() {
         crate::python::attach_for_tests(|py| {
-            let dict = PyDict::new(py);
-            dict.set_item("x0", vec![1.0, -1.0]).unwrap();
-            dict.set_item("population_size", 8).unwrap();
-            dict.set_item("initial_scale", 0.5).unwrap();
+            let init_dict = PyDict::new(py);
+            init_dict.set_item("x0", vec![1.0, -1.0]).unwrap();
+            init_dict.set_item("initial_scale", 0.5).unwrap();
 
-            let init: DifferentialEvolutionInit = dict.as_any().extract().unwrap();
-            let config: DifferentialEvolutionConfig = dict.as_any().extract().unwrap();
+            let config_dict = PyDict::new(py);
+            config_dict.set_item("population_size", 8).unwrap();
+            config_dict.set_item("differential_weight", py.None()).unwrap();
+            config_dict
+                .set_item("crossover_probability", py.None())
+                .unwrap();
+            config_dict.set_item("bounds", py.None()).unwrap();
+            config_dict.set_item("parameter_names", py.None()).unwrap();
+
+            let init: DifferentialEvolutionInit = init_dict.as_any().extract().unwrap();
+            let config: DifferentialEvolutionConfig = config_dict.as_any().extract().unwrap();
             let _summary = DifferentialEvolution::default()
                 .process(
                     &Quadratic,
