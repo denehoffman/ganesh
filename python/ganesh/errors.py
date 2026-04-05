@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 try:
-    from ._ganesh import (  # ty:ignore[unresolved-import]
+    from ._ganesh import (
         GaneshConfigError,
         GaneshError,
         GaneshNumericalError,

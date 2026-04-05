@@ -145,7 +145,7 @@ __all__ = [
 ]
 
 try:
-    from ._ganesh import (  # ty:ignore[unresolved-import]
+    from ._ganesh import (
         EnsembleStatus,
         GradientFreeStatus,
         GradientStatus,

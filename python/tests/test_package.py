@@ -3,10 +3,10 @@ from __future__ import annotations
 import inspect
 import pickle
 from collections.abc import Callable
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import ganesh
-import ganesh._ganesh as native  # ty:ignore[unresolved-import]
+import ganesh._ganesh as native
 import ganesh.config as ganesh_config
 import ganesh.errors as ganesh_errors
 import ganesh.run_options as ganesh_run_options
@@ -302,13 +302,13 @@ def test_mcmc_summary_chain_and_diagnostics_use_keyword_only_options() -> None:
     summary = native._testing_sample_mcmc_summary()
 
     with pytest.raises(TypeError):
-        summary.chain(1)
+        cast(Any, summary.chain)(1)
 
     with pytest.raises(TypeError):
-        summary.chain(None, None, True)
+        cast(Any, summary.chain)(None, None, True)
 
     with pytest.raises(TypeError):
-        summary.diagnostics(1, 1)
+        cast(Any, summary.diagnostics)(1, 1)
 
 
 def test_simulated_annealing_summary_wrapper_uses_numpy_arrays() -> None:
@@ -425,10 +425,10 @@ def test_ensemble_status_chain_uses_keyword_only_options() -> None:
     status = native._testing_sample_ensemble_status()
 
     with pytest.raises(TypeError):
-        status.get_chain(1)
+        cast(Any, status.get_chain)(1)
 
     with pytest.raises(TypeError):
-        status.get_flat_chain(1, 1)
+        cast(Any, status.get_flat_chain)(1, 1)
 
 
 def test_swarm_status_wrapper_exposes_swarm() -> None:
