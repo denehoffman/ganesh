@@ -9,16 +9,6 @@ CBRT_EPS = float_info.epsilon ** (1.0 / 3.0)
 QUARTER_EPS = float_info.epsilon**0.25
 
 
-class _GaneshRunOptionsMixin:
-    def __ganesh_run_options__(self):
-        return self
-
-
-class _GaneshTerminatorMixin:
-    def __ganesh_terminator__(self):
-        return self
-
-
 def _default_or_none_sequence(value, factory):
     if value is Default:
         return [factory()]
@@ -29,7 +19,7 @@ def _default_or_none_sequence(value, factory):
     return [value]
 
 
-class AutocorrelationTerminator(_GaneshTerminatorMixin):
+class AutocorrelationTerminator:
     """
     Integrated-autocorrelation termination rule for MCMC runs.
 
@@ -84,7 +74,7 @@ class AutocorrelationTerminator(_GaneshTerminatorMixin):
         self.verbose = verbose
 
 
-class LBFGSBFTerminator(_GaneshTerminatorMixin):
+class LBFGSBFTerminator:
     """
     Function-tolerance terminator for L-BFGS-B.
 
@@ -101,7 +91,7 @@ class LBFGSBFTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class LBFGSBGTerminator(_GaneshTerminatorMixin):
+class LBFGSBGTerminator:
     """
     Gradient-norm terminator for L-BFGS-B.
 
@@ -118,7 +108,7 @@ class LBFGSBGTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class LBFGSBInfNormGTerminator(_GaneshTerminatorMixin):
+class LBFGSBInfNormGTerminator:
     """
     Projected-gradient infinity-norm terminator for L-BFGS-B.
 
@@ -135,7 +125,7 @@ class LBFGSBInfNormGTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class NelderMeadAmoebaFTerminator(_GaneshTerminatorMixin):
+class NelderMeadAmoebaFTerminator:
     """
     Amoeba-style function tolerance for Nelder-Mead.
 
@@ -153,7 +143,7 @@ class NelderMeadAmoebaFTerminator(_GaneshTerminatorMixin):
         self.eps_rel = eps_rel
 
 
-class NelderMeadAbsoluteFTerminator(_GaneshTerminatorMixin):
+class NelderMeadAbsoluteFTerminator:
     """
     Absolute function-value spread tolerance for Nelder-Mead.
 
@@ -171,7 +161,7 @@ class NelderMeadAbsoluteFTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class NelderMeadStdDevFTerminator(_GaneshTerminatorMixin):
+class NelderMeadStdDevFTerminator:
     """
     Function standard-deviation tolerance for Nelder-Mead.
 
@@ -190,7 +180,7 @@ class NelderMeadStdDevFTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class NelderMeadDiameterXTerminator(_GaneshTerminatorMixin):
+class NelderMeadDiameterXTerminator:
     """
     Simplex-diameter tolerance for Nelder-Mead.
 
@@ -208,7 +198,7 @@ class NelderMeadDiameterXTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class NelderMeadHighamXTerminator(_GaneshTerminatorMixin):
+class NelderMeadHighamXTerminator:
     """
     Higham simplex-size tolerance for Nelder-Mead.
 
@@ -226,7 +216,7 @@ class NelderMeadHighamXTerminator(_GaneshTerminatorMixin):
         self.eps_rel = eps_rel
 
 
-class NelderMeadRowanXTerminator(_GaneshTerminatorMixin):
+class NelderMeadRowanXTerminator:
     """
     Rowan simplex-size tolerance for Nelder-Mead.
 
@@ -244,7 +234,7 @@ class NelderMeadRowanXTerminator(_GaneshTerminatorMixin):
         self.eps_rel = eps_rel
 
 
-class NelderMeadSingerXTerminator(_GaneshTerminatorMixin):
+class NelderMeadSingerXTerminator:
     """
     Singer simplex-size tolerance for Nelder-Mead.
 
@@ -262,7 +252,7 @@ class NelderMeadSingerXTerminator(_GaneshTerminatorMixin):
         self.eps_rel = eps_rel
 
 
-class AdamEMATerminator(_GaneshTerminatorMixin):
+class AdamEMATerminator:
     """
     EMA-based convergence test for Adam.
 
@@ -291,7 +281,7 @@ class AdamEMATerminator(_GaneshTerminatorMixin):
         self.patience = patience
 
 
-class ConjugateGradientGTerminator(_GaneshTerminatorMixin):
+class ConjugateGradientGTerminator:
     """
     Gradient-norm terminator for nonlinear conjugate gradient.
 
@@ -308,7 +298,7 @@ class ConjugateGradientGTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class TrustRegionGTerminator(_GaneshTerminatorMixin):
+class TrustRegionGTerminator:
     """
     Gradient-norm terminator for trust-region optimization.
 
@@ -325,7 +315,7 @@ class TrustRegionGTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class SimulatedAnnealingTemperatureTerminator(_GaneshTerminatorMixin):
+class SimulatedAnnealingTemperatureTerminator:
     """
     Minimum-temperature terminator for simulated annealing.
 
@@ -342,7 +332,7 @@ class SimulatedAnnealingTemperatureTerminator(_GaneshTerminatorMixin):
         self.min_temperature = min_temperature
 
 
-class CMAESSigmaTerminator(_GaneshTerminatorMixin):
+class CMAESSigmaTerminator:
     """
     Global step-size terminator for CMA-ES.
 
@@ -359,19 +349,21 @@ class CMAESSigmaTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class CMAESNoEffectAxisTerminator(_GaneshTerminatorMixin):
+class CMAESNoEffectAxisTerminator:
     """No-effect-axis terminator for CMA-ES."""
 
     __slots__ = ()
+    kind = 'no_effect_axis'
 
 
-class CMAESNoEffectCoordTerminator(_GaneshTerminatorMixin):
+class CMAESNoEffectCoordTerminator:
     """No-effect-coordinate terminator for CMA-ES."""
 
     __slots__ = ()
+    kind = 'no_effect_coord'
 
 
-class CMAESConditionCovTerminator(_GaneshTerminatorMixin):
+class CMAESConditionCovTerminator:
     """
     Covariance-condition-number terminator for CMA-ES.
 
@@ -388,19 +380,21 @@ class CMAESConditionCovTerminator(_GaneshTerminatorMixin):
         self.max_condition = max_condition
 
 
-class CMAESEqualFunValuesTerminator(_GaneshTerminatorMixin):
+class CMAESEqualFunValuesTerminator:
     """Equal-function-values terminator for CMA-ES."""
 
     __slots__ = ()
+    kind = 'equal_fun_values'
 
 
-class CMAESStagnationTerminator(_GaneshTerminatorMixin):
+class CMAESStagnationTerminator:
     """Stagnation-history terminator for CMA-ES."""
 
     __slots__ = ()
+    kind = 'stagnation'
 
 
-class CMAESTolXUpTerminator(_GaneshTerminatorMixin):
+class CMAESTolXUpTerminator:
     """
     Step-size explosion terminator for CMA-ES.
 
@@ -417,7 +411,7 @@ class CMAESTolXUpTerminator(_GaneshTerminatorMixin):
         self.max_growth = max_growth
 
 
-class CMAESTolFunTerminator(_GaneshTerminatorMixin):
+class CMAESTolFunTerminator:
     """
     Function-range terminator for CMA-ES.
 
@@ -434,7 +428,7 @@ class CMAESTolFunTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class CMAESTolXTerminator(_GaneshTerminatorMixin):
+class CMAESTolXTerminator:
     """
     Coordinate-scale terminator for CMA-ES.
 
@@ -451,7 +445,7 @@ class CMAESTolXTerminator(_GaneshTerminatorMixin):
         self.eps_abs = eps_abs
 
 
-class LBFGSBOptions(_GaneshRunOptionsMixin):
+class LBFGSBOptions:
     """
     Built-in observer and terminator selection for L-BFGS-B.
 
@@ -507,7 +501,7 @@ class LBFGSBOptions(_GaneshRunOptionsMixin):
         )
 
 
-class NelderMeadOptions(_GaneshRunOptionsMixin):
+class NelderMeadOptions:
     """
     Built-in observer and terminator selection for Nelder-Mead.
 
@@ -576,7 +570,7 @@ class NelderMeadOptions(_GaneshRunOptionsMixin):
         )
 
 
-class PSOOptions(_GaneshRunOptionsMixin):
+class PSOOptions:
     """
     Built-in observer selection for particle swarm optimization.
 
@@ -605,7 +599,7 @@ class PSOOptions(_GaneshRunOptionsMixin):
         self.progress_every = progress_every
 
 
-class DifferentialEvolutionOptions(_GaneshRunOptionsMixin):
+class DifferentialEvolutionOptions:
     """
     Built-in observer selection for differential evolution.
 
@@ -634,7 +628,7 @@ class DifferentialEvolutionOptions(_GaneshRunOptionsMixin):
         self.progress_every = progress_every
 
 
-class AIESOptions(_GaneshRunOptionsMixin):
+class AIESOptions:
     """
     Built-in observer and terminator selection for AIES.
 
@@ -667,7 +661,7 @@ class AIESOptions(_GaneshRunOptionsMixin):
         self.autocorrelation = autocorrelation
 
 
-class ESSOptions(_GaneshRunOptionsMixin):
+class ESSOptions:
     """
     Built-in observer and terminator selection for ESS.
 
@@ -700,7 +694,7 @@ class ESSOptions(_GaneshRunOptionsMixin):
         self.autocorrelation = autocorrelation
 
 
-class CMAESOptions(_GaneshRunOptionsMixin):
+class CMAESOptions:
     """
     Built-in observer and terminator selection for CMA-ES.
 
@@ -799,7 +793,7 @@ class CMAESOptions(_GaneshRunOptionsMixin):
         self.tol_x = default_to_factory(tol_x, CMAESTolXTerminator)
 
 
-class AdamOptions(_GaneshRunOptionsMixin):
+class AdamOptions:
     """
     Built-in observer and terminator selection for Adam.
 
@@ -833,7 +827,7 @@ class AdamOptions(_GaneshRunOptionsMixin):
         self.ema = default_to_factory(ema, AdamEMATerminator)
 
 
-class ConjugateGradientOptions(_GaneshRunOptionsMixin):
+class ConjugateGradientOptions:
     """
     Built-in observer and terminator selection for conjugate gradient.
 
@@ -867,7 +861,7 @@ class ConjugateGradientOptions(_GaneshRunOptionsMixin):
         self.g_tolerance = default_to_factory(g_tolerance, ConjugateGradientGTerminator)
 
 
-class TrustRegionOptions(_GaneshRunOptionsMixin):
+class TrustRegionOptions:
     """
     Built-in observer and terminator selection for trust-region runs.
 
@@ -901,7 +895,7 @@ class TrustRegionOptions(_GaneshRunOptionsMixin):
         self.g_tolerance = default_to_factory(g_tolerance, TrustRegionGTerminator)
 
 
-class SimulatedAnnealingOptions(_GaneshRunOptionsMixin):
+class SimulatedAnnealingOptions:
     """
     Built-in observer and terminator selection for simulated annealing.
 

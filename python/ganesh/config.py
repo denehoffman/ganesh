@@ -6,37 +6,7 @@ if TYPE_CHECKING:
     from ._typing import BoundsLike, FloatMatrixLike, FloatVectorLike
 
 
-class _GaneshConfigMixin:
-    def __ganesh_config__(self):
-        return self
-
-
-class _GaneshInitMixin:
-    def __ganesh_init__(self):
-        return self
-
-
-class _GaneshLineSearchMixin:
-    def __ganesh_line_search__(self):
-        return self
-
-
-class _GaneshSimplexConstructionMixin:
-    def __ganesh_simplex_construction__(self):
-        return self
-
-
-class _GaneshMoveMixin:
-    def __ganesh_move__(self):
-        return self
-
-
-class _GaneshChainStorageMixin:
-    def __ganesh_chain_storage__(self):
-        return self
-
-
-class MoreThuenteLineSearch(_GaneshLineSearchMixin):
+class MoreThuenteLineSearch:
     """
     More-Thuente strong-Wolfe line search setup.
 
@@ -69,7 +39,7 @@ class MoreThuenteLineSearch(_GaneshLineSearchMixin):
         self.c2 = c2
 
 
-class HagerZhangLineSearch(_GaneshLineSearchMixin):
+class HagerZhangLineSearch:
     """
     Hager-Zhang approximate-Wolfe line search setup.
 
@@ -123,7 +93,7 @@ class HagerZhangLineSearch(_GaneshLineSearchMixin):
         self.max_bisects = max_bisects
 
 
-class ScaledOrthogonalSimplex(_GaneshSimplexConstructionMixin):
+class ScaledOrthogonalSimplex:
     """
     Scaled orthogonal simplex construction for Nelder-Mead.
 
@@ -152,7 +122,7 @@ class ScaledOrthogonalSimplex(_GaneshSimplexConstructionMixin):
         self.orthogonal_zero_step = orthogonal_zero_step
 
 
-class OrthogonalSimplex(_GaneshSimplexConstructionMixin):
+class OrthogonalSimplex:
     """
     Fixed-size orthogonal simplex construction for Nelder-Mead.
 
@@ -173,7 +143,7 @@ class OrthogonalSimplex(_GaneshSimplexConstructionMixin):
         self.simplex_size = simplex_size
 
 
-class CustomSimplex(_GaneshSimplexConstructionMixin):
+class CustomSimplex:
     """
     Explicit simplex construction for Nelder-Mead.
 
@@ -191,7 +161,7 @@ class CustomSimplex(_GaneshSimplexConstructionMixin):
         self.simplex = simplex
 
 
-class ChainStorageFull(_GaneshChainStorageMixin):
+class ChainStorageFull:
     """Retain every stored MCMC state for every walker."""
 
     __slots__ = ('kind',)
@@ -200,7 +170,7 @@ class ChainStorageFull(_GaneshChainStorageMixin):
         self.kind = 'full'
 
 
-class ChainStorageRolling(_GaneshChainStorageMixin):
+class ChainStorageRolling:
     """
     Rolling MCMC chain storage.
 
@@ -218,7 +188,7 @@ class ChainStorageRolling(_GaneshChainStorageMixin):
         self.window = window
 
 
-class ChainStorageSampled(_GaneshChainStorageMixin):
+class ChainStorageSampled:
     """
     Subsampled MCMC chain storage.
 
@@ -239,7 +209,7 @@ class ChainStorageSampled(_GaneshChainStorageMixin):
         self.max_samples = max_samples
 
 
-class AIESStretchMove(_GaneshMoveMixin):
+class AIESStretchMove:
     """
     Stretch move for the affine-invariant ensemble sampler.
 
@@ -260,7 +230,7 @@ class AIESStretchMove(_GaneshMoveMixin):
         self.a = a
 
 
-class AIESWalkMove(_GaneshMoveMixin):
+class AIESWalkMove:
     """
     Walk move for the affine-invariant ensemble sampler.
 
@@ -278,7 +248,7 @@ class AIESWalkMove(_GaneshMoveMixin):
         self.weight = weight
 
 
-class ESSDifferentialMove(_GaneshMoveMixin):
+class ESSDifferentialMove:
     """
     Differential move for ensemble slice sampling.
 
@@ -296,7 +266,7 @@ class ESSDifferentialMove(_GaneshMoveMixin):
         self.weight = weight
 
 
-class ESSGaussianMove(_GaneshMoveMixin):
+class ESSGaussianMove:
     """
     Gaussian move for ensemble slice sampling.
 
@@ -314,7 +284,7 @@ class ESSGaussianMove(_GaneshMoveMixin):
         self.weight = weight
 
 
-class ESSGlobalMove(_GaneshMoveMixin):
+class ESSGlobalMove:
     """
     Global Gaussian-mixture move for ensemble slice sampling.
 
@@ -347,7 +317,7 @@ class ESSGlobalMove(_GaneshMoveMixin):
         self.n_components = n_components
 
 
-class LBFGSBConfig(_GaneshConfigMixin):
+class LBFGSBConfig:
     """
     Configuration for the L-BFGS-B optimizer.
 
@@ -396,7 +366,7 @@ class LBFGSBConfig(_GaneshConfigMixin):
         self.error_mode = error_mode
 
 
-class NelderMeadInit(_GaneshInitMixin):
+class NelderMeadInit:
     """
     Initialization payload for the Nelder-Mead optimizer.
 
@@ -429,7 +399,7 @@ class NelderMeadInit(_GaneshInitMixin):
         self.construction_method = construction_method
 
 
-class NelderMeadConfig(_GaneshConfigMixin):
+class NelderMeadConfig:
     """
     Configuration for the Nelder-Mead optimizer.
 
@@ -486,7 +456,7 @@ class NelderMeadConfig(_GaneshConfigMixin):
         self.bounds_handling = bounds_handling
 
 
-class PSOInit(_GaneshInitMixin):
+class PSOInit:
     """
     Initialization payload for particle swarm optimization.
 
@@ -518,7 +488,7 @@ class PSOInit(_GaneshInitMixin):
         self.boundary_method = boundary_method
 
 
-class PSOConfig(_GaneshConfigMixin):
+class PSOConfig:
     """
     Configuration for particle swarm optimization.
 
@@ -558,7 +528,7 @@ class PSOConfig(_GaneshConfigMixin):
         self.bounds_handling = bounds_handling
 
 
-class AIESInit(_GaneshInitMixin):
+class AIESInit:
     """
     Initialization payload for the affine-invariant ensemble sampler.
 
@@ -575,7 +545,7 @@ class AIESInit(_GaneshInitMixin):
         self.walkers = walkers
 
 
-class AIESConfig(_GaneshConfigMixin):
+class AIESConfig:
     """
     Configuration for the affine-invariant ensemble sampler.
 
@@ -606,7 +576,7 @@ class AIESConfig(_GaneshConfigMixin):
         self.chain_storage = chain_storage
 
 
-class ESSInit(_GaneshInitMixin):
+class ESSInit:
     """
     Initialization payload for ensemble slice sampling.
 
@@ -623,7 +593,7 @@ class ESSInit(_GaneshInitMixin):
         self.walkers = walkers
 
 
-class ESSConfig(_GaneshConfigMixin):
+class ESSConfig:
     """
     Configuration for ensemble slice sampling.
 
@@ -673,7 +643,7 @@ class ESSConfig(_GaneshConfigMixin):
         self.chain_storage = chain_storage
 
 
-class DifferentialEvolutionInit(_GaneshInitMixin):
+class DifferentialEvolutionInit:
     """
     Initialization payload for differential evolution.
 
@@ -694,7 +664,7 @@ class DifferentialEvolutionInit(_GaneshInitMixin):
         self.initial_scale = initial_scale
 
 
-class DifferentialEvolutionConfig(_GaneshConfigMixin):
+class DifferentialEvolutionConfig:
     """
     Configuration for differential evolution.
 
@@ -736,7 +706,7 @@ class DifferentialEvolutionConfig(_GaneshConfigMixin):
         self.parameter_names = parameter_names
 
 
-class CMAESInit(_GaneshInitMixin):
+class CMAESInit:
     """
     Initialization payload for CMA-ES.
 
@@ -756,7 +726,7 @@ class CMAESInit(_GaneshInitMixin):
         self.sigma = sigma
 
 
-class CMAESConfig(_GaneshConfigMixin):
+class CMAESConfig:
     """
     Configuration for CMA-ES.
 
@@ -784,7 +754,7 @@ class CMAESConfig(_GaneshConfigMixin):
         self.parameter_names = parameter_names
 
 
-class SimulatedAnnealingConfig(_GaneshConfigMixin):
+class SimulatedAnnealingConfig:
     """
     Configuration for simulated annealing.
 
@@ -808,7 +778,7 @@ class SimulatedAnnealingConfig(_GaneshConfigMixin):
         self.cooling_rate = cooling_rate
 
 
-class AdamConfig(_GaneshConfigMixin):
+class AdamConfig:
     """
     Configuration for the Adam optimizer.
 
@@ -844,7 +814,7 @@ class AdamConfig(_GaneshConfigMixin):
         self.epsilon = epsilon
 
 
-class ConjugateGradientConfig(_GaneshConfigMixin):
+class ConjugateGradientConfig:
     """
     Configuration for nonlinear conjugate gradient.
 
@@ -872,7 +842,7 @@ class ConjugateGradientConfig(_GaneshConfigMixin):
         self.update = update
 
 
-class TrustRegionConfig(_GaneshConfigMixin):
+class TrustRegionConfig:
     """
     Configuration for trust-region optimization.
 
