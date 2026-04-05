@@ -28,7 +28,8 @@ use crate::{
     core::{Callbacks, DebugObserver, MaxSteps, ProgressObserver},
     error::GaneshError,
     python::extract::{
-        extract_optional_field, extract_optional_one_or_many_field, resolve_protocol,
+        extract_optional_field, extract_optional_one_or_many_field, extract_required_field,
+        get_field,
     },
     traits::{Algorithm, CostFunction, Gradient, LogDensity, ProgressStatus, Status},
     Float,
@@ -56,6 +57,26 @@ where
         callbacks = callbacks.with_observer(ProgressObserver::new(progress_every));
     }
     callbacks
+}
+
+fn require_structural_fields(
+    obj: &pyo3::Bound<'_, PyAny>,
+    object_name: &str,
+    field_names: &[&str],
+) -> PyResult<()> {
+    for field_name in field_names {
+        if get_field(obj, field_name)?.is_none() {
+            return Err(GaneshError::ConfigError(format!(
+                "structural `{object_name}` extraction requires Python field `{field_name}`"
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn normalize_choice(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,7 +124,20 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyAutocorrelationTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AutocorrelationTerminator",
+            &[
+                "n_check",
+                "n_taus_threshold",
+                "dtau_threshold",
+                "discard",
+                "terminate",
+                "sokal_window",
+                "verbose",
+            ],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "n_check")? {
             config.n_check = value;
@@ -147,7 +181,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBFTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBFTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -173,7 +208,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBGTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBGTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -199,7 +235,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBInfNormGTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBInfNormGTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -227,7 +264,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadFTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
         let kind: Option<String> = extract_optional_field(&obj, "kind")?;
         match kind
             .unwrap_or_else(|| "stddev".to_string())
@@ -237,16 +274,37 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadFTerminator {
             .as_str()
         {
             "amoeba" => Ok(Self::Amoeba {
-                eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadAmoebaFTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             "absolute" => Ok(Self::Absolute {
-                eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadAbsoluteFTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             "stddev" => Ok(Self::StdDev {
-                eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadStdDevFTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             other => Err(GaneshError::ConfigError(format!(
                 "unknown Nelder-Mead f terminator kind `{other}`"
@@ -276,7 +334,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadXTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
         let kind: Option<String> = extract_optional_field(&obj, "kind")?;
         match kind
             .unwrap_or_else(|| "singer".to_string())
@@ -286,20 +344,48 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadXTerminator {
             .as_str()
         {
             "diameter" => Ok(Self::Diameter {
-                eps_abs: extract_optional_field(&obj, "eps_abs")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadDiameterXTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             "higham" => Ok(Self::Higham {
-                eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadHighamXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             "rowan" => Ok(Self::Rowan {
-                eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadRowanXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             "singer" => Ok(Self::Singer {
-                eps_rel: extract_optional_field(&obj, "eps_rel")?
-                    .unwrap_or_else(|| Float::EPSILON.powf(0.25)),
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadSingerXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
             }),
             other => Err(GaneshError::ConfigError(format!(
                 "unknown Nelder-Mead x terminator kind `{other}`"
@@ -330,7 +416,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyAdamEMATerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AdamEMATerminator",
+            &["beta_c", "eps_loss", "patience"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "beta_c")? {
             config.beta_c = value;
@@ -362,7 +453,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyConjugateGradientGTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "ConjugateGradientGTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -388,7 +480,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyTrustRegionGTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "TrustRegionGTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -414,7 +507,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PySimulatedAnnealingTemperatureTerminato
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "SimulatedAnnealingTemperatureTerminator",
+            &["min_temperature"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "min_temperature")? {
             config.min_temperature = value;
@@ -438,7 +536,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESSigmaTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESSigmaTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -454,7 +553,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESNoEffectAxisTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let _ = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESNoEffectAxisTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "no_effect_axis" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES no-effect-axis terminator kind `{kind}`"
+            ))
+            .into());
+        }
         Ok(Self)
     }
 }
@@ -466,7 +573,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESNoEffectCoordTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let _ = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESNoEffectCoordTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "no_effect_coord" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES no-effect-coord terminator kind `{kind}`"
+            ))
+            .into());
+        }
         Ok(Self)
     }
 }
@@ -488,7 +603,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESConditionCovTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESConditionCovTerminator", &["max_condition"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_condition")? {
             config.max_condition = value;
@@ -504,7 +620,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESEqualFunValuesTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let _ = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESEqualFunValuesTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "equal_fun_values" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES equal-fun-values terminator kind `{kind}`"
+            ))
+            .into());
+        }
         Ok(Self)
     }
 }
@@ -516,7 +640,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESStagnationTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let _ = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESStagnationTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "stagnation" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES stagnation terminator kind `{kind}`"
+            ))
+            .into());
+        }
         Ok(Self)
     }
 }
@@ -536,7 +668,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolXUpTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolXUpTerminator", &["max_growth"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_growth")? {
             config.max_growth = value;
@@ -560,7 +693,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolFunTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolFunTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -584,7 +718,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolXTerminator {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_terminator__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolXTerminator", &["eps_abs"])?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
             config.eps_abs = value;
@@ -640,7 +775,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "LBFGSBOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "f_tolerance",
+                "g_tolerance",
+                "projected_gradient_tolerance",
+            ],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -736,7 +883,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "NelderMeadOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "f_terminators",
+                "x_terminators",
+            ],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -783,7 +941,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyPSOOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "PSOOptions",
+            &["max_steps", "debug", "progress_every"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -826,7 +989,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyDifferentialEvolutionOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "DifferentialEvolutionOptions",
+            &["max_steps", "debug", "progress_every"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -872,7 +1040,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyAIESOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AIESOptions",
+            &["max_steps", "debug", "progress_every", "autocorrelation"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -921,7 +1094,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyESSOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ESSOptions",
+            &["max_steps", "debug", "progress_every", "autocorrelation"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1014,7 +1192,25 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "CMAESOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "sigma",
+                "no_effect_axis",
+                "no_effect_coord",
+                "condition_cov",
+                "equal_fun_values",
+                "stagnation",
+                "tol_x_up",
+                "tol_fun",
+                "tol_x",
+            ],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1091,7 +1287,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyAdamOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AdamOptions",
+            &["max_steps", "debug", "progress_every", "ema"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1147,7 +1348,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyConjugateGradientOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ConjugateGradientOptions",
+            &["max_steps", "debug", "progress_every", "g_tolerance"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1203,7 +1409,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyTrustRegionOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "TrustRegionOptions",
+            &["max_steps", "debug", "progress_every", "g_tolerance"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1257,7 +1468,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PySimulatedAnnealingOptions {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_run_options__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "SimulatedAnnealingOptions",
+            &["max_steps", "debug", "progress_every", "temperature"],
+        )?;
         let mut config = Self::default();
         if let Some(value) = extract_optional_field(&obj, "max_steps")? {
             config.max_steps = Some(value);
@@ -1491,6 +1707,52 @@ mod tests {
                     &Quadratic,
                     &(),
                     DVector::from_row_slice(&[1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
+                .unwrap();
+        });
+    }
+
+    #[test]
+    fn structural_lbfgsb_run_options_without_dunder_build_callbacks() {
+        crate::python::attach_for_tests(|py| {
+            let code = std::ffi::CString::new(
+                "\
+class StructuralFTerminator:
+    def __init__(self):
+        self.eps_abs = 1e-6
+
+class StructuralLBFGSBOptions:
+    def __init__(self):
+        self.max_steps = 2
+        self.debug = False
+        self.progress_every = None
+        self.f_tolerance = StructuralFTerminator()
+        self.g_tolerance = None
+        self.projected_gradient_tolerance = None
+",
+            )
+            .unwrap();
+            let filename = std::ffi::CString::new("structural_lbfgsb_options.py").unwrap();
+            let module_name = std::ffi::CString::new("structural_lbfgsb_options").unwrap();
+            let module =
+                pyo3::types::PyModule::from_code(py, &code, &filename, &module_name).unwrap();
+            let obj = module
+                .getattr("StructuralLBFGSBOptions")
+                .unwrap()
+                .call0()
+                .unwrap();
+            let options: PyLBFGSBOptions = obj.extract().unwrap();
+            let callbacks = options
+                .build_callbacks::<Quadratic, (), Infallible>()
+                .unwrap();
+            let config = LBFGSBConfig::default();
+            let _summary = LBFGSB::default()
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_vec(vec![1.0, -1.0]),
                     config,
                     callbacks,
                 )

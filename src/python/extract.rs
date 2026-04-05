@@ -9,17 +9,6 @@ use pyo3::{
 
 use crate::error::GaneshError;
 
-pub(super) fn resolve_protocol<'py>(
-    obj: &Bound<'py, PyAny>,
-    method: &str,
-) -> PyResult<Bound<'py, PyAny>> {
-    match obj.call_method0(method) {
-        Ok(value) => Ok(value),
-        Err(err) if err.is_instance_of::<PyAttributeError>(obj.py()) => Ok(obj.clone()),
-        Err(err) => Err(err),
-    }
-}
-
 pub(super) fn get_field<'py>(
     obj: &Bound<'py, PyAny>,
     name: &str,

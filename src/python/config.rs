@@ -26,7 +26,7 @@ use crate::{
     },
     error::GaneshError,
     python::{
-        extract::{extract_optional_field, extract_required_field, resolve_protocol},
+        extract::{extract_optional_field, extract_required_field, get_field},
         numeric::{extract_matrix, extract_vector},
     },
     traits::{
@@ -61,6 +61,21 @@ fn vectors_to_dvectors(vectors: &[Vec<Float>]) -> Vec<DVector<Float>> {
 
 fn config_error(message: impl Into<String>) -> pyo3::PyErr {
     GaneshError::ConfigError(message.into()).into()
+}
+
+fn require_structural_fields(
+    obj: &Bound<'_, PyAny>,
+    config_name: &str,
+    field_names: &[&str],
+) -> PyResult<()> {
+    for field_name in field_names {
+        if get_field(obj, field_name)?.is_none() {
+            return Err(config_error(format!(
+                "structural `{config_name}` extraction requires Python field `{field_name}`"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn normalize_choice(value: &str) -> String {
@@ -166,14 +181,18 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
         };
     }
 
-    let obj = resolve_protocol(obj, "__ganesh_line_search__")?;
-    let kind: String = extract_required_field(&obj, "kind")?;
+    let kind: String = extract_required_field(obj, "kind")?;
     match normalize_choice(&kind).as_str() {
         "more_thuente" => {
-            let max_iterations: Option<usize> = extract_optional_field(&obj, "max_iterations")?;
-            let max_zoom: Option<usize> = extract_optional_field(&obj, "max_zoom")?;
-            let c1: Option<Float> = extract_optional_field(&obj, "c1")?;
-            let c2: Option<Float> = extract_optional_field(&obj, "c2")?;
+            require_structural_fields(
+                obj,
+                "MoreThuenteLineSearch",
+                &["kind", "max_iterations", "max_zoom", "c1", "c2"],
+            )?;
+            let max_iterations: Option<usize> = extract_optional_field(obj, "max_iterations")?;
+            let max_zoom: Option<usize> = extract_optional_field(obj, "max_zoom")?;
+            let c1: Option<Float> = extract_optional_field(obj, "c1")?;
+            let c2: Option<Float> = extract_optional_field(obj, "c2")?;
             let mut line_search = MoreThuenteLineSearch::default()
                 .with_c1_c2(c1.unwrap_or(1e-4), c2.unwrap_or(0.9))?;
             if let Some(max_iterations) = max_iterations {
@@ -185,13 +204,27 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
             Ok(StrongWolfeLineSearch::MoreThuente(line_search))
         }
         "hager_zhang" => {
-            let max_iterations: Option<usize> = extract_optional_field(&obj, "max_iterations")?;
-            let delta: Option<Float> = extract_optional_field(&obj, "delta")?;
-            let sigma: Option<Float> = extract_optional_field(&obj, "sigma")?;
-            let epsilon: Option<Float> = extract_optional_field(&obj, "epsilon")?;
-            let theta: Option<Float> = extract_optional_field(&obj, "theta")?;
-            let gamma: Option<Float> = extract_optional_field(&obj, "gamma")?;
-            let max_bisects: Option<usize> = extract_optional_field(&obj, "max_bisects")?;
+            require_structural_fields(
+                obj,
+                "HagerZhangLineSearch",
+                &[
+                    "kind",
+                    "max_iterations",
+                    "delta",
+                    "sigma",
+                    "epsilon",
+                    "theta",
+                    "gamma",
+                    "max_bisects",
+                ],
+            )?;
+            let max_iterations: Option<usize> = extract_optional_field(obj, "max_iterations")?;
+            let delta: Option<Float> = extract_optional_field(obj, "delta")?;
+            let sigma: Option<Float> = extract_optional_field(obj, "sigma")?;
+            let epsilon: Option<Float> = extract_optional_field(obj, "epsilon")?;
+            let theta: Option<Float> = extract_optional_field(obj, "theta")?;
+            let gamma: Option<Float> = extract_optional_field(obj, "gamma")?;
+            let max_bisects: Option<usize> = extract_optional_field(obj, "max_bisects")?;
             let mut line_search = HagerZhangLineSearch::default()
                 .with_delta_sigma(delta.unwrap_or(0.1), sigma.unwrap_or(0.9))?
                 .with_epsilon(epsilon.unwrap_or_else(|| Float::EPSILON.cbrt()))?
@@ -212,15 +245,19 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
 }
 
 fn parse_simplex_construction<'py>(obj: &Bound<'py, PyAny>) -> PyResult<SimplexConstructionMethod> {
-    let obj = resolve_protocol(obj, "__ganesh_simplex_construction__")?;
-    let kind: String = extract_required_field(&obj, "kind")?;
+    let kind: String = extract_required_field(obj, "kind")?;
     match normalize_choice(&kind).as_str() {
         "scaled_orthogonal" => {
-            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
+            require_structural_fields(
+                obj,
+                "ScaledOrthogonalSimplex",
+                &["kind", "x0", "orthogonal_multiplier", "orthogonal_zero_step"],
+            )?;
+            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(obj, "x0")?)?;
             let orthogonal_multiplier: Option<Float> =
-                extract_optional_field(&obj, "orthogonal_multiplier")?;
+                extract_optional_field(obj, "orthogonal_multiplier")?;
             let orthogonal_zero_step: Option<Float> =
-                extract_optional_field(&obj, "orthogonal_zero_step")?;
+                extract_optional_field(obj, "orthogonal_zero_step")?;
             SimplexConstructionMethod::custom_scaled_orthogonal(
                 &x0,
                 orthogonal_multiplier.unwrap_or(1.05),
@@ -229,14 +266,16 @@ fn parse_simplex_construction<'py>(obj: &Bound<'py, PyAny>) -> PyResult<SimplexC
             .map_err(Into::into)
         }
         "orthogonal" => {
-            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
-            let simplex_size: Option<Float> = extract_optional_field(&obj, "simplex_size")?;
+            require_structural_fields(obj, "OrthogonalSimplex", &["kind", "x0", "simplex_size"])?;
+            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(obj, "x0")?)?;
+            let simplex_size: Option<Float> = extract_optional_field(obj, "simplex_size")?;
             SimplexConstructionMethod::custom_orthogonal(&x0, simplex_size.unwrap_or(1.0))
                 .map_err(Into::into)
         }
         "custom" => {
+            require_structural_fields(obj, "CustomSimplex", &["kind", "simplex"])?;
             let simplex =
-                extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(&obj, "simplex")?)?;
+                extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(obj, "simplex")?)?;
             SimplexConstructionMethod::custom(vectors_to_dvectors(&simplex)).map_err(Into::into)
         }
         _ => Err(config_error(format!(
@@ -255,17 +294,22 @@ fn parse_chain_storage<'py>(obj: &Bound<'py, PyAny>) -> PyResult<ChainStorageMod
         };
     }
 
-    let obj = resolve_protocol(obj, "__ganesh_chain_storage__")?;
-    let kind: String = extract_required_field(&obj, "kind")?;
+    let kind: String = extract_required_field(obj, "kind")?;
     match normalize_choice(&kind).as_str() {
         "full" => Ok(ChainStorageMode::Full),
         "rolling" => {
-            let window: usize = extract_required_field(&obj, "window")?;
+            require_structural_fields(obj, "ChainStorageRolling", &["kind", "window"])?;
+            let window: usize = extract_required_field(obj, "window")?;
             Ok(ChainStorageMode::Rolling { window })
         }
         "sampled" => {
-            let keep_every: usize = extract_required_field(&obj, "keep_every")?;
-            let max_samples: Option<usize> = extract_optional_field(&obj, "max_samples")?;
+            require_structural_fields(
+                obj,
+                "ChainStorageSampled",
+                &["kind", "keep_every", "max_samples"],
+            )?;
+            let keep_every: usize = extract_required_field(obj, "keep_every")?;
+            let max_samples: Option<usize> = extract_optional_field(obj, "max_samples")?;
             Ok(ChainStorageMode::Sampled {
                 keep_every,
                 max_samples,
@@ -278,19 +322,22 @@ fn parse_chain_storage<'py>(obj: &Bound<'py, PyAny>) -> PyResult<ChainStorageMod
 }
 
 fn parse_aies_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedAIESMove> {
-    let obj = resolve_protocol(obj, "__ganesh_move__")?;
-    let kind: String = extract_required_field(&obj, "kind")?;
-    let weight: Option<Float> = extract_optional_field(&obj, "weight")?;
+    let kind: String = extract_required_field(obj, "kind")?;
+    let weight: Option<Float> = extract_optional_field(obj, "weight")?;
     let weight = weight.unwrap_or(1.0);
     match normalize_choice(&kind).as_str() {
         "stretch" => {
-            let a: Option<Float> = extract_optional_field(&obj, "a")?;
+            require_structural_fields(obj, "AIESStretchMove", &["kind", "weight", "a"])?;
+            let a: Option<Float> = extract_optional_field(obj, "a")?;
             a.map_or_else(
                 || Ok(AIESMove::stretch(weight)),
                 |a| AIESMove::custom_stretch(a, weight).map_err(Into::into),
             )
         }
-        "walk" => Ok(AIESMove::walk(weight)),
+        "walk" => {
+            require_structural_fields(obj, "AIESWalkMove", &["kind", "weight"])?;
+            Ok(AIESMove::walk(weight))
+        }
         _ => Err(config_error(format!(
             "unknown AIES move kind `{kind}`; expected one of stretch, walk"
         ))),
@@ -306,17 +353,27 @@ fn parse_aies_moves<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Vec<WeightedAIESMo
 }
 
 fn parse_ess_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedESSMove> {
-    let obj = resolve_protocol(obj, "__ganesh_move__")?;
-    let kind: String = extract_required_field(&obj, "kind")?;
-    let weight: Option<Float> = extract_optional_field(&obj, "weight")?;
+    let kind: String = extract_required_field(obj, "kind")?;
+    let weight: Option<Float> = extract_optional_field(obj, "weight")?;
     let weight = weight.unwrap_or(1.0);
     match normalize_choice(&kind).as_str() {
-        "differential" => Ok(ESSMove::differential(weight)),
-        "gaussian" => Ok(ESSMove::gaussian(weight)),
+        "differential" => {
+            require_structural_fields(obj, "ESSDifferentialMove", &["kind", "weight"])?;
+            Ok(ESSMove::differential(weight))
+        }
+        "gaussian" => {
+            require_structural_fields(obj, "ESSGaussianMove", &["kind", "weight"])?;
+            Ok(ESSMove::gaussian(weight))
+        }
         "global" => {
-            let scale: Option<Float> = extract_optional_field(&obj, "scale")?;
-            let rescale_cov: Option<Float> = extract_optional_field(&obj, "rescale_cov")?;
-            let n_components: Option<usize> = extract_optional_field(&obj, "n_components")?;
+            require_structural_fields(
+                obj,
+                "ESSGlobalMove",
+                &["kind", "weight", "scale", "rescale_cov", "n_components"],
+            )?;
+            let scale: Option<Float> = extract_optional_field(obj, "scale")?;
+            let rescale_cov: Option<Float> = extract_optional_field(obj, "rescale_cov")?;
+            let n_components: Option<usize> = extract_optional_field(obj, "n_components")?;
             let is_default = scale.is_none() && rescale_cov.is_none() && n_components.is_none();
             if is_default {
                 Ok(ESSMove::global(weight))
@@ -342,7 +399,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "LBFGSBConfig",
+            &[
+                "memory_limit",
+                "bounds",
+                "parameter_names",
+                "bounds_handling",
+                "line_search",
+                "error_mode",
+            ],
+        )?;
         let memory_limit: Option<usize> = extract_optional_field(&obj, "memory_limit")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
@@ -373,7 +442,22 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "NelderMeadConfig",
+            &[
+                "bounds",
+                "parameter_names",
+                "alpha",
+                "beta",
+                "gamma",
+                "delta",
+                "adaptive_dimension",
+                "expansion_method",
+                "bounds_handling",
+            ],
+        )?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -417,7 +501,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "NelderMeadInit", &["x0", "construction_method"])?;
         let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
         let construction_method: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "construction_method")?;
@@ -443,7 +528,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "PSOConfig",
+            &[
+                "bounds",
+                "parameter_names",
+                "omega",
+                "c1",
+                "c2",
+                "bounds_handling",
+            ],
+        )?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -473,7 +570,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "PSOInit",
+            &["positions", "topology", "update_method", "boundary_method"],
+        )?;
         let positions = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj,
             "positions",
@@ -501,7 +603,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AIESConfig",
+            &["parameter_names", "moves", "chain_storage"],
+        )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
         let chain_storage: Option<Bound<'py, PyAny>> =
@@ -522,7 +629,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "AIESInit", &["walkers"])?;
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
@@ -534,7 +642,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ESSConfig",
+            &[
+                "parameter_names",
+                "n_adaptive",
+                "max_steps",
+                "mu",
+                "moves",
+                "chain_storage",
+            ],
+        )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let n_adaptive: Option<usize> = extract_optional_field(&obj, "n_adaptive")?;
         let max_steps: Option<usize> = extract_optional_field(&obj, "max_steps")?;
@@ -566,7 +686,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "ESSInit", &["walkers"])?;
         let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
             &obj, "walkers",
         )?)?;
@@ -578,7 +699,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "DifferentialEvolutionConfig",
+            &[
+                "population_size",
+                "differential_weight",
+                "crossover_probability",
+                "bounds",
+                "parameter_names",
+            ],
+        )?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let differential_weight: Option<Float> =
             extract_optional_field(&obj, "differential_weight")?;
@@ -607,7 +739,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "DifferentialEvolutionInit", &["x0", "initial_scale"])?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
 
@@ -623,7 +756,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_init__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "CMAESConfig",
+            &["population_size", "bounds", "parameter_names"],
+        )?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
         let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
             extract_optional_field(&obj, "bounds")?;
@@ -642,7 +780,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESInit", &["x0", "sigma"])?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let sigma: Float = extract_required_field(&obj, "sigma")?;
         Self::new(&x0, sigma).map_err(Into::into)
@@ -653,7 +792,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SimulatedAnnealingConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "SimulatedAnnealingConfig",
+            &["initial_temperature", "cooling_rate"],
+        )?;
         let initial_temperature: Option<Float> =
             extract_optional_field(&obj, "initial_temperature")?;
         let cooling_rate: Option<Float> = extract_optional_field(&obj, "cooling_rate")?;
@@ -670,7 +814,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AdamConfig",
+            &["parameter_names", "alpha", "beta_1", "beta_2", "epsilon"],
+        )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let alpha: Option<Float> = extract_optional_field(&obj, "alpha")?;
         let beta_1: Option<Float> = extract_optional_field(&obj, "beta_1")?;
@@ -698,7 +847,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ConjugateGradientConfig",
+            &["parameter_names", "line_search", "update"],
+        )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
         let update: Option<String> = extract_optional_field(&obj, "update")?;
@@ -718,7 +872,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = resolve_protocol(&obj.to_owned(), "__ganesh_config__")?;
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "TrustRegionConfig",
+            &[
+                "parameter_names",
+                "subproblem",
+                "initial_radius",
+                "max_radius",
+                "eta",
+            ],
+        )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
         let subproblem: Option<String> = extract_optional_field(&obj, "subproblem")?;
         let initial_radius: Option<Float> = extract_optional_field(&obj, "initial_radius")?;
@@ -835,6 +1000,49 @@ mod tests {
     }
 
     #[test]
+    fn structural_lbfgsb_like_without_dunder_extracts_and_runs() {
+        crate::python::attach_for_tests(|py| {
+            let code = CString::new(
+                "\
+class StructuralMoreThuenteLineSearch:
+    def __init__(self):
+        self.kind = 'more_thuente'
+        self.max_iterations = 100
+        self.max_zoom = 100
+        self.c1 = 1e-4
+        self.c2 = 0.9
+
+class StructuralLBFGSB:
+    def __init__(self):
+        self.memory_limit = 5
+        self.bounds = [(-5.0, 5.0), (-5.0, 5.0)]
+        self.parameter_names = ['x', 'y']
+        self.bounds_handling = None
+        self.line_search = StructuralMoreThuenteLineSearch()
+        self.error_mode = None
+",
+            )
+            .unwrap();
+            let filename = CString::new("structural_lbfgsb.py").unwrap();
+            let module_name = CString::new("structural_lbfgsb").unwrap();
+            let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
+            let config_like = module.getattr("StructuralLBFGSB").unwrap().call0().unwrap();
+
+            let config: LBFGSBConfig = config_like.extract().unwrap();
+            let summary = LBFGSB::default()
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_row_slice(&[2.0, -1.0]),
+                    config,
+                    Callbacks::empty().with_terminator(MaxSteps(2)),
+                )
+                .unwrap();
+            assert_eq!(summary.parameter_names.as_ref().unwrap(), &vec!["x", "y"]);
+        });
+    }
+
+    #[test]
     fn pure_python_lbfgsb_config_extracts_extended_options() {
         crate::python::attach_for_tests(|py| {
             let ganesh = import_ganesh(py);
@@ -882,6 +1090,24 @@ mod tests {
                 summary.parameter_names.as_ref().unwrap(),
                 &vec!["x".to_string(), "y".to_string()]
             );
+        });
+    }
+
+    #[test]
+    fn pure_python_lbfgsb_config_rejects_adam_config() {
+        crate::python::attach_for_tests(|py| {
+            let ganesh = import_ganesh(py);
+            let config_like = ganesh.getattr("AdamConfig").unwrap().call0().unwrap();
+
+            match config_like.extract::<LBFGSBConfig>() {
+                Ok(_) => panic!("expected AdamConfig to be rejected as LBFGSBConfig"),
+                Err(err) => {
+                    assert!(err
+                        .to_string()
+                        .contains("structural `LBFGSBConfig` extraction requires Python field"));
+                    assert!(err.to_string().contains("memory_limit"));
+                }
+            }
         });
     }
 
@@ -1169,28 +1395,81 @@ mod tests {
     }
 
     #[test]
-    fn duck_typed_ess_config_extracts() {
+    fn structural_aies_init_and_config_without_dunder_extract() {
         crate::python::attach_for_tests(|py| {
             let code = CString::new(
                 "\
-class DuckESS:
-    def __ganesh_init__(self):
-        self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
-        return self
+class StructuralAIESStretchMove:
+    def __init__(self):
+        self.kind = 'stretch'
+        self.weight = 1.0
+        self.a = 2.5
 
-    def __ganesh_config__(self):
+class StructuralAIESInit:
+    def __init__(self):
+        self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
+
+class StructuralAIESConfig:
+    def __init__(self):
+        self.parameter_names = ['a', 'b']
+        self.moves = [StructuralAIESStretchMove()]
+        self.chain_storage = None
+",
+            )
+            .unwrap();
+            let filename = CString::new("structural_aies.py").unwrap();
+            let module_name = CString::new("structural_aies").unwrap();
+            let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
+            let init_like = module
+                .getattr("StructuralAIESInit")
+                .unwrap()
+                .call0()
+                .unwrap();
+            let config_like = module
+                .getattr("StructuralAIESConfig")
+                .unwrap()
+                .call0()
+                .unwrap();
+
+            let init: AIESInit = init_like.extract().unwrap();
+            let config: AIESConfig = config_like.extract().unwrap();
+            let summary = AIES::default()
+                .process(
+                    &GaussianLogDensity,
+                    &(),
+                    init,
+                    config,
+                    Callbacks::empty().with_terminator(MaxSteps(1)),
+                )
+                .unwrap();
+            assert_eq!(
+                summary.parameter_names.as_ref().unwrap(),
+                &vec!["a".to_string(), "b".to_string()]
+            );
+        });
+    }
+
+    #[test]
+    fn structural_ess_config_extracts_without_dunder() {
+        crate::python::attach_for_tests(|py| {
+            let code = CString::new(
+                "\
+class StructuralESS:
+    def __init__(self):
         self.parameter_names = ['a', 'b']
         self.n_adaptive = 2
         self.max_steps = 20
         self.mu = 1.5
-        return self
+        self.moves = None
+        self.chain_storage = None
+        self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
 ",
             )
             .unwrap();
-            let filename = CString::new("duck_ess.py").unwrap();
-            let module_name = CString::new("duck_ess").unwrap();
+            let filename = CString::new("structural_ess.py").unwrap();
+            let module_name = CString::new("structural_ess").unwrap();
             let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
-            let obj = module.getattr("DuckESS").unwrap().call0().unwrap();
+            let obj = module.getattr("StructuralESS").unwrap().call0().unwrap();
             let init: ESSInit = obj.extract().unwrap();
             let config: ESSConfig = obj.extract().unwrap();
             let _summary = ESS::default()
