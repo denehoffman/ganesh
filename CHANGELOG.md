@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.2](https://github.com/denehoffman/ganesh/compare/v0.26.1...v0.26.2) (2026-04-05)
+
+
+### Features
+
+* **python:** Publish type stubs ([8df49b6](https://github.com/denehoffman/ganesh/commit/8df49b6e91303f3fa9a711e59b67e89eb808f7b9))
+
+
+### Bug Fixes
+
+* **python:** Validate extracted objects structurally ([7c1363f](https://github.com/denehoffman/ganesh/commit/7c1363fc663983785a8e180f1c1a61acc5ffbd16))
+
 ## [0.26.1](https://github.com/denehoffman/ganesh/compare/v0.26.0...v0.26.1) (2026-04-04)
 
 
