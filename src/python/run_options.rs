@@ -728,7 +728,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolXTerminator {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PyLBFGSBOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
@@ -736,6 +736,19 @@ pub struct PyLBFGSBOptions {
     pub f_tolerance: Option<PyLBFGSBFTerminator>,
     pub g_tolerance: Option<PyLBFGSBGTerminator>,
     pub projected_gradient_tolerance: Option<PyLBFGSBInfNormGTerminator>,
+}
+
+impl Default for PyLBFGSBOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            f_tolerance: Some(PyLBFGSBFTerminator::default()),
+            g_tolerance: Some(PyLBFGSBGTerminator::default()),
+            projected_gradient_tolerance: Some(PyLBFGSBInfNormGTerminator::default()),
+        }
+    }
 }
 
 impl PyLBFGSBOptions {
@@ -1117,7 +1130,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyESSOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PyCMAESOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
@@ -1131,6 +1144,25 @@ pub struct PyCMAESOptions {
     pub tol_x_up: Option<PyCMAESTolXUpTerminator>,
     pub tol_fun: Option<PyCMAESTolFunTerminator>,
     pub tol_x: Option<PyCMAESTolXTerminator>,
+}
+
+impl Default for PyCMAESOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            sigma: Some(PyCMAESSigmaTerminator::default()),
+            no_effect_axis: Some(PyCMAESNoEffectAxisTerminator),
+            no_effect_coord: Some(PyCMAESNoEffectCoordTerminator),
+            condition_cov: Some(PyCMAESConditionCovTerminator::default()),
+            equal_fun_values: Some(PyCMAESEqualFunValuesTerminator),
+            stagnation: Some(PyCMAESStagnationTerminator),
+            tol_x_up: Some(PyCMAESTolXUpTerminator::default()),
+            tol_fun: Some(PyCMAESTolFunTerminator::default()),
+            tol_x: Some(PyCMAESTolXTerminator::default()),
+        }
+    }
 }
 
 impl PyCMAESOptions {
@@ -1252,12 +1284,23 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PyAdamOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
     pub progress_every: Option<usize>,
     pub ema: Option<PyAdamEMATerminator>,
+}
+
+impl Default for PyAdamOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            ema: Some(PyAdamEMATerminator::default()),
+        }
+    }
 }
 
 impl PyAdamOptions {
@@ -1310,12 +1353,23 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyAdamOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PyConjugateGradientOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
     pub progress_every: Option<usize>,
     pub g_tolerance: Option<PyConjugateGradientGTerminator>,
+}
+
+impl Default for PyConjugateGradientOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            g_tolerance: Some(PyConjugateGradientGTerminator::default()),
+        }
+    }
 }
 
 impl PyConjugateGradientOptions {
@@ -1371,12 +1425,23 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyConjugateGradientOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PyTrustRegionOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
     pub progress_every: Option<usize>,
     pub g_tolerance: Option<PyTrustRegionGTerminator>,
+}
+
+impl Default for PyTrustRegionOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            g_tolerance: Some(PyTrustRegionGTerminator::default()),
+        }
+    }
 }
 
 impl PyTrustRegionOptions {
@@ -1432,12 +1497,23 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyTrustRegionOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PySimulatedAnnealingOptions {
     pub max_steps: Option<usize>,
     pub debug: bool,
     pub progress_every: Option<usize>,
     pub temperature: Option<PySimulatedAnnealingTemperatureTerminator>,
+}
+
+impl Default for PySimulatedAnnealingOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            temperature: Some(PySimulatedAnnealingTemperatureTerminator::default()),
+        }
+    }
 }
 
 impl PySimulatedAnnealingOptions {

@@ -1,6 +1,6 @@
 use crate::{
     algorithms::gradient::GradientStatus,
-    core::{Callbacks, MaxSteps, MinimizationSummary},
+    core::{Callbacks, MinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
@@ -388,9 +388,7 @@ where
     where
         Self: Sized,
     {
-        Callbacks::empty()
-            .with_terminator(TrustRegionGTerminator::default())
-            .with_terminator(MaxSteps::default())
+        Callbacks::empty().with_terminator(TrustRegionGTerminator::default())
     }
 }
 
