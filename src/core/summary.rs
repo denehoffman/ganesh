@@ -106,9 +106,11 @@ pub struct MinimizationSummary {
     /// The current value of the minimization problem function at [`MinimizationSummary::x`].
     pub fx: Float,
     /// The number of function evaluations.
-    pub cost_evals: usize,
+    pub n_f_evals: usize,
     /// The number of gradient evaluations.
-    pub gradient_evals: usize,
+    pub n_g_evals: usize,
+    /// The number of Hessian evaluations.
+    pub n_h_evals: usize,
     /// Covariance of fit parameters.
     pub covariance: DMatrix<Float>,
 }
@@ -139,9 +141,9 @@ impl Display for MinimizationSummary {
             },
             &format!("{:.5}", self.fx),
             "",
-            &format!("{:.5}", self.cost_evals),
+            &format!("{:.5}", self.n_f_evals),
             "",
-            &format!("{:.5}", self.gradient_evals),
+            &format!("{:.5}", self.n_g_evals),
             "",
         ]);
         builder.push_record(["Message", &self.message.to_string()]);
@@ -241,7 +243,11 @@ pub struct SimulatedAnnealingSummary<I> {
     /// The standard deviations of the parameters at the end of the fit.
     pub fx: Float,
     /// The number of function evaluations.
-    pub cost_evals: usize,
+    pub n_f_evals: usize,
+    /// The number of gradient evaluations.
+    pub n_g_evals: usize,
+    /// The number of Hessian evaluations.
+    pub n_h_evals: usize,
 }
 
 /// A struct that holds the results of an MCMC sampling.
@@ -259,9 +265,11 @@ pub struct MCMCSummary {
     /// The mode used to retain chain history in memory during sampling.
     pub chain_storage: ChainStorageMode,
     /// The number of function evaluations.
-    pub cost_evals: usize,
+    pub n_f_evals: usize,
     /// The number of gradient evaluations.
-    pub gradient_evals: usize,
+    pub n_g_evals: usize,
+    /// The number of Hessian evaluations.
+    pub n_h_evals: usize,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
 }
@@ -329,7 +337,7 @@ impl Display for MCMCSummary {
         write!(
             f,
             "MCMC Summary: status={}, cost_evals={}, gradient_evals={}, dimension={:?}",
-            self.message, self.cost_evals, self.gradient_evals, self.dimension
+            self.message, self.n_f_evals, self.n_g_evals, self.dimension
         )
     }
 }
@@ -342,7 +350,7 @@ where
         write!(
             f,
             "Simulated Annealing Summary: status={}, f(x)={:.5}, cost_evals={}",
-            self.message, self.fx, self.cost_evals
+            self.message, self.fx, self.n_f_evals
         )
     }
 }
@@ -362,8 +370,9 @@ mod tests {
             x: dvector![1.0, 2.0, 3.0],
             std: dvector![0.1, 0.2, 0.3],
             fx: 3.0,
-            cost_evals: 10,
-            gradient_evals: 5,
+            n_f_evals: 10,
+            n_g_evals: 5,
+            n_h_evals: 1,
             covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         };
         println!("{}", result);
@@ -379,8 +388,9 @@ mod tests {
             x: dvector![0.5, 1.5],
             std: dvector![0.1, 0.2],
             fx: 1.25,
-            cost_evals: 10,
-            gradient_evals: 4,
+            n_f_evals: 10,
+            n_g_evals: 4,
+            n_h_evals: 1,
             covariance: dmatrix![1.0, 0.0, 0.0, 1.0],
         };
 
@@ -401,8 +411,9 @@ mod tests {
             message: StatusMessage::default().set_initialized_with_message("warmup"),
             chain: vec![vec![dvector![1.0], dvector![2.0]]],
             chain_storage: ChainStorageMode::Full,
-            cost_evals: 8,
-            gradient_evals: 0,
+            n_f_evals: 8,
+            n_g_evals: 0,
+            n_h_evals: 0,
             dimension: (1, 2, 1),
         };
 
@@ -411,7 +422,7 @@ mod tests {
         assert!(rendered.pretty.contains("MCMC Summary"));
         assert!(rendered.pretty.contains("cost_evals=8"));
         assert!(rendered.json.contains("\n  \"dimension\": [\n"));
-        assert!(rendered.json.contains("\"cost_evals\": 8"));
+        assert!(rendered.json.contains("\"n_f_evals\": 8"));
     }
 
     #[test]
@@ -422,7 +433,9 @@ mod tests {
             x0: "start".to_string(),
             x: "finish".to_string(),
             fx: 0.5,
-            cost_evals: 12,
+            n_f_evals: 12,
+            n_g_evals: 0,
+            n_h_evals: 0,
         };
 
         let rendered = result.render().unwrap();

@@ -411,8 +411,8 @@ def test_gradient_free_status_wrapper_uses_numpy_arrays() -> None:
 def test_ensemble_status_wrapper_uses_numpy_arrays() -> None:
     status = native._testing_sample_ensemble_status()
 
-    assert isinstance(status.get_chain(), np.ndarray)
-    assert isinstance(status.get_flat_chain(), np.ndarray)
+    assert isinstance(status.chain(), np.ndarray)
+    assert isinstance(status.chain(flat=True), np.ndarray)
     assert status.n_f_evals == 14
     assert status.n_g_evals == 0
 
@@ -425,10 +425,10 @@ def test_ensemble_status_chain_uses_keyword_only_options() -> None:
     status = native._testing_sample_ensemble_status()
 
     with pytest.raises(TypeError):
-        cast(Any, status.get_chain)(1)
+        cast(Any, status.chain)(1)
 
     with pytest.raises(TypeError):
-        cast(Any, status.get_flat_chain)(1, 1)
+        cast(Any, status.chain)(1, 1, True)
 
 
 def test_swarm_status_wrapper_exposes_swarm() -> None:
@@ -439,7 +439,7 @@ def test_swarm_status_wrapper_exposes_swarm() -> None:
     assert isinstance(particles[0]['position']['x'], np.ndarray)
     assert isinstance(particles[0]['velocity'], np.ndarray)
     assert status.n_f_evals == 22
-    assert status.get_best()['fx'] == 0.125
+    assert status.gbest['fx'] == 0.125
 
     exported = status.to_dict()
     assert exported['swarm']['topology'] == 'Ring'

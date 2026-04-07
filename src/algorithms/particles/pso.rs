@@ -311,8 +311,9 @@ where
             x: status.gbest.x.clone(),
             fx: status.gbest.fx_checked(),
             bounds: config.bounds.clone(),
-            cost_evals: status.n_f_evals,
-            gradient_evals: 0,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: 0,
+            n_h_evals: 0,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: DVector::from_element(status.gbest.x.len(), 0.0),
@@ -440,8 +441,8 @@ mod tests {
             .process(&problem, &(), init, config, callbacks)
             .unwrap();
 
-        assert!(result.cost_evals >= 8);
-        assert_eq!(result.gradient_evals, 0);
+        assert!(result.n_f_evals >= 8);
+        assert_eq!(result.n_g_evals, 0);
         assert!(result
             .message
             .to_string()

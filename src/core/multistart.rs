@@ -267,8 +267,9 @@ mod tests {
                 x: config.x.clone(),
                 std: DVector::zeros(config.x.len()),
                 fx: config.fx,
-                cost_evals: 1,
-                gradient_evals: 0,
+                n_f_evals: 1,
+                n_g_evals: 0,
+                n_h_evals: 0,
                 covariance: DMatrix::identity(config.x.len(), config.x.len()),
             })
         }

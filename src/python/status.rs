@@ -1,5 +1,5 @@
 //! Python-facing status wrapper classes for built-in algorithms.
-#![allow(clippy::doc_markdown, clippy::missing_errors_doc, missing_docs)]
+#![allow(clippy::doc_markdown, clippy::missing_errors_doc)]
 
 use pyo3::{
     pyclass, pymethods,
@@ -224,6 +224,7 @@ fn velocity_initializer_to_python<'py>(
     Ok(dict)
 }
 
+/// A status message emitted by an algorithm
 #[pyclass(skip_from_py_object, module = "ganesh", name = "StatusMessage")]
 #[derive(Clone)]
 pub struct PyStatusMessage {
@@ -232,21 +233,41 @@ pub struct PyStatusMessage {
 
 #[pymethods]
 impl PyStatusMessage {
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn text(&self) -> String {
         self.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.message.success()
     }
 
+    /// Export the StatusMessage as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         message_to_python(py, &self.message)
     }
@@ -270,6 +291,7 @@ impl From<&PyStatusMessage> for StatusMessage {
     }
 }
 
+/// The status of a minimization algorithm which uses gradient information.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "GradientStatus")]
 #[derive(Clone)]
 pub struct PyGradientStatus {
@@ -278,66 +300,134 @@ pub struct PyGradientStatus {
 
 #[pymethods]
 impl PyGradientStatus {
+    fn __str__(&self) -> String {
+        format!("{:?}", self.status)
+    }
+    /// The status message emitted by the algorithm at the current iteration.
+    ///
+    /// Returns
+    /// -------
+    /// StatusMessage
     #[getter]
     pub fn message<'py>(&self, py: Python<'py>) -> PyResult<Py<PyStatusMessage>> {
         Py::new(py, PyStatusMessage::from(self.status.message.clone()))
     }
 
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.status.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.status.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.status.message.success()
     }
 
+    /// Current parameter vector.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.status.x.as_slice())
     }
 
+    /// Current objective value.
+    ///
+    /// Returns
+    /// -------
+    /// float
     #[getter]
     pub const fn fx(&self) -> Float {
         self.status.fx
     }
 
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_f_evals(&self) -> usize {
         self.status.n_f_evals
     }
 
+    /// Number of gradient evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_g_evals(&self) -> usize {
         self.status.n_g_evals
     }
 
+    /// Number of Hessian evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_h_evals(&self) -> usize {
         self.status.n_h_evals
     }
 
+    /// Current Hessian.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn hess<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_matrix_to_python(py, &self.status.hess)
     }
 
+    /// Current covariance matrix.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn cov<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_matrix_to_python(py, &self.status.cov)
     }
 
+    /// Current parameter uncertainties.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn err<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_vector_to_python(py, &self.status.err)
     }
 
+    /// Export the GradientStatus as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
@@ -371,6 +461,7 @@ impl From<&PyGradientStatus> for GradientStatus {
     }
 }
 
+/// The status of a gradient-free minimization algorithm.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "GradientFreeStatus")]
 #[derive(Clone)]
 pub struct PyGradientFreeStatus {
@@ -379,56 +470,114 @@ pub struct PyGradientFreeStatus {
 
 #[pymethods]
 impl PyGradientFreeStatus {
+    fn __str__(&self) -> String {
+        format!("{:?}", self.status)
+    }
+    /// The status message emitted by the algorithm at the current iteration.
+    ///
+    /// Returns
+    /// -------
+    /// StatusMessage
     #[getter]
     pub fn message<'py>(&self, py: Python<'py>) -> PyResult<Py<PyStatusMessage>> {
         Py::new(py, PyStatusMessage::from(self.status.message.clone()))
     }
 
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.status.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.status.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.status.message.success()
     }
 
+    /// Current parameter vector.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
     #[getter]
     pub fn x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         vector_to_python(py, self.status.x.as_slice())
     }
 
+    /// Current objective value.
+    ///
+    /// Returns
+    /// -------
+    /// float
     #[getter]
     pub const fn fx(&self) -> Float {
         self.status.fx
     }
 
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_f_evals(&self) -> usize {
         self.status.n_f_evals
     }
 
+    /// Current Hessian.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn hess<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_matrix_to_python(py, &self.status.hess)
     }
 
+    /// Current covariance matrix.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn cov<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_matrix_to_python(py, &self.status.cov)
     }
 
+    /// Current parameter uncertainties.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray or None
     #[getter]
     pub fn err<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         optional_vector_to_python(py, &self.status.err)
     }
 
+    /// Export the GradientFreeStatus as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
@@ -460,6 +609,7 @@ impl From<&PyGradientFreeStatus> for GradientFreeStatus {
     }
 }
 
+/// The status of an ensemble-method algorithm.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "EnsembleStatus")]
 #[derive(Clone)]
 pub struct PyEnsembleStatus {
@@ -468,64 +618,119 @@ pub struct PyEnsembleStatus {
 
 #[pymethods]
 impl PyEnsembleStatus {
+    fn __str__(&self) -> String {
+        format!("{:?}", self.status)
+    }
+    /// The status message emitted by the algorithm at the current iteration.
+    ///
+    /// Returns
+    /// -------
+    /// StatusMessage
     #[getter]
     pub fn message<'py>(&self, py: Python<'py>) -> PyResult<Py<PyStatusMessage>> {
         Py::new(py, PyStatusMessage::from(self.status.message.clone()))
     }
 
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.status.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.status.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.status.message.success()
     }
 
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_f_evals(&self) -> usize {
         self.status.n_f_evals
     }
 
+    /// Number of gradient evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_g_evals(&self) -> usize {
         self.status.n_g_evals
     }
 
+    /// Current dimension of the ensemble.
+    ///
+    /// Returns
+    /// -------
+    /// tuple[int, int, int]
+    ///     Dimensions in ``(n_walkers, n_steps, n_variables)`` order.
     #[getter]
     pub fn dimension(&self) -> (usize, usize, usize) {
         self.status.dimension()
     }
 
-    #[pyo3(signature = (*, burn=None, thin=None))]
-    pub fn get_chain<'py>(
+    /// Get the retained chain after optional burn-in and thinning.
+    ///
+    /// Parameters
+    /// ----------
+    /// burn : int | None, optional
+    ///     Number of retained steps discarded from the front of each walker
+    ///     chain.
+    /// thin : int | None, optional
+    ///     Retain every ``thin``-th sample after burn-in.
+    /// flat : bool, default=False
+    ///     If ``False``, return the chain with shape
+    ///     ``(n_walkers, n_steps, n_dim)``. If ``True``, flatten the walker and
+    ///     step dimensions and return shape ``(n_samples, n_dim)``.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    #[pyo3(signature = (*, burn=None, thin=None, flat=false))]
+    pub fn chain<'py>(
         &self,
         py: Python<'py>,
         burn: Option<usize>,
         thin: Option<usize>,
+        flat: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
+        if flat {
+            return matrix_to_python(
+                py,
+                &flat_chain_to_python(&self.status.get_flat_chain(burn, thin)),
+            );
+        }
         tensor3_to_python(py, &chain_to_python(&self.status.get_chain(burn, thin)))
     }
 
-    #[pyo3(signature = (*, burn=None, thin=None))]
-    pub fn get_flat_chain<'py>(
-        &self,
-        py: Python<'py>,
-        burn: Option<usize>,
-        thin: Option<usize>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        matrix_to_python(
-            py,
-            &flat_chain_to_python(&self.status.get_flat_chain(burn, thin)),
-        )
-    }
-
+    /// Export the EnsembleStatus as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
@@ -558,6 +763,7 @@ impl From<&PyEnsembleStatus> for EnsembleStatus {
     }
 }
 
+/// The status of an particle swarm algorithm.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "SwarmStatus")]
 #[derive(Clone)]
 pub struct PySwarmStatus {
@@ -566,50 +772,94 @@ pub struct PySwarmStatus {
 
 #[pymethods]
 impl PySwarmStatus {
+    fn __str__(&self) -> String {
+        format!("{:?}", self.status)
+    }
+    /// The status message emitted by the algorithm at the current iteration.
+    ///
+    /// Returns
+    /// -------
+    /// StatusMessage
     #[getter]
     pub fn message<'py>(&self, py: Python<'py>) -> PyResult<Py<PyStatusMessage>> {
         Py::new(py, PyStatusMessage::from(self.status.message.clone()))
     }
 
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.status.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.status.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.status.message.success()
     }
 
+    /// The current global best point across all swarm members.
+    ///
+    /// Returns
+    /// -------
+    /// Point
     #[getter]
     pub fn gbest<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         point_to_python(py, &self.status.gbest)
     }
 
+    /// The initial global best point across all swarm members.
+    ///
+    /// Returns
+    /// -------
+    /// Point
     #[getter]
     pub fn initial_gbest<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         point_to_python(py, &self.status.initial_gbest)
     }
 
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_f_evals(&self) -> usize {
         self.status.n_f_evals
     }
 
+    /// The current state of the swarm.
+    ///
+    /// Returns
+    /// -------
+    /// Swarm
     #[getter]
     pub fn swarm<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         swarm_to_python(py, &self.status.swarm)
     }
 
-    pub fn get_best<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        point_to_python(py, &self.status.get_best())
-    }
-
+    /// Export the SwarmStatus as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
@@ -642,6 +892,7 @@ impl From<&PySwarmStatus> for SwarmStatus {
     }
 }
 
+/// The status of a simulated annealing algorithm.
 #[pyclass(
     skip_from_py_object,
     module = "ganesh",
@@ -654,61 +905,104 @@ pub struct PySimulatedAnnealingStatus {
 
 #[pymethods]
 impl PySimulatedAnnealingStatus {
+    fn __str__(&self) -> String {
+        format!("{:?}", self.status)
+    }
+    /// The status message emitted by the algorithm at the current iteration.
+    ///
+    /// Returns
+    /// -------
+    /// StatusMessage
     #[getter]
     pub fn message<'py>(&self, py: Python<'py>) -> PyResult<Py<PyStatusMessage>> {
         Py::new(py, PyStatusMessage::from(self.status.message.clone()))
     }
 
+    /// The type of status.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn status_type(&self) -> String {
         self.status.message.status_type.to_string()
     }
 
+    /// The text content of the status message.
+    ///
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn message_text(&self) -> String {
         self.status.message.text.clone()
     }
 
+    /// An indicator of the convergence/success state of an algorithm.
+    ///
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub const fn success(&self) -> bool {
         self.status.message.success()
     }
 
+    /// The current temperature.
+    ///
+    /// Returns
+    /// -------
+    /// float
     #[getter]
     pub const fn temperature(&self) -> Float {
         self.status.temperature
     }
 
+    /// The initial evaluated point.
+    ///
+    /// Returns
+    /// -------
+    /// Point
     #[getter]
     pub fn initial<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         point_to_python(py, &self.status.initial)
     }
 
+    /// The best evaluated point overall.
+    ///
+    /// Returns
+    /// -------
+    /// Point
     #[getter]
     pub fn best<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         point_to_python(py, &self.status.best)
     }
 
+    /// The most recent evaluated point.
+    ///
+    /// Returns
+    /// -------
+    /// Point
     #[getter]
     pub fn current<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         point_to_python(py, &self.status.current)
     }
 
-    #[getter]
-    pub const fn iteration(&self) -> usize {
-        self.status.iteration
-    }
-
-    #[getter]
-    pub const fn converged(&self) -> bool {
-        self.status.converged
-    }
-
+    /// Number of cost-function evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub const fn n_f_evals(&self) -> usize {
         self.status.n_f_evals
     }
 
+    /// Export the SimulatedAnnealingStatus as a plain Python dictionary.
+    ///
+    /// Returns
+    /// -------
+    /// dict
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
@@ -716,8 +1010,6 @@ impl PySimulatedAnnealingStatus {
         dict.set_item("initial", point_to_python(py, &self.status.initial)?)?;
         dict.set_item("best", point_to_python(py, &self.status.best)?)?;
         dict.set_item("current", point_to_python(py, &self.status.current)?)?;
-        dict.set_item("iteration", self.status.iteration)?;
-        dict.set_item("converged", self.status.converged)?;
         dict.set_item("n_f_evals", self.status.n_f_evals)?;
         Ok(dict)
     }

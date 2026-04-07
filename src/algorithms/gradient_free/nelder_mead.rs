@@ -1089,8 +1089,9 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            cost_evals: status.n_f_evals,
-            gradient_evals: 0,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: 0,
+            n_h_evals: 0,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status
@@ -1287,7 +1288,7 @@ mod tests {
             uninterrupted.x[1],
             epsilon = Float::EPSILON.powf(0.2)
         );
-        assert_eq!(resumed.cost_evals, uninterrupted.cost_evals);
+        assert_eq!(resumed.n_f_evals, uninterrupted.n_f_evals);
     }
 
     #[test]
@@ -1861,7 +1862,7 @@ mod tests {
             )
             .unwrap();
         assert!(result.message.success());
-        assert_eq!(result.gradient_evals, 0);
+        assert_eq!(result.n_g_evals, 0);
     }
 
     #[test]
@@ -1878,8 +1879,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.cost_evals >= 3);
-        assert_eq!(result.gradient_evals, 0);
+        assert!(result.n_f_evals >= 3);
+        assert_eq!(result.n_g_evals, 0);
         assert!(result
             .message
             .to_string()

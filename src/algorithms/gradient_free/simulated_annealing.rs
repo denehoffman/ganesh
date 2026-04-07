@@ -123,10 +123,6 @@ pub struct SimulatedAnnealingStatus<I> {
     pub best: Point<I>,
     /// The current point in the simulated annealing algorithm.
     pub current: Point<I>,
-    /// The number of iterations.
-    pub iteration: usize,
-    /// Flag indicating whether the algorithm has converged.
-    pub converged: bool,
     /// The message to be displayed at the end of the algorithm.
     pub message: StatusMessage,
     /// The number of function evaluations.
@@ -141,8 +137,6 @@ where
         self.temperature = Default::default();
         self.best = Default::default();
         self.current = Default::default();
-        self.iteration = Default::default();
-        self.converged = Default::default();
         self.message = Default::default();
         self.n_f_evals = Default::default();
     }
@@ -220,7 +214,6 @@ where
         };
         status.initial = status.current.clone();
         status.best = status.current.clone();
-        status.iteration = 0;
         status.set_message().initialize();
         Ok(())
     }
@@ -251,9 +244,6 @@ where
         if acceptance_probability > self.rng.float() {
             status.current = Point { x, fx: Some(fx) };
         }
-
-        status.iteration += 1;
-
         Ok(())
     }
 
@@ -272,7 +262,9 @@ where
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
             fx: status.best.fx_checked(),
-            cost_evals: status.n_f_evals,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: 0,
+            n_h_evals: 0,
         })
     }
 
@@ -479,7 +471,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.cost_evals > 0);
+        assert!(result.n_f_evals > 0);
         assert!(result
             .message
             .to_string()

@@ -55,6 +55,6 @@ where
         _config: &PSOConfig,
     ) {
         self.history.push(status.swarm.particles.clone());
-        self.best_history.push(status.get_best());
+        self.best_history.push(status.gbest.clone());
     }
 }

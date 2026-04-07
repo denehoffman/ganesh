@@ -177,12 +177,7 @@ fn flat_chain_to_python(chain: &[crate::DVector<crate::Float>]) -> Vec<Vec<crate
         .collect()
 }
 
-/// Python-facing typed wrapper for [`MinimizationSummary`].
-///
-/// Notes
-/// -----
-/// This wrapper is returned by Python-facing optimization APIs. Numeric vector
-/// and matrix fields are exposed as `NumPy` arrays.
+/// The result of a minimization algorithm.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MinimizationSummary")]
 #[derive(Clone)]
 pub struct PyMinimizationSummary {
@@ -191,6 +186,9 @@ pub struct PyMinimizationSummary {
 
 #[pymethods]
 impl PyMinimizationSummary {
+    fn __str__(&self) -> String {
+        self.summary.to_string()
+    }
     /// Optional parameter bounds.
     ///
     /// Returns
@@ -289,8 +287,8 @@ impl PyMinimizationSummary {
     /// -------
     /// int
     #[getter]
-    pub const fn cost_evals(&self) -> usize {
-        self.summary.cost_evals
+    pub const fn n_f_evals(&self) -> usize {
+        self.summary.n_f_evals
     }
 
     /// Number of gradient evaluations.
@@ -299,8 +297,18 @@ impl PyMinimizationSummary {
     /// -------
     /// int
     #[getter]
-    pub const fn gradient_evals(&self) -> usize {
-        self.summary.gradient_evals
+    pub const fn n_g_evals(&self) -> usize {
+        self.summary.n_g_evals
+    }
+
+    /// Number of Hessian evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub const fn n_h_evals(&self) -> usize {
+        self.summary.n_h_evals
     }
 
     /// Estimated covariance matrix.
@@ -319,7 +327,7 @@ impl PyMinimizationSummary {
         matrix_to_python(py, &covariance)
     }
 
-    /// Export the wrapped summary as a plain Python dictionary.
+    /// Export the MinimizationSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -367,6 +375,9 @@ pub struct PyMCMCSummary {
 
 #[pymethods]
 impl PyMCMCSummary {
+    fn __str__(&self) -> String {
+        self.summary.to_string()
+    }
     /// Optional parameter bounds.
     ///
     /// Returns
@@ -432,8 +443,8 @@ impl PyMCMCSummary {
     /// -------
     /// int
     #[getter]
-    pub const fn cost_evals(&self) -> usize {
-        self.summary.cost_evals
+    pub const fn n_f_evals(&self) -> usize {
+        self.summary.n_f_evals
     }
 
     /// Number of gradient evaluations.
@@ -442,8 +453,18 @@ impl PyMCMCSummary {
     /// -------
     /// int
     #[getter]
-    pub const fn gradient_evals(&self) -> usize {
-        self.summary.gradient_evals
+    pub const fn n_g_evals(&self) -> usize {
+        self.summary.n_g_evals
+    }
+
+    /// Number of Hessian evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub const fn n_h_evals(&self) -> usize {
+        self.summary.n_h_evals
     }
 
     /// Retained-chain dimensions.
@@ -517,7 +538,7 @@ impl PyMCMCSummary {
         tensor3_to_python(py, &chain_to_python(&self.summary.get_chain(burn, thin)))
     }
 
-    /// Export the wrapped summary as a plain Python dictionary.
+    /// Export the MCMCSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -563,6 +584,12 @@ pub struct PyMultiStartSummary {
 
 #[pymethods]
 impl PyMultiStartSummary {
+    fn __str__(&self) -> String {
+        self.summary.best_run_index.map_or_else(
+            || "No completed runs".to_string(),
+            |idx| self.summary.runs[idx].to_string(),
+        )
+    }
     /// Completed run summaries.
     ///
     /// Returns
@@ -624,7 +651,7 @@ impl PyMultiStartSummary {
         self.summary.completed_runs()
     }
 
-    /// Export the wrapped summary as a plain Python dictionary.
+    /// Export the MultiStartSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -674,6 +701,9 @@ pub struct PySimulatedAnnealingSummary {
 
 #[pymethods]
 impl PySimulatedAnnealingSummary {
+    fn __str__(&self) -> String {
+        self.summary.to_string()
+    }
     /// Optional parameter bounds.
     ///
     /// Returns
@@ -750,11 +780,31 @@ impl PySimulatedAnnealingSummary {
     /// -------
     /// int
     #[getter]
-    pub const fn cost_evals(&self) -> usize {
-        self.summary.cost_evals
+    pub const fn n_f_evals(&self) -> usize {
+        self.summary.n_f_evals
     }
 
-    /// Export the wrapped summary as a plain Python dictionary.
+    /// Number of gradient evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub const fn n_g_evals(&self) -> usize {
+        self.summary.n_g_evals
+    }
+
+    /// Number of Hessian evaluations.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    #[getter]
+    pub const fn n_h_evals(&self) -> usize {
+        self.summary.n_h_evals
+    }
+
+    /// Export the SimulatedAnnealingSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -800,8 +850,8 @@ impl IntoPySummary for MinimizationSummary {
         dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
         dict.set_item("std", vector_to_python(py, self.std.as_slice())?)?;
         dict.set_item("fx", self.fx)?;
-        dict.set_item("cost_evals", self.cost_evals)?;
-        dict.set_item("gradient_evals", self.gradient_evals)?;
+        dict.set_item("n_f_evals", self.n_f_evals)?;
+        dict.set_item("n_g_evals", self.n_g_evals)?;
         let covariance = self
             .covariance
             .row_iter()
@@ -831,8 +881,8 @@ impl IntoPySummary for MCMCSummary {
             "chain_storage",
             chain_storage_to_python(py, self.chain_storage)?,
         )?;
-        dict.set_item("cost_evals", self.cost_evals)?;
-        dict.set_item("gradient_evals", self.gradient_evals)?;
+        dict.set_item("n_f_evals", self.n_f_evals)?;
+        dict.set_item("n_g_evals", self.n_g_evals)?;
         dict.set_item("dimension", self.dimension)?;
         Ok(dict)
     }
@@ -877,7 +927,7 @@ impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
         dict.set_item("x0", vector_to_python(py, self.x0.as_slice())?)?;
         dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
         dict.set_item("fx", self.fx)?;
-        dict.set_item("cost_evals", self.cost_evals)?;
+        dict.set_item("n_f_evals", self.n_f_evals)?;
         Ok(dict)
     }
 
@@ -954,8 +1004,9 @@ mod tests {
             x: DVector::from_vec(vec![0.5, 1.5]),
             std: DVector::from_vec(vec![0.1, 0.2]),
             fx: 1.25,
-            cost_evals: 10,
-            gradient_evals: 4,
+            n_f_evals: 10,
+            n_g_evals: 4,
+            n_h_evals: 0,
             covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
         }
     }
@@ -977,7 +1028,7 @@ mod tests {
         let wrapper = PyMinimizationSummary::from(native.clone());
         let roundtrip = MinimizationSummary::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
-        assert_eq!(roundtrip.cost_evals, native.cost_evals);
+        assert_eq!(roundtrip.n_f_evals, native.n_f_evals);
         assert_eq!(roundtrip.message.text, native.message.text);
     }
 

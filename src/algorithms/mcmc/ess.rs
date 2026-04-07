@@ -480,8 +480,9 @@ where
             message,
             chain: status.get_chain(None, None),
             chain_storage: config.chain_storage,
-            cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: status.n_g_evals,
+            n_h_evals: 0,
             dimension: status.dimension(),
         })
     }
@@ -1149,7 +1150,7 @@ mod tests {
 
         let summary = ess.summarize(0, &f, &status, &(), &init, &cfg).unwrap();
         assert_eq!(summary.dimension, status.dimension());
-        assert_eq!(summary.cost_evals, 3);
+        assert_eq!(summary.n_f_evals, 3);
     }
 
     #[test]
@@ -1256,8 +1257,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.cost_evals >= 4);
-        assert_eq!(result.gradient_evals, 0);
+        assert!(result.n_f_evals >= 4);
+        assert_eq!(result.n_g_evals, 0);
         assert!(result.message.success());
         assert!(result
             .message

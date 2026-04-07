@@ -88,7 +88,7 @@ fn main() {
                 .unwrap();
             println!(
                 "sampler=aies walkers={} steps={} dim={} evals={} chain_storage={:?}",
-                n_walkers, n_steps, n_dim, summary.cost_evals, summary.chain_storage
+                n_walkers, n_steps, n_dim, summary.n_f_evals, summary.chain_storage
             );
         }
         "ess" => {
@@ -111,7 +111,7 @@ fn main() {
                 .unwrap();
             println!(
                 "sampler=ess walkers={} steps={} dim={} evals={} chain_storage={:?}",
-                n_walkers, n_steps, n_dim, summary.cost_evals, summary.chain_storage
+                n_walkers, n_steps, n_dim, summary.n_f_evals, summary.chain_storage
             );
         }
         other => {

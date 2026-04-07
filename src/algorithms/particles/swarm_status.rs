@@ -33,13 +33,6 @@ impl Default for SwarmStatus {
     }
 }
 
-impl SwarmStatus {
-    /// Get the global best position found by the swarm.
-    pub fn get_best(&self) -> Point<DVector<Float>> {
-        self.gbest.clone()
-    }
-}
-
 impl Status for SwarmStatus {
     fn reset(&mut self) {
         self.gbest = Default::default();

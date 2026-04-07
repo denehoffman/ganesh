@@ -727,8 +727,9 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: status.n_g_evals,
+            n_h_evals: status.n_h_evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status
@@ -940,8 +941,8 @@ mod tests {
         assert_relative_eq!(resumed.fx, uninterrupted.fx);
         assert_relative_eq!(resumed.x[0], uninterrupted.x[0]);
         assert_relative_eq!(resumed.x[1], uninterrupted.x[1]);
-        assert_eq!(resumed.cost_evals, uninterrupted.cost_evals);
-        assert_eq!(resumed.gradient_evals, uninterrupted.gradient_evals);
+        assert_eq!(resumed.n_f_evals, uninterrupted.n_f_evals);
+        assert_eq!(resumed.n_g_evals, uninterrupted.n_g_evals);
     }
     #[test]
     fn test_lbfgsb_hager_zhang() {
@@ -1030,8 +1031,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.cost_evals > 0);
-        assert!(result.gradient_evals > 0);
+        assert!(result.n_f_evals > 0);
+        assert!(result.n_g_evals > 0);
         assert!(!result.message.to_string().is_empty());
     }
 

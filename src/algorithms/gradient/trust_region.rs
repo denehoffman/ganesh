@@ -365,8 +365,9 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
+            n_f_evals: status.n_f_evals,
+            n_g_evals: status.n_g_evals,
+            n_h_evals: status.n_h_evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status
