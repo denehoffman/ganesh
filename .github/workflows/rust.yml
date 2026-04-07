@@ -23,6 +23,16 @@ jobs:
         run: cargo clippy -F python
       - name: Test
         run: cargo test
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+      - run: |-
+          uv venv
+          . .venv/bin/activate
+          echo PATH=$PATH >> $GITHUB_ENV
+          uv pip install matplotlib corner joblib polars matplotloom pytest
+      - run: "uvx --with \"maturin[patchelf]>=1.7,<2\" maturin develop --uv"
       - name: Test (python)
         run: cargo test -F python
   check-readme:

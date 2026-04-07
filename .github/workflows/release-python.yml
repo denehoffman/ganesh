@@ -34,14 +34,14 @@ jobs:
         run: cargo clippy -F python
       - name: Test
         run: cargo test
-      - name: Test (python)
-        run: cargo test -F python
       - run: |-
           uv venv
           . .venv/bin/activate
           echo PATH=$PATH >> $GITHUB_ENV
           uv pip install matplotlib corner joblib polars matplotloom pytest
       - run: "uvx --with \"maturin[patchelf]>=1.7,<2\" maturin develop --uv"
+      - name: Test (python)
+        run: cargo test -F python
       - run: uvx ruff check . --extend-exclude=.yamloom.py
       - run: uvx ty check . --exclude=.yamloom.py
       - run: uv run pytest
