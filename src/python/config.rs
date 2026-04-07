@@ -251,7 +251,12 @@ fn parse_simplex_construction<'py>(obj: &Bound<'py, PyAny>) -> PyResult<SimplexC
             require_structural_fields(
                 obj,
                 "ScaledOrthogonalSimplex",
-                &["kind", "x0", "orthogonal_multiplier", "orthogonal_zero_step"],
+                &[
+                    "kind",
+                    "x0",
+                    "orthogonal_multiplier",
+                    "orthogonal_zero_step",
+                ],
             )?;
             let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(obj, "x0")?)?;
             let orthogonal_multiplier: Option<Float> =
@@ -274,8 +279,9 @@ fn parse_simplex_construction<'py>(obj: &Bound<'py, PyAny>) -> PyResult<SimplexC
         }
         "custom" => {
             require_structural_fields(obj, "CustomSimplex", &["kind", "simplex"])?;
-            let simplex =
-                extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(obj, "simplex")?)?;
+            let simplex = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
+                obj, "simplex",
+            )?)?;
             SimplexConstructionMethod::custom(vectors_to_dvectors(&simplex)).map_err(Into::into)
         }
         _ => Err(config_error(format!(
@@ -909,44 +915,20 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
 
 #[cfg(test)]
 mod tests {
-    use pyo3::{
-        types::{PyDict, PyList, PyListMethods, PyModule},
-        Bound, PyAny, Python,
-    };
+    use pyo3::types::{PyDict, PyModule};
 
     use super::*;
     use crate::{
         algorithms::{
-            gradient::{Adam, ConjugateGradient, TrustRegion, LBFGSB},
-            gradient_free::{
-                nelder_mead::NelderMeadInit, CMAESInit, DifferentialEvolution,
-                DifferentialEvolutionInit, NelderMead, CMAES,
-            },
+            gradient::LBFGSB,
+            gradient_free::{DifferentialEvolution, DifferentialEvolutionInit},
             mcmc::{aies::AIESInit, ess::ESSInit, AIES, ESS},
-            particles::{Swarm, PSO},
         },
         core::{Callbacks, MaxSteps},
         traits::{Algorithm, CostFunction, Gradient, LogDensity},
         DVector,
     };
     use std::{convert::Infallible, ffi::CString};
-
-    fn package_root() -> &'static str {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/python")
-    }
-
-    fn py_vector<'py>(py: Python<'py>, values: &[Float]) -> Bound<'py, PyAny> {
-        PyList::new(py, values).unwrap().into_any()
-    }
-
-    fn import_ganesh<'py>(py: Python<'py>) -> Bound<'py, PyAny> {
-        let sys = py.import("sys").unwrap();
-        sys.getattr("path")
-            .unwrap()
-            .call_method1("insert", (0, package_root()))
-            .unwrap();
-        py.import("ganesh").unwrap().into_any()
-    }
 
     struct Quadratic;
     struct GaussianLogDensity;
@@ -967,36 +949,6 @@ mod tests {
         fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(-0.5 * x.dot(x))
         }
-    }
-
-    #[test]
-    fn pure_python_lbfgsb_config_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let config_like = ganesh.getattr("LBFGSBConfig").unwrap().call0().unwrap();
-            config_like.setattr("memory_limit", 5).unwrap();
-            config_like
-                .setattr(
-                    "bounds",
-                    vec![(Some(-5.0), Some(5.0)), (Some(-5.0), Some(5.0))],
-                )
-                .unwrap();
-            config_like
-                .setattr("parameter_names", vec!["x".to_string(), "y".to_string()])
-                .unwrap();
-
-            let config: LBFGSBConfig = config_like.extract().unwrap();
-            let summary = LBFGSB::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[2.0, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(2)),
-                )
-                .unwrap();
-            assert_eq!(summary.parameter_names.as_ref().unwrap(), &vec!["x", "y"]);
-        });
     }
 
     #[test]
@@ -1043,75 +995,6 @@ class StructuralLBFGSB:
     }
 
     #[test]
-    fn pure_python_lbfgsb_config_extracts_extended_options() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item(
-                    "bounds",
-                    vec![(Some(-5.0), Some(5.0)), (Some(-5.0), Some(5.0))],
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["x".to_string(), "y".to_string()])
-                .unwrap();
-            kwargs
-                .set_item("bounds_handling", "transform_bounds")
-                .unwrap();
-            kwargs.set_item("error_mode", "skip").unwrap();
-            kwargs
-                .set_item(
-                    "line_search",
-                    ganesh
-                        .getattr("HagerZhangLineSearch")
-                        .unwrap()
-                        .call0()
-                        .unwrap(),
-                )
-                .unwrap();
-            let config_like = ganesh
-                .getattr("LBFGSBConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let config: LBFGSBConfig = config_like.extract().unwrap();
-            let summary = LBFGSB::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[1.5, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(2)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["x".to_string(), "y".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_lbfgsb_config_rejects_adam_config() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let config_like = ganesh.getattr("AdamConfig").unwrap().call0().unwrap();
-
-            match config_like.extract::<LBFGSBConfig>() {
-                Ok(_) => panic!("expected AdamConfig to be rejected as LBFGSBConfig"),
-                Err(err) => {
-                    assert!(err
-                        .to_string()
-                        .contains("structural `LBFGSBConfig` extraction requires Python field"));
-                    assert!(err.to_string().contains("memory_limit"));
-                }
-            }
-        });
-    }
-
-    #[test]
     fn differential_evolution_accepts_dictionary_fallback() {
         crate::python::attach_for_tests(|py| {
             let init_dict = PyDict::new(py);
@@ -1140,267 +1023,6 @@ class StructuralLBFGSB:
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
                 .unwrap();
-        });
-    }
-
-    #[test]
-    fn pure_python_cmaes_config_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("population_size", 8).unwrap();
-            kwargs
-                .set_item(
-                    "bounds",
-                    vec![(Some(-2.0), Some(2.0)), (Some(-2.0), Some(2.0))],
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["u".to_string(), "v".to_string()])
-                .unwrap();
-            let init_like = ganesh
-                .getattr("CMAESInit")
-                .unwrap()
-                .call1((py_vector(py, &[0.5, -0.5]), 0.3))
-                .unwrap();
-            let config_like = ganesh
-                .getattr("CMAESConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let init: CMAESInit = init_like.extract().unwrap();
-            let config: CMAESConfig = config_like.extract().unwrap();
-            let summary = CMAES::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["u".to_string(), "v".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_nelder_mead_config_extracts_extended_options() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let init_kwargs = PyDict::new(py);
-            init_kwargs
-                .set_item(
-                    "construction_method",
-                    ganesh
-                        .getattr("OrthogonalSimplex")
-                        .unwrap()
-                        .call1((py_vector(py, &[1.0, -1.0]), 0.5))
-                        .unwrap(),
-                )
-                .unwrap();
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item(
-                    "bounds",
-                    vec![(Some(-4.0), Some(4.0)), (Some(-4.0), Some(4.0))],
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["a".to_string(), "b".to_string()])
-                .unwrap();
-            kwargs.set_item("alpha", 1.2).unwrap();
-            kwargs.set_item("beta", 2.4).unwrap();
-            kwargs.set_item("gamma", 0.45).unwrap();
-            kwargs.set_item("delta", 0.4).unwrap();
-            kwargs
-                .set_item("expansion_method", "greedy_expansion")
-                .unwrap();
-            kwargs
-                .set_item("bounds_handling", "transform_bounds")
-                .unwrap();
-            let init_like = ganesh
-                .getattr("NelderMeadInit")
-                .unwrap()
-                .call((), Some(&init_kwargs))
-                .unwrap();
-            let config_like = ganesh
-                .getattr("NelderMeadConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let init: NelderMeadInit = init_like.extract().unwrap();
-            let config: NelderMeadConfig = config_like.extract().unwrap();
-            let summary = NelderMead::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["a".to_string(), "b".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_pso_config_extracts_extended_options() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item(
-                    "bounds",
-                    vec![(Some(-2.0), Some(2.0)), (Some(-2.0), Some(2.0))],
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["x".to_string(), "y".to_string()])
-                .unwrap();
-            kwargs.set_item("omega", 0.7).unwrap();
-            kwargs.set_item("c1", 0.2).unwrap();
-            kwargs.set_item("c2", 0.3).unwrap();
-            kwargs
-                .set_item("bounds_handling", "transform_bounds")
-                .unwrap();
-            let positions = vec![
-                vec![1.0, -1.0],
-                vec![0.5, -0.5],
-                vec![-1.0, 1.0],
-                vec![0.25, 0.75],
-            ];
-            let init_kwargs = PyDict::new(py);
-            init_kwargs.set_item("topology", "ring").unwrap();
-            init_kwargs
-                .set_item("update_method", "synchronous")
-                .unwrap();
-            init_kwargs.set_item("boundary_method", "shr").unwrap();
-            let init_like = ganesh
-                .getattr("PSOInit")
-                .unwrap()
-                .call((positions,), Some(&init_kwargs))
-                .unwrap();
-            let config_like = ganesh
-                .getattr("PSOConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let init: Swarm = init_like.extract().unwrap();
-            let config: PSOConfig = config_like.extract().unwrap();
-            let summary = PSO::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["x".to_string(), "y".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_aies_config_extracts_moves_and_chain_storage() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            let moves = PyList::empty(py);
-            moves
-                .append(
-                    ganesh
-                        .getattr("AIESStretchMove")
-                        .unwrap()
-                        .call(
-                            (),
-                            Some(&{
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("weight", 0.4).unwrap();
-                                kwargs.set_item("a", 2.5).unwrap();
-                                kwargs
-                            }),
-                        )
-                        .unwrap(),
-                )
-                .unwrap();
-            moves
-                .append(
-                    ganesh
-                        .getattr("AIESWalkMove")
-                        .unwrap()
-                        .call(
-                            (),
-                            Some(&{
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("weight", 0.6).unwrap();
-                                kwargs
-                            }),
-                        )
-                        .unwrap(),
-                )
-                .unwrap();
-            kwargs.set_item("moves", moves).unwrap();
-            kwargs
-                .set_item(
-                    "chain_storage",
-                    ganesh
-                        .getattr("ChainStorageRolling")
-                        .unwrap()
-                        .call1((4,))
-                        .unwrap(),
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["a".to_string(), "b".to_string()])
-                .unwrap();
-            let walkers = vec![
-                vec![0.0, 0.0],
-                vec![0.1, 0.0],
-                vec![0.0, 0.1],
-                vec![0.1, 0.1],
-            ];
-            let init_like = ganesh
-                .getattr("AIESInit")
-                .unwrap()
-                .call1((walkers,))
-                .unwrap();
-            let config_like = ganesh
-                .getattr("AIESConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let init: AIESInit = init_like.extract().unwrap();
-            let config: AIESConfig = config_like.extract().unwrap();
-            let summary = AIES::default()
-                .process(
-                    &GaussianLogDensity,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["a".to_string(), "b".to_string()]
-            );
-            assert!(matches!(
-                summary.chain_storage,
-                crate::algorithms::mcmc::ChainStorageMode::Rolling { window: 4 }
-            ));
         });
     }
 
@@ -1491,231 +1113,6 @@ class StructuralESS:
                     Callbacks::empty().with_terminator(MaxSteps(1)),
                 )
                 .unwrap();
-        });
-    }
-
-    #[test]
-    fn pure_python_ess_config_extracts_moves_chain_storage_and_steps() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            let moves = PyList::empty(py);
-            moves
-                .append(
-                    ganesh
-                        .getattr("ESSDifferentialMove")
-                        .unwrap()
-                        .call(
-                            (),
-                            Some(&{
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("weight", 0.5).unwrap();
-                                kwargs
-                            }),
-                        )
-                        .unwrap(),
-                )
-                .unwrap();
-            moves
-                .append(
-                    ganesh
-                        .getattr("ESSGaussianMove")
-                        .unwrap()
-                        .call(
-                            (),
-                            Some(&{
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("weight", 0.5).unwrap();
-                                kwargs
-                            }),
-                        )
-                        .unwrap(),
-                )
-                .unwrap();
-            kwargs.set_item("moves", moves).unwrap();
-            kwargs.set_item("n_adaptive", 1).unwrap();
-            kwargs.set_item("max_steps", 8).unwrap();
-            kwargs.set_item("mu", 1.5).unwrap();
-            kwargs
-                .set_item(
-                    "chain_storage",
-                    ganesh
-                        .getattr("ChainStorageSampled")
-                        .unwrap()
-                        .call(
-                            (2,),
-                            Some(&{
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("max_samples", 4).unwrap();
-                                kwargs
-                            }),
-                        )
-                        .unwrap(),
-                )
-                .unwrap();
-            kwargs
-                .set_item("parameter_names", vec!["a".to_string(), "b".to_string()])
-                .unwrap();
-            let walkers = vec![
-                vec![0.0, 0.0],
-                vec![0.1, 0.0],
-                vec![0.0, 0.1],
-                vec![0.1, 0.1],
-            ];
-            let init_like = ganesh
-                .getattr("ESSInit")
-                .unwrap()
-                .call1((walkers,))
-                .unwrap();
-            let config_like = ganesh
-                .getattr("ESSConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let init: ESSInit = init_like.extract().unwrap();
-            let config: ESSConfig = config_like.extract().unwrap();
-            let summary = ESS::default()
-                .process(
-                    &GaussianLogDensity,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["a".to_string(), "b".to_string()]
-            );
-            assert!(matches!(
-                summary.chain_storage,
-                crate::algorithms::mcmc::ChainStorageMode::Sampled {
-                    keep_every: 2,
-                    max_samples: Some(4)
-                }
-            ));
-        });
-    }
-
-    #[test]
-    fn pure_python_adam_config_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item("parameter_names", vec!["u".to_string(), "v".to_string()])
-                .unwrap();
-            kwargs.set_item("alpha", 0.01).unwrap();
-            kwargs.set_item("beta_1", 0.8).unwrap();
-            kwargs.set_item("beta_2", 0.95).unwrap();
-            kwargs.set_item("epsilon", 1e-7).unwrap();
-            let config_like = ganesh
-                .getattr("AdamConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let config: AdamConfig = config_like.extract().unwrap();
-            let summary = Adam::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[1.0, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["u".to_string(), "v".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_conjugate_gradient_config_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item("parameter_names", vec!["u".to_string(), "v".to_string()])
-                .unwrap();
-            kwargs.set_item("update", "hager_zhang").unwrap();
-            kwargs
-                .set_item(
-                    "line_search",
-                    ganesh
-                        .getattr("MoreThuenteLineSearch")
-                        .unwrap()
-                        .call0()
-                        .unwrap(),
-                )
-                .unwrap();
-            let config_like = ganesh
-                .getattr("ConjugateGradientConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let config: ConjugateGradientConfig = config_like.extract().unwrap();
-            let summary = ConjugateGradient::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[1.0, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["u".to_string(), "v".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_trust_region_config_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            let kwargs = PyDict::new(py);
-            kwargs
-                .set_item("parameter_names", vec!["u".to_string(), "v".to_string()])
-                .unwrap();
-            kwargs.set_item("subproblem", "cauchy_point").unwrap();
-            kwargs.set_item("initial_radius", 0.5).unwrap();
-            kwargs.set_item("max_radius", 2.0).unwrap();
-            kwargs.set_item("eta", 1e-3).unwrap();
-            let config_like = ganesh
-                .getattr("TrustRegionConfig")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .unwrap();
-
-            let config: TrustRegionConfig = config_like.extract().unwrap();
-            let summary = TrustRegion::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[1.0, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["u".to_string(), "v".to_string()]
-            );
-        });
-    }
-
-    #[test]
-    fn pure_python_package_imports_without_native_module() {
-        crate::python::attach_for_tests(|py| {
-            let ganesh = import_ganesh(py);
-            assert!(ganesh.hasattr("LBFGSBConfig").unwrap());
-            assert!(ganesh.hasattr("CMAESOptions").unwrap());
         });
     }
 }

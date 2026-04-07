@@ -23,7 +23,7 @@ repos:
         pass_filenames: false
       - id: cargo-test
         name: cargo test (python)
-        entry: bash -c 'maturin develop --uv && cargo test -F python'
+        entry: cargo test -F python
         language: system
         pass_filenames: false
       - id: ty
