@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0](https://github.com/denehoffman/ganesh/compare/v0.26.3...v0.27.0) (2026-04-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* renames summary fields like cost_evals to n_f_evals, adds n_g_evals and n_h_evals in some summaries, and removes some extraneous fields and methods in a few statuses/summaries. This also unifies the use of "chain" instead of "get_chain" and "get_flat_chain" in the Python API.
+
+### Bug Fixes
+
+* Remove attempts to import ganesh from within the Rust code in tests (this isn't actually that useful anyway I don't think) ([d73aa19](https://github.com/denehoffman/ganesh/commit/d73aa19111c46adbefc266f06f060f0debb87273))
+* Reorganize python library a bit so imports are in the right places and tests pass, and add pytest to precommit to avoid future problems ([038770b](https://github.com/denehoffman/ganesh/commit/038770bbf108408e01e946390453bf091d062729))
+* Update docstrings for Python interfaces and make Status and Summary naming conventions more consistent ([43b6b00](https://github.com/denehoffman/ganesh/commit/43b6b00eb218105eb7c71c2425435512b8a61b75))
+
 ## [0.26.3](https://github.com/denehoffman/ganesh/compare/v0.26.2...v0.26.3) (2026-04-05)
 
 
