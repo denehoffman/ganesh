@@ -48,8 +48,9 @@ fn _testing_sample_minimization_summary() -> MinimizationSummary {
         x: DVector::from_vec(vec![0.5, 1.5]),
         std: DVector::from_vec(vec![0.1, 0.2]),
         fx: 1.25,
-        cost_evals: 10,
-        gradient_evals: 4,
+        n_f_evals: 10,
+        n_g_evals: 4,
+        n_h_evals: 0,
         covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
     }
 }
@@ -65,8 +66,9 @@ fn _testing_sample_mcmc_summary() -> MCMCSummary {
             DVector::from_vec(vec![0.5]),
         ]],
         chain_storage: ChainStorageMode::Rolling { window: 16 },
-        cost_evals: 8,
-        gradient_evals: 0,
+        n_f_evals: 8,
+        n_g_evals: 0,
+        n_h_evals: 0,
         dimension: (1, 2, 1),
     }
 }
@@ -83,7 +85,9 @@ fn _testing_sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DV
         x0: DVector::from_vec(vec![1.5, -0.5]),
         x: DVector::from_vec(vec![0.25, 1.25]),
         fx: 0.125,
-        cost_evals: 42,
+        n_f_evals: 42,
+        n_g_evals: 0,
+        n_h_evals: 0,
     }
 }
 
@@ -100,8 +104,9 @@ fn _testing_sample_multistart_summary() -> MultiStartSummary {
         x: DVector::from_vec(vec![0.5, 1.5]),
         std: DVector::from_vec(vec![0.1, 0.2]),
         fx: 1.25,
-        cost_evals: 10,
-        gradient_evals: 4,
+        n_f_evals: 10,
+        n_g_evals: 4,
+        n_h_evals: 0,
         covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
     };
     let other = MinimizationSummary {
@@ -244,8 +249,6 @@ fn _testing_sample_simulated_annealing_status() -> PySimulatedAnnealingStatus {
             x: DVector::from_vec(vec![0.5, 0.75]),
             fx: Some(0.25),
         },
-        iteration: 9,
-        converged: false,
         message: StatusMessage::default().set_step_with_message("cooling"),
         n_f_evals: 33,
     })

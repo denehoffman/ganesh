@@ -1,7 +1,9 @@
-from typing import Any, TypeAlias, TypedDict
+from typing import Any, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
+
+from ganesh._typing import MCMCDiagnostics, Point, Swarm
 
 __version__: str
 
@@ -50,11 +52,6 @@ class MinimizationSummary:
     @property
     def covariance(self) -> FloatArray: ...
     def to_dict(self) -> SummaryDict: ...
-
-class MCMCDiagnostics(TypedDict):
-    r_hat: FloatArray
-    ess: FloatArray
-    acceptance_rates: FloatArray
 
 class MCMCSummary:
     @property
@@ -189,23 +186,6 @@ class EnsembleStatus:
         self, *, burn: int | None = None, thin: int | None = None, flat: bool = False
     ) -> FloatArray: ...
     def to_dict(self) -> SummaryDict: ...
-
-class Point(TypedDict):
-    x: float
-    fx: FloatArray
-
-class Particle(TypedDict):
-    position: Point
-    velocity: FloatArray
-    best: Point
-
-class Swarm(TypedDict):
-    particles: list[Particle]
-    topology: str
-    update_method: str
-    boundary_method: str
-    position_initializer: dict
-    velocity_initializer: dict
 
 class SwarmStatus:
     @property

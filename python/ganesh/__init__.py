@@ -1,6 +1,20 @@
-from __future__ import annotations
+from __future__ import annotations as _annotations
 
 from ._defaults import Default
+from ._ganesh import (
+    EnsembleStatus,
+    GradientFreeStatus,
+    GradientStatus,
+    MCMCSummary,
+    MinimizationSummary,
+    MultiStartSummary,
+    SimulatedAnnealingStatus,
+    SimulatedAnnealingSummary,
+    StatusMessage,
+    SwarmStatus,
+    __version__,
+)
+from ._typing import MCMCDiagnostics, Particle, Point, Swarm
 from .config import (
     AdamConfig,
     AIESConfig,
@@ -111,16 +125,23 @@ __all__ = [
     'ESSGlobalMove',
     'ESSInit',
     'ESSOptions',
+    'EnsembleStatus',
     'GaneshConfigError',
     'GaneshError',
     'GaneshNumericalError',
+    'GradientFreeStatus',
+    'GradientStatus',
     'HagerZhangLineSearch',
     'LBFGSBConfig',
     'LBFGSBFTerminator',
     'LBFGSBGTerminator',
     'LBFGSBInfNormGTerminator',
     'LBFGSBOptions',
+    'MCMCDiagnostics',
+    'MCMCSummary',
+    'MinimizationSummary',
     'MoreThuenteLineSearch',
+    'MultiStartSummary',
     'NelderMeadAbsoluteFTerminator',
     'NelderMeadAmoebaFTerminator',
     'NelderMeadConfig',
@@ -135,50 +156,19 @@ __all__ = [
     'PSOConfig',
     'PSOInit',
     'PSOOptions',
+    'Particle',
+    'Point',
     'ScaledOrthogonalSimplex',
     'SimulatedAnnealingConfig',
     'SimulatedAnnealingOptions',
+    'SimulatedAnnealingStatus',
+    'SimulatedAnnealingSummary',
     'SimulatedAnnealingTemperatureTerminator',
+    'StatusMessage',
+    'Swarm',
+    'SwarmStatus',
     'TrustRegionConfig',
     'TrustRegionGTerminator',
     'TrustRegionOptions',
+    '__version__',
 ]
-
-try:
-    from ._ganesh import (
-        EnsembleStatus,
-        GradientFreeStatus,
-        GradientStatus,
-        MCMCDiagnostics,
-        MCMCSummary,
-        MinimizationSummary,
-        MultiStartSummary,
-        Particle,
-        Point,
-        SimulatedAnnealingStatus,
-        SimulatedAnnealingSummary,
-        StatusMessage,
-        Swarm,
-        SwarmStatus,
-        __version__,
-    )
-except ImportError:
-    pass
-else:
-    __all__ += [
-        'EnsembleStatus',
-        'GradientFreeStatus',
-        'GradientStatus',
-        'MCMCDiagnostics',
-        'MCMCSummary',
-        'MinimizationSummary',
-        'MultiStartSummary',
-        'Particle',
-        'Point',
-        'SimulatedAnnealingStatus',
-        'SimulatedAnnealingSummary',
-        'StatusMessage',
-        'Swarm',
-        'SwarmStatus',
-        '__version__',
-    ]
