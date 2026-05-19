@@ -7,7 +7,7 @@ use crate::{
 use fastrand::Rng;
 use nalgebra::RowDVector;
 use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
+use std::ops::{ControlFlow, Deref, DerefMut};
 
 /// A collection of [`Walker`]s
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -237,6 +237,18 @@ impl Status for EnsembleStatus {
 
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
+    }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        if self
+            .walkers
+            .iter()
+            .any(|walker| walker.get_latest().fx.is_some_and(Float::is_nan))
+        {
+            self.set_message().fail_with_message("log density is NaN");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
     }
 }
 

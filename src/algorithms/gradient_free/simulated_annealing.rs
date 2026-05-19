@@ -148,6 +148,17 @@ where
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
     }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        let invalid = self.initial.fx.is_some_and(|fx| !fx.is_finite())
+            || self.best.fx.is_some_and(|fx| !fx.is_finite())
+            || self.current.fx.is_some_and(|fx| !fx.is_finite());
+        if invalid {
+            self.set_message().fail_with_message("f(x) is not finite");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
 }
 
 impl<I> ProgressStatus for SimulatedAnnealingStatus<I>

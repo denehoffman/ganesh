@@ -1,4 +1,7 @@
-use std::fmt::{Display, Write};
+use std::{
+    fmt::{Display, Write},
+    ops::ControlFlow,
+};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -181,6 +184,10 @@ pub trait Status: Clone + Default + Serialize + DeserializeOwned {
     fn message(&self) -> &StatusMessage;
     /// Sets the message of the minimization.
     fn set_message(&mut self) -> &mut StatusMessage;
+    /// Checks invariants that must hold for this status after initialization and each step.
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
 }
 
 /// A trait for statuses that can render a concise progress line without forcing per-step

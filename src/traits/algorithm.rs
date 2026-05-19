@@ -106,9 +106,17 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E, Self::Config> = callbacks.into();
         self.initialize(problem, &mut status, args, &init, &config)?;
+        if status.check_invariants().is_break() {
+            self.postprocessing(problem, &mut status, args, &config)?;
+            return self.summarize(0, problem, &status, args, &init, &config);
+        }
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, args, &config)?;
+
+            if status.check_invariants().is_break() {
+                break;
+            }
 
             if cbs
                 .check_for_termination(current_step, self, problem, &mut status, args, &config)
@@ -291,8 +299,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DMatrix, DVector, Float};
-    use std::borrow::Cow;
+    use crate::{
+        traits::{StatusMessage, StatusType},
+        DMatrix, DVector, Float,
+    };
+    use serde::{Deserialize, Serialize};
+    use std::{borrow::Cow, convert::Infallible, ops::ControlFlow};
 
     #[derive(Clone)]
     struct Scale(Float);
@@ -341,5 +353,124 @@ mod tests {
 
         assert!(resolved_bounds.is_some());
         assert!(resolved_transform.is_some());
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct InvariantStatus {
+        message: StatusMessage,
+        invalid: bool,
+    }
+
+    impl Status for InvariantStatus {
+        fn reset(&mut self) {
+            self.message.reset();
+            self.invalid = false;
+        }
+
+        fn message(&self) -> &StatusMessage {
+            &self.message
+        }
+
+        fn set_message(&mut self) -> &mut StatusMessage {
+            &mut self.message
+        }
+
+        fn check_invariants(&mut self) -> ControlFlow<()> {
+            if self.invalid {
+                self.message.fail_with_message("invariant failed");
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    #[derive(Default)]
+    struct InvariantAlgorithm {
+        steps: usize,
+    }
+
+    #[derive(Clone, Copy)]
+    struct InvariantConfig {
+        fail_after_initialize: bool,
+        fail_after_step: bool,
+    }
+
+    impl Algorithm<(), InvariantStatus, (), Infallible> for InvariantAlgorithm {
+        type Summary = (usize, StatusMessage);
+        type Config = InvariantConfig;
+        type Init = ();
+
+        fn initialize(
+            &mut self,
+            _problem: &(),
+            status: &mut InvariantStatus,
+            _args: &(),
+            _init: &Self::Init,
+            config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            status.message.initialize();
+            status.invalid = config.fail_after_initialize;
+            Ok(())
+        }
+
+        fn step(
+            &mut self,
+            _current_step: usize,
+            _problem: &(),
+            status: &mut InvariantStatus,
+            _args: &(),
+            config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            self.steps += 1;
+            status.message.step();
+            status.invalid = config.fail_after_step;
+            Ok(())
+        }
+
+        fn summarize(
+            &self,
+            _current_step: usize,
+            _problem: &(),
+            status: &InvariantStatus,
+            _args: &(),
+            _init: &Self::Init,
+            _config: &Self::Config,
+        ) -> Result<Self::Summary, Infallible> {
+            Ok((self.steps, status.message.clone()))
+        }
+    }
+
+    #[test]
+    fn process_checks_status_invariants_after_initialize() {
+        let mut algorithm = InvariantAlgorithm::default();
+        let config = InvariantConfig {
+            fail_after_initialize: true,
+            fail_after_step: false,
+        };
+
+        let (steps, message) = algorithm
+            .process(&(), &(), (), config, Callbacks::empty())
+            .unwrap();
+
+        assert_eq!(steps, 0);
+        assert!(matches!(message.status_type, StatusType::Failed));
+        assert_eq!(message.text, "invariant failed");
+    }
+
+    #[test]
+    fn process_checks_status_invariants_after_step() {
+        let mut algorithm = InvariantAlgorithm::default();
+        let config = InvariantConfig {
+            fail_after_initialize: false,
+            fail_after_step: true,
+        };
+
+        let (steps, message) = algorithm
+            .process(&(), &(), (), config, Callbacks::empty())
+            .unwrap();
+
+        assert_eq!(steps, 1);
+        assert!(matches!(message.status_type, StatusType::Failed));
+        assert_eq!(message.text, "invariant failed");
     }
 }

@@ -74,7 +74,8 @@ where
     ) -> ControlFlow<()> {
         for i in 0..algorithm.mean.len() {
             let mut shifted = algorithm.mean.clone();
-            shifted[i] += 0.2 * algorithm.sigma * algorithm.cov[(i, i)].max(0.0).sqrt();
+            shifted[i] =
+                (0.2 * algorithm.sigma).mul_add(algorithm.cov[(i, i)].max(0.0).sqrt(), shifted[i]);
             if shifted == algorithm.mean {
                 status.set_message().succeed_with_message("NO EFFECT COORD");
                 return ControlFlow::Break(());

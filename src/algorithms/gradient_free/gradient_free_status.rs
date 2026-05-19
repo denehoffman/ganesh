@@ -3,6 +3,7 @@ use crate::{
     DMatrix, DVector, Float,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::ControlFlow;
 
 /// A status message struct containing all information about a minimization result.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -41,6 +42,14 @@ impl Status for GradientFreeStatus {
 
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
+    }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        if !self.fx.is_finite() {
+            self.set_message().fail_with_message("f(x) is not finite");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
     }
 }
 

@@ -74,7 +74,7 @@ impl Swarm {
             .for_each(|velocity| *velocity = transform.to_internal(velocity).into_owned());
         self.particles = particle_positions
             .into_iter()
-            .zip(particle_velocities.into_iter())
+            .zip(particle_velocities)
             .map(|(position, velocity)| {
                 SwarmParticle::new(position, velocity, func, args, transform)
             })

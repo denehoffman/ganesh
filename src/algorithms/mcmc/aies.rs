@@ -68,7 +68,7 @@ impl AIESMove {
             Self::Stretch { a } => {
                 ensemble
                     .set_message()
-                    .step_with_message(&format!("Stretch Move (a = {})", &a));
+                    .step_with_message(&format!("Stretch Move (a = {})", a));
             }
             Self::Walk => {
                 ensemble.set_message().step_with_message("Walk Move");

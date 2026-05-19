@@ -223,7 +223,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
             }
             alpha_im1 = alpha_i;
             f_im1 = f_i;
-            alpha_i += 0.8 * (alpha_max - alpha_i);
+            alpha_i = 0.8f64.mul_add(alpha_max - alpha_i, alpha_i);
             i += 1;
             if i > self.max_iters {
                 return Ok(Err(LineSearchOutput {

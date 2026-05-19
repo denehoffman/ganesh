@@ -619,16 +619,13 @@ fn estimate_weights(
             sum += val;
             cumulative_sum[i] = sum;
         }
-        let mut tail = cumulative_sum[..n_components - 1]
+        let tail = cumulative_sum[..n_components - 1]
             .iter()
             .rev()
             .copied()
-            .collect::<Vec<Float>>();
-        tail.push(0.0);
-        DVector::from_iterator(
-            n_components,
-            tail.into_iter().map(|x| x + weight_concentration_prior),
-        )
+            .chain([0.0])
+            .map(|x| x + weight_concentration_prior);
+        DVector::from_iterator(n_components, tail)
     })
 }
 

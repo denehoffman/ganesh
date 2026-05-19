@@ -473,14 +473,16 @@ impl LBFGSB {
                 ddf,
                 g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&self.m_dot_vec(&c))),
             );
-            ddf -= g_b
-                * self.theta.mul_add(
+            ddf = g_b.mul_add(
+                -self.theta.mul_add(
                     g_b,
                     (-2.0 as Float).mul_add(
                         w_b_tr.transpose().dot(&self.m_dot_vec(&p)),
                         -(g_b * self.vec_dot_m_dot_vec(&w_b_tr.transpose())),
                     ),
-                );
+                ),
+                ddf,
+            );
             // min here
             p += w_b_tr.transpose().scale(g_b);
             d[b] = 0.0;

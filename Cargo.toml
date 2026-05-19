@@ -10,7 +10,7 @@ repository = "https://github.com/denehoffman/ganesh"
 license = "MIT OR Apache-2.0"
 keywords = ["optimization", "minimization", "mcmc", "sampling"]
 categories = ["science", "mathematics"]
-rust-version = "1.69.0"
+rust-version = "1.70.0"
 exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 
 [lib]

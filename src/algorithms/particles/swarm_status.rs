@@ -5,6 +5,7 @@ use crate::{
     DVector, Float,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::ControlFlow;
 
 /// A status for particle swarm optimization and similar methods.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +49,22 @@ impl Status for SwarmStatus {
 
     fn set_message(&mut self) -> &mut StatusMessage {
         &mut self.message
+    }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        let invalid_global_best = self.gbest.fx.is_some_and(|fx| !fx.is_finite())
+            || self.initial_gbest.fx.is_some_and(|fx| !fx.is_finite());
+        let invalid_particle_best = self
+            .swarm
+            .particles
+            .iter()
+            .any(|particle| particle.best.fx.is_some_and(|fx| !fx.is_finite()));
+
+        if invalid_global_best || invalid_particle_best {
+            self.set_message().fail_with_message("f(x) is not finite");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
     }
 }
 
