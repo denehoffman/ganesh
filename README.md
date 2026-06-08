@@ -43,7 +43,7 @@
 * Algorithms that are simple to use with sensible defaults.
 * Traits which make developing future algorithms simple and consistent.
 * A simple interface that lets new users get started quickly.
-* The first (and possibly only) pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
+* A pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
 
 ## Quick Start
 
@@ -141,9 +141,13 @@ At the moment, `ganesh` contains the following [`Algorithm`](https://docs.rs/gan
 - Gradient descent/quasi-Newton:
   - [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html)
   - [`Adam`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/adam/struct.Adam.html) (for stochastic [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.CostFunction.html)s)
+  - [`Conjugate-Gradient`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/conjugate_gradient/struct.ConjugateGradient.html)
+  - [`Trust Region`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/trust_region/struct.TrustRegion.html)
 - Gradient-free:
   - [`Nelder-Mead`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/nelder_mead/struct.NelderMead.html)
   - [`Simulated Annealing`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/simulated_annealing/struct.SimulatedAnnealing.html)
+  - [`CMAES`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/cmaes/struct.CMAES.html)
+  - [`Differential Evolution`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/differential_evolution/struct.DifferentialEvolution.html)
 - Markov Chain Monte Carlo (MCMC):
   - [`AIES`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/aies/struct.AIES.html)
   - [`ESS`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/ess/struct.ESS.html)
