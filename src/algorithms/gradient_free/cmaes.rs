@@ -794,7 +794,7 @@ where
         let mut x0 = Point::from(self.mean.clone());
         x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
         self.best = x0.clone();
-        status.inc_n_f_evals();
+        status.evals.record_f();
         status.initialize(
             self.best
                 .to_external(&self.resolved_transform)
@@ -812,7 +812,7 @@ where
         _config: &Self::Config,
     ) -> Result<(), E> {
         let population = self.sample_population(problem, args)?;
-        status.n_f_evals += population.len();
+        status.evals.record_many_f(population.len());
         if population[0].point < self.best {
             self.best = population[0].point.clone();
         }
@@ -839,9 +839,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status

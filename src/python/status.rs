@@ -18,13 +18,17 @@ use crate::{
         },
     },
     core::Point,
-    python::numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
+    python::{
+        eval_counts::PyEvalCounts,
+        numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
+    },
     traits::StatusMessage,
     DMatrix, DVector, Float,
 };
 
 /// Register the built-in Python status wrapper classes in a native module.
 pub fn register_status_types(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyEvalCounts>()?;
     module.add_class::<PyStatusMessage>()?;
     module.add_class::<PyGradientStatus>()?;
     module.add_class::<PyGradientFreeStatus>()?;
@@ -363,34 +367,14 @@ impl PyGradientStatus {
         self.status.fx
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.status.n_f_evals
-    }
-
-    /// Number of gradient evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_g_evals(&self) -> usize {
-        self.status.n_g_evals
-    }
-
-    /// Number of Hessian evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_h_evals(&self) -> usize {
-        self.status.n_h_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
     /// Current Hessian.
@@ -433,9 +417,7 @@ impl PyGradientStatus {
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
         dict.set_item("x", vector_to_python(py, self.status.x.as_slice())?)?;
         dict.set_item("fx", self.status.fx)?;
-        dict.set_item("n_f_evals", self.status.n_f_evals)?;
-        dict.set_item("n_g_evals", self.status.n_g_evals)?;
-        dict.set_item("n_h_evals", self.status.n_h_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.status.evals))?)?;
         dict.set_item("hess", optional_matrix_to_python(py, &self.status.hess)?)?;
         dict.set_item("cov", optional_matrix_to_python(py, &self.status.cov)?)?;
         dict.set_item("err", optional_vector_to_python(py, &self.status.err)?)?;
@@ -533,14 +515,14 @@ impl PyGradientFreeStatus {
         self.status.fx
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.status.n_f_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
     /// Current Hessian.
@@ -583,7 +565,7 @@ impl PyGradientFreeStatus {
         dict.set_item("message", message_to_python(py, &self.status.message)?)?;
         dict.set_item("x", vector_to_python(py, self.status.x.as_slice())?)?;
         dict.set_item("fx", self.status.fx)?;
-        dict.set_item("n_f_evals", self.status.n_f_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.status.evals))?)?;
         dict.set_item("hess", optional_matrix_to_python(py, &self.status.hess)?)?;
         dict.set_item("cov", optional_matrix_to_python(py, &self.status.cov)?)?;
         dict.set_item("err", optional_vector_to_python(py, &self.status.err)?)?;
@@ -661,24 +643,14 @@ impl PyEnsembleStatus {
         self.status.message.success()
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.status.n_f_evals
-    }
-
-    /// Number of gradient evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_g_evals(&self) -> usize {
-        self.status.n_g_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
     /// Current dimension of the ensemble.
@@ -738,8 +710,7 @@ impl PyEnsembleStatus {
             "chain",
             tensor3_to_python(py, &chain_to_python(&self.status.get_chain(None, None)))?,
         )?;
-        dict.set_item("n_f_evals", self.status.n_f_evals)?;
-        dict.set_item("n_g_evals", self.status.n_g_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.status.evals))?)?;
         dict.set_item("dimension", self.status.dimension())?;
         Ok(dict)
     }
@@ -835,14 +806,14 @@ impl PySwarmStatus {
         point_to_python(py, &self.status.initial_gbest)
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.status.n_f_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
     /// The current state of the swarm.
@@ -868,7 +839,7 @@ impl PySwarmStatus {
             "initial_gbest",
             point_to_python(py, &self.status.initial_gbest)?,
         )?;
-        dict.set_item("n_f_evals", self.status.n_f_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.status.evals))?)?;
         dict.set_item("swarm", swarm_to_python(py, &self.status.swarm)?)?;
         Ok(dict)
     }
@@ -988,14 +959,14 @@ impl PySimulatedAnnealingStatus {
         point_to_python(py, &self.status.current)
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.status.n_f_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
     /// Export the SimulatedAnnealingStatus as a plain Python dictionary.
@@ -1010,7 +981,7 @@ impl PySimulatedAnnealingStatus {
         dict.set_item("initial", point_to_python(py, &self.status.initial)?)?;
         dict.set_item("best", point_to_python(py, &self.status.best)?)?;
         dict.set_item("current", point_to_python(py, &self.status.current)?)?;
-        dict.set_item("n_f_evals", self.status.n_f_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.status.evals))?)?;
         Ok(dict)
     }
 }
@@ -1115,7 +1086,7 @@ mod tests {
             Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology, SwarmUpdateMethod,
             SwarmVelocityInitializer,
         },
-        core::Point,
+        core::{EvalCounts, Point},
     };
 
     fn sample_gradient_status() -> GradientStatus {
@@ -1123,9 +1094,7 @@ mod tests {
             message: StatusMessage::default().set_step_with_message("iterating"),
             x: DVector::from_vec(vec![0.25, 0.75]),
             fx: 0.5,
-            n_f_evals: 12,
-            n_g_evals: 7,
-            n_h_evals: 2,
+            evals: EvalCounts::new(12, 7, 2),
             hess: Some(DMatrix::from_row_slice(2, 2, &[2.0, 0.0, 0.0, 3.0])),
             cov: Some(DMatrix::from_row_slice(2, 2, &[0.5, 0.0, 0.0, 0.25])),
             err: Some(DVector::from_vec(vec![
@@ -1158,7 +1127,7 @@ mod tests {
             initial_gbest: other,
             message: StatusMessage::default().set_step_with_message("swarm moved"),
             swarm,
-            n_f_evals: 22,
+            evals: EvalCounts::new(22, 0, 0),
         }
     }
 
@@ -1168,7 +1137,7 @@ mod tests {
         let wrapper = PyGradientStatus::from(native.clone());
         let roundtrip = GradientStatus::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
-        assert_eq!(roundtrip.n_h_evals, native.n_h_evals);
+        assert_eq!(roundtrip.evals.h(), native.evals.h());
         assert_eq!(roundtrip.message.text(), native.message.text());
     }
 
@@ -1176,7 +1145,7 @@ mod tests {
     fn borrowed_status_wrapper_converts_back_to_native() {
         let wrapper = PySwarmStatus::from(sample_swarm_status());
         let native = SwarmStatus::from(&wrapper);
-        assert_eq!(native.n_f_evals, 22);
+        assert_eq!(native.evals.f(), 22);
         assert_eq!(native.message.text(), Some("swarm moved"));
         assert_eq!(native.gbest.fx, Some(0.125));
     }
@@ -1188,7 +1157,8 @@ mod tests {
             let wrapper = wrapper.extract::<Py<PyGradientStatus>>().unwrap();
             let wrapper = wrapper.bind(py).borrow();
             assert_eq!(wrapper.fx(), 0.5);
-            assert_eq!(wrapper.n_f_evals(), 12);
+            let evals = wrapper.evals(py).unwrap();
+            assert_eq!(evals.bind(py).borrow().f(), 12);
         });
     }
 }

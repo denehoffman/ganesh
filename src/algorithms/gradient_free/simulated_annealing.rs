@@ -1,5 +1,5 @@
 use crate::{
-    core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
+    core::{utils::SampleFloat, Callbacks, EvalCounts, Point, SimulatedAnnealingSummary},
     error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, GenericCostFunction, ProgressStatus, Status, StatusMessage, SupportsTransform,
@@ -125,8 +125,9 @@ pub struct SimulatedAnnealingStatus<I> {
     pub current: Point<I>,
     /// The message to be displayed at the end of the algorithm.
     pub message: StatusMessage,
-    /// The number of function evaluations.
-    pub n_f_evals: usize,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 
 impl<I> Status for SimulatedAnnealingStatus<I>
@@ -138,7 +139,7 @@ where
         self.best = Default::default();
         self.current = Default::default();
         self.message = Default::default();
-        self.n_f_evals = Default::default();
+        self.evals = Default::default();
     }
 
     fn message(&self) -> &StatusMessage {
@@ -239,7 +240,7 @@ where
     ) -> Result<(), E> {
         let x = problem.generate(&config.transform, status, args);
         let fx = problem.evaluate_generic(&x, args)?;
-        status.n_f_evals += 1;
+        status.evals.record_f();
 
         status.temperature *= config.cooling_rate;
 
@@ -273,9 +274,7 @@ where
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
             fx: status.best.fx_checked(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
+            evals: status.evals,
         })
     }
 
@@ -482,7 +481,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.n_f_evals > 0);
+        assert!(result.evals.f() > 0);
         assert!(result
             .message
             .to_string()

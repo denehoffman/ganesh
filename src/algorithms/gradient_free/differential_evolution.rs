@@ -263,7 +263,7 @@ where
             self.population.push(candidate);
         }
 
-        status.n_f_evals += self.population.len();
+        status.evals.record_many_f(self.population.len());
         status.initialize(
             self.best
                 .to_external(&self.resolved_transform)
@@ -301,7 +301,7 @@ where
             );
             let mut trial = Point::from(trial_x);
             trial.evaluate_transformed(problem, &self.resolved_transform, args)?;
-            status.inc_n_f_evals();
+            status.evals.record_f();
 
             if trial <= self.population[i] {
                 self.population[i] = trial;
@@ -333,9 +333,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status

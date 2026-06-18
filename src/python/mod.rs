@@ -13,6 +13,9 @@ pub(crate) mod extract;
 /// Wrapper-facing Python error integration scaffolding.
 pub mod errors;
 
+/// Python-facing evaluation count wrapper.
+pub mod eval_counts;
+
 /// Shared numeric conversion helpers for Python-facing wrappers.
 pub mod numeric;
 
@@ -32,6 +35,7 @@ pub mod status;
 pub mod summary;
 
 pub use errors::{register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError};
+pub use eval_counts::PyEvalCounts;
 pub use run_options::{
     PyAIESOptions, PyAdamEMATerminator, PyAdamOptions, PyAutocorrelationTerminator,
     PyCMAESConditionCovTerminator, PyCMAESEqualFunValuesTerminator, PyCMAESNoEffectAxisTerminator,

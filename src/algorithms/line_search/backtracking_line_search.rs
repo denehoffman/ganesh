@@ -69,18 +69,17 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
         let phi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
-            st.inc_n_f_evals();
+            st.evals.record_f();
             problem.evaluate(&(x + p.scale(alpha)), args)
         };
-        status.inc_n_f_evals();
-        status.inc_n_g_evals();
+        status.evals.record_fg();
         let (phi_0, g_0) = problem.evaluate_with_gradient(x, args)?;
         let mut phi_alpha_i = phi(alpha_i, args, status)?;
         let dphi_0 = g_0.dot(p);
         loop {
             let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
             if armijo {
-                status.inc_n_g_evals();
+                status.evals.record_g();
                 let g_alpha_i = problem.gradient(&(x + p.scale(alpha_i)), args)?;
                 return Ok(Ok(LineSearchOutput {
                     alpha: alpha_i,

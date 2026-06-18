@@ -1,4 +1,5 @@
 use crate::{
+    core::EvalCounts,
     traits::{ProgressStatus, Status, StatusMessage},
     DMatrix, DVector, Float,
 };
@@ -14,15 +15,9 @@ pub struct GradientStatus {
     pub x: DVector<Float>,
     /// The current value of the minimization problem function at [`GradientStatus::x`].
     pub fx: Float,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
-    /// The number of gradient evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_g_evals: usize,
-    /// The number of Hessian evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_h_evals: usize,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
     /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
     pub hess: Option<DMatrix<Float>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
@@ -36,9 +31,7 @@ impl Status for GradientStatus {
         self.message = Default::default();
         self.x = DVector::zeros(self.x.len());
         self.fx = Default::default();
-        self.n_f_evals = Default::default();
-        self.n_g_evals = Default::default();
-        self.n_h_evals = Default::default();
+        self.evals = Default::default();
         self.hess = Default::default();
         self.cov = Default::default();
         self.err = Default::default();
@@ -85,18 +78,6 @@ impl GradientStatus {
     /// a step without formatting a message payload.
     pub fn set_position_silent(&mut self, pos: (DVector<Float>, Float)) {
         self.set_position(pos);
-    }
-    /// Increments [`GradientStatus::n_f_evals`] by `1`.
-    pub fn inc_n_f_evals(&mut self) {
-        self.n_f_evals += 1;
-    }
-    /// Increments [`GradientStatus::n_g_evals`] by `1`.
-    pub fn inc_n_g_evals(&mut self) {
-        self.n_g_evals += 1;
-    }
-    /// Increments [`GradientStatus::n_h_evals`] by `1`.
-    pub fn inc_n_h_evals(&mut self) {
-        self.n_h_evals += 1;
     }
     /// Updates the [`GradientStatus::err`] field.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {

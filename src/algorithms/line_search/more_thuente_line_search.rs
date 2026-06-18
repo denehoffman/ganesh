@@ -97,7 +97,7 @@ impl MoreThuenteLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
-        status.inc_n_f_evals();
+        status.evals.record_f();
         func.evaluate(x, args)
     }
     fn g_eval<U, E>(
@@ -107,7 +107,7 @@ impl MoreThuenteLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
-        status.inc_n_g_evals();
+        status.evals.record_g();
         func.gradient(x, args)
     }
     fn f_g_eval<U, E>(
@@ -117,8 +117,7 @@ impl MoreThuenteLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<(Float, DVector<Float>), E> {
-        status.inc_n_f_evals();
-        status.inc_n_g_evals();
+        status.evals.record_fg();
         func.evaluate_with_gradient(x, args)
     }
 

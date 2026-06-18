@@ -910,7 +910,7 @@ where
             self.internal_bounds.as_ref(),
             args,
         )?;
-        status.n_f_evals += self.simplex.size();
+        status.evals.record_many_f(self.simplex.size());
         self.initial_x0 = init.starting_point();
         status.initialize(self.simplex.best_position(&self.resolved_transform));
         Ok(())
@@ -934,7 +934,7 @@ where
         }
         let mut xr = Point::from(xrx);
         xr.evaluate_transformed(problem, &self.resolved_transform, args)?;
-        status.inc_n_f_evals();
+        status.evals.record_f();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
             // In this general case, we just know that r is better than s, we just don't know where
@@ -955,7 +955,7 @@ where
             }
             let mut xe = Point::from(xex);
             xe.evaluate_transformed(problem, &self.resolved_transform, args)?;
-            status.inc_n_f_evals();
+            status.evals.record_f();
             let accepted = match config.expansion_method {
                 SimplexExpansionMethod::GreedyMinimization => {
                     if xe < xr {
@@ -996,7 +996,7 @@ where
                 }
                 let mut xc = Point::from(xcx);
                 xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
-                status.inc_n_f_evals();
+                status.evals.record_f();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
@@ -1027,7 +1027,7 @@ where
                 }
                 let mut xc = Point::from(xcx);
                 xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
-                status.inc_n_f_evals();
+                status.evals.record_f();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
@@ -1060,7 +1060,7 @@ where
             }
             *p = Point::from(px);
             p.evaluate_transformed(problem, &self.resolved_transform, args)?;
-            status.inc_n_f_evals();
+            status.evals.record_f();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
         // things might have moved around a lot!
@@ -1089,9 +1089,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status
@@ -1291,7 +1289,7 @@ mod tests {
             uninterrupted.x[1],
             epsilon = Float::EPSILON.powf(0.2)
         );
-        assert_eq!(resumed.n_f_evals, uninterrupted.n_f_evals);
+        assert_eq!(resumed.evals.f(), uninterrupted.evals.f());
     }
 
     #[test]
@@ -1865,7 +1863,7 @@ mod tests {
             )
             .unwrap();
         assert!(result.message.success());
-        assert_eq!(result.n_g_evals, 0);
+        assert_eq!(result.evals.g(), 0);
     }
 
     #[test]
@@ -1882,8 +1880,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.n_f_evals >= 3);
-        assert_eq!(result.n_g_evals, 0);
+        assert!(result.evals.f() >= 3);
+        assert_eq!(result.evals.g(), 0);
         assert!(result
             .message
             .to_string()

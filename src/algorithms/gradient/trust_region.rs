@@ -286,9 +286,7 @@ where
         self.h = h;
         self.radius = config.initial_radius;
         self.max_radius = config.max_radius.max(config.initial_radius);
-        status.n_f_evals += 1;
-        status.n_g_evals += 1;
-        status.n_h_evals += 1;
+        status.evals.record_fgh();
         status.initialize((init.clone(), self.f));
         Ok(())
     }
@@ -311,7 +309,7 @@ where
 
         let x_trial = &self.x + &p;
         let f_trial = t_problem.evaluate(&x_trial, args)?;
-        status.inc_n_f_evals();
+        status.evals.record_f();
         let actual = self.f - f_trial;
         let rho = actual / predicted;
         let hits_boundary = (p.norm() - self.radius).abs() <= 1e-12 * (1.0 + self.radius);
@@ -324,8 +322,7 @@ where
 
         if rho > config.eta {
             let (g_trial, h_trial) = t_problem.gradient_with_hessian(&x_trial, args)?;
-            status.inc_n_g_evals();
-            status.inc_n_h_evals();
+            status.evals.record_gh();
             self.x = x_trial;
             self.f = f_trial;
             self.g = g_trial;
@@ -344,8 +341,7 @@ where
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
         let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
-        status.inc_n_g_evals();
-        status.inc_n_h_evals();
+        status.evals.record_gh();
         let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int);
         status.set_hess(&hessian);
         Ok(())
@@ -365,9 +361,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: status.n_h_evals,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status

@@ -1,6 +1,6 @@
 use crate::{
     algorithms::mcmc::Walker,
-    core::{mcmc_diagnostics::integrated_autocorrelation_times, Point},
+    core::{mcmc_diagnostics::integrated_autocorrelation_times, EvalCounts, Point},
     traits::{LogDensity, ProgressStatus, Status, StatusMessage, Transform},
     DMatrix, DVector, Float,
 };
@@ -16,12 +16,9 @@ pub struct EnsembleStatus {
     pub walkers: Vec<Walker>,
     /// A message indicating the state of the sampler
     pub message: StatusMessage,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
-    /// The number of gradient evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_g_evals: usize,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 impl Deref for EnsembleStatus {
     type Target = Vec<Walker>;
@@ -65,7 +62,7 @@ impl EnsembleStatus {
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
             walker.log_density_latest(func, args)?;
-            self.n_f_evals += 1;
+            self.evals.record_f();
         }
         Ok(())
     }
@@ -227,8 +224,7 @@ impl Status for EnsembleStatus {
             walker.reset();
         }
         self.message = Default::default();
-        self.n_f_evals = Default::default();
-        self.n_g_evals = Default::default();
+        self.evals = Default::default();
     }
 
     fn message(&self) -> &StatusMessage {
