@@ -124,15 +124,8 @@ impl ESSMove {
             Self::Gaussian => {
                 ensemble.set_message().step_with_message("Gaussian Move");
             }
-            Self::Global {
-                scale,
-                rescale_cov,
-                n_components,
-            } => {
-                ensemble.set_message().step_with_message(&format!(
-                    "Global Move (scale = {}, rescale_cov = {}, n_components = {})",
-                    scale, rescale_cov, n_components
-                ));
+            Self::Global { .. } => {
+                ensemble.set_message().step_with_message("Global Move");
             }
         }
         let mut n_expand = 0;

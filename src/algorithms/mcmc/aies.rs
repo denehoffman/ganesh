@@ -65,10 +65,8 @@ impl AIESMove {
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
-            Self::Stretch { a } => {
-                ensemble
-                    .set_message()
-                    .step_with_message(&format!("Stretch Move (a = {})", a));
+            Self::Stretch { .. } => {
+                ensemble.set_message().step_with_message("Stretch Move");
             }
             Self::Walk => {
                 ensemble.set_message().step_with_message("Walk Move");
