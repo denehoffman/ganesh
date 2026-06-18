@@ -54,7 +54,7 @@ where
             algorithm.ema_counter = 0;
         }
         if algorithm.ema_counter >= self.patience {
-            status.set_message().succeed_with_message(&format!(
+            status.set_message().succeed_with_message(format!(
                 "EMA LOSS HAS NOT IMPROVED IN {} STEPS",
                 algorithm.ema_counter
             ));

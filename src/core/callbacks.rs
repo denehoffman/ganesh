@@ -123,7 +123,7 @@ where
         if current_step >= self.0.saturating_sub(1) {
             status
                 .set_message()
-                .custom(&format!("Maximum number of steps reached ({})", self.0));
+                .custom(format!("Maximum number of steps reached ({})", self.0));
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
@@ -302,7 +302,7 @@ mod tests {
         ) -> Result<(), Infallible> {
             status
                 .set_message()
-                .step_with_message(&format!("step {}", current_step));
+                .step_with_message(format!("step {}", current_step));
             Ok(())
         }
 
@@ -324,7 +324,7 @@ mod tests {
         let mut status = DummyStatus {
             message: StatusMessage {
                 status_type: StatusType::StepType,
-                text: "EXPAND".to_string(),
+                text: Some("EXPAND".into()),
             },
         };
         status.set_message().step_with_message("EXPAND");

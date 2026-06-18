@@ -86,7 +86,7 @@ fn bench_status_updates(c: &mut Criterion) {
                     |mut status| {
                         let fx = black_box(3.5);
                         let message = format!("f(x) = {fx}");
-                        status.set_message().step_with_message(&message);
+                        status.set_message().step_with_message(message);
                         status.x = black_box(x.clone());
                         status.fx = fx;
                         black_box(status);

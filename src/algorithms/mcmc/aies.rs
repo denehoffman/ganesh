@@ -312,9 +312,14 @@ where
     ) -> Result<Self::Summary, E> {
         let mut message = status.message().clone();
         if matches!(message.status_type, StatusType::Custom)
-            && message.text.contains("Maximum number of steps reached")
+            && message
+                .text()
+                .is_some_and(|text| text.contains("Maximum number of steps reached"))
         {
-            message.succeed_with_message(&message.text.clone());
+            let text = message.text.clone();
+            if let Some(text) = text {
+                message.succeed_with_message(text);
+            }
         }
         Ok(MCMCSummary {
             bounds: None,
@@ -509,7 +514,7 @@ mod tests {
         assert!(result.message.success());
         assert!(result
             .message
-            .text
+            .text_or_empty()
             .contains("Maximum number of steps reached"));
     }
 

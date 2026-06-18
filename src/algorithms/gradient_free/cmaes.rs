@@ -1025,7 +1025,10 @@ mod tests {
         );
 
         assert!(result.is_break());
-        assert!(status.message.text.contains("CONDITION COVARIANCE"));
+        assert!(status
+            .message
+            .text_or_empty()
+            .contains("CONDITION COVARIANCE"));
     }
 
     #[test]
@@ -1050,6 +1053,9 @@ mod tests {
         );
 
         assert!(result.is_break());
-        assert!(status.message.text.contains("EQUAL FUNCTION VALUES"));
+        assert!(status
+            .message
+            .text_or_empty()
+            .contains("EQUAL FUNCTION VALUES"));
     }
 }
