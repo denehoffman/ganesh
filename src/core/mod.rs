@@ -21,6 +21,10 @@ pub use checkpoints::{
 pub mod mcmc_diagnostics;
 pub use mcmc_diagnostics::MCMCDiagnostics;
 
+/// Shared evaluation-count bookkeeping.
+pub mod eval_counts;
+pub use eval_counts::EvalCounts;
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
 pub use point::Point;

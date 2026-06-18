@@ -204,7 +204,7 @@ where
         self.g = DVector::zeros(self.x.len());
         self.f = t_problem.evaluate(&self.x, args)?;
         status.initialize((init.clone(), self.f));
-        status.inc_n_f_evals();
+        status.evals.record_f();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
         Ok(())
@@ -220,7 +220,7 @@ where
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
         self.g = t_problem.gradient(&self.x, args)?;
-        status.inc_n_g_evals();
+        status.evals.record_g();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
         self.v =
             self.v.scale(config.beta_2) + self.g.map(|gi| gi.powi(2)).scale(1.0 - config.beta_2);
@@ -231,7 +231,7 @@ where
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
         self.f = t_problem.evaluate(&self.x, args)?;
-        status.inc_n_f_evals();
+        status.evals.record_f();
         status.set_position((t_problem.to_owned_external(&self.x), self.f));
         Ok(())
     }
@@ -250,9 +250,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: status.n_h_evals,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status

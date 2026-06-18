@@ -1,6 +1,6 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmPositionInitializer},
-    core::Point,
+    core::{EvalCounts, Point},
     traits::{ProgressStatus, Status, StatusMessage},
     DVector, Float,
 };
@@ -18,9 +18,9 @@ pub struct SwarmStatus {
     pub message: StatusMessage,
     /// The swarm
     pub swarm: Swarm,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 impl Default for SwarmStatus {
     fn default() -> Self {
@@ -29,7 +29,7 @@ impl Default for SwarmStatus {
             initial_gbest: Default::default(),
             message: Default::default(),
             swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::default())),
-            n_f_evals: Default::default(),
+            evals: Default::default(),
         }
     }
 }
@@ -40,7 +40,7 @@ impl Status for SwarmStatus {
         self.initial_gbest = Default::default();
         self.message = Default::default();
         self.swarm.particles = Default::default();
-        self.n_f_evals = Default::default();
+        self.evals = Default::default();
     }
 
     fn message(&self) -> &StatusMessage {
@@ -76,7 +76,7 @@ impl ProgressStatus for SwarmStatus {
             "status={} gbest_fx={} n_f_evals={}",
             self.message,
             self.gbest.fx.unwrap_or(Float::NAN),
-            self.n_f_evals
+            self.evals.f()
         )
     }
 }

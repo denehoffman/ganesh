@@ -237,8 +237,7 @@ where
         self.g_previous = self.g.clone();
         self.d = -&self.g;
         self.line_search = config.line_search.clone();
-        status.n_f_evals += 1;
-        status.n_g_evals += 1;
+        status.evals.record_fg();
         status.initialize((init.clone(), self.f));
         Ok(())
     }
@@ -290,9 +289,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: status.n_h_evals,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status

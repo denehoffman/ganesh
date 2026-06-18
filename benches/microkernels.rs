@@ -116,9 +116,7 @@ fn bench_status_updates(c: &mut Criterion) {
         b.iter_batched(
             GradientStatus::default,
             |mut status| {
-                status.inc_n_f_evals();
-                status.inc_n_g_evals();
-                status.inc_n_h_evals();
+                status.evals.record_fgh();
                 black_box(status);
             },
             BatchSize::SmallInput,
@@ -128,7 +126,7 @@ fn bench_status_updates(c: &mut Criterion) {
     group.bench_function("gradient_progress_render", |b| {
         let mut status = GradientStatus::default();
         status.set_position((DVector::from_element(8, 1.25), 3.5));
-        status.inc_n_f_evals();
+        status.evals.record_f();
         let mut out = String::new();
         b.iter(|| {
             out.clear();

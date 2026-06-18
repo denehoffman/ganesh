@@ -28,7 +28,7 @@ use crate::{
         },
     },
     core::{
-        transforms::Bounds, MCMCSummary, MinimizationSummary, MultiStartSummary, Point,
+        transforms::Bounds, EvalCounts, MCMCSummary, MinimizationSummary, MultiStartSummary, Point,
         SimulatedAnnealingSummary,
     },
     traits::StatusMessage,
@@ -48,9 +48,7 @@ fn _testing_sample_minimization_summary() -> MinimizationSummary {
         x: DVector::from_vec(vec![0.5, 1.5]),
         std: DVector::from_vec(vec![0.1, 0.2]),
         fx: 1.25,
-        n_f_evals: 10,
-        n_g_evals: 4,
-        n_h_evals: 0,
+        evals: EvalCounts::new(10, 4, 0),
         covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
     }
 }
@@ -66,9 +64,7 @@ fn _testing_sample_mcmc_summary() -> MCMCSummary {
             DVector::from_vec(vec![0.5]),
         ]],
         chain_storage: ChainStorageMode::Rolling { window: 16 },
-        n_f_evals: 8,
-        n_g_evals: 0,
-        n_h_evals: 0,
+        evals: EvalCounts::new(8, 0, 0),
         dimension: (1, 2, 1),
     }
 }
@@ -85,9 +81,7 @@ fn _testing_sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DV
         x0: DVector::from_vec(vec![1.5, -0.5]),
         x: DVector::from_vec(vec![0.25, 1.25]),
         fx: 0.125,
-        n_f_evals: 42,
-        n_g_evals: 0,
-        n_h_evals: 0,
+        evals: EvalCounts::new(42, 0, 0),
     }
 }
 
@@ -104,9 +98,7 @@ fn _testing_sample_multistart_summary() -> MultiStartSummary {
         x: DVector::from_vec(vec![0.5, 1.5]),
         std: DVector::from_vec(vec![0.1, 0.2]),
         fx: 1.25,
-        n_f_evals: 10,
-        n_g_evals: 4,
-        n_h_evals: 0,
+        evals: EvalCounts::new(10, 4, 0),
         covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
     };
     let other = MinimizationSummary {
@@ -148,9 +140,7 @@ fn _testing_sample_gradient_status() -> PyGradientStatus {
         message: StatusMessage::default().set_step_with_message("iterating"),
         x: DVector::from_vec(vec![0.25, 0.75]),
         fx: 0.5,
-        n_f_evals: 12,
-        n_g_evals: 7,
-        n_h_evals: 2,
+        evals: EvalCounts::new(12, 7, 2),
         hess: Some(DMatrix::from_row_slice(2, 2, &[2.0, 0.0, 0.0, 3.0])),
         cov: Some(DMatrix::from_row_slice(2, 2, &[0.5, 0.0, 0.0, 0.25])),
         err: Some(DVector::from_vec(vec![
@@ -166,7 +156,7 @@ fn _testing_sample_gradient_free_status() -> PyGradientFreeStatus {
         message: StatusMessage::default().set_step_with_message("simplex updated"),
         x: DVector::from_vec(vec![1.0, -1.0]),
         fx: 2.5,
-        n_f_evals: 18,
+        evals: EvalCounts::new(18, 0, 0),
         hess: Some(DMatrix::from_row_slice(2, 2, &[1.0, 0.1, 0.1, 4.0])),
         cov: Some(DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 0.25])),
         err: Some(DVector::from_vec(vec![1.0, 0.5])),
@@ -188,8 +178,7 @@ fn _testing_sample_ensemble_status() -> PyEnsembleStatus {
     PyEnsembleStatus::from(EnsembleStatus {
         walkers: vec![first, second],
         message: StatusMessage::default().set_initialized_with_message("sampling"),
-        n_f_evals: 14,
-        n_g_evals: 0,
+        evals: EvalCounts::new(14, 0, 0),
     })
 }
 
@@ -229,7 +218,7 @@ fn _testing_sample_swarm_status() -> PySwarmStatus {
         initial_gbest: other,
         message: StatusMessage::default().set_step_with_message("swarm moved"),
         swarm,
-        n_f_evals: 22,
+        evals: EvalCounts::new(22, 0, 0),
     })
 }
 
@@ -250,7 +239,7 @@ fn _testing_sample_simulated_annealing_status() -> PySimulatedAnnealingStatus {
             fx: Some(0.25),
         },
         message: StatusMessage::default().set_step_with_message("cooling"),
-        n_f_evals: 33,
+        evals: EvalCounts::new(33, 0, 0),
     })
 }
 

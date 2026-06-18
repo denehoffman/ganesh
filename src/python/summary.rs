@@ -15,7 +15,10 @@ use crate::{
         MCMCDiagnostics, MCMCSummary, MinimizationSummary, MultiStartSummary,
         SimulatedAnnealingSummary,
     },
-    python::numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
+    python::{
+        eval_counts::PyEvalCounts,
+        numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
+    },
 };
 
 /// Export a native `ganesh` summary into Python-facing forms.
@@ -281,34 +284,14 @@ impl PyMinimizationSummary {
         self.summary.fx
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.summary.n_f_evals
-    }
-
-    /// Number of gradient evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_g_evals(&self) -> usize {
-        self.summary.n_g_evals
-    }
-
-    /// Number of Hessian evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_h_evals(&self) -> usize {
-        self.summary.n_h_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.summary.evals))
     }
 
     /// Estimated covariance matrix.
@@ -437,34 +420,14 @@ impl PyMCMCSummary {
         chain_storage_to_python(py, self.summary.chain_storage)
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.summary.n_f_evals
-    }
-
-    /// Number of gradient evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_g_evals(&self) -> usize {
-        self.summary.n_g_evals
-    }
-
-    /// Number of Hessian evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_h_evals(&self) -> usize {
-        self.summary.n_h_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.summary.evals))
     }
 
     /// Retained-chain dimensions.
@@ -774,34 +737,14 @@ impl PySimulatedAnnealingSummary {
         self.summary.fx
     }
 
-    /// Number of cost-function evaluations.
+    /// Evaluation counts.
     ///
     /// Returns
     /// -------
-    /// int
+    /// EvalCounts
     #[getter]
-    pub const fn n_f_evals(&self) -> usize {
-        self.summary.n_f_evals
-    }
-
-    /// Number of gradient evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_g_evals(&self) -> usize {
-        self.summary.n_g_evals
-    }
-
-    /// Number of Hessian evaluations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub const fn n_h_evals(&self) -> usize {
-        self.summary.n_h_evals
+    pub fn evals<'py>(&self, py: Python<'py>) -> PyResult<Py<PyEvalCounts>> {
+        Py::new(py, PyEvalCounts::from(self.summary.evals))
     }
 
     /// Export the SimulatedAnnealingSummary as a plain Python dictionary.
@@ -850,8 +793,7 @@ impl IntoPySummary for MinimizationSummary {
         dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
         dict.set_item("std", vector_to_python(py, self.std.as_slice())?)?;
         dict.set_item("fx", self.fx)?;
-        dict.set_item("n_f_evals", self.n_f_evals)?;
-        dict.set_item("n_g_evals", self.n_g_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.evals))?)?;
         let covariance = self
             .covariance
             .row_iter()
@@ -881,8 +823,7 @@ impl IntoPySummary for MCMCSummary {
             "chain_storage",
             chain_storage_to_python(py, self.chain_storage)?,
         )?;
-        dict.set_item("n_f_evals", self.n_f_evals)?;
-        dict.set_item("n_g_evals", self.n_g_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.evals))?)?;
         dict.set_item("dimension", self.dimension)?;
         Ok(dict)
     }
@@ -927,7 +868,7 @@ impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
         dict.set_item("x0", vector_to_python(py, self.x0.as_slice())?)?;
         dict.set_item("x", vector_to_python(py, self.x.as_slice())?)?;
         dict.set_item("fx", self.fx)?;
-        dict.set_item("n_f_evals", self.n_f_evals)?;
+        dict.set_item("evals", Py::new(py, PyEvalCounts::from(self.evals))?)?;
         Ok(dict)
     }
 
@@ -990,7 +931,11 @@ mod tests {
     use pyo3::{types::PyAnyMethods, Py};
 
     use super::*;
-    use crate::{core::transforms::Bounds, traits::StatusMessage, DMatrix, DVector};
+    use crate::{
+        core::{transforms::Bounds, EvalCounts},
+        traits::StatusMessage,
+        DMatrix, DVector,
+    };
 
     fn sample_summary() -> MinimizationSummary {
         MinimizationSummary {
@@ -1004,9 +949,7 @@ mod tests {
             x: DVector::from_vec(vec![0.5, 1.5]),
             std: DVector::from_vec(vec![0.1, 0.2]),
             fx: 1.25,
-            n_f_evals: 10,
-            n_g_evals: 4,
-            n_h_evals: 0,
+            evals: EvalCounts::new(10, 4, 0),
             covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
         }
     }
@@ -1028,7 +971,7 @@ mod tests {
         let wrapper = PyMinimizationSummary::from(native.clone());
         let roundtrip = MinimizationSummary::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
-        assert_eq!(roundtrip.n_f_evals, native.n_f_evals);
+        assert_eq!(roundtrip.evals, native.evals);
         assert_eq!(roundtrip.message.text(), native.message.text());
     }
 

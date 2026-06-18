@@ -1,4 +1,5 @@
 use crate::{
+    core::EvalCounts,
     traits::{ProgressStatus, Status, StatusMessage},
     DMatrix, DVector, Float,
 };
@@ -14,9 +15,9 @@ pub struct GradientFreeStatus {
     pub x: DVector<Float>,
     /// The current value of the minimization problem function at [`GradientFreeStatus::x`].
     pub fx: Float,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
     /// The Hessian matrix at the end of the fit ([`None`] if not computed yet)
     pub hess: Option<DMatrix<Float>>,
     /// Covariance matrix at the end of the fit ([`None`] if not computed yet)
@@ -30,7 +31,7 @@ impl Status for GradientFreeStatus {
         self.message = Default::default();
         self.x = DVector::zeros(self.x.len());
         self.fx = Default::default();
-        self.n_f_evals = Default::default();
+        self.evals = Default::default();
         self.hess = Default::default();
         self.cov = Default::default();
         self.err = Default::default();
@@ -72,10 +73,6 @@ impl GradientFreeStatus {
     /// touching the status message.
     pub fn set_position_silent(&mut self, pos: (DVector<Float>, Float)) {
         self.set_position(pos);
-    }
-    /// Increments [`GradientFreeStatus::n_f_evals`] by `1`.
-    pub fn inc_n_f_evals(&mut self) {
-        self.n_f_evals += 1;
     }
     /// Updates the [`GradientFreeStatus::err`] field.
     pub fn set_cov(&mut self, covariance: Option<DMatrix<Float>>) {

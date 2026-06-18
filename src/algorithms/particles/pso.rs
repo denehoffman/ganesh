@@ -202,13 +202,13 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(config.c2);
-            status.n_f_evals += particle.update_position(
+            status.evals.record_many_f(particle.update_position(
                 func,
                 args,
                 bounds.as_ref(),
                 &transform,
                 status.swarm.boundary_method,
-            )?;
+            )?);
         }
         Ok(())
     }
@@ -235,13 +235,13 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(config.c2);
-            status.n_f_evals += particle.update_position(
+            status.evals.record_many_f(particle.update_position(
                 func,
                 args,
                 bounds.as_ref(),
                 &transform,
                 status.swarm.boundary_method,
-            )?;
+            )?);
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
             }
@@ -274,7 +274,7 @@ where
         status
             .swarm
             .initialize(&mut self.rng, &transform, problem, args)?;
-        status.n_f_evals += status.swarm.particles.len();
+        status.evals.record_many_f(status.swarm.particles.len());
         status.gbest = status.swarm.particles[0].best.clone();
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
@@ -311,9 +311,7 @@ where
             x: status.gbest.x.clone(),
             fx: status.gbest.fx_checked(),
             bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: DVector::from_element(status.gbest.x.len(), 0.0),
@@ -441,8 +439,8 @@ mod tests {
             .process(&problem, &(), init, config, callbacks)
             .unwrap();
 
-        assert!(result.n_f_evals >= 8);
-        assert_eq!(result.n_g_evals, 0);
+        assert!(result.evals.f() >= 8);
+        assert_eq!(result.evals.g(), 0);
         assert!(result
             .message
             .to_string()

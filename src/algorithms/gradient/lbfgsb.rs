@@ -637,8 +637,7 @@ where
         });
         let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
         (self.f, self.g) = t_problem.evaluate_with_gradient(&self.x, args)?;
-        status.inc_n_f_evals();
-        status.inc_n_g_evals();
+        status.evals.record_fg();
         status.initialize_silent((self.resolved_transform.to_owned_external(&self.x), self.f));
         self.w_mat = DMatrix::zeros(self.x.len(), 1);
         self.m_mat = None;
@@ -705,8 +704,7 @@ where
             LBFGSBErrorMode::ExactHessian => {
                 let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
                 let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
-                status.inc_n_g_evals();
-                status.inc_n_h_evals();
+                status.evals.record_gh();
                 let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
                 status.set_hess(&hessian);
             }
@@ -729,9 +727,7 @@ where
             x: status.x.clone(),
             fx: status.fx,
             bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: status.n_h_evals,
+            evals: status.evals,
             message: status.message.clone(),
             parameter_names: config.parameter_names.clone(),
             std: status
@@ -946,8 +942,8 @@ mod tests {
         assert_relative_eq!(resumed.fx, uninterrupted.fx);
         assert_relative_eq!(resumed.x[0], uninterrupted.x[0]);
         assert_relative_eq!(resumed.x[1], uninterrupted.x[1]);
-        assert_eq!(resumed.n_f_evals, uninterrupted.n_f_evals);
-        assert_eq!(resumed.n_g_evals, uninterrupted.n_g_evals);
+        assert_eq!(resumed.evals.f(), uninterrupted.evals.f());
+        assert_eq!(resumed.evals.g(), uninterrupted.evals.g());
     }
     #[test]
     fn test_lbfgsb_hager_zhang() {
@@ -1036,8 +1032,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.n_f_evals > 0);
-        assert!(result.n_g_evals > 0);
+        assert!(result.evals.f() > 0);
+        assert!(result.evals.g() > 0);
         assert!(!result.message.to_string().is_empty());
     }
 

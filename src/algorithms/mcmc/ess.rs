@@ -4,7 +4,7 @@ use crate::{
     },
     core::{
         utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
-        MCMCSummary, Point,
+        EvalCounts, MCMCSummary, Point,
     },
     error::{GaneshError, GaneshResult},
     traits::{
@@ -131,7 +131,7 @@ impl ESSMove {
         let mut n_expand = 0;
         let mut n_contract = 0;
         let mut dpgm_result = None;
-        let mut n_f_evals: usize = 0;
+        let mut evals = EvalCounts::default();
         for (i, walker) in ensemble.iter().enumerate() {
             let x_k = walker.get_latest();
             let eta = match self {
@@ -198,19 +198,19 @@ impl ESSMove {
             let mut l = -rng.float();
             let mut p_l = Point::from(&x_k_internal + eta.scale(l));
             p_l.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
+            evals.record_f();
             // R <- L + 1
             let mut r = l + 1.0;
             let mut p_r = Point::from(&x_k_internal + eta.scale(r));
             p_r.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
+            evals.record_f();
             // while Y < f(L) do
             while y < p_l.fx_checked() && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
                 p_l.set_position(&x_k_internal + eta.scale(l));
                 p_l.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
+                evals.record_f();
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -220,7 +220,7 @@ impl ESSMove {
                 r += 1.0;
                 p_r.set_position(&x_k_internal + eta.scale(r));
                 p_r.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
+                evals.record_f();
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
@@ -231,7 +231,7 @@ impl ESSMove {
                 // Y' <- f(X'ηₖ + Xₖ(t))
                 let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
                 p_yprime.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
+                evals.record_f();
                 if y < p_yprime.fx_checked() || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
@@ -249,10 +249,10 @@ impl ESSMove {
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
             let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
             proposal.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
+            evals.record_f();
             positions.push(proposal.to_external(transform))
         }
-        ensemble.n_f_evals += n_f_evals;
+        ensemble.evals += evals;
         // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
         if step <= n_adaptive {
             let total_updates = n_expand + n_contract;
@@ -478,9 +478,7 @@ where
             message,
             chain: status.get_chain(None, None),
             chain_storage: config.chain_storage,
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: 0,
+            evals: status.evals,
             dimension: status.dimension(),
         })
     }
@@ -1141,11 +1139,11 @@ mod tests {
 
         ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
         assert_eq!(status.walkers.len(), 3);
-        assert_eq!(status.n_f_evals, 3);
+        assert_eq!(status.evals.f(), 3);
 
         let summary = ess.summarize(0, &f, &status, &(), &init, &cfg).unwrap();
         assert_eq!(summary.dimension, status.dimension());
-        assert_eq!(summary.n_f_evals, 3);
+        assert_eq!(summary.evals.f(), 3);
     }
 
     #[test]
@@ -1252,8 +1250,8 @@ mod tests {
             )
             .unwrap();
 
-        assert!(result.n_f_evals >= 4);
-        assert_eq!(result.n_g_evals, 0);
+        assert!(result.evals.f() >= 4);
+        assert_eq!(result.evals.g(), 0);
         assert!(result.message.success());
         assert!(result
             .message
