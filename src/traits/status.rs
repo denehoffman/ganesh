@@ -1,9 +1,10 @@
 use std::{
+    borrow::Cow,
     fmt::{Display, Write},
     ops::ControlFlow,
 };
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 
 /// An enum indicating the status of an [`Algorithm`](crate::traits::Algorithm)
 #[non_exhaustive]
@@ -47,13 +48,14 @@ pub struct StatusMessage {
     /// The status type
     pub status_type: StatusType,
     /// The internal custom message
-    pub text: String,
+    #[serde(default, with = "optional_cow_static_str")]
+    pub text: Option<Cow<'static, str>>,
 }
 impl StatusMessage {
     /// Reset the status message to uninitialized
     pub fn reset(&mut self) {
         self.status_type = StatusType::Uninitialized;
-        self.text = "".to_string();
+        self.text = None;
     }
     /// Set the status message to uninitialized
     pub fn uninitialize(&mut self) {
@@ -70,12 +72,12 @@ impl StatusMessage {
         self
     }
     /// Set the status message to initialized with a custom message
-    pub fn initialize_with_message(&mut self, message: &str) {
+    pub fn initialize_with_message(&mut self, message: impl Into<Cow<'static, str>>) {
         self.initialize();
-        self.text = message.to_string();
+        self.text = Some(message.into());
     }
     /// Set the status message to initialized with a custom message
-    pub fn set_initialized_with_message(mut self, message: &str) -> Self {
+    pub fn set_initialized_with_message(mut self, message: impl Into<Cow<'static, str>>) -> Self {
         self.initialize_with_message(message);
         self
     }
@@ -90,12 +92,12 @@ impl StatusMessage {
         self
     }
     /// Set the status message to a step with a custom message
-    pub fn step_with_message(&mut self, message: &str) {
+    pub fn step_with_message(&mut self, message: impl Into<Cow<'static, str>>) {
         self.step();
-        self.text = message.to_string();
+        self.text = Some(message.into());
     }
     /// Set the status message to a step with a custom message
-    pub fn set_step_with_message(mut self, message: &str) -> Self {
+    pub fn set_step_with_message(mut self, message: impl Into<Cow<'static, str>>) -> Self {
         self.step_with_message(message);
         self
     }
@@ -110,12 +112,12 @@ impl StatusMessage {
         self
     }
     /// Set the status message to converged with a custom message
-    pub fn succeed_with_message(&mut self, message: &str) {
+    pub fn succeed_with_message(&mut self, message: impl Into<Cow<'static, str>>) {
         self.succeed();
-        self.text = message.to_string();
+        self.text = Some(message.into());
     }
     /// Set the status message to converged with a custom message
-    pub fn set_success_with_message(mut self, message: &str) -> Self {
+    pub fn set_success_with_message(mut self, message: impl Into<Cow<'static, str>>) -> Self {
         self.succeed_with_message(message);
         self
     }
@@ -130,25 +132,37 @@ impl StatusMessage {
         self
     }
     /// Set the status message to failed with a custom message
-    pub fn fail_with_message(&mut self, message: &str) {
+    pub fn fail_with_message(&mut self, message: impl Into<Cow<'static, str>>) {
         self.fail();
-        self.text = message.to_string();
+        self.text = Some(message.into());
     }
     /// Set the status message to failed with a custom message
-    pub fn set_failed_with_message(mut self, message: &str) -> Self {
+    pub fn set_failed_with_message(mut self, message: impl Into<Cow<'static, str>>) -> Self {
         self.fail_with_message(message);
         self
     }
     /// Set the status message to a custom message
-    pub fn custom(&mut self, message: &str) {
+    pub fn custom(&mut self, message: impl Into<Cow<'static, str>>) {
         self.reset();
         self.status_type = StatusType::Custom;
-        self.text = message.to_string();
+        self.text = Some(message.into());
+    }
+    /// Set the status message to a custom message.
+    pub fn custom_with_message(&mut self, message: impl Into<Cow<'static, str>>) {
+        self.custom(message);
     }
     /// Set the status message to a custom message
-    pub fn set_custom(mut self, message: &str) -> Self {
+    pub fn set_custom(mut self, message: impl Into<Cow<'static, str>>) -> Self {
         self.custom(message);
         self
+    }
+    /// Returns the message text payload, if one exists.
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+    /// Returns the message text payload, or an empty string for message-less status transitions.
+    pub fn text_or_empty(&self) -> &str {
+        self.text().unwrap_or("")
     }
     /// Returns `true` if the status message is [`StatusType::Success`]
     pub const fn success(&self) -> bool {
@@ -158,11 +172,28 @@ impl StatusMessage {
 
 impl Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.text.is_empty() {
-            write!(f, "{}", self.status_type)
-        } else {
-            write!(f, "{}: {}", self.status_type, self.text)
+        match self.text() {
+            Some(text) if !text.is_empty() => write!(f, "{}: {}", self.status_type, text),
+            _ => write!(f, "{}", self.status_type),
         }
+    }
+}
+
+mod optional_cow_static_str {
+    use super::*;
+
+    pub fn serialize<S>(text: &Option<Cow<'static, str>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        text.as_deref().unwrap_or("").serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Cow<'static, str>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<String>::deserialize(deserializer).map(|text| text.map(Cow::Owned))
     }
 }
 

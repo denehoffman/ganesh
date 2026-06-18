@@ -454,7 +454,7 @@ mod tests {
 
         assert_eq!(steps, 0);
         assert!(matches!(message.status_type, StatusType::Failed));
-        assert_eq!(message.text, "invariant failed");
+        assert_eq!(message.text(), Some("invariant failed"));
     }
 
     #[test]
@@ -471,6 +471,6 @@ mod tests {
 
         assert_eq!(steps, 1);
         assert!(matches!(message.status_type, StatusType::Failed));
-        assert_eq!(message.text, "invariant failed");
+        assert_eq!(message.text(), Some("invariant failed"));
     }
 }

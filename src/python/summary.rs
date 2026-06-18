@@ -113,7 +113,7 @@ fn message_to_python<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("status_type", message.status_type.to_string())?;
-    dict.set_item("text", message.text.clone())?;
+    dict.set_item("text", message.text_or_empty())?;
     dict.set_item("success", message.success())?;
     Ok(dict)
 }
@@ -228,7 +228,7 @@ impl PyMinimizationSummary {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.summary.message.text.clone()
+        self.summary.message.text_or_empty().to_string()
     }
 
     /// Whether the run reported success.
@@ -415,7 +415,7 @@ impl PyMCMCSummary {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.summary.message.text.clone()
+        self.summary.message.text_or_empty().to_string()
     }
 
     /// Whether the run reported success.
@@ -731,7 +731,7 @@ impl PySimulatedAnnealingSummary {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.summary.message.text.clone()
+        self.summary.message.text_or_empty().to_string()
     }
 
     /// Whether the run reported success.
@@ -1029,7 +1029,7 @@ mod tests {
         let roundtrip = MinimizationSummary::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
         assert_eq!(roundtrip.n_f_evals, native.n_f_evals);
-        assert_eq!(roundtrip.message.text, native.message.text);
+        assert_eq!(roundtrip.message.text(), native.message.text());
     }
 
     #[test]

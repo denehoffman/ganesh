@@ -373,7 +373,10 @@ mod tests {
         assert_eq!(arc_refcel.borrow().0, 10);
         assert_eq!(arc_rwlock.read().0, 10);
         assert_eq!(arc_mutex.lock().0, 10);
-        assert_eq!(res.message.text, "Maximum number of steps reached (5)");
+        assert_eq!(
+            res.message.text(),
+            Some("Maximum number of steps reached (5)")
+        );
         assert_eq!(
             res.parameter_names,
             Some(vec!["a".to_string(), "b".to_string()])

@@ -40,7 +40,7 @@ fn message_to_python<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("status_type", message.status_type.to_string())?;
-    dict.set_item("text", message.text.clone())?;
+    dict.set_item("text", message.text_or_empty())?;
     dict.set_item("success", message.success())?;
     Ok(dict)
 }
@@ -250,7 +250,7 @@ impl PyStatusMessage {
     /// str
     #[getter]
     pub fn text(&self) -> String {
-        self.message.text.clone()
+        self.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -330,7 +330,7 @@ impl PyGradientStatus {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.status.message.text.clone()
+        self.status.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -500,7 +500,7 @@ impl PyGradientFreeStatus {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.status.message.text.clone()
+        self.status.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -648,7 +648,7 @@ impl PyEnsembleStatus {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.status.message.text.clone()
+        self.status.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -802,7 +802,7 @@ impl PySwarmStatus {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.status.message.text.clone()
+        self.status.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -935,7 +935,7 @@ impl PySimulatedAnnealingStatus {
     /// str
     #[getter]
     pub fn message_text(&self) -> String {
-        self.status.message.text.clone()
+        self.status.message.text_or_empty().to_string()
     }
 
     /// An indicator of the convergence/success state of an algorithm.
@@ -1169,7 +1169,7 @@ mod tests {
         let roundtrip = GradientStatus::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
         assert_eq!(roundtrip.n_h_evals, native.n_h_evals);
-        assert_eq!(roundtrip.message.text, native.message.text);
+        assert_eq!(roundtrip.message.text(), native.message.text());
     }
 
     #[test]
@@ -1177,7 +1177,7 @@ mod tests {
         let wrapper = PySwarmStatus::from(sample_swarm_status());
         let native = SwarmStatus::from(&wrapper);
         assert_eq!(native.n_f_evals, 22);
-        assert_eq!(native.message.text, "swarm moved");
+        assert_eq!(native.message.text(), Some("swarm moved"));
         assert_eq!(native.gbest.fx, Some(0.125));
     }
 

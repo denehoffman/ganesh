@@ -1257,7 +1257,10 @@ mod tests {
                     })),
             )
             .unwrap();
-        assert!(checkpointed.message.text.contains("Checkpoint requested"));
+        assert!(checkpointed
+            .message
+            .text_or_empty()
+            .contains("Checkpoint requested"));
 
         let checkpoint = store.load().unwrap();
         let checkpoint_json = serde_json::to_string(&checkpoint).unwrap();
