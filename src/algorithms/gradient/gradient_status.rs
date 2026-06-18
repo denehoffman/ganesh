@@ -65,32 +65,26 @@ impl GradientStatus {
     /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and sets the status
     /// message to an initialized state.
     pub fn initialize(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message()
-            .succeed_with_message(&format!("f(x) = {}", pos.1));
+        self.set_message().initialize();
         self.x = pos.0;
         self.fx = pos.1;
     }
     /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and sets the status
     /// message to a step state.
     pub fn set_position(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message()
-            .step_with_message(&format!("f(x) = {}", pos.1));
+        self.set_message().step();
         self.x = pos.0;
         self.fx = pos.1;
     }
     /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and marks the status as
     /// initialized without formatting a message payload.
     pub fn initialize_silent(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message().initialize();
-        self.x = pos.0;
-        self.fx = pos.1;
+        self.initialize(pos);
     }
     /// Updates the [`GradientStatus::x`] and [`GradientStatus::fx`] fields and marks the status as
     /// a step without formatting a message payload.
     pub fn set_position_silent(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message().step();
-        self.x = pos.0;
-        self.fx = pos.1;
+        self.set_position(pos);
     }
     /// Increments [`GradientStatus::n_f_evals`] by `1`.
     pub fn inc_n_f_evals(&mut self) {

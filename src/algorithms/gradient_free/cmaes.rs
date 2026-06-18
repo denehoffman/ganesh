@@ -822,9 +822,6 @@ where
                 .to_external(&self.resolved_transform)
                 .destructure(),
         );
-        status
-            .set_message()
-            .step_with_message(&format!("sigma = {}", self.sigma));
         Ok(())
     }
 

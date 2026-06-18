@@ -57,24 +57,21 @@ impl GradientFreeStatus {
     /// Updates the [`GradientFreeStatus::x`] and [`GradientFreeStatus::fx`] fields and sets the
     /// status message to an initialized state.
     pub fn initialize(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message()
-            .succeed_with_message(&format!("f(x) = {}", pos.1));
+        self.set_message().initialize();
         self.x = pos.0;
         self.fx = pos.1;
     }
     /// Updates the [`GradientFreeStatus::x`] and [`GradientFreeStatus::fx`] fields and sets the
     /// status message to a step state.
     pub fn set_position(&mut self, pos: (DVector<Float>, Float)) {
-        self.set_message()
-            .step_with_message(&format!("f(x) = {}", pos.1));
+        self.set_message().step();
         self.x = pos.0;
         self.fx = pos.1;
     }
     /// Updates the [`GradientFreeStatus::x`] and [`GradientFreeStatus::fx`] fields without
     /// touching the status message.
     pub fn set_position_silent(&mut self, pos: (DVector<Float>, Float)) {
-        self.x = pos.0;
-        self.fx = pos.1;
+        self.set_position(pos);
     }
     /// Increments [`GradientFreeStatus::n_f_evals`] by `1`.
     pub fn inc_n_f_evals(&mut self) {
