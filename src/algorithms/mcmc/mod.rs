@@ -167,7 +167,7 @@ impl Walker {
     pub fn get_latest_mut(&mut self) -> Option<&mut EvaluatedPoint<DVector<Float>>> {
         self.current.as_mut()
     }
-    pub(crate) fn latest_evaluated(&self) -> Option<&EvaluatedPoint<DVector<Float>>> {
+    pub(crate) const fn latest_evaluated(&self) -> Option<&EvaluatedPoint<DVector<Float>>> {
         self.current.as_ref()
     }
     /// Evaluate the most recent position of the [`Walker`]
