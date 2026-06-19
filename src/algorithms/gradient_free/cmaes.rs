@@ -798,7 +798,7 @@ where
             &self.resolved_transform,
             args,
         )?;
-        self.best = x0.clone();
+        self.best = x0;
         status.evals.record_f();
         status.initialize(self.best.to_external(&self.resolved_transform).into_parts());
         Ok(())

@@ -25,6 +25,16 @@ pub use mcmc_diagnostics::MCMCDiagnostics;
 pub mod eval_counts;
 pub use eval_counts::EvalCounts;
 
+/// Scalar support shared by current and future generic optimizer APIs.
+pub mod scalar;
+pub use scalar::RealScalar;
+
+/// Linear algebra backend traits and implementations.
+pub mod linalg;
+#[cfg(feature = "backend-ndarray")]
+pub use linalg::NdArrayBackend;
+pub use linalg::{LinearAlgebra, Matrix, NalgebraBackend, Scalar, Vector};
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
 pub use point::{EvaluatedPoint, Point};

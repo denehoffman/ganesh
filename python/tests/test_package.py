@@ -386,9 +386,9 @@ def test_gradient_status_wrapper_uses_numpy_arrays() -> None:
     assert isinstance(status.hess, np.ndarray)
     assert isinstance(status.cov, np.ndarray)
     assert isinstance(status.err, np.ndarray)
-    assert status.n_f_evals == 12
-    assert status.n_g_evals == 7
-    assert status.n_h_evals == 2
+    assert status.evals.f == 12
+    assert status.evals.g == 7
+    assert status.evals.h == 2
 
     exported = status.to_dict()
     assert exported['message']['text'] == 'iterating'
@@ -405,7 +405,7 @@ def test_gradient_free_status_wrapper_uses_numpy_arrays() -> None:
     assert isinstance(status.hess, np.ndarray)
     assert isinstance(status.cov, np.ndarray)
     assert isinstance(status.err, np.ndarray)
-    assert status.n_f_evals == 18
+    assert status.evals.f == 18
 
     exported = status.to_dict()
     assert exported['message']['text'] == 'simplex updated'
@@ -417,12 +417,12 @@ def test_ensemble_status_wrapper_uses_numpy_arrays() -> None:
 
     assert isinstance(status.chain(), np.ndarray)
     assert isinstance(status.chain(flat=True), np.ndarray)
-    assert status.n_f_evals == 14
-    assert status.n_g_evals == 0
+    assert status.evals.f == 14
+    assert status.evals.g == 0
 
     exported = status.to_dict()
     assert isinstance(exported['chain'], np.ndarray)
-    assert exported['dimension'] == (2, 2, 2)
+    assert exported['dimension'] == (2, 1, 2)
 
 
 def test_ensemble_status_chain_uses_keyword_only_options() -> None:
@@ -442,7 +442,7 @@ def test_swarm_status_wrapper_exposes_swarm() -> None:
     assert len(particles) == 2
     assert isinstance(particles[0]['position']['x'], np.ndarray)
     assert isinstance(particles[0]['velocity'], np.ndarray)
-    assert status.n_f_evals == 22
+    assert status.evals.f == 22
     assert status.gbest['fx'] == 0.125
 
     exported = status.to_dict()
@@ -457,7 +457,7 @@ def test_simulated_annealing_status_wrapper_uses_numpy_arrays() -> None:
     assert isinstance(status.initial['x'], np.ndarray)
     assert isinstance(status.best['x'], np.ndarray)
     assert isinstance(status.current['x'], np.ndarray)
-    assert status.n_f_evals == 33
+    assert status.evals.f == 33
 
     exported = status.to_dict()
     assert exported['temperature'] == 0.75

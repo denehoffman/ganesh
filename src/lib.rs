@@ -262,6 +262,9 @@ pub mod algorithms;
 /// Module containing standard functions for testing algorithms.
 pub mod test_functions;
 
+/// Experimental algorithm prototypes used to evaluate future API directions.
+pub mod prototype;
+
 /// Module containing `ganesh`-wide error types
 pub mod error;
 
@@ -282,6 +285,11 @@ pub type Float = f32;
 /// Re-export some useful `nalgebra` types for convenience.
 pub use nalgebra;
 pub use nalgebra::{DMatrix, DVector};
+
+#[cfg(feature = "backend-ndarray")]
+pub use core::NdArrayBackend;
+/// Re-export crate-owned scalar and linear algebra traits for generic optimizer APIs.
+pub use core::{LinearAlgebra, Matrix, NalgebraBackend, RealScalar, Scalar, Vector};
 
 /// The mathematical constant $`\pi`$.
 #[cfg(not(feature = "f32"))]
