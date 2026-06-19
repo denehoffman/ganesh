@@ -309,7 +309,7 @@ where
         Ok(MinimizationSummary {
             x0: status.initial_gbest.x.clone(),
             x: status.gbest.x.clone(),
-            fx: status.gbest.fx_checked(),
+            fx: status.gbest.fx,
             bounds: config.bounds.clone(),
             evals: status.evals,
             message: status.message.clone(),
@@ -325,7 +325,7 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
-        core::{utils::generate_random_vector, Callbacks, MaxSteps, Point},
+        core::{utils::generate_random_vector, Callbacks, EvaluatedPoint, MaxSteps},
         test_functions::Rastrigin,
     };
     use approx::assert_relative_eq;
@@ -376,15 +376,9 @@ mod tests {
     fn synchronous_update_uses_unit_random_coefficients() {
         let mut solver = PSO::new(Some(0));
         let particle = crate::algorithms::particles::SwarmParticle {
-            position: Point {
-                x: DVector::from_row_slice(&[1.0]),
-                fx: Some(1.0),
-            },
+            position: EvaluatedPoint::new(DVector::from_row_slice(&[1.0]), 1.0),
             velocity: DVector::from_row_slice(&[0.0]),
-            best: Point {
-                x: DVector::from_row_slice(&[2.0]),
-                fx: Some(0.0),
-            },
+            best: EvaluatedPoint::new(DVector::from_row_slice(&[2.0]), 0.0),
         };
         let mut status = SwarmStatus {
             gbest: particle.best.clone(),

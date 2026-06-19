@@ -1,6 +1,6 @@
 use crate::{
     algorithms::gradient_free::GradientFreeStatus,
-    core::{Bounds, Callbacks, MaxSteps, MinimizationSummary, Point},
+    core::{Bounds, Callbacks, EvaluatedPoint, MaxSteps, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
@@ -164,8 +164,8 @@ impl SupportsParameterNames for DifferentialEvolutionConfig {
 #[derive(Clone)]
 pub struct DifferentialEvolution {
     rng: Rng,
-    population: Vec<Point<DVector<Float>>>,
-    best: Point<DVector<Float>>,
+    population: Vec<EvaluatedPoint<DVector<Float>>>,
+    best: EvaluatedPoint<DVector<Float>>,
     resolved_transform: Option<Box<dyn Transform>>,
 }
 
@@ -181,7 +181,7 @@ impl DifferentialEvolution {
         Self {
             rng: seed.map_or_else(Rng::new, Rng::with_seed),
             population: Vec::new(),
-            best: Point::default(),
+            best: EvaluatedPoint::default(),
             resolved_transform: None,
         }
     }
@@ -244,8 +244,11 @@ where
         let pop_size = self.population_size(config);
         self.population.reserve(pop_size);
 
-        let mut x0 = Point::from(x0_internal);
-        x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
+        let x0 = Point::from(x0_internal).evaluate_transformed(
+            problem,
+            &self.resolved_transform,
+            args,
+        )?;
         self.population.push(x0.clone());
         self.best = x0;
 
@@ -255,8 +258,11 @@ where
             let candidate_x = self
                 .resolved_transform
                 .to_owned_internal(&candidate_external);
-            let mut candidate = Point::from(candidate_x);
-            candidate.evaluate_transformed(problem, &self.resolved_transform, args)?;
+            let candidate = Point::from(candidate_x).evaluate_transformed(
+                problem,
+                &self.resolved_transform,
+                args,
+            )?;
             if candidate < self.best {
                 self.best = candidate.clone();
             }
@@ -264,11 +270,7 @@ where
         }
 
         status.evals.record_many_f(self.population.len());
-        status.initialize(
-            self.best
-                .to_external(&self.resolved_transform)
-                .destructure(),
-        );
+        status.initialize(self.best.to_external(&self.resolved_transform).into_parts());
         Ok(())
     }
 
@@ -299,8 +301,11 @@ where
                     }
                 }),
             );
-            let mut trial = Point::from(trial_x);
-            trial.evaluate_transformed(problem, &self.resolved_transform, args)?;
+            let trial = Point::from(trial_x).evaluate_transformed(
+                problem,
+                &self.resolved_transform,
+                args,
+            )?;
             status.evals.record_f();
 
             if trial <= self.population[i] {
@@ -311,11 +316,7 @@ where
             }
         }
 
-        status.set_position(
-            self.best
-                .to_external(&self.resolved_transform)
-                .destructure(),
-        );
+        status.set_position(self.best.to_external(&self.resolved_transform).into_parts());
         Ok(())
     }
 

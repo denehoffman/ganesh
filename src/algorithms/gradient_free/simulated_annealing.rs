@@ -1,5 +1,5 @@
 use crate::{
-    core::{utils::SampleFloat, Callbacks, EvalCounts, Point, SimulatedAnnealingSummary},
+    core::{utils::SampleFloat, Callbacks, EvalCounts, EvaluatedPoint, SimulatedAnnealingSummary},
     error::{GaneshError, GaneshResult},
     traits::{
         Algorithm, GenericCostFunction, ProgressStatus, Status, StatusMessage, SupportsTransform,
@@ -118,11 +118,11 @@ pub struct SimulatedAnnealingStatus<I> {
     /// The current temperature of the simulated annealing algorithm.
     pub temperature: Float,
     /// The initial point in the simulated annealing algorithm.
-    pub initial: Point<I>,
+    pub initial: EvaluatedPoint<I>,
     /// The best point in the simulated annealing algorithm.
-    pub best: Point<I>,
+    pub best: EvaluatedPoint<I>,
     /// The current point in the simulated annealing algorithm.
-    pub current: Point<I>,
+    pub current: EvaluatedPoint<I>,
     /// The message to be displayed at the end of the algorithm.
     pub message: StatusMessage,
     /// Evaluation counts requested by the algorithm API.
@@ -151,9 +151,9 @@ where
     }
 
     fn check_invariants(&mut self) -> ControlFlow<()> {
-        let invalid = self.initial.fx.is_some_and(|fx| !fx.is_finite())
-            || self.best.fx.is_some_and(|fx| !fx.is_finite())
-            || self.current.fx.is_some_and(|fx| !fx.is_finite());
+        let invalid = !self.initial.fx.is_finite()
+            || !self.best.fx.is_finite()
+            || !self.current.fx.is_finite();
         if invalid {
             self.set_message().fail_with_message("f(x) is not finite");
             return ControlFlow::Break(());
@@ -171,10 +171,7 @@ where
         write!(
             out,
             "status={} temperature={} best_fx={} current_fx={}",
-            self.message,
-            self.temperature,
-            self.best.fx.unwrap_or(Float::NAN),
-            self.current.fx.unwrap_or(Float::NAN)
+            self.message, self.temperature, self.best.fx, self.current.fx
         )
     }
 }
@@ -220,10 +217,7 @@ where
         let x0 = problem.initial(&config.transform, status, args);
         let fx0 = problem.evaluate_generic(&x0, args)?;
         status.temperature = config.initial_temperature;
-        status.current = Point {
-            x: x0,
-            fx: Some(fx0),
-        };
+        status.current = EvaluatedPoint::new(x0, fx0);
         status.initial = status.current.clone();
         status.best = status.current.clone();
         status.set_message().initialize();
@@ -244,17 +238,17 @@ where
 
         status.temperature *= config.cooling_rate;
 
-        if fx < status.best.fx_checked() {
-            status.current = Point { x, fx: Some(fx) };
+        if fx < status.best.fx {
+            status.current = EvaluatedPoint::new(x, fx);
             status.best = status.current.clone();
             return Ok(());
         }
 
-        let d_fx = fx - status.current.fx_checked();
+        let d_fx = fx - status.current.fx;
         let acceptance_probability = (-d_fx / status.temperature).exp();
 
         if acceptance_probability > self.rng.float() {
-            status.current = Point { x, fx: Some(fx) };
+            status.current = EvaluatedPoint::new(x, fx);
         }
         Ok(())
     }
@@ -273,7 +267,7 @@ where
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
-            fx: status.best.fx_checked(),
+            fx: status.best.fx,
             evals: status.evals,
         })
     }
@@ -429,21 +423,15 @@ mod tests {
         solver
             .initialize(&problem, &mut status, &(), &(), &config)
             .unwrap();
-        status.best = Point {
-            x: DVector::from_row_slice(&[0.0]),
-            fx: Some(0.0),
-        };
-        status.current = Point {
-            x: DVector::from_row_slice(&[2.0]),
-            fx: Some(2.0),
-        };
+        status.best = EvaluatedPoint::new(DVector::from_row_slice(&[0.0]), 0.0);
+        status.current = EvaluatedPoint::new(DVector::from_row_slice(&[2.0]), 2.0);
 
         solver.step(0, &problem, &mut status, &(), &config).unwrap();
 
         assert_relative_eq!(status.current.x[0], 1.0);
-        assert_relative_eq!(status.current.fx_checked(), 1.0);
+        assert_relative_eq!(status.current.fx, 1.0);
         assert_relative_eq!(status.best.x[0], 0.0);
-        assert_relative_eq!(status.best.fx_checked(), 0.0);
+        assert_relative_eq!(status.best.fx, 0.0);
     }
 
     #[test]

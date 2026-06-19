@@ -1,5 +1,5 @@
 use crate::{
-    core::Point,
+    core::{EvaluatedPoint, Point},
     error::{GaneshError, GaneshResult},
     traits::{Algorithm, LogDensity, Terminator},
     DVector, Float,
@@ -106,8 +106,8 @@ pub(crate) fn validate_walker_inputs(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Walker {
     initial: Point<DVector<Float>>,
-    current: Point<DVector<Float>>,
-    history: Vec<Point<DVector<Float>>>,
+    current: Option<EvaluatedPoint<DVector<Float>>>,
+    history: Vec<EvaluatedPoint<DVector<Float>>>,
     chain_storage: ChainStorageMode,
     current_retained: bool,
     total_samples_seen: usize,
@@ -116,12 +116,10 @@ impl Walker {
     /// Create a new [`Walker`] located at `x0`
     pub fn new(x0: DVector<Float>) -> Self {
         let initial = Point::from(x0);
-        let current = initial.clone();
-        let history = vec![initial.clone()];
         Self {
             initial,
-            current,
-            history,
+            current: None,
+            history: Vec::new(),
             chain_storage: ChainStorageMode::Full,
             current_retained: true,
             total_samples_seen: 1,
@@ -130,13 +128,16 @@ impl Walker {
     /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize) {
         let n_steps = self.retained_len();
-        let n_variables = self.current.x.len();
+        let n_variables = self
+            .current
+            .as_ref()
+            .map_or_else(|| self.initial.x.len(), |current| current.x.len());
         (n_steps, n_variables)
     }
     /// Reset the history of the [`Walker`] (except for its starting position)
     pub fn reset(&mut self) {
-        self.current = self.initial.clone();
-        self.history = vec![self.initial.clone()];
+        self.current = None;
+        self.history.clear();
         self.current_retained = true;
         self.total_samples_seen = 1;
         self.enforce_history_limit();
@@ -146,16 +147,28 @@ impl Walker {
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub const fn get_latest(&self) -> &Point<DVector<Float>> {
-        &self.current
+    pub fn get_latest(&self) -> &EvaluatedPoint<DVector<Float>> {
+        #[allow(clippy::expect_used)]
+        self.current
+            .as_ref()
+            .expect("Walker latest position requested before evaluation")
+    }
+    /// Get the most recent coordinates, whether or not they have been evaluated.
+    pub fn latest_position(&self) -> &DVector<Float> {
+        self.current
+            .as_ref()
+            .map_or(&self.initial.x, |point| &point.x)
     }
     /// Get a mutable reference to the most recent (current) [`Walker`]'s position
     ///
     /// # Panics
     ///
     /// This method panics if the walker has no history.
-    pub fn get_latest_mut(&mut self) -> &mut Point<DVector<Float>> {
-        &mut self.current
+    pub fn get_latest_mut(&mut self) -> Option<&mut EvaluatedPoint<DVector<Float>>> {
+        self.current.as_mut()
+    }
+    pub(crate) fn latest_evaluated(&self) -> Option<&EvaluatedPoint<DVector<Float>>> {
+        self.current.as_ref()
     }
     /// Evaluate the most recent position of the [`Walker`]
     ///
@@ -167,15 +180,24 @@ impl Walker {
         func: &dyn LogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
-        self.get_latest_mut().log_density(func, args)
+        let current = self
+            .current
+            .take()
+            .map_or_else(|| self.initial.clone(), |current| Point::new(current.x));
+        let evaluated = current.log_density(func, args)?;
+        self.current = Some(evaluated.clone());
+        if self.history.is_empty() {
+            self.history.push(evaluated);
+        }
+        Ok(())
     }
     /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: Point<DVector<Float>>) {
+    pub fn push(&mut self, position: EvaluatedPoint<DVector<Float>>) {
         self.total_samples_seen += 1;
-        self.current = position;
+        self.current = Some(position);
         self.current_retained = self.should_retain_current();
         if self.current_retained {
-            self.history.push(self.current.clone());
+            self.history.push(self.get_latest().clone());
         }
         self.enforce_history_limit();
     }
@@ -186,12 +208,14 @@ impl Walker {
         self.enforce_history_limit();
     }
 
-    pub(crate) fn retained_positions(&self) -> Vec<&Point<DVector<Float>>> {
+    pub(crate) fn retained_positions(&self) -> Vec<&EvaluatedPoint<DVector<Float>>> {
         if self.current_retained {
             self.history.iter().collect()
         } else {
             let mut positions = self.history.iter().collect::<Vec<_>>();
-            positions.push(&self.current);
+            if let Some(current) = &self.current {
+                positions.push(current);
+            }
             positions
         }
     }
@@ -210,18 +234,15 @@ impl Walker {
     }
 
     fn rebuild_retained_history(&mut self) {
-        self.history = vec![self.initial.clone()];
-        self.current_retained = true;
-        if self.total_samples_seen == 1 {
-            self.current = self.initial.clone();
+        self.history.clear();
+        if let Some(current) = &self.current {
+            self.current_retained = self.should_retain_current();
+            if self.current_retained {
+                self.history.push(current.clone());
+            }
             return;
         }
-        if self.should_retain_current() {
-            self.history.push(self.current.clone());
-            self.current_retained = true;
-        } else {
-            self.current_retained = false;
-        }
+        self.current_retained = false;
     }
 
     fn enforce_history_limit(&mut self) {

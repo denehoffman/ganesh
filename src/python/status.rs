@@ -17,7 +17,7 @@ use crate::{
             SwarmTopology, SwarmUpdateMethod, SwarmVelocityInitializer,
         },
     },
-    core::Point,
+    core::EvaluatedPoint,
     python::{
         eval_counts::PyEvalCounts,
         numeric::{matrix_to_python, tensor3_to_python, vector_to_python},
@@ -51,7 +51,7 @@ fn message_to_python<'py>(
 
 fn point_to_python<'py>(
     py: Python<'py>,
-    point: &Point<DVector<Float>>,
+    point: &EvaluatedPoint<DVector<Float>>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("x", vector_to_python(py, point.x.as_slice())?)?;
@@ -1086,7 +1086,7 @@ mod tests {
             Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology, SwarmUpdateMethod,
             SwarmVelocityInitializer,
         },
-        core::{EvalCounts, Point},
+        core::{EvalCounts, EvaluatedPoint},
     };
 
     fn sample_gradient_status() -> GradientStatus {
@@ -1105,14 +1105,8 @@ mod tests {
     }
 
     fn sample_swarm_status() -> SwarmStatus {
-        let best = Point {
-            x: DVector::from_vec(vec![0.25, -0.25]),
-            fx: Some(0.125),
-        };
-        let other = Point {
-            x: DVector::from_vec(vec![1.0, 1.5]),
-            fx: Some(2.0),
-        };
+        let best = EvaluatedPoint::new(DVector::from_vec(vec![0.25, -0.25]), 0.125);
+        let other = EvaluatedPoint::new(DVector::from_vec(vec![1.0, 1.5]), 2.0);
         let mut swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
             bounds: vec![(-1.0, 1.0), (-2.0, 2.0)],
             n_particles: 0,
@@ -1147,7 +1141,7 @@ mod tests {
         let native = SwarmStatus::from(&wrapper);
         assert_eq!(native.evals.f(), 22);
         assert_eq!(native.message.text(), Some("swarm moved"));
-        assert_eq!(native.gbest.fx, Some(0.125));
+        assert_eq!(native.gbest.fx, 0.125);
     }
 
     #[test]

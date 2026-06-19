@@ -1,6 +1,6 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmPositionInitializer},
-    core::{EvalCounts, Point},
+    core::{EvalCounts, EvaluatedPoint},
     traits::{ProgressStatus, Status, StatusMessage},
     DVector, Float,
 };
@@ -11,9 +11,9 @@ use std::ops::ControlFlow;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SwarmStatus {
     /// The global best position found by all particles
-    pub gbest: Point<DVector<Float>>,
+    pub gbest: EvaluatedPoint<DVector<Float>>,
     /// The global best position among the initial swarm before any updates.
-    pub initial_gbest: Point<DVector<Float>>,
+    pub initial_gbest: EvaluatedPoint<DVector<Float>>,
     /// A message containing information about the condition of the swarm or convergence
     pub message: StatusMessage,
     /// The swarm
@@ -52,13 +52,12 @@ impl Status for SwarmStatus {
     }
 
     fn check_invariants(&mut self) -> ControlFlow<()> {
-        let invalid_global_best = self.gbest.fx.is_some_and(|fx| !fx.is_finite())
-            || self.initial_gbest.fx.is_some_and(|fx| !fx.is_finite());
+        let invalid_global_best = !self.gbest.fx.is_finite() || !self.initial_gbest.fx.is_finite();
         let invalid_particle_best = self
             .swarm
             .particles
             .iter()
-            .any(|particle| particle.best.fx.is_some_and(|fx| !fx.is_finite()));
+            .any(|particle| !particle.best.fx.is_finite());
 
         if invalid_global_best || invalid_particle_best {
             self.set_message().fail_with_message("f(x) is not finite");
@@ -75,7 +74,7 @@ impl ProgressStatus for SwarmStatus {
             out,
             "status={} gbest_fx={} n_f_evals={}",
             self.message,
-            self.gbest.fx.unwrap_or(Float::NAN),
+            self.gbest.fx,
             self.evals.f()
         )
     }
