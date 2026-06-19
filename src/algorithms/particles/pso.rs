@@ -151,10 +151,10 @@ impl PSO {
         let swarm = &status.swarm;
         match swarm.topology {
             SwarmTopology::Global => status.gbest.x.clone(),
-            SwarmTopology::Ring => {
-                let ind = swarm.index_of_min_in_circular_window(i, 2);
-                swarm.particles[ind].best.x.clone()
-            }
+            SwarmTopology::Ring => swarm.index_of_min_in_circular_window(i, 2).map_or_else(
+                || status.gbest.x.clone(),
+                |ind| swarm.particles[ind].best.x.clone(),
+            ),
         }
     }
     fn update<U, E>(
@@ -275,7 +275,9 @@ where
             .swarm
             .initialize(&mut self.rng, &transform, problem, args)?;
         status.evals.record_many_f(status.swarm.particles.len());
-        status.gbest = status.swarm.particles[0].best.clone();
+        if let Some(first) = status.swarm.particles.first() {
+            status.gbest = first.best.clone();
+        }
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
                 status.gbest = particle.best.clone();

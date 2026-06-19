@@ -36,7 +36,7 @@ impl EnsembleStatus {
     /// Get the dimension of the [`EnsembleStatus`] `(n_walkers, n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize, usize) {
         let n_walkers = self.walkers.len();
-        let (n_steps, n_variables) = self.walkers[0].dimension();
+        let (n_steps, n_variables) = self.walkers.first().map_or((0, 0), Walker::dimension);
         (n_walkers, n_steps, n_variables)
     }
     /// Add a set of positions to the [`EnsembleStatus`], adding each position to the corresponding
@@ -133,7 +133,7 @@ impl EnsembleStatus {
             .enumerate()
             .filter_map(move |(i, walker)| {
                 if i != index {
-                    Some(walker.get_latest())
+                    walker.latest_evaluated()
                 } else {
                     None
                 }
