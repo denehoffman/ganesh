@@ -191,35 +191,35 @@ impl ESSMove {
                 }
             };
             // Y ~ U(0, f(Xₖ(t)))
-            let y = x_k.fx_checked() + rng.float().ln();
+            let y = x_k.fx + rng.float().ln();
             let x_k_internal = transform.to_internal(&x_k.x).into_owned();
             // U ~ U(0, 1)
             // L <- -U
             let mut l = -rng.float();
-            let mut p_l = Point::from(&x_k_internal + eta.scale(l));
-            p_l.log_density_transformed(problem, transform, args)?;
+            let mut p_l = Point::from(&x_k_internal + eta.scale(l))
+                .log_density_transformed(problem, transform, args)?;
             evals.record_f();
             // R <- L + 1
             let mut r = l + 1.0;
-            let mut p_r = Point::from(&x_k_internal + eta.scale(r));
-            p_r.log_density_transformed(problem, transform, args)?;
+            let mut p_r = Point::from(&x_k_internal + eta.scale(r))
+                .log_density_transformed(problem, transform, args)?;
             evals.record_f();
             // while Y < f(L) do
-            while y < p_l.fx_checked() && n_expand < max_steps {
+            while y < p_l.fx && n_expand < max_steps {
                 // L <- L - 1
                 l -= 1.0;
-                p_l.set_position(&x_k_internal + eta.scale(l));
-                p_l.log_density_transformed(problem, transform, args)?;
+                p_l = Point::from(&x_k_internal + eta.scale(l))
+                    .log_density_transformed(problem, transform, args)?;
                 evals.record_f();
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
             }
             // while Y < f(R) do
-            while y < p_r.fx_checked() && n_expand < max_steps {
+            while y < p_r.fx && n_expand < max_steps {
                 // R <- R + 1
                 r += 1.0;
-                p_r.set_position(&x_k_internal + eta.scale(r));
-                p_r.log_density_transformed(problem, transform, args)?;
+                p_r = Point::from(&x_k_internal + eta.scale(r))
+                    .log_density_transformed(problem, transform, args)?;
                 evals.record_f();
                 // N₊(t) <- N₊(t) + 1
                 n_expand += 1;
@@ -229,10 +229,10 @@ impl ESSMove {
                 // X' ~ U(L, R)
                 let xprime = rng.range(l, r);
                 // Y' <- f(X'ηₖ + Xₖ(t))
-                let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
-                p_yprime.log_density_transformed(problem, transform, args)?;
+                let p_yprime = Point::from(&x_k_internal + eta.scale(xprime))
+                    .log_density_transformed(problem, transform, args)?;
                 evals.record_f();
-                if y < p_yprime.fx_checked() || n_contract >= max_steps {
+                if y < p_yprime.fx || n_contract >= max_steps {
                     // if Y < Y' then break
                     break xprime;
                 }
@@ -247,8 +247,8 @@ impl ESSMove {
                 n_contract += 1;
             };
             // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
-            let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
-            proposal.log_density_transformed(problem, transform, args)?;
+            let proposal = Point::from(x_k_internal + eta.scale(xprime))
+                .log_density_transformed(problem, transform, args)?;
             evals.record_f();
             positions.push(proposal.to_external(transform))
         }

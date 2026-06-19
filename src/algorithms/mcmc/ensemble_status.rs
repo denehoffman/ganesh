@@ -1,6 +1,6 @@
 use crate::{
     algorithms::mcmc::Walker,
-    core::{mcmc_diagnostics::integrated_autocorrelation_times, EvalCounts, Point},
+    core::{mcmc_diagnostics::integrated_autocorrelation_times, EvalCounts, EvaluatedPoint},
     traits::{LogDensity, ProgressStatus, Status, StatusMessage, Transform},
     DMatrix, DVector, Float,
 };
@@ -41,7 +41,7 @@ impl EnsembleStatus {
     }
     /// Add a set of positions to the [`EnsembleStatus`], adding each position to the corresponding
     /// [`Walker`] in the given order
-    pub fn push(&mut self, positions: Vec<Point<DVector<Float>>>) {
+    pub fn push(&mut self, positions: Vec<EvaluatedPoint<DVector<Float>>>) {
         self.walkers
             .iter_mut()
             .zip(positions)
@@ -99,7 +99,7 @@ impl EnsembleStatus {
     pub fn internal_mean(&self, transform: &Option<Box<dyn Transform>>) -> DVector<Float> {
         self.walkers
             .iter()
-            .map(|walker| transform.to_internal(&walker.get_latest().x).into_owned())
+            .map(|walker| transform.to_internal(walker.latest_position()).into_owned())
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
@@ -115,7 +115,7 @@ impl EnsembleStatus {
             .enumerate()
             .filter_map(|(i, walker)| {
                 if i != index {
-                    Some(transform.to_internal(&walker.get_latest().x).into_owned())
+                    Some(transform.to_internal(walker.latest_position()).into_owned())
                 } else {
                     None
                 }
@@ -127,7 +127,7 @@ impl EnsembleStatus {
     pub fn iter_compliment(
         &self,
         index: usize,
-    ) -> impl Iterator<Item = &Point<DVector<Float>>> + '_ {
+    ) -> impl Iterator<Item = &EvaluatedPoint<DVector<Float>>> + '_ {
         self.walkers
             .iter()
             .enumerate()
@@ -189,7 +189,7 @@ impl EnsembleStatus {
         let position: Vec<RowDVector<Float>> = self
             .walkers
             .iter()
-            .map(|walker| transform.to_internal(&walker.get_latest().x).transpose())
+            .map(|walker| transform.to_internal(walker.latest_position()).transpose())
             .collect::<Vec<RowDVector<Float>>>();
         DMatrix::from_rows(position.as_slice())
     }
@@ -239,7 +239,8 @@ impl Status for EnsembleStatus {
         if self
             .walkers
             .iter()
-            .any(|walker| walker.get_latest().fx.is_some_and(Float::is_nan))
+            .filter_map(Walker::latest_evaluated)
+            .any(|point| point.fx.is_nan())
         {
             self.set_message().fail_with_message("log density is NaN");
             return ControlFlow::Break(());

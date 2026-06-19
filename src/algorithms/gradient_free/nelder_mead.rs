@@ -1,6 +1,6 @@
 use crate::{
     algorithms::gradient_free::GradientFreeStatus,
-    core::{Bounds, Callbacks, MinimizationSummary, Point},
+    core::{Bounds, Callbacks, EvaluatedPoint, MinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
@@ -212,8 +212,8 @@ impl SimplexConstructionMethod {
                 orthogonal_zero_step,
             } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(transform.to_internal(x0).into_owned());
-                point_0.evaluate_transformed(func, transform, args)?;
+                let point_0 = Point::from(transform.to_internal(x0).into_owned())
+                    .evaluate_transformed(func, transform, args)?;
                 points.push(point_0.clone());
                 let dim = point_0.x.len();
                 assert!(
@@ -238,16 +238,15 @@ impl SimplexConstructionMethod {
                     if let Some(b) = bounds {
                         point_i.x = b.clip_values(&point_i.x);
                     }
-                    point_i.fx = None;
-                    point_i.evaluate_transformed(func, transform, args)?;
-                    points.push(point_i);
+                    points
+                        .push(Point::from(point_i.x).evaluate_transformed(func, transform, args)?);
                 }
                 Ok(Simplex::new(&points))
             }
             Self::Orthogonal { x0, simplex_size } => {
                 let mut points = Vec::default();
-                let mut point_0 = Point::from(transform.to_internal(x0).into_owned());
-                point_0.evaluate_transformed(func, transform, args)?;
+                let point_0 = Point::from(transform.to_internal(x0).into_owned())
+                    .evaluate_transformed(func, transform, args)?;
                 points.push(point_0.clone());
                 let dim = point_0.x.len();
                 assert!(
@@ -268,9 +267,8 @@ impl SimplexConstructionMethod {
                     if let Some(b) = bounds {
                         point_i.x = b.clip_values(&point_i.x);
                     }
-                    point_i.fx = None;
-                    point_i.evaluate_transformed(func, transform, args)?;
-                    points.push(point_i);
+                    points
+                        .push(Point::from(point_i.x).evaluate_transformed(func, transform, args)?);
                 }
                 Ok(Simplex::new(&points))
             }
@@ -294,10 +292,9 @@ impl SimplexConstructionMethod {
                             if let Some(b) = bounds {
                                 point_i.x = b.clip_values(&point_i.x);
                             }
-                            point_i.evaluate_transformed(func, transform, args)?;
-                            Ok(point_i)
+                            point_i.evaluate_transformed(func, transform, args)
                         })
-                        .collect::<Result<Vec<Point<DVector<Float>>>, E>>()?,
+                        .collect::<Result<Vec<EvaluatedPoint<DVector<Float>>>, E>>()?,
                 ))
             }
         }
@@ -308,13 +305,13 @@ impl SimplexConstructionMethod {
 /// sorted.
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Simplex {
-    points: Vec<Point<DVector<Float>>>,
+    points: Vec<EvaluatedPoint<DVector<Float>>>,
     dimension: usize,
     sorted: bool,
     total_centroid: DVector<Float>,
     volume: Float,
-    initial_best: Point<DVector<Float>>,
-    initial_worst: Point<DVector<Float>>,
+    initial_best: EvaluatedPoint<DVector<Float>>,
+    initial_worst: EvaluatedPoint<DVector<Float>>,
     initial_volume: Float,
 }
 impl Debug for Simplex {
@@ -323,7 +320,7 @@ impl Debug for Simplex {
     }
 }
 impl Simplex {
-    fn new(points: &[Point<DVector<Float>>]) -> Self {
+    fn new(points: &[EvaluatedPoint<DVector<Float>>]) -> Self {
         let mut sorted_points = points.to_vec();
         sorted_points.sort_by(|a, b| a.total_cmp(b));
         let initial_best = sorted_points[0].clone();
@@ -362,18 +359,18 @@ impl Simplex {
     }
     fn best_position(&self, transform: &Option<Box<dyn Transform>>) -> (DVector<Float>, Float) {
         let best = self.best();
-        (transform.to_owned_external(&best.x), best.fx_checked())
+        (transform.to_owned_external(&best.x), best.fx)
     }
-    fn best(&self) -> &Point<DVector<Float>> {
+    fn best(&self) -> &EvaluatedPoint<DVector<Float>> {
         &self.points[0]
     }
-    fn worst(&self) -> &Point<DVector<Float>> {
+    fn worst(&self) -> &EvaluatedPoint<DVector<Float>> {
         &self.points[self.points.len() - 1]
     }
-    fn second_worst(&self) -> &Point<DVector<Float>> {
+    fn second_worst(&self) -> &EvaluatedPoint<DVector<Float>> {
         &self.points[self.points.len() - 2]
     }
-    fn insert_and_sort(&mut self, index: usize, element: Point<DVector<Float>>) {
+    fn insert_and_sort(&mut self, index: usize, element: EvaluatedPoint<DVector<Float>>) {
         let removed = self.points.remove(self.points.len() - 1);
         let n = self.points.len() as Float + 1.0;
         self.total_centroid += (&element.x - &removed.x) / n;
@@ -382,7 +379,7 @@ impl Simplex {
         self.sorted = false;
         self.sort();
     }
-    fn insert_sorted(&mut self, index: usize, element: Point<DVector<Float>>) {
+    fn insert_sorted(&mut self, index: usize, element: EvaluatedPoint<DVector<Float>>) {
         let removed = self.points.remove(self.points.len() - 1);
         self.points.insert(index, element);
         self.sorted = true;
@@ -473,16 +470,16 @@ where
         let simplex = &algorithm.simplex;
         match self {
             Self::Amoeba { eps_rel: eps_f_rel } => {
-                let fh = simplex.worst().fx_checked();
-                let fl = simplex.best().fx_checked();
+                let fh = simplex.worst().fx;
+                let fl = simplex.best().fx;
                 if 2.0 * (fh - fl) / (Float::abs(fh) + Float::abs(fl)) <= *eps_f_rel {
                     status.set_message().succeed_with_message("term_f = AMOEBA");
                     return ControlFlow::Break(());
                 }
             }
             Self::Absolute { eps_abs: eps_f_abs } => {
-                let fh = simplex.worst().fx_checked();
-                let fl = simplex.best().fx_checked();
+                let fh = simplex.worst().fx;
+                let fl = simplex.best().fx;
                 if fh - fl <= *eps_f_abs {
                     status
                         .set_message()
@@ -492,17 +489,12 @@ where
             }
             Self::StdDev { eps_abs: eps_f_abs } => {
                 let dim = simplex.dimension as Float;
-                let mean = simplex
-                    .points
-                    .iter()
-                    .map(|point| point.fx_checked())
-                    .sum::<Float>()
-                    / dim;
+                let mean = simplex.points.iter().map(|point| point.fx).sum::<Float>() / dim;
                 let std_dev = Float::sqrt(
                     simplex
                         .points
                         .iter()
-                        .map(|point| Float::powi(point.fx_checked() - mean, 2))
+                        .map(|point| Float::powi(point.fx - mean, 2))
                         .sum::<Float>()
                         / dim,
                 );
@@ -932,8 +924,7 @@ where
         if let Some(ib) = self.internal_bounds.as_ref() {
             xrx = ib.clip_values(&xrx);
         }
-        let mut xr = Point::from(xrx);
-        xr.evaluate_transformed(problem, &self.resolved_transform, args)?;
+        let xr = Point::from(xrx).evaluate_transformed(problem, &self.resolved_transform, args)?;
         status.evals.record_f();
         if l <= &xr && &xr < s {
             // Reflect if l <= x_r < s
@@ -953,8 +944,8 @@ where
             if let Some(ib) = self.internal_bounds.as_ref() {
                 xex = ib.clip_values(&xex);
             }
-            let mut xe = Point::from(xex);
-            xe.evaluate_transformed(problem, &self.resolved_transform, args)?;
+            let xe =
+                Point::from(xex).evaluate_transformed(problem, &self.resolved_transform, args)?;
             status.evals.record_f();
             let accepted = match config.expansion_method {
                 SimplexExpansionMethod::GreedyMinimization => {
@@ -966,7 +957,7 @@ where
                 }
                 SimplexExpansionMethod::GreedyExpansion => xe,
             };
-            let accepted_fx = accepted.fx_checked();
+            let accepted_fx = accepted.fx;
             let accepted_x = self.resolved_transform.to_owned_external(&accepted.x);
             self.simplex.insert_sorted(0, accepted);
             status.set_position_silent((accepted_x, accepted_fx));
@@ -994,15 +985,18 @@ where
                 if let Some(ib) = self.internal_bounds.as_ref() {
                     xcx = ib.clip_values(&xcx);
                 }
-                let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
+                let xc = Point::from(xcx).evaluate_transformed(
+                    problem,
+                    &self.resolved_transform,
+                    args,
+                )?;
                 status.evals.record_f();
                 if xc <= xr {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         let xc_is_new_best = &xc < l;
-                        let xc_fx = xc.fx_checked();
+                        let xc_fx = xc.fx;
                         let xc_x = xc_is_new_best
                             .then(|| self.resolved_transform.to_owned_external(&xc.x));
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
@@ -1025,15 +1019,18 @@ where
                 if let Some(ib) = self.internal_bounds.as_ref() {
                     xcx = ib.clip_values(&xcx);
                 }
-                let mut xc = Point::from(xcx);
-                xc.evaluate_transformed(problem, &self.resolved_transform, args)?;
+                let xc = Point::from(xcx).evaluate_transformed(
+                    problem,
+                    &self.resolved_transform,
+                    args,
+                )?;
                 status.evals.record_f();
                 if &xc < h {
                     if &xc < s {
                         // If we are better than the second-worst, we need to sort everything, we
                         // could technically be anywhere, even in a new best.
                         let xc_is_new_best = &xc < l;
-                        let xc_fx = xc.fx_checked();
+                        let xc_fx = xc.fx;
                         let xc_x = xc_is_new_best
                             .then(|| self.resolved_transform.to_owned_external(&xc.x));
                         self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
@@ -1058,8 +1055,7 @@ where
             if let Some(ib) = self.internal_bounds.as_ref() {
                 px = ib.clip_values(&px);
             }
-            *p = Point::from(px);
-            p.evaluate_transformed(problem, &self.resolved_transform, args)?;
+            *p = Point::from(px).evaluate_transformed(problem, &self.resolved_transform, args)?;
             status.evals.record_f();
         }
         // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
@@ -1374,11 +1370,8 @@ mod tests {
         }
     }
 
-    fn point(x: &[Float], fx: Float) -> Point<DVector<Float>> {
-        Point {
-            x: DVector::from_column_slice(x),
-            fx: Some(fx),
-        }
+    fn point(x: &[Float], fx: Float) -> EvaluatedPoint<DVector<Float>> {
+        EvaluatedPoint::new(DVector::from_column_slice(x), fx)
     }
 
     #[test]

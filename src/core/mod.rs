@@ -27,7 +27,7 @@ pub use eval_counts::EvalCounts;
 
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
-pub use point::Point;
+pub use point::{EvaluatedPoint, Point};
 
 /// Summary types for the result of the minimization.
 pub mod summary;

@@ -28,8 +28,8 @@ use crate::{
         },
     },
     core::{
-        transforms::Bounds, EvalCounts, MCMCSummary, MinimizationSummary, MultiStartSummary, Point,
-        SimulatedAnnealingSummary,
+        transforms::Bounds, EvalCounts, EvaluatedPoint, MCMCSummary, MinimizationSummary,
+        MultiStartSummary, SimulatedAnnealingSummary,
     },
     traits::StatusMessage,
     DMatrix, DVector,
@@ -166,15 +166,12 @@ fn _testing_sample_gradient_free_status() -> PyGradientFreeStatus {
 #[pyfunction]
 fn _testing_sample_ensemble_status() -> PyEnsembleStatus {
     let mut first = Walker::new(DVector::from_vec(vec![0.0, 1.0]));
-    first.push(Point {
-        x: DVector::from_vec(vec![0.5, 1.5]),
-        fx: Some(-0.5),
-    });
+    first.push(EvaluatedPoint::new(DVector::from_vec(vec![0.5, 1.5]), -0.5));
     let mut second = Walker::new(DVector::from_vec(vec![1.0, 0.0]));
-    second.push(Point {
-        x: DVector::from_vec(vec![1.5, 0.5]),
-        fx: Some(-0.25),
-    });
+    second.push(EvaluatedPoint::new(
+        DVector::from_vec(vec![1.5, 0.5]),
+        -0.25,
+    ));
     PyEnsembleStatus::from(EnsembleStatus {
         walkers: vec![first, second],
         message: StatusMessage::default().set_initialized_with_message("sampling"),
@@ -184,14 +181,8 @@ fn _testing_sample_ensemble_status() -> PyEnsembleStatus {
 
 #[pyfunction]
 fn _testing_sample_swarm_status() -> PySwarmStatus {
-    let best = Point {
-        x: DVector::from_vec(vec![0.25, -0.25]),
-        fx: Some(0.125),
-    };
-    let other = Point {
-        x: DVector::from_vec(vec![1.0, 1.5]),
-        fx: Some(2.0),
-    };
+    let best = EvaluatedPoint::new(DVector::from_vec(vec![0.25, -0.25]), 0.125);
+    let other = EvaluatedPoint::new(DVector::from_vec(vec![1.0, 1.5]), 2.0);
     let mut swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
         bounds: vec![(-1.0, 1.0), (-2.0, 2.0)],
         n_particles: 2,
@@ -226,18 +217,9 @@ fn _testing_sample_swarm_status() -> PySwarmStatus {
 fn _testing_sample_simulated_annealing_status() -> PySimulatedAnnealingStatus {
     PySimulatedAnnealingStatus::from(SimulatedAnnealingStatus {
         temperature: 0.75,
-        initial: Point {
-            x: DVector::from_vec(vec![1.5, -0.5]),
-            fx: Some(1.0),
-        },
-        best: Point {
-            x: DVector::from_vec(vec![0.25, 0.5]),
-            fx: Some(0.125),
-        },
-        current: Point {
-            x: DVector::from_vec(vec![0.5, 0.75]),
-            fx: Some(0.25),
-        },
+        initial: EvaluatedPoint::new(DVector::from_vec(vec![1.5, -0.5]), 1.0),
+        best: EvaluatedPoint::new(DVector::from_vec(vec![0.25, 0.5]), 0.125),
+        current: EvaluatedPoint::new(DVector::from_vec(vec![0.5, 0.75]), 0.25),
         message: StatusMessage::default().set_step_with_message("cooling"),
         evals: EvalCounts::new(33, 0, 0),
     })

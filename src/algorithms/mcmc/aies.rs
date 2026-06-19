@@ -98,21 +98,20 @@ impl AIESMove {
                     let x_l =
                         ensemble.walkers[ensemble.get_compliment_walker_index(i, rng)].get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
-                    let mut proposal = Point::from(
+                    let proposal = Point::from(
                         transform.to_internal(&x_l.x).as_ref()
                             + (transform.to_internal(&x_k.x).as_ref()
                                 - transform.to_internal(&x_l.x).as_ref())
                             .scale(z),
-                    );
-                    proposal.log_density_transformed(problem, transform, args)?;
+                    )
+                    .log_density_transformed(problem, transform, args)?;
                     // The acceptance probability should then be (in an n-dimensional problem),
                     //
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
                     let n = x_l.x.len();
-                    let r =
-                        z.ln().mul_add((n - 1) as Float, proposal.fx_checked()) - x_k.fx_checked();
+                    let r = z.ln().mul_add((n - 1) as Float, proposal.fx) - x_k.fx;
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -136,12 +135,12 @@ impl AIESMove {
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>();
-                    let mut proposal = Point::from(transform.to_internal(&x_k.x).as_ref() + w);
+                    let proposal = Point::from(transform.to_internal(&x_k.x).as_ref() + w)
+                        .log_density_transformed(problem, transform, args)?;
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
-                    proposal.log_density_transformed(problem, transform, args)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
-                    let r = proposal.fx_checked() - x_k.fx_checked();
+                    let r = proposal.fx - x_k.fx;
                     (proposal, r)
                 }
             };

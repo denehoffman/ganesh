@@ -1,6 +1,8 @@
 use crate::{
     algorithms::gradient_free::GradientFreeStatus,
-    core::{utils::SampleFloat, Bounds, Callbacks, MaxSteps, MinimizationSummary, Point},
+    core::{
+        utils::SampleFloat, Bounds, Callbacks, EvaluatedPoint, MaxSteps, MinimizationSummary, Point,
+    },
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
@@ -399,7 +401,7 @@ impl SupportsParameterNames for CMAESConfig {
 #[derive(Clone)]
 struct CMAESCandidate {
     y: DVector<Float>,
-    point: Point<DVector<Float>>,
+    point: EvaluatedPoint<DVector<Float>>,
 }
 
 /// Covariance Matrix Adaptation Evolution Strategy.
@@ -433,7 +435,7 @@ pub struct CMAES {
     damping: Float,
     chi_n: Float,
     generation: usize,
-    best: Point<DVector<Float>>,
+    best: EvaluatedPoint<DVector<Float>>,
     best_history: VecDeque<Float>,
     median_history: VecDeque<Float>,
     recent_generation_values: Vec<Float>,
@@ -472,7 +474,7 @@ impl CMAES {
             damping: 0.0,
             chi_n: 0.0,
             generation: 0,
-            best: Point::default(),
+            best: EvaluatedPoint::default(),
             best_history: VecDeque::new(),
             median_history: VecDeque::new(),
             recent_generation_values: Vec::new(),
@@ -588,8 +590,8 @@ impl CMAES {
                 .rng
                 .mv_normal(&DVector::zeros(self.mean.len()), &self.cov);
             let x = &self.mean + y.scale(self.sigma);
-            let mut point = Point::from(x);
-            point.evaluate_transformed(problem, &self.resolved_transform, args)?;
+            let point =
+                Point::from(x).evaluate_transformed(problem, &self.resolved_transform, args)?;
             population.push(CMAESCandidate { y, point });
         }
         population.sort_by(|a, b| a.point.total_cmp(&b.point));
@@ -661,9 +663,9 @@ impl CMAES {
     }
 
     fn record_generation_history(&mut self, population: &[CMAESCandidate]) {
-        let best = population[0].point.fx_checked();
-        let median = population[population.len() / 2].point.fx_checked();
-        self.recent_generation_values = population.iter().map(|c| c.point.fx_checked()).collect();
+        let best = population[0].point.fx;
+        let median = population[population.len() / 2].point.fx;
+        self.recent_generation_values = population.iter().map(|c| c.point.fx).collect();
         self.best_history.push_back(best);
         self.median_history.push_back(median);
         let max_equal_window = self.equal_fun_values_window();
@@ -791,15 +793,14 @@ where
         self.resolved_transform = transform;
         self.mean = self.resolved_transform.to_owned_internal(&init.x0);
         self.initialize_strategy(self.mean.len(), init, config);
-        let mut x0 = Point::from(self.mean.clone());
-        x0.evaluate_transformed(problem, &self.resolved_transform, args)?;
+        let x0 = Point::from(self.mean.clone()).evaluate_transformed(
+            problem,
+            &self.resolved_transform,
+            args,
+        )?;
         self.best = x0.clone();
         status.evals.record_f();
-        status.initialize(
-            self.best
-                .to_external(&self.resolved_transform)
-                .destructure(),
-        );
+        status.initialize(self.best.to_external(&self.resolved_transform).into_parts());
         Ok(())
     }
 
@@ -817,11 +818,7 @@ where
             self.best = population[0].point.clone();
         }
         self.update_distribution(&population);
-        status.set_position(
-            self.best
-                .to_external(&self.resolved_transform)
-                .destructure(),
-        );
+        status.set_position(self.best.to_external(&self.resolved_transform).into_parts());
         Ok(())
     }
 

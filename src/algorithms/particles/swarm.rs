@@ -1,7 +1,7 @@
 use crate::{
     core::{
         utils::{generate_random_vector_in_limits, SampleFloat},
-        Bounds, Point,
+        Bounds, EvaluatedPoint, Point,
     },
     traits::{CostFunction, Transform},
     DVector, Float,
@@ -277,11 +277,11 @@ impl SwarmVelocityInitializer {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SwarmParticle {
     /// The position of the particle (in unbounded space)
-    pub position: Point<DVector<Float>>,
+    pub position: EvaluatedPoint<DVector<Float>>,
     /// The velocity of the particle (in unbounded space)
     pub velocity: DVector<Float>,
     /// The best position of the particle (as measured by the minimum value of `fx`)
-    pub best: Point<DVector<Float>>,
+    pub best: EvaluatedPoint<DVector<Float>>,
 }
 impl SwarmParticle {
     /// Create a new particle with the given position, velocity, and cost function
@@ -298,8 +298,7 @@ impl SwarmParticle {
         args: &U,
         transform: &Option<Box<dyn Transform>>,
     ) -> Result<Self, E> {
-        let mut position = position;
-        position.evaluate_transformed(func, transform, args)?;
+        let position = position.evaluate_transformed(func, transform, args)?;
         Ok(Self {
             position: position.clone(),
             velocity,
@@ -332,30 +331,32 @@ impl SwarmParticle {
         if let Some(internal_bounds) = internal_bounds {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
-                    self.position
-                        .set_position(transform.to_external(&new_position_internal).into_owned());
                     if !internal_bounds.contains(&new_position_internal) {
-                        self.position.fx = Some(Float::INFINITY);
+                        self.position = EvaluatedPoint::new(
+                            transform.to_external(&new_position_internal).into_owned(),
+                            Float::INFINITY,
+                        );
                     } else {
-                        self.position.evaluate(func, args)?;
+                        self.position =
+                            Point::from(transform.to_external(&new_position_internal).into_owned())
+                                .evaluate(func, args)?;
                         evals += 1;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
                     let bounds_excess = internal_bounds.get_excess(&new_position_internal);
-                    self.position.set_position(
+                    self.position = Point::from(
                         transform
                             .to_external(&(new_position_internal - bounds_excess))
                             .into_owned(),
-                    );
-                    self.position.evaluate(func, args)?;
+                    )
+                    .evaluate(func, args)?;
                     evals += 1;
                 }
             }
         } else {
-            self.position
-                .set_position(transform.to_external(&new_position_internal).into_owned());
-            self.position.evaluate(func, args)?;
+            self.position = Point::from(transform.to_external(&new_position_internal).into_owned())
+                .evaluate(func, args)?;
             evals += 1;
         }
         Ok(evals)
@@ -365,13 +366,10 @@ impl SwarmParticle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Point;
+    use crate::core::EvaluatedPoint;
 
     fn particle_with_best(x: &[Float], fx: Float) -> SwarmParticle {
-        let best = Point {
-            x: DVector::from_column_slice(x),
-            fx: Some(fx),
-        };
+        let best = EvaluatedPoint::new(DVector::from_column_slice(x), fx);
         SwarmParticle {
             position: best.clone(),
             velocity: DVector::zeros(best.x.len()),
