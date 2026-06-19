@@ -7,3 +7,5 @@ src/main.rs
 __pycache__/
 *.pyc
 *.so
+
+.envrc
