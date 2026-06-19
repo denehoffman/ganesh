@@ -1,6 +1,6 @@
 use crate::{
     core::{Bounds, Callbacks},
-    traits::{Bound, Status, Transform},
+    traits::{Bound, Status, Transform, TransformExt},
 };
 use std::convert::Infallible;
 
@@ -13,6 +13,8 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     type Summary;
     /// The configuration struct for the algorithm.
     type Config;
+    /// The initialization payload for a single run.
+    type Init;
 
     /// Any setup work done before the main steps of the algorithm should be done here.
     ///
@@ -24,6 +26,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         problem: &P,
         status: &mut S,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E>;
     /// The main "step" of an algorithm, which is repeated until termination conditions are met or
@@ -70,6 +73,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         problem: &P,
         status: &S,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E>;
 
@@ -91,6 +95,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         &mut self,
         problem: &P,
         args: &U,
+        init: Self::Init,
         config: Self::Config,
         callbacks: C,
     ) -> Result<Self::Summary, E>
@@ -100,10 +105,18 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     {
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E, Self::Config> = callbacks.into();
-        self.initialize(problem, &mut status, args, &config)?;
+        self.initialize(problem, &mut status, args, &init, &config)?;
+        if status.check_invariants().is_break() {
+            self.postprocessing(problem, &mut status, args, &config)?;
+            return self.summarize(0, problem, &status, args, &init, &config);
+        }
         let mut current_step = 0;
         loop {
             self.step(current_step, problem, &mut status, args, &config)?;
+
+            if status.check_invariants().is_break() {
+                break;
+            }
 
             if cbs
                 .check_for_termination(current_step, self, problem, &mut status, args, &config)
@@ -114,17 +127,38 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
             current_step += 1;
         }
         self.postprocessing(problem, &mut status, args, &config)?;
-        self.summarize(current_step, problem, &status, args, &config)
+        self.summarize(current_step, problem, &status, args, &init, &config)
     }
 
-    /// Process the given problem using this [`Algorithm`].
+    /// Process the given problem using this [`Algorithm`] and the algorithm's default callbacks.
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
     /// terminating if any of the [`Algorithm::default_callbacks`] return
     /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
-    /// summary of the [`Algorithm`]'s state. This method is similar to [`Algorithm::process`],
-    /// except it uses the default callbacks and configuration for the algorithm.
+    /// summary of the [`Algorithm`]'s state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
+    fn process_with_default_callbacks(
+        &mut self,
+        problem: &P,
+        user_data: &U,
+        init: Self::Init,
+        config: Self::Config,
+    ) -> Result<Self::Summary, E>
+    where
+        Self: Sized,
+    {
+        self.process(problem, user_data, init, config, Self::default_callbacks())
+    }
+
+    /// Process the given problem using this [`Algorithm`] with default config and default callbacks.
+    ///
+    /// This method is similar to [`Algorithm::process`], except it uses
+    /// [`Default::default`] for the algorithm configuration and
+    /// [`Algorithm::default_callbacks`] for the callback set.
     ///
     /// # Errors
     ///
@@ -133,12 +167,19 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         &mut self,
         problem: &P,
         user_data: &U,
-        config: Self::Config,
+        init: Self::Init,
     ) -> Result<Self::Summary, E>
     where
         Self: Sized,
+        Self::Config: Default,
     {
-        self.process(problem, user_data, config, Self::default_callbacks())
+        self.process(
+            problem,
+            user_data,
+            init,
+            Self::Config::default(),
+            Self::default_callbacks(),
+        )
     }
 
     /// Provides a set of reasonable default callbacks specific to this [`Algorithm`].
@@ -172,6 +213,52 @@ where
     }
 }
 
+/// Explicit policy for how an algorithm should apply configured bounds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BoundsHandlingMode {
+    /// Use the algorithm's default behavior.
+    ///
+    /// For algorithms with native bound support, this keeps bounds native. For algorithms without
+    /// native bound support, callers should provide an explicit bounds transform instead.
+    #[default]
+    Auto,
+    /// Keep bounds separate from any configured transform and use the algorithm's native
+    /// bounded-space machinery.
+    NativeBounds,
+    /// Convert configured bounds into an explicit transform and run the algorithm without native
+    /// bounds.
+    ///
+    /// If both a transform and bounds are configured, the transform is applied first and the
+    /// bounds transform is applied second.
+    TransformBounds,
+}
+
+pub(crate) fn resolve_bounds_and_transform(
+    bounds: &Option<Bounds>,
+    transform: &Option<Box<dyn Transform>>,
+    mode: BoundsHandlingMode,
+) -> (Option<Bounds>, Option<Box<dyn Transform>>) {
+    match mode {
+        BoundsHandlingMode::Auto | BoundsHandlingMode::NativeBounds => (
+            bounds.clone(),
+            transform
+                .as_ref()
+                .map(|transform| dyn_clone::clone_box(transform.as_ref())),
+        ),
+        BoundsHandlingMode::TransformBounds => {
+            let resolved_transform = match (bounds, transform) {
+                (Some(bounds), Some(transform)) => Some(Box::new(
+                    dyn_clone::clone_box(transform.as_ref()).compose(bounds.clone()),
+                ) as Box<dyn Transform>),
+                (Some(bounds), None) => Some(Box::new(bounds.clone()) as Box<dyn Transform>),
+                (None, Some(transform)) => Some(dyn_clone::clone_box(transform.as_ref())),
+                (None, None) => None,
+            };
+            (None, resolved_transform)
+        }
+    }
+}
+
 /// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter transformations.
 pub trait SupportsTransform
 where
@@ -183,5 +270,207 @@ where
     fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
         *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
         self
+    }
+}
+
+/// A trait for algorithm configs which can propagate parameter names into summaries.
+pub trait SupportsParameterNames
+where
+    Self: Sized,
+{
+    /// A helper method to get the mutable internal parameter name storage.
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>>;
+    /// Set the names associated with each parameter.
+    fn with_parameter_names<I, S>(mut self, parameter_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        *self.get_parameter_names_mut() = Some(
+            parameter_names
+                .into_iter()
+                .map(|name| name.as_ref().to_string())
+                .collect(),
+        );
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        traits::{StatusMessage, StatusType},
+        DMatrix, DVector, Float,
+    };
+    use serde::{Deserialize, Serialize};
+    use std::{borrow::Cow, convert::Infallible, ops::ControlFlow};
+
+    #[derive(Clone)]
+    struct Scale(Float);
+
+    impl Transform for Scale {
+        fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(z.scale(self.0))
+        }
+
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.unscale(self.0))
+        }
+
+        fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::identity(z.len(), z.len()).scale(self.0)
+        }
+
+        fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
+        }
+    }
+
+    #[test]
+    fn transform_bounds_mode_moves_bounds_into_transform() {
+        let bounds = Some(Bounds::from([(0.0, 1.0)]));
+        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
+
+        let (resolved_bounds, resolved_transform) =
+            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::TransformBounds);
+
+        assert!(resolved_bounds.is_none());
+        let Some(resolved_transform) = resolved_transform else {
+            panic!("transform should be composed");
+        };
+        let x = resolved_transform.to_owned_external(&DVector::from_row_slice(&[10.0]));
+        assert!(x[0] >= 0.0 && x[0] <= 1.0);
+    }
+
+    #[test]
+    fn native_bounds_mode_preserves_bounds_and_transform() {
+        let bounds = Some(Bounds::from([(0.0, 1.0)]));
+        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
+
+        let (resolved_bounds, resolved_transform) =
+            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::NativeBounds);
+
+        assert!(resolved_bounds.is_some());
+        assert!(resolved_transform.is_some());
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct InvariantStatus {
+        message: StatusMessage,
+        invalid: bool,
+    }
+
+    impl Status for InvariantStatus {
+        fn reset(&mut self) {
+            self.message.reset();
+            self.invalid = false;
+        }
+
+        fn message(&self) -> &StatusMessage {
+            &self.message
+        }
+
+        fn set_message(&mut self) -> &mut StatusMessage {
+            &mut self.message
+        }
+
+        fn check_invariants(&mut self) -> ControlFlow<()> {
+            if self.invalid {
+                self.message.fail_with_message("invariant failed");
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    #[derive(Default)]
+    struct InvariantAlgorithm {
+        steps: usize,
+    }
+
+    #[derive(Clone, Copy)]
+    struct InvariantConfig {
+        fail_after_initialize: bool,
+        fail_after_step: bool,
+    }
+
+    impl Algorithm<(), InvariantStatus, (), Infallible> for InvariantAlgorithm {
+        type Summary = (usize, StatusMessage);
+        type Config = InvariantConfig;
+        type Init = ();
+
+        fn initialize(
+            &mut self,
+            _problem: &(),
+            status: &mut InvariantStatus,
+            _args: &(),
+            _init: &Self::Init,
+            config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            status.message.initialize();
+            status.invalid = config.fail_after_initialize;
+            Ok(())
+        }
+
+        fn step(
+            &mut self,
+            _current_step: usize,
+            _problem: &(),
+            status: &mut InvariantStatus,
+            _args: &(),
+            config: &Self::Config,
+        ) -> Result<(), Infallible> {
+            self.steps += 1;
+            status.message.step();
+            status.invalid = config.fail_after_step;
+            Ok(())
+        }
+
+        fn summarize(
+            &self,
+            _current_step: usize,
+            _problem: &(),
+            status: &InvariantStatus,
+            _args: &(),
+            _init: &Self::Init,
+            _config: &Self::Config,
+        ) -> Result<Self::Summary, Infallible> {
+            Ok((self.steps, status.message.clone()))
+        }
+    }
+
+    #[test]
+    fn process_checks_status_invariants_after_initialize() {
+        let mut algorithm = InvariantAlgorithm::default();
+        let config = InvariantConfig {
+            fail_after_initialize: true,
+            fail_after_step: false,
+        };
+
+        let (steps, message) = algorithm
+            .process(&(), &(), (), config, Callbacks::empty())
+            .unwrap();
+
+        assert_eq!(steps, 0);
+        assert!(matches!(message.status_type, StatusType::Failed));
+        assert_eq!(message.text(), Some("invariant failed"));
+    }
+
+    #[test]
+    fn process_checks_status_invariants_after_step() {
+        let mut algorithm = InvariantAlgorithm::default();
+        let config = InvariantConfig {
+            fail_after_initialize: false,
+            fail_after_step: true,
+        };
+
+        let (steps, message) = algorithm
+            .process(&(), &(), (), config, Callbacks::empty())
+            .unwrap();
+
+        assert_eq!(steps, 1);
+        assert!(matches!(message.status_type, StatusType::Failed));
+        assert_eq!(message.text(), Some("invariant failed"));
     }
 }

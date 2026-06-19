@@ -15,8 +15,10 @@ import numpy as np
 
 if __name__ == '__main__':
     with Path('data.pkl').open('rb') as f:
-        (chains, taus) = pickle.load(f)  # noqa: S301
-    chains = np.array([[[step[0][i] for i in range(2)] for step in chain] for chain in chains])
+        (chains, taus) = pickle.load(f)
+    chains = np.array(
+        [[[step[0][i] for i in range(2)] for step in chain] for chain in chains]
+    )
     plt.plot(np.arange(len(taus)) * 50, taus)
     plt.title('Integrated Autocorrelation Time')
     plt.xlabel('Step')
@@ -29,9 +31,17 @@ if __name__ == '__main__':
     for i in range(chains.shape[2]):
         for j in range(chains.shape[0]):
             ax[i].plot(steps[burn_in:], chains[j, burn_in:, i], color='k', alpha=0.1)
-            ax[i].plot(steps[:burn_in], chains[j, :burn_in, i], color='k', ls='--', alpha=0.1)
+            ax[i].plot(
+                steps[:burn_in], chains[j, :burn_in, i], color='k', ls='--', alpha=0.1
+            )
         ax[i].plot(steps[burn_in:], chains[0, burn_in:, i], color='r', label='Walker 0')
-        ax[i].plot(steps[:burn_in], chains[0, :burn_in, i], color='r', ls='--', label='Walker 0 (burn-in)')
+        ax[i].plot(
+            steps[:burn_in],
+            chains[0, :burn_in, i],
+            color='r',
+            ls='--',
+            label='Walker 0 (burn-in)',
+        )
         ax[i].set_xlabel('Step')
         ax[i].set_ylabel(f'Parameter {i}')
         ax[i].legend()
@@ -64,5 +74,7 @@ if __name__ == '__main__':
     Z = np.power((np.power(X, 2) + Y - 11), 2) + np.power(X + np.power(Y, 2) - 7, 2)
     plt.contour(X, Y, -Z, levels=20)
     plt.legend()
-    plt.savefig('scatter.png', dpi=2000)  # high DPI here because the image is very detailed
+    plt.savefig(
+        'scatter.png', dpi=2000
+    )  # high DPI here because the image is very detailed
     plt.close()

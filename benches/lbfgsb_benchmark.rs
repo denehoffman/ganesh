@@ -9,16 +9,17 @@ fn lbfgsb_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("LBFGSB");
     for n in [2, 3, 4, 5] {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, ndim| {
-            let base_cfg = LBFGSBConfig::new(vec![5.0; *ndim]);
             b.iter_batched(
                 || {
                     let problem = Rosenbrock { n: *ndim };
                     let solver = LBFGSB::default();
+                    let init = ganesh::DVector::from_vec(vec![5.0; *ndim]);
+                    let cfg = LBFGSBConfig::default();
                     let cbs = LBFGSB::default_callbacks();
-                    (problem, solver, base_cfg.clone(), cbs)
+                    (problem, solver, init, cfg, cbs)
                 },
-                |(problem, mut solver, cfg, cbs)| {
-                    let result = solver.process(&problem, &(), cfg, cbs).unwrap();
+                |(problem, mut solver, init, cfg, cbs)| {
+                    let result = solver.process(&problem, &(), init, cfg, cbs).unwrap();
                     black_box(result);
                 },
                 BatchSize::SmallInput,

@@ -1,4 +1,7 @@
-use crate::{DMatrix, DVector, Float};
+use crate::{
+    error::{GaneshError, GaneshResult},
+    DMatrix, DVector, Float,
+};
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use nalgebra::Cholesky;
@@ -17,9 +20,12 @@ pub(crate) fn generate_random_vector_in_limits(
     limits: &[(Float, Float)],
     rng: &mut Rng,
 ) -> DVector<Float> {
+    use crate::traits::Bound;
+
     DVector::from_vec(
-        (0..limits.len())
-            .map(|i| rng.range(limits[i].0, limits[i].1))
+        limits
+            .iter()
+            .map(|&(lower, upper)| Bound::from((lower, upper)).random(rng))
             .collect(),
     )
 }
@@ -63,13 +69,29 @@ pub trait SampleFloat {
     fn float(&mut self) -> Float;
     /// Get a random Normal value
     fn normal(&mut self, mu: Float, sigma: Float) -> Float;
+    /// Get a random value from a multivariate Normal distribution, returning an error if the
+    /// covariance matrix is not positive definite.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if `cov` is not positive definite.
+    fn try_mv_normal(
+        &mut self,
+        mu: &DVector<Float>,
+        cov: &DMatrix<Float>,
+    ) -> GaneshResult<DVector<Float>> {
+        let cholesky = Cholesky::new(cov.clone()).ok_or_else(|| {
+            GaneshError::NumericalError("Covariance matrix is not positive definite".to_string())
+        })?;
+        let a = cholesky.l();
+        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
+        Ok(mu + a * z)
+    }
     /// Get a random value from a multivariate Normal distribution
     #[allow(clippy::expect_used)]
     fn mv_normal(&mut self, mu: &DVector<Float>, cov: &DMatrix<Float>) -> DVector<Float> {
-        let cholesky = Cholesky::new(cov.clone()).expect("Covariance matrix not positive definite");
-        let a = cholesky.l();
-        let z = DVector::from_iterator(mu.len(), (0..mu.len()).map(|_| self.normal(0.0, 1.0)));
-        mu + a * z
+        self.try_mv_normal(mu, cov)
+            .expect("Covariance matrix not positive definite")
     }
 }
 impl SampleFloat for Rng {
@@ -237,6 +259,22 @@ mod tests {
     }
 
     #[test]
+    fn test_random_vector_in_limits_handles_infinite_endpoints() {
+        let mut rng = Rng::with_seed(0);
+        let sample = generate_random_vector_in_limits(
+            &[
+                (Float::NEG_INFINITY, 1.0),
+                (-2.0, Float::INFINITY),
+                (Float::NEG_INFINITY, Float::INFINITY),
+            ],
+            &mut rng,
+        );
+        assert!(sample.iter().all(|value| value.is_finite()));
+        assert!(sample[0] <= 1.0);
+        assert!(sample[1] >= -2.0);
+    }
+
+    #[test]
     fn test_output_dimension_matches_mu() {
         let mut rng = Rng::with_seed(0);
         let mu = DVector::from_vec(vec![0.0, 0.0, 0.0]);
@@ -309,6 +347,18 @@ mod tests {
         let mu = DVector::from_vec(vec![0.0, 0.0]);
         let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, -1.0]);
         let _ = rng.mv_normal(&mu, &cov);
+    }
+
+    #[test]
+    fn test_try_mv_normal_returns_numerical_error() {
+        let mut rng = Rng::with_seed(42);
+        let mu = DVector::from_vec(vec![0.0, 0.0]);
+        let cov = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, -1.0]);
+
+        let err = rng.try_mv_normal(&mu, &cov).unwrap_err();
+
+        assert!(matches!(err, GaneshError::NumericalError(_)));
+        assert!(err.to_string().contains("not positive definite"));
     }
 
     fn reset_globals() {

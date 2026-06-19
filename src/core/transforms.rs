@@ -1,4 +1,5 @@
 use crate::{
+    error::{GaneshError, GaneshResult},
     traits::{Bound, BoundLike, Transform},
     DMatrix, DVector, Float,
 };
@@ -8,6 +9,123 @@ use std::{
     borrow::Cow,
     ops::{Deref, DerefMut},
 };
+
+/// A diagonal scaling transform.
+///
+/// Internally, this transform stores multiplicative factors for the map from external to internal
+/// coordinates:
+///
+/// ```math
+/// z_i = m_i x_i,\ x_i = z_i / m_i
+/// ```
+///
+/// Use [`ScaleTransform::from_multipliers`] when those multiplicative factors are the quantities
+/// you want to specify directly. Use [`ScaleTransform::from_parameter_scales`] when you instead
+/// want to provide characteristic external parameter scales and normalize by them internally.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScaleTransform {
+    multipliers: DVector<Float>,
+}
+
+impl ScaleTransform {
+    /// Construct a new [`ScaleTransform`] from multiplicative factors applied in the
+    /// external-to-internal direction.
+    ///
+    /// For multipliers `m`, this uses:
+    ///
+    /// ```math
+    /// z_i = m_i x_i,\ x_i = z_i / m_i
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `multipliers` is empty or contains non-finite or zero
+    /// values.
+    pub fn from_multipliers<I>(multipliers: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[Float]>,
+    {
+        let multipliers = DVector::from_row_slice(multipliers.as_ref());
+        if multipliers.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform requires at least one multiplier".to_string(),
+            ));
+        }
+        if multipliers.iter().any(|m| !m.is_finite() || *m == 0.0) {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform multipliers must be finite and nonzero".to_string(),
+            ));
+        }
+        Ok(Self { multipliers })
+    }
+
+    /// Construct a new [`ScaleTransform`] from characteristic external parameter scales.
+    ///
+    /// For parameter scales `s`, this normalizes by those scales internally:
+    ///
+    /// ```math
+    /// z_i = x_i / s_i,\ x_i = z_i s_i
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `parameter_scales` is empty or contains non-finite or
+    /// zero values.
+    pub fn from_parameter_scales<I>(parameter_scales: I) -> GaneshResult<Self>
+    where
+        I: AsRef<[Float]>,
+    {
+        let parameter_scales = parameter_scales.as_ref();
+        if parameter_scales.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform requires at least one parameter scale".to_string(),
+            ));
+        }
+        if parameter_scales
+            .iter()
+            .any(|scale| !scale.is_finite() || *scale == 0.0)
+        {
+            return Err(GaneshError::ConfigError(
+                "ScaleTransform parameter scales must be finite and nonzero".to_string(),
+            ));
+        }
+        Self::from_multipliers(
+            parameter_scales
+                .iter()
+                .map(|scale| 1.0 / scale)
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// Return the multiplicative factors used in the external-to-internal direction.
+    pub const fn multipliers(&self) -> &DVector<Float> {
+        &self.multipliers
+    }
+
+    /// Return the characteristic external parameter scales normalized by this transform.
+    pub fn parameter_scales(&self) -> DVector<Float> {
+        self.multipliers.map(|m| 1.0 / m)
+    }
+}
+
+impl Transform for ScaleTransform {
+    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        Cow::Owned(z.component_div(&self.multipliers))
+    }
+
+    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+        Cow::Owned(x.component_mul(&self.multipliers))
+    }
+
+    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+        let _ = z;
+        DMatrix::from_diagonal(&self.multipliers.map(|m| 1.0 / m))
+    }
+
+    fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+        DMatrix::zeros(z.len(), z.len())
+    }
+}
 
 /// The default bounds transformation.
 ///
@@ -265,6 +383,9 @@ impl Bounds {
     }
     /// Check to see if the given vector is contained in a box with the given bounds.
     pub fn contains(&self, vec: &DVector<Float>) -> bool {
+        if vec.len() != self.0.len() {
+            return false;
+        }
         self.0
             .iter()
             .zip(vec.iter())
@@ -604,6 +725,7 @@ mod tests {
     use std::convert::Infallible;
 
     use approx::assert_relative_eq;
+    use fastrand_contrib::RngExt;
     use nalgebra::dvector;
 
     use super::*;
@@ -627,15 +749,19 @@ mod tests {
         let b1 = Bound::LowerBound(0.0);
         assert!(b1.contains(1.0));
         assert!(!b1.contains(-1.0));
+        assert!(b1.contains(0.0));
         assert_eq!(b1.get_excess(-1.0), -1.0);
 
         let b2 = Bound::UpperBound(5.0);
         assert!(b2.contains(4.0));
         assert!(!b2.contains(6.0));
+        assert!(b2.contains(5.0));
         assert_eq!(b2.get_excess(6.0), 1.0);
 
         let b3 = Bound::LowerAndUpperBound(-1.0, 1.0);
         assert!(b3.contains(0.0));
+        assert!(b3.contains(-1.0));
+        assert!(b3.contains(1.0));
         assert!(!b3.contains(2.0));
     }
 
@@ -663,6 +789,28 @@ mod tests {
 
         assert_eq!(d.len(), bounds.len());
         assert!(bounds.contains(&d));
+    }
+
+    #[test]
+    fn test_bounds_random_with_infinite_endpoints_stays_finite() {
+        let mut rng = Rng::with_seed(0);
+        let bounds: Bounds = vec![
+            Bound::LowerBound(-1.0),
+            Bound::UpperBound(2.0),
+            Bound::NoBound,
+        ]
+        .into();
+
+        let d = bounds.random(&mut rng);
+
+        assert!(d.iter().all(|value| value.is_finite()));
+        assert!(bounds.contains(&d));
+    }
+
+    #[test]
+    fn test_bounds_contains_rejects_dimension_mismatch() {
+        let bounds: Bounds = vec![Bound::LowerAndUpperBound(-1.0, 1.0)].into();
+        assert!(!bounds.contains(&dvector![0.0, 0.0]));
     }
 
     #[test]
@@ -765,6 +913,40 @@ mod tests {
 
         let external = sc.to_external(&internal);
         assert_eq!(external[0], 4.0);
+    }
+
+    #[test]
+    fn scale_transform_from_multipliers_uses_explicit_internal_multipliers() {
+        let sc = ScaleTransform::from_multipliers([2.0, 0.5]).unwrap();
+        let external = dvector![3.0, 8.0];
+        let internal = sc.to_internal(&external);
+        assert_eq!(internal.as_ref(), &dvector![6.0, 4.0]);
+        let roundtrip = sc.to_external(internal.as_ref());
+        assert_eq!(roundtrip.as_ref(), &external);
+        assert_eq!(sc.multipliers(), &dvector![2.0, 0.5]);
+        assert_eq!(sc.parameter_scales(), dvector![0.5, 2.0]);
+    }
+
+    #[test]
+    fn scale_transform_from_parameter_scales_normalizes_by_scales() {
+        let sc = ScaleTransform::from_parameter_scales([1e-6, 100.0]).unwrap();
+        let external = dvector![3e-6, 800.0];
+        let internal = sc.to_internal(&external);
+        assert_relative_eq!(internal[0], 3.0);
+        assert_relative_eq!(internal[1], 8.0);
+        let roundtrip = sc.to_external(internal.as_ref());
+        assert_relative_eq!(roundtrip[0], external[0]);
+        assert_relative_eq!(roundtrip[1], external[1]);
+        assert_relative_eq!(sc.multipliers()[0], 1e6);
+        assert_relative_eq!(sc.multipliers()[1], 1e-2);
+        assert_relative_eq!(sc.parameter_scales()[0], 1e-6);
+        assert_relative_eq!(sc.parameter_scales()[1], 100.0);
+    }
+
+    #[test]
+    fn scale_transform_rejects_zero_and_nonfinite_inputs() {
+        assert!(ScaleTransform::from_multipliers([1.0, 0.0]).is_err());
+        assert!(ScaleTransform::from_parameter_scales([1.0, Float::INFINITY]).is_err());
     }
 
     #[test]
@@ -952,5 +1134,143 @@ mod tests {
         let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
         assert_relative_eq!(h_int_to_ext, h_ext, epsilon = Float::EPSILON.sqrt());
         Ok(())
+    }
+
+    fn assert_random_transform_consistency<T>(
+        transform: &T,
+        mut sample_external: impl FnMut(&mut Rng) -> DVector<Float>,
+        n_trials: usize,
+        epsilon: Float,
+    ) -> Result<(), Infallible>
+    where
+        T: Transform,
+    {
+        let f = Quadratic;
+        let p = TransformedProblem::new(&f, transform);
+        let mut rng = Rng::with_seed(0);
+        for _ in 0..n_trials {
+            let x_ext = sample_external(&mut rng);
+            let x_int = p.to_owned_internal(&x_ext);
+            let x_roundtrip = p.to_owned_external(&x_int);
+            assert_relative_eq!(x_roundtrip, x_ext, epsilon = epsilon);
+
+            let f_int = p.evaluate(&x_int, &())?;
+            let f_ext = f.evaluate(&x_ext, &())?;
+            assert_relative_eq!(f_int, f_ext, epsilon = epsilon);
+
+            let g_int = p.gradient(&x_int, &())?;
+            let g_ext = f.gradient(&x_ext, &())?;
+            let g_int_to_ext = p.pushforward_gradient(&x_int, &g_int);
+            assert_relative_eq!(g_int_to_ext, g_ext, epsilon = epsilon);
+
+            let h_int = p.hessian(&x_int, &())?;
+            let h_ext = f.hessian(&x_ext, &())?;
+            let h_int_to_ext = p.pushforward_hessian(&x_int, &g_int, &h_int);
+            assert_relative_eq!(h_int_to_ext, h_ext, epsilon = epsilon);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn randomized_default_bounds_transform_consistency() -> Result<(), Infallible> {
+        let t = Bounds::from([
+            (-1.1, 2.0),
+            (Float::NEG_INFINITY, 10.0),
+            (0.2, Float::INFINITY),
+            (Float::NEG_INFINITY, Float::INFINITY),
+        ]);
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-1.05..1.95),
+                    rng.f64_range(-5.0..9.0),
+                    rng.f64_range(0.25..6.0),
+                    rng.f64_range(-3.0..3.0),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_minuit_bounds_transform_consistency() -> Result<(), Infallible> {
+        let t = Bounds::new(
+            [
+                (-1.1, 2.0),
+                (Float::NEG_INFINITY, 10.0),
+                (0.2, Float::INFINITY),
+                (Float::NEG_INFINITY, Float::INFINITY),
+            ],
+            &[
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+                &MinuitBoundsTransform,
+            ],
+        );
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-1.05..1.95),
+                    rng.f64_range(-5.0..9.0),
+                    rng.f64_range(0.25..6.0),
+                    rng.f64_range(-3.0..3.0),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_scale_transform_consistency() -> Result<(), Infallible> {
+        let t = ScaleTransform::from_parameter_scales([1e-3, 2.5, 10.0]).unwrap();
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(-2e-3..3e-3),
+                    rng.f64_range(-4.0..4.0),
+                    rng.f64_range(-12.0..15.0),
+                ]
+            },
+            64,
+            1e-8,
+        )
+    }
+
+    #[test]
+    fn randomized_spherical_transform_consistency() -> Result<(), Infallible> {
+        let t = SphericalTransform::new(0, 1, 2);
+        let pi = std::f64::consts::PI as Float;
+        assert_random_transform_consistency(
+            &t,
+            |rng| {
+                dvector![
+                    rng.f64_range(0.25..3.0),
+                    rng.f64_range(0.1..(pi - 0.1)),
+                    rng.f64_range(-pi + 0.1..pi - 0.1),
+                ]
+            },
+            64,
+            1e-5,
+        )
+    }
+
+    #[test]
+    fn randomized_composed_transform_roundtrip() {
+        let t = ScaleTransform::from_parameter_scales([2.0, 0.5])
+            .unwrap()
+            .compose(Bounds::new_default([(-3.0, 3.0), (-2.0, 2.0)]));
+        let mut rng = Rng::with_seed(1);
+        for _ in 0..64 {
+            let x_ext = dvector![rng.f64_range(-2.9..2.9), rng.f64_range(-1.9..1.9)];
+            let z = t.to_internal(&x_ext).into_owned();
+            let x_roundtrip = t.to_external(&z).into_owned();
+            assert_relative_eq!(x_roundtrip, x_ext, epsilon = 1e-8);
+        }
     }
 }

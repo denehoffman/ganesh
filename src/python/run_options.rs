@@ -1,0 +1,1641 @@
+//! Python-facing run-option extraction support for built-in terminators and observers.
+#![allow(missing_docs)]
+
+use pyo3::{Borrowed, FromPyObject, PyAny, PyResult};
+
+use crate::{
+    algorithms::{
+        gradient::{
+            adam::AdamEMATerminator,
+            lbfgsb::{LBFGSBFTerminator, LBFGSBGTerminator, LBFGSBInfNormGTerminator},
+            Adam, AdamConfig, ConjugateGradient, ConjugateGradientConfig,
+            ConjugateGradientGTerminator, GradientStatus, LBFGSBConfig, TrustRegion,
+            TrustRegionConfig, TrustRegionGTerminator, LBFGSB,
+        },
+        gradient_free::{
+            nelder_mead::{NelderMeadFTerminator, NelderMeadXTerminator},
+            simulated_annealing::SimulatedAnnealingTerminator,
+            CMAESConditionCovTerminator, CMAESConfig, CMAESEqualFunValuesTerminator,
+            CMAESNoEffectAxisTerminator, CMAESNoEffectCoordTerminator, CMAESSigmaTerminator,
+            CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator,
+            CMAESTolXUpTerminator, DifferentialEvolution, DifferentialEvolutionConfig,
+            GradientFreeStatus, NelderMead, NelderMeadConfig, SimulatedAnnealing,
+            SimulatedAnnealingConfig, SimulatedAnnealingGenerator, SimulatedAnnealingStatus, CMAES,
+        },
+        mcmc::{AIESConfig, AutocorrelationTerminator, ESSConfig, EnsembleStatus, AIES, ESS},
+        particles::{PSOConfig, SwarmStatus, PSO},
+    },
+    core::{Callbacks, DebugObserver, MaxSteps, ProgressObserver},
+    error::GaneshError,
+    python::extract::{
+        extract_optional_field, extract_optional_one_or_many_field, extract_required_field,
+        get_field,
+    },
+    traits::{Algorithm, CostFunction, Gradient, LogDensity, ProgressStatus, Status},
+    Float,
+};
+use serde::{Deserialize, Serialize};
+
+fn apply_common_callbacks<A, P, S, U, E, C>(
+    mut callbacks: Callbacks<A, P, S, U, E, C>,
+    max_steps: Option<usize>,
+    debug: bool,
+    progress_every: Option<usize>,
+) -> Callbacks<A, P, S, U, E, C>
+where
+    A: Algorithm<P, S, U, E, Config = C>,
+    S: Status + ProgressStatus + std::fmt::Debug,
+    U: std::fmt::Debug,
+{
+    if let Some(max_steps) = max_steps {
+        callbacks = callbacks.with_terminator(MaxSteps(max_steps));
+    }
+    if debug {
+        callbacks = callbacks.with_observer(DebugObserver);
+    }
+    if let Some(progress_every) = progress_every {
+        callbacks = callbacks.with_observer(ProgressObserver::new(progress_every));
+    }
+    callbacks
+}
+
+fn require_structural_fields(
+    obj: &pyo3::Bound<'_, PyAny>,
+    object_name: &str,
+    field_names: &[&str],
+) -> PyResult<()> {
+    for field_name in field_names {
+        if get_field(obj, field_name)?.is_none() {
+            return Err(GaneshError::ConfigError(format!(
+                "structural `{object_name}` extraction requires Python field `{field_name}`"
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn normalize_choice(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyAutocorrelationTerminator {
+    pub n_check: usize,
+    pub n_taus_threshold: usize,
+    pub dtau_threshold: Float,
+    pub discard: Float,
+    pub terminate: bool,
+    pub sokal_window: Option<Float>,
+    pub verbose: bool,
+}
+
+impl Default for PyAutocorrelationTerminator {
+    fn default() -> Self {
+        Self {
+            n_check: 50,
+            n_taus_threshold: 50,
+            dtau_threshold: 0.01,
+            discard: 0.5,
+            terminate: true,
+            sokal_window: None,
+            verbose: false,
+        }
+    }
+}
+
+impl PyAutocorrelationTerminator {
+    fn to_terminator(&self) -> AutocorrelationTerminator {
+        let mut terminator = AutocorrelationTerminator::default()
+            .with_n_check(self.n_check)
+            .with_n_taus_threshold(self.n_taus_threshold)
+            .with_dtau_threshold(self.dtau_threshold)
+            .with_discard(self.discard)
+            .with_terminate(self.terminate)
+            .with_verbose(self.verbose);
+        if let Some(sokal_window) = self.sokal_window {
+            terminator = terminator.with_sokal_window(sokal_window);
+        }
+        terminator
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyAutocorrelationTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AutocorrelationTerminator",
+            &[
+                "n_check",
+                "n_taus_threshold",
+                "dtau_threshold",
+                "discard",
+                "terminate",
+                "sokal_window",
+                "verbose",
+            ],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "n_check")? {
+            config.n_check = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "n_taus_threshold")? {
+            config.n_taus_threshold = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "dtau_threshold")? {
+            config.dtau_threshold = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "discard")? {
+            config.discard = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "terminate")? {
+            config.terminate = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "sokal_window")? {
+            config.sokal_window = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "verbose")? {
+            config.verbose = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyLBFGSBFTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyLBFGSBFTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::sqrt(Float::EPSILON),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBFTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBFTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyLBFGSBGTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyLBFGSBGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBGTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBGTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyLBFGSBInfNormGTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyLBFGSBInfNormGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBInfNormGTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "LBFGSBInfNormGTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PyNelderMeadFTerminator {
+    Amoeba { eps_rel: Float },
+    Absolute { eps_abs: Float },
+    StdDev { eps_abs: Float },
+}
+
+impl Default for PyNelderMeadFTerminator {
+    fn default() -> Self {
+        Self::StdDev {
+            eps_abs: Float::EPSILON.powf(0.25),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadFTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        let kind: Option<String> = extract_optional_field(&obj, "kind")?;
+        match kind
+            .unwrap_or_else(|| "stddev".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['-', ' '], "_")
+            .as_str()
+        {
+            "amoeba" => Ok(Self::Amoeba {
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadAmoebaFTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            "absolute" => Ok(Self::Absolute {
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadAbsoluteFTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            "stddev" => Ok(Self::StdDev {
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadStdDevFTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            other => Err(GaneshError::ConfigError(format!(
+                "unknown Nelder-Mead f terminator kind `{other}`"
+            ))
+            .into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PyNelderMeadXTerminator {
+    Diameter { eps_abs: Float },
+    Higham { eps_rel: Float },
+    Rowan { eps_rel: Float },
+    Singer { eps_rel: Float },
+}
+
+impl Default for PyNelderMeadXTerminator {
+    fn default() -> Self {
+        Self::Singer {
+            eps_rel: Float::EPSILON.powf(0.25),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadXTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        let kind: Option<String> = extract_optional_field(&obj, "kind")?;
+        match kind
+            .unwrap_or_else(|| "singer".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['-', ' '], "_")
+            .as_str()
+        {
+            "diameter" => Ok(Self::Diameter {
+                eps_abs: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadDiameterXTerminator",
+                        &["kind", "eps_abs"],
+                    )?;
+                    extract_optional_field(&obj, "eps_abs")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            "higham" => Ok(Self::Higham {
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadHighamXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            "rowan" => Ok(Self::Rowan {
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadRowanXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            "singer" => Ok(Self::Singer {
+                eps_rel: {
+                    require_structural_fields(
+                        &obj,
+                        "NelderMeadSingerXTerminator",
+                        &["kind", "eps_rel"],
+                    )?;
+                    extract_optional_field(&obj, "eps_rel")?
+                        .unwrap_or_else(|| Float::EPSILON.powf(0.25))
+                },
+            }),
+            other => Err(GaneshError::ConfigError(format!(
+                "unknown Nelder-Mead x terminator kind `{other}`"
+            ))
+            .into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyAdamEMATerminator {
+    pub beta_c: Float,
+    pub eps_loss: Float,
+    pub patience: usize,
+}
+
+impl Default for PyAdamEMATerminator {
+    fn default() -> Self {
+        Self {
+            beta_c: 0.9,
+            eps_loss: Float::EPSILON.sqrt(),
+            patience: 1,
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyAdamEMATerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AdamEMATerminator",
+            &["beta_c", "eps_loss", "patience"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "beta_c")? {
+            config.beta_c = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "eps_loss")? {
+            config.eps_loss = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "patience")? {
+            config.patience = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyConjugateGradientGTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyConjugateGradientGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyConjugateGradientGTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "ConjugateGradientGTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyTrustRegionGTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyTrustRegionGTerminator {
+    fn default() -> Self {
+        Self {
+            eps_abs: Float::cbrt(Float::EPSILON),
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyTrustRegionGTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "TrustRegionGTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PySimulatedAnnealingTemperatureTerminator {
+    pub min_temperature: Float,
+}
+
+impl Default for PySimulatedAnnealingTemperatureTerminator {
+    fn default() -> Self {
+        Self {
+            min_temperature: 1e-3,
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PySimulatedAnnealingTemperatureTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "SimulatedAnnealingTemperatureTerminator",
+            &["min_temperature"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "min_temperature")? {
+            config.min_temperature = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESSigmaTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyCMAESSigmaTerminator {
+    fn default() -> Self {
+        Self { eps_abs: 1e-10 }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESSigmaTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESSigmaTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyCMAESNoEffectAxisTerminator;
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESNoEffectAxisTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESNoEffectAxisTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "no_effect_axis" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES no-effect-axis terminator kind `{kind}`"
+            ))
+            .into());
+        }
+        Ok(Self)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyCMAESNoEffectCoordTerminator;
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESNoEffectCoordTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESNoEffectCoordTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "no_effect_coord" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES no-effect-coord terminator kind `{kind}`"
+            ))
+            .into());
+        }
+        Ok(Self)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESConditionCovTerminator {
+    pub max_condition: Float,
+}
+
+impl Default for PyCMAESConditionCovTerminator {
+    fn default() -> Self {
+        Self {
+            max_condition: 1e14,
+        }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESConditionCovTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESConditionCovTerminator", &["max_condition"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_condition")? {
+            config.max_condition = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyCMAESEqualFunValuesTerminator;
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESEqualFunValuesTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESEqualFunValuesTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "equal_fun_values" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES equal-fun-values terminator kind `{kind}`"
+            ))
+            .into());
+        }
+        Ok(Self)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyCMAESStagnationTerminator;
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESStagnationTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESStagnationTerminator", &["kind"])?;
+        let kind: String = extract_required_field(&obj, "kind")?;
+        if normalize_choice(&kind) != "stagnation" {
+            return Err(GaneshError::ConfigError(format!(
+                "unknown CMA-ES stagnation terminator kind `{kind}`"
+            ))
+            .into());
+        }
+        Ok(Self)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESTolXUpTerminator {
+    pub max_growth: Float,
+}
+
+impl Default for PyCMAESTolXUpTerminator {
+    fn default() -> Self {
+        Self { max_growth: 1e4 }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolXUpTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolXUpTerminator", &["max_growth"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_growth")? {
+            config.max_growth = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESTolFunTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyCMAESTolFunTerminator {
+    fn default() -> Self {
+        Self { eps_abs: 1e-12 }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolFunTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolFunTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESTolXTerminator {
+    pub eps_abs: Float,
+}
+
+impl Default for PyCMAESTolXTerminator {
+    fn default() -> Self {
+        Self { eps_abs: 0.0 }
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESTolXTerminator {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(&obj, "CMAESTolXTerminator", &["eps_abs"])?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "eps_abs")? {
+            config.eps_abs = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyLBFGSBOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub f_tolerance: Option<PyLBFGSBFTerminator>,
+    pub g_tolerance: Option<PyLBFGSBGTerminator>,
+    pub projected_gradient_tolerance: Option<PyLBFGSBInfNormGTerminator>,
+}
+
+impl Default for PyLBFGSBOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            f_tolerance: Some(PyLBFGSBFTerminator::default()),
+            g_tolerance: Some(PyLBFGSBGTerminator::default()),
+            projected_gradient_tolerance: Some(PyLBFGSBInfNormGTerminator::default()),
+        }
+    }
+}
+
+impl PyLBFGSBOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> PyResult<Callbacks<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>>
+    where
+        P: Gradient<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(f_tolerance) = &self.f_tolerance {
+            callbacks = callbacks.with_terminator(LBFGSBFTerminator::new(f_tolerance.eps_abs)?);
+        }
+        if let Some(g_tolerance) = &self.g_tolerance {
+            callbacks = callbacks.with_terminator(LBFGSBGTerminator::new(g_tolerance.eps_abs)?);
+        }
+        if let Some(projected_gradient_tolerance) = &self.projected_gradient_tolerance {
+            callbacks = callbacks.with_terminator(LBFGSBInfNormGTerminator::new(
+                projected_gradient_tolerance.eps_abs,
+            )?);
+        }
+        Ok(callbacks)
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyLBFGSBOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "LBFGSBOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "f_tolerance",
+                "g_tolerance",
+                "projected_gradient_tolerance",
+            ],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "f_tolerance")? {
+            config.f_tolerance = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "g_tolerance")? {
+            config.g_tolerance = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "projected_gradient_tolerance")? {
+            config.projected_gradient_tolerance = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyNelderMeadOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub f_terminators: Vec<PyNelderMeadFTerminator>,
+    pub x_terminators: Vec<PyNelderMeadXTerminator>,
+}
+
+impl Default for PyNelderMeadOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            f_terminators: vec![PyNelderMeadFTerminator::default()],
+            x_terminators: vec![PyNelderMeadXTerminator::default()],
+        }
+    }
+}
+
+impl PyNelderMeadOptions {
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+    where
+        P: CostFunction<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        for f_terminator in &self.f_terminators {
+            callbacks = callbacks.with_terminator(match f_terminator {
+                PyNelderMeadFTerminator::Amoeba { eps_rel } => {
+                    NelderMeadFTerminator::Amoeba { eps_rel: *eps_rel }
+                }
+                PyNelderMeadFTerminator::Absolute { eps_abs } => {
+                    NelderMeadFTerminator::Absolute { eps_abs: *eps_abs }
+                }
+                PyNelderMeadFTerminator::StdDev { eps_abs } => {
+                    NelderMeadFTerminator::StdDev { eps_abs: *eps_abs }
+                }
+            });
+        }
+        for x_terminator in &self.x_terminators {
+            callbacks = callbacks.with_terminator(match x_terminator {
+                PyNelderMeadXTerminator::Diameter { eps_abs } => {
+                    NelderMeadXTerminator::Diameter { eps_abs: *eps_abs }
+                }
+                PyNelderMeadXTerminator::Higham { eps_rel } => {
+                    NelderMeadXTerminator::Higham { eps_rel: *eps_rel }
+                }
+                PyNelderMeadXTerminator::Rowan { eps_rel } => {
+                    NelderMeadXTerminator::Rowan { eps_rel: *eps_rel }
+                }
+                PyNelderMeadXTerminator::Singer { eps_rel } => {
+                    NelderMeadXTerminator::Singer { eps_rel: *eps_rel }
+                }
+            });
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyNelderMeadOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "NelderMeadOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "f_terminators",
+                "x_terminators",
+            ],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_one_or_many_field(&obj, "f_terminators")? {
+            config.f_terminators = value;
+        }
+        if let Some(value) = extract_optional_one_or_many_field(&obj, "x_terminators")? {
+            config.x_terminators = value;
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyPSOOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+}
+
+impl PyPSOOptions {
+    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<PSO, P, SwarmStatus, U, E, PSOConfig>
+    where
+        P: CostFunction<U, E>,
+        U: std::fmt::Debug,
+    {
+        apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        )
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyPSOOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "PSOOptions",
+            &["max_steps", "debug", "progress_every"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PyDifferentialEvolutionOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+}
+
+impl PyDifferentialEvolutionOptions {
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<DifferentialEvolution, P, GradientFreeStatus, U, E, DifferentialEvolutionConfig>
+    where
+        P: CostFunction<U, E>,
+        U: std::fmt::Debug,
+    {
+        apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        )
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyDifferentialEvolutionOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "DifferentialEvolutionOptions",
+            &["max_steps", "debug", "progress_every"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PyAIESOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub autocorrelation: Option<PyAutocorrelationTerminator>,
+}
+
+impl PyAIESOptions {
+    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<AIES, P, EnsembleStatus, U, E, AIESConfig>
+    where
+        P: LogDensity<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(autocorrelation) = &self.autocorrelation {
+            callbacks = callbacks.with_terminator(autocorrelation.to_terminator());
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyAIESOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AIESOptions",
+            &["max_steps", "debug", "progress_every", "autocorrelation"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "autocorrelation")? {
+            config.autocorrelation = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PyESSOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub autocorrelation: Option<PyAutocorrelationTerminator>,
+}
+
+impl PyESSOptions {
+    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<ESS, P, EnsembleStatus, U, E, ESSConfig>
+    where
+        P: LogDensity<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(autocorrelation) = &self.autocorrelation {
+            callbacks = callbacks.with_terminator(autocorrelation.to_terminator());
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyESSOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ESSOptions",
+            &["max_steps", "debug", "progress_every", "autocorrelation"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "autocorrelation")? {
+            config.autocorrelation = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyCMAESOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub sigma: Option<PyCMAESSigmaTerminator>,
+    pub no_effect_axis: Option<PyCMAESNoEffectAxisTerminator>,
+    pub no_effect_coord: Option<PyCMAESNoEffectCoordTerminator>,
+    pub condition_cov: Option<PyCMAESConditionCovTerminator>,
+    pub equal_fun_values: Option<PyCMAESEqualFunValuesTerminator>,
+    pub stagnation: Option<PyCMAESStagnationTerminator>,
+    pub tol_x_up: Option<PyCMAESTolXUpTerminator>,
+    pub tol_fun: Option<PyCMAESTolFunTerminator>,
+    pub tol_x: Option<PyCMAESTolXTerminator>,
+}
+
+impl Default for PyCMAESOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            sigma: Some(PyCMAESSigmaTerminator::default()),
+            no_effect_axis: Some(PyCMAESNoEffectAxisTerminator),
+            no_effect_coord: Some(PyCMAESNoEffectCoordTerminator),
+            condition_cov: Some(PyCMAESConditionCovTerminator::default()),
+            equal_fun_values: Some(PyCMAESEqualFunValuesTerminator),
+            stagnation: Some(PyCMAESStagnationTerminator),
+            tol_x_up: Some(PyCMAESTolXUpTerminator::default()),
+            tol_fun: Some(PyCMAESTolFunTerminator::default()),
+            tol_x: Some(PyCMAESTolXTerminator::default()),
+        }
+    }
+}
+
+impl PyCMAESOptions {
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+    where
+        P: CostFunction<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(sigma) = &self.sigma {
+            callbacks = callbacks.with_terminator(CMAESSigmaTerminator {
+                eps_abs: sigma.eps_abs,
+            });
+        }
+        if self.no_effect_axis.is_some() {
+            callbacks = callbacks.with_terminator(CMAESNoEffectAxisTerminator);
+        }
+        if self.no_effect_coord.is_some() {
+            callbacks = callbacks.with_terminator(CMAESNoEffectCoordTerminator);
+        }
+        if let Some(condition_cov) = &self.condition_cov {
+            callbacks = callbacks.with_terminator(CMAESConditionCovTerminator {
+                max_condition: condition_cov.max_condition,
+            });
+        }
+        if self.equal_fun_values.is_some() {
+            callbacks = callbacks.with_terminator(CMAESEqualFunValuesTerminator);
+        }
+        if self.stagnation.is_some() {
+            callbacks = callbacks.with_terminator(CMAESStagnationTerminator);
+        }
+        if let Some(tol_x_up) = &self.tol_x_up {
+            callbacks = callbacks.with_terminator(CMAESTolXUpTerminator {
+                max_growth: tol_x_up.max_growth,
+            });
+        }
+        if let Some(tol_fun) = &self.tol_fun {
+            callbacks = callbacks.with_terminator(CMAESTolFunTerminator {
+                eps_abs: tol_fun.eps_abs,
+            });
+        }
+        if let Some(tol_x) = &self.tol_x {
+            callbacks = callbacks.with_terminator(CMAESTolXTerminator {
+                eps_abs: tol_x.eps_abs,
+            });
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCMAESOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "CMAESOptions",
+            &[
+                "max_steps",
+                "debug",
+                "progress_every",
+                "sigma",
+                "no_effect_axis",
+                "no_effect_coord",
+                "condition_cov",
+                "equal_fun_values",
+                "stagnation",
+                "tol_x_up",
+                "tol_fun",
+                "tol_x",
+            ],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "sigma")? {
+            config.sigma = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "no_effect_axis")? {
+            config.no_effect_axis = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "no_effect_coord")? {
+            config.no_effect_coord = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "condition_cov")? {
+            config.condition_cov = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "equal_fun_values")? {
+            config.equal_fun_values = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "stagnation")? {
+            config.stagnation = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "tol_x_up")? {
+            config.tol_x_up = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "tol_fun")? {
+            config.tol_fun = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "tol_x")? {
+            config.tol_x = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyAdamOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub ema: Option<PyAdamEMATerminator>,
+}
+
+impl Default for PyAdamOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            ema: Some(PyAdamEMATerminator::default()),
+        }
+    }
+}
+
+impl PyAdamOptions {
+    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<Adam, P, GradientStatus, U, E, AdamConfig>
+    where
+        P: Gradient<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(ema) = &self.ema {
+            callbacks = callbacks.with_terminator(AdamEMATerminator {
+                beta_c: ema.beta_c,
+                eps_loss: ema.eps_loss,
+                patience: ema.patience,
+            });
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyAdamOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "AdamOptions",
+            &["max_steps", "debug", "progress_every", "ema"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "ema")? {
+            config.ema = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyConjugateGradientOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub g_tolerance: Option<PyConjugateGradientGTerminator>,
+}
+
+impl Default for PyConjugateGradientOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            g_tolerance: Some(PyConjugateGradientGTerminator::default()),
+        }
+    }
+}
+
+impl PyConjugateGradientOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> PyResult<Callbacks<ConjugateGradient, P, GradientStatus, U, E, ConjugateGradientConfig>>
+    where
+        P: Gradient<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(g_tolerance) = &self.g_tolerance {
+            callbacks =
+                callbacks.with_terminator(ConjugateGradientGTerminator::new(g_tolerance.eps_abs)?);
+        }
+        Ok(callbacks)
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyConjugateGradientOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "ConjugateGradientOptions",
+            &["max_steps", "debug", "progress_every", "g_tolerance"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "g_tolerance")? {
+            config.g_tolerance = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PyTrustRegionOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub g_tolerance: Option<PyTrustRegionGTerminator>,
+}
+
+impl Default for PyTrustRegionOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            g_tolerance: Some(PyTrustRegionGTerminator::default()),
+        }
+    }
+}
+
+impl PyTrustRegionOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns a Python configuration error if any embedded terminator settings are invalid.
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> PyResult<Callbacks<TrustRegion, P, GradientStatus, U, E, TrustRegionConfig>>
+    where
+        P: Gradient<U, E>,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(g_tolerance) = &self.g_tolerance {
+            callbacks =
+                callbacks.with_terminator(TrustRegionGTerminator::new(g_tolerance.eps_abs)?);
+        }
+        Ok(callbacks)
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyTrustRegionOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "TrustRegionOptions",
+            &["max_steps", "debug", "progress_every", "g_tolerance"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "g_tolerance")? {
+            config.g_tolerance = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PySimulatedAnnealingOptions {
+    pub max_steps: Option<usize>,
+    pub debug: bool,
+    pub progress_every: Option<usize>,
+    pub temperature: Option<PySimulatedAnnealingTemperatureTerminator>,
+}
+
+impl Default for PySimulatedAnnealingOptions {
+    fn default() -> Self {
+        Self {
+            max_steps: None,
+            debug: false,
+            progress_every: None,
+            temperature: Some(PySimulatedAnnealingTemperatureTerminator::default()),
+        }
+    }
+}
+
+impl PySimulatedAnnealingOptions {
+    pub fn build_callbacks<P, U, E, I>(
+        &self,
+    ) -> Callbacks<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E, SimulatedAnnealingConfig>
+    where
+        P: SimulatedAnnealingGenerator<U, E, Input = I>,
+        I: Serialize + for<'de> Deserialize<'de> + Clone + Default + std::fmt::Debug,
+        U: std::fmt::Debug,
+    {
+        let mut callbacks = apply_common_callbacks(
+            Callbacks::empty(),
+            self.max_steps,
+            self.debug,
+            self.progress_every,
+        );
+        if let Some(temperature) = &self.temperature {
+            callbacks = callbacks.with_terminator(SimulatedAnnealingTerminator {
+                min_temperature: temperature.min_temperature,
+            });
+        }
+        callbacks
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PySimulatedAnnealingOptions {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let obj = obj.to_owned();
+        require_structural_fields(
+            &obj,
+            "SimulatedAnnealingOptions",
+            &["max_steps", "debug", "progress_every", "temperature"],
+        )?;
+        let mut config = Self::default();
+        if let Some(value) = extract_optional_field(&obj, "max_steps")? {
+            config.max_steps = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "debug")? {
+            config.debug = value;
+        }
+        if let Some(value) = extract_optional_field(&obj, "progress_every")? {
+            config.progress_every = Some(value);
+        }
+        if let Some(value) = extract_optional_field(&obj, "temperature")? {
+            config.temperature = Some(value);
+        }
+        Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::types::PyAnyMethods;
+
+    use super::*;
+    use crate::{
+        algorithms::gradient::{LBFGSBConfig, LBFGSB},
+        traits::{Algorithm, CostFunction, Gradient},
+        DVector,
+    };
+    use std::convert::Infallible;
+
+    struct Quadratic;
+
+    impl CostFunction for Quadratic {
+        fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
+
+    impl Gradient for Quadratic {
+        fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
+            Ok(x * 2.0)
+        }
+    }
+
+    #[test]
+    fn structural_lbfgsb_run_options() {
+        crate::python::attach_for_tests(|py| {
+            let code = std::ffi::CString::new(
+                "\
+class StructuralFTerminator:
+    def __init__(self):
+        self.eps_abs = 1e-6
+
+class StructuralLBFGSBOptions:
+    def __init__(self):
+        self.max_steps = 2
+        self.debug = False
+        self.progress_every = None
+        self.f_tolerance = StructuralFTerminator()
+        self.g_tolerance = None
+        self.projected_gradient_tolerance = None
+",
+            )
+            .unwrap();
+            let filename = std::ffi::CString::new("structural_lbfgsb_options.py").unwrap();
+            let module_name = std::ffi::CString::new("structural_lbfgsb_options").unwrap();
+            let module =
+                pyo3::types::PyModule::from_code(py, &code, &filename, &module_name).unwrap();
+            let obj = module
+                .getattr("StructuralLBFGSBOptions")
+                .unwrap()
+                .call0()
+                .unwrap();
+            let options: PyLBFGSBOptions = obj.extract().unwrap();
+            let callbacks = options
+                .build_callbacks::<Quadratic, (), Infallible>()
+                .unwrap();
+            let config = LBFGSBConfig::default();
+            let _summary = LBFGSB::default()
+                .process(
+                    &Quadratic,
+                    &(),
+                    DVector::from_vec(vec![1.0, -1.0]),
+                    config,
+                    callbacks,
+                )
+                .unwrap();
+        });
+    }
+}

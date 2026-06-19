@@ -37,6 +37,33 @@
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
+//! use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
+//! use ganesh::traits::*;
+//! use ganesh::{Float, DVector};
+//! use std::convert::Infallible;
+//!
+//! # pub struct Rosenbrock {
+//! #     pub n: usize,
+//! # }
+//! # impl CostFunction for Rosenbrock {
+//! #     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
+//! #         Ok((0..(self.n - 1))
+//! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
+//! #             .sum())
+//! #     }
+//! # }
+//! fn main() -> Result<(), Infallible> {
+//!     let problem = Rosenbrock { n: 2 };
+//!     let mut nm = NelderMead::default();
+//!     let init = NelderMeadInit::new([2.0, 2.0]);
+//!     let result = nm.process_default(&problem, &(), init)?;
+//!     println!("{}", result);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! We could also use some more verbose syntax if we wanted additional customization:
+//! ```rust
 //! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
 //! use ganesh::{Float, DVector};
@@ -55,10 +82,15 @@
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
 //!     let mut nm = NelderMead::default();
-//!     let result = nm.process(&problem,
-//!                             &(),
-//!                             NelderMeadConfig::new([2.0, 2.0]),
-//!                             NelderMead::default_callbacks())?;
+//!     let init = ganesh::algorithms::gradient_free::nelder_mead::NelderMeadInit::new([2.0, 2.0]);
+//!     let config = NelderMeadConfig::default();
+//!     let result = nm.process(
+//!         &problem,
+//!         &(),
+//!         init,
+//!         config,
+//!         NelderMead::default_callbacks(),
+//!     )?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }
@@ -87,6 +119,11 @@
 //! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
 //! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 //! ```
+//!
+//! The `ganesh` crate uses algorithm methods such as [`Algorithm::process`](`crate::traits::algorithm::Algorithm::process`),
+//! [`Algorithm::process_with_default_callbacks`](`crate::traits::algorithm::Algorithm::process_with_default_callbacks`),
+//! and [`Algorithm::process_default`](`crate::traits::algorithm::Algorithm::process_default`) as the primary
+//! entrypoints for running optimizers and samplers.
 //!
 //! ## Algorithms
 //!
@@ -225,6 +262,18 @@ pub mod algorithms;
 /// Module containing standard functions for testing algorithms.
 pub mod test_functions;
 
+/// Experimental algorithm prototypes used to evaluate future API directions.
+pub mod prototype;
+
+/// Module containing `ganesh`-wide error types
+pub mod error;
+
+/// Feature-gated Python / `pyo3` wrapper support.
+///
+/// This module is intended for downstream Rust crates with Python bindings.
+#[cfg(feature = "python")]
+pub mod python;
+
 /// A floating-point number type (defaults to [`f64`], see `f32` feature).
 #[cfg(not(feature = "f32"))]
 pub type Float = f64;
@@ -236,6 +285,11 @@ pub type Float = f32;
 /// Re-export some useful `nalgebra` types for convenience.
 pub use nalgebra;
 pub use nalgebra::{DMatrix, DVector};
+
+#[cfg(feature = "backend-ndarray")]
+pub use core::NdArrayBackend;
+/// Re-export crate-owned scalar and linear algebra traits for generic optimizer APIs.
+pub use core::{LinearAlgebra, Matrix, NalgebraBackend, RealScalar, Scalar, Vector};
 
 /// The mathematical constant $`\pi`$.
 #[cfg(not(feature = "f32"))]

@@ -4,11 +4,15 @@ pub use abort_signal::AbortSignal;
 
 /// Module containing the [`Algorithm`], [`SupportsBounds`], and [`SupportsTransform`] traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, SupportsBounds, SupportsTransform};
+pub use algorithm::{Algorithm, SupportsBounds, SupportsParameterNames, SupportsTransform};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
 pub use callback::{Observer, Terminator};
+
+/// Module containing the [`CheckpointableAlgorithm`] trait.
+pub mod checkpoint;
+pub use checkpoint::CheckpointableAlgorithm;
 
 /// Module containing the [`CostFunction`] trait.
 pub mod cost_function;
@@ -20,7 +24,7 @@ pub use linesearch::LineSearch;
 
 /// Module containing the [`Status`] trait.
 pub mod status;
-pub use status::Status;
+pub use status::{ProgressStatus, Status, StatusMessage, StatusType};
 
 /// Module containing the [`BoundLike`] trait and the [`Bound`] enum.
 pub mod boundlike;

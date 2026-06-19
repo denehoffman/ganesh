@@ -34,8 +34,14 @@ def plot_frame(istep, nsteps, loom):
         alpha=0.5,
     )
     ax.scatter(
-        [history[istep][iparticle]['position']['x'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['position']['x'][0][1] for iparticle in range(nparticles)],
+        [
+            history[istep][iparticle]['position']['x'][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]['position']['x'][0][1]
+            for iparticle in range(nparticles)
+        ],
         marker='o',
         color='blue',
         alpha=0.5,
@@ -48,14 +54,22 @@ def plot_frame(istep, nsteps, loom):
         alpha=0.5,
     )
     ax.quiver(
-        [history[istep][iparticle]['position']['x'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['position']['x'][0][1] for iparticle in range(nparticles)],
         [
-            history[istep][iparticle]['best']['x'][0][0] - history[istep][iparticle]['position']['x'][0][0]
+            history[istep][iparticle]['position']['x'][0][0]
             for iparticle in range(nparticles)
         ],
         [
-            history[istep][iparticle]['best']['x'][0][1] - history[istep][iparticle]['position']['x'][0][1]
+            history[istep][iparticle]['position']['x'][0][1]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]['best']['x'][0][0]
+            - history[istep][iparticle]['position']['x'][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]['best']['x'][0][1]
+            - history[istep][iparticle]['position']['x'][0][1]
             for iparticle in range(nparticles)
         ],
         color='green',
@@ -73,14 +87,22 @@ def plot_frame(istep, nsteps, loom):
         alpha=0.5,
     )
     ax.quiver(
-        [history[istep][iparticle]['position']['x'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['position']['x'][0][1] for iparticle in range(nparticles)],
         [
-            best_history[istep]['x'][0][0] - history[istep][iparticle]['position']['x'][0][0]
+            history[istep][iparticle]['position']['x'][0][0]
             for iparticle in range(nparticles)
         ],
         [
-            best_history[istep]['x'][0][1] - history[istep][iparticle]['position']['x'][0][1]
+            history[istep][iparticle]['position']['x'][0][1]
+            for iparticle in range(nparticles)
+        ],
+        [
+            best_history[istep]['x'][0][0]
+            - history[istep][iparticle]['position']['x'][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            best_history[istep]['x'][0][1]
+            - history[istep][iparticle]['position']['x'][0][1]
             for iparticle in range(nparticles)
         ],
         color='red',
@@ -91,8 +113,14 @@ def plot_frame(istep, nsteps, loom):
         scale=1,
     )
     ax.quiver(
-        [history[istep][iparticle]['position']['x'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['position']['x'][0][1] for iparticle in range(nparticles)],
+        [
+            history[istep][iparticle]['position']['x'][0][0]
+            for iparticle in range(nparticles)
+        ],
+        [
+            history[istep][iparticle]['position']['x'][0][1]
+            for iparticle in range(nparticles)
+        ],
         [history[istep][iparticle]['velocity'][0][0] for iparticle in range(nparticles)],
         [history[istep][iparticle]['velocity'][0][1] for iparticle in range(nparticles)],
         color='blue',
@@ -109,7 +137,7 @@ def plot_frame(istep, nsteps, loom):
 
 if __name__ == '__main__':
     with Path('data.pkl').open('rb') as f:
-        swarm_history = pickle.load(f)  # noqa: S301
+        swarm_history = pickle.load(f)
     history = swarm_history['history']
     best_history = swarm_history['best_history']
     nsteps = len(history)

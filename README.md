@@ -43,7 +43,7 @@
 * Algorithms that are simple to use with sensible defaults.
 * Traits which make developing future algorithms simple and consistent.
 * A simple interface that lets new users get started quickly.
-* The first (and possibly only) pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
+* A pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
 
 ## Quick Start
 
@@ -67,6 +67,23 @@ impl CostFunction for Rosenbrock {
 ```
 To minimize this function, we could consider using the Nelder-Mead algorithm:
 ```rust
+use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
+use ganesh::traits::*;
+use ganesh::{Float, DVector};
+use std::convert::Infallible;
+
+fn main() -> Result<(), Infallible> {
+    let problem = Rosenbrock { n: 2 };
+    let mut nm = NelderMead::default();
+    let init = NelderMeadInit::new([2.0, 2.0]);
+    let result = nm.process_default(&problem, &(), init)?;
+    println!("{}", result);
+    Ok(())
+}
+```
+
+We could also use some more verbose syntax if we wanted additional customization:
+```rust
 use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 use ganesh::traits::*;
 use ganesh::{Float, DVector};
@@ -75,10 +92,15 @@ use std::convert::Infallible;
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
     let mut nm = NelderMead::default();
-    let result = nm.process(&problem,
-                            &(),
-                            NelderMeadConfig::new([2.0, 2.0]),
-                            NelderMead::default_callbacks())?;
+    let init = ganesh::algorithms::gradient_free::nelder_mead::NelderMeadInit::new([2.0, 2.0]);
+    let config = NelderMeadConfig::default();
+    let result = nm.process(
+        &problem,
+        &(),
+        init,
+        config,
+        NelderMead::default_callbacks(),
+    )?;
     println!("{}", result);
     Ok(())
 }
@@ -108,15 +130,24 @@ This should output
 ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
 ```
 
+The `ganesh` crate uses algorithm methods such as `Algorithm::process`,
+`Algorithm::process_with_default_callbacks`,
+and `Algorithm::process_default` as the primary
+entrypoints for running optimizers and samplers.
+
 ## Algorithms
 
 At the moment, `ganesh` contains the following [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s:
 - Gradient descent/quasi-Newton:
   - [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html)
   - [`Adam`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/adam/struct.Adam.html) (for stochastic [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.CostFunction.html)s)
+  - [`Conjugate-Gradient`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/conjugate_gradient/struct.ConjugateGradient.html)
+  - [`Trust Region`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/trust_region/struct.TrustRegion.html)
 - Gradient-free:
   - [`Nelder-Mead`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/nelder_mead/struct.NelderMead.html)
   - [`Simulated Annealing`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/simulated_annealing/struct.SimulatedAnnealing.html)
+  - [`CMAES`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/cmaes/struct.CMAES.html)
+  - [`Differential Evolution`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient_free/differential_evolution/struct.DifferentialEvolution.html)
 - Markov Chain Monte Carlo (MCMC):
   - [`AIES`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/aies/struct.AIES.html)
   - [`ESS`](https://docs.rs/ganesh/latest/ganesh/algorithms/mcmc/ess/struct.ESS.html)

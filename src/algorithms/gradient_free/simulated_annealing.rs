@@ -1,6 +1,10 @@
 use crate::{
-    core::{utils::SampleFloat, Callbacks, Point, SimulatedAnnealingSummary},
-    traits::{Algorithm, GenericCostFunction, Status, SupportsTransform, Terminator, Transform},
+    core::{utils::SampleFloat, Callbacks, EvalCounts, EvaluatedPoint, SimulatedAnnealingSummary},
+    error::{GaneshError, GaneshResult},
+    traits::{
+        Algorithm, GenericCostFunction, ProgressStatus, Status, StatusMessage, SupportsTransform,
+        Terminator, Transform,
+    },
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -79,12 +83,27 @@ impl Default for SimulatedAnnealingConfig {
 }
 impl SimulatedAnnealingConfig {
     /// Create a new [`SimulatedAnnealingConfig`] with the given parameters.
-    pub const fn new(initial_temperature: Float, cooling_rate: Float) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `initial_temperature <= 0` or `cooling_rate` is not in
+    /// the interval `(0, 1)`.
+    pub fn new(initial_temperature: Float, cooling_rate: Float) -> GaneshResult<Self> {
+        if initial_temperature <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Initial temperature must be greater than 0".to_string(),
+            ));
+        }
+        if cooling_rate <= 0.0 || cooling_rate >= 1.0 {
+            return Err(GaneshError::ConfigError(
+                "Cooling rate must be in (0, 1)".to_string(),
+            ));
+        }
+        Ok(Self {
             transform: None,
             initial_temperature,
             cooling_rate,
-        }
+        })
     }
 }
 impl SupportsTransform for SimulatedAnnealingConfig {
@@ -99,19 +118,16 @@ pub struct SimulatedAnnealingStatus<I> {
     /// The current temperature of the simulated annealing algorithm.
     pub temperature: Float,
     /// The initial point in the simulated annealing algorithm.
-    pub initial: Point<I>,
+    pub initial: EvaluatedPoint<I>,
     /// The best point in the simulated annealing algorithm.
-    pub best: Point<I>,
+    pub best: EvaluatedPoint<I>,
     /// The current point in the simulated annealing algorithm.
-    pub current: Point<I>,
-    /// The number of iterations.
-    pub iteration: usize,
-    /// Flag indicating whether the algorithm has converged.
-    pub converged: bool,
+    pub current: EvaluatedPoint<I>,
     /// The message to be displayed at the end of the algorithm.
-    pub message: String,
-    /// The number of function evaluations.
-    pub cost_evals: usize,
+    pub message: StatusMessage,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 
 impl<I> Status for SimulatedAnnealingStatus<I>
@@ -119,26 +135,56 @@ where
     I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
 {
     fn reset(&mut self) {
-        self.converged = false;
-        self.message = String::new();
-        self.best = Point::default();
-        self.current = Point::default();
-        self.iteration = 0;
+        self.temperature = Default::default();
+        self.best = Default::default();
+        self.current = Default::default();
+        self.message = Default::default();
+        self.evals = Default::default();
     }
-    fn converged(&self) -> bool {
-        self.converged
-    }
-    fn message(&self) -> &str {
+
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
+    }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        let invalid = !self.initial.fx.is_finite()
+            || !self.best.fx.is_finite()
+            || !self.current.fx.is_finite();
+        if invalid {
+            self.set_message().fail_with_message("f(x) is not finite");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+impl<I> ProgressStatus for SimulatedAnnealingStatus<I>
+where
+    I: Serialize + for<'a> Deserialize<'a> + Clone + Default,
+{
+    fn write_progress(&self, out: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
+        write!(
+            out,
+            "status={} temperature={} best_fx={} current_fx={}",
+            self.message, self.temperature, self.best.fx, self.current.fx
+        )
     }
 }
 
 /// A struct for the simulated annealing algorithm.
 pub struct SimulatedAnnealing {
     rng: fastrand::Rng,
+}
+
+impl Default for SimulatedAnnealing {
+    fn default() -> Self {
+        Self::new(Some(0))
+    }
 }
 
 impl SimulatedAnnealing {
@@ -157,6 +203,7 @@ where
 {
     type Summary = SimulatedAnnealingSummary<I>;
     type Config = SimulatedAnnealingConfig;
+    type Init = ();
 
     #[allow(clippy::expect_used)]
     fn initialize(
@@ -164,18 +211,16 @@ where
         problem: &P,
         status: &mut SimulatedAnnealingStatus<I>,
         args: &U,
+        _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let x0 = problem.initial(&config.transform, status, args);
         let fx0 = problem.evaluate_generic(&x0, args)?;
         status.temperature = config.initial_temperature;
-        status.current = Point {
-            x: x0,
-            fx: Some(fx0),
-        };
+        status.current = EvaluatedPoint::new(x0, fx0);
         status.initial = status.current.clone();
         status.best = status.current.clone();
-        status.iteration = 0;
+        status.set_message().initialize();
         Ok(())
     }
 
@@ -189,21 +234,21 @@ where
     ) -> Result<(), E> {
         let x = problem.generate(&config.transform, status, args);
         let fx = problem.evaluate_generic(&x, args)?;
-        status.cost_evals += 1;
+        status.evals.record_f();
 
-        status.current = Point { x, fx: Some(fx) };
         status.temperature *= config.cooling_rate;
-        status.iteration += 1;
 
-        let acceptance_probability = if status.current.fx < status.best.fx {
-            1.0
-        } else {
-            let d_fx = status.current.fx_checked() - status.best.fx_checked();
-            (-d_fx / status.temperature).exp()
-        };
+        if fx < status.best.fx {
+            status.current = EvaluatedPoint::new(x, fx);
+            status.best = status.current.clone();
+            return Ok(());
+        }
+
+        let d_fx = fx - status.current.fx;
+        let acceptance_probability = (-d_fx / status.temperature).exp();
 
         if acceptance_probability > self.rng.float() {
-            status.best = status.current.clone();
+            status.current = EvaluatedPoint::new(x, fx);
         }
         Ok(())
     }
@@ -214,6 +259,7 @@ where
         _problem: &P,
         status: &SimulatedAnnealingStatus<I>,
         _args: &U,
+        _init: &Self::Init,
         _config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(SimulatedAnnealingSummary {
@@ -221,9 +267,8 @@ where
             message: status.message.clone(),
             x0: status.initial.x.clone(),
             x: status.best.x.clone(),
-            fx: status.best.fx_checked(),
-            cost_evals: status.cost_evals,
-            converged: status.converged,
+            fx: status.best.fx,
+            evals: status.evals,
         })
     }
 
@@ -239,11 +284,14 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::Bounds, test_functions::Rosenbrock, traits::cost_function::GenericGradient, DVector,
+        core::{Bounds, Callbacks, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::cost_function::GenericGradient,
+        DVector,
     };
     use approx::assert_relative_eq;
     use nalgebra::DMatrix;
-    use std::fmt::Debug;
+    use std::{cell::RefCell, convert::Infallible, fmt::Debug};
 
     pub struct GradientAnnealingProblem<U, E>(
         Box<dyn GenericGradient<U, E, Input = DVector<Float>>>,
@@ -305,17 +353,126 @@ mod tests {
 
     #[test]
     fn test_simulated_annealing() {
-        let mut solver = SimulatedAnnealing::new(Some(0));
+        let mut solver = SimulatedAnnealing::default();
         let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
         let result = solver
             .process(
                 &problem,
                 &(),
+                (),
                 SimulatedAnnealingConfig::new(1.0, 0.999)
+                    .unwrap()
                     .with_transform(&Bounds::from([(-5.0, 5.0), (-5.0, 5.0)])),
                 SimulatedAnnealing::default_callbacks(),
             )
             .unwrap();
         assert_relative_eq!(result.fx, 0.0, epsilon = 0.5);
+    }
+
+    struct SequenceAnnealingProblem {
+        initial: DVector<Float>,
+        proposals: RefCell<Vec<DVector<Float>>>,
+    }
+    impl SequenceAnnealingProblem {
+        fn new(initial: &[Float], proposals: Vec<&[Float]>) -> Self {
+            Self {
+                initial: DVector::from_row_slice(initial),
+                proposals: RefCell::new(
+                    proposals
+                        .into_iter()
+                        .map(DVector::from_row_slice)
+                        .collect::<Vec<_>>(),
+                ),
+            }
+        }
+    }
+    impl GenericCostFunction<(), Infallible> for SequenceAnnealingProblem {
+        type Input = DVector<Float>;
+
+        fn evaluate_generic(&self, x: &Self::Input, _: &()) -> Result<Float, Infallible> {
+            Ok(x[0])
+        }
+    }
+    impl SimulatedAnnealingGenerator<(), Infallible> for SequenceAnnealingProblem {
+        fn initial(
+            &self,
+            _: &Option<Box<dyn Transform>>,
+            _: &mut SimulatedAnnealingStatus<Self::Input>,
+            _: &(),
+        ) -> Self::Input {
+            self.initial.clone()
+        }
+
+        fn generate(
+            &self,
+            _: &Option<Box<dyn Transform>>,
+            _: &mut SimulatedAnnealingStatus<Self::Input>,
+            _: &(),
+        ) -> Self::Input {
+            self.proposals.borrow_mut().remove(0)
+        }
+    }
+
+    #[test]
+    fn accepts_improving_proposal_even_if_not_new_best() {
+        let mut solver = SimulatedAnnealing::default();
+        let problem = SequenceAnnealingProblem::new(&[2.0], vec![&[1.0]]);
+        let config = SimulatedAnnealingConfig::new(0.01, 0.9).unwrap();
+        let mut status = SimulatedAnnealingStatus::default();
+
+        solver
+            .initialize(&problem, &mut status, &(), &(), &config)
+            .unwrap();
+        status.best = EvaluatedPoint::new(DVector::from_row_slice(&[0.0]), 0.0);
+        status.current = EvaluatedPoint::new(DVector::from_row_slice(&[2.0]), 2.0);
+
+        solver.step(0, &problem, &mut status, &(), &config).unwrap();
+
+        assert_relative_eq!(status.current.x[0], 1.0);
+        assert_relative_eq!(status.current.fx, 1.0);
+        assert_relative_eq!(status.best.x[0], 0.0);
+        assert_relative_eq!(status.best.fx, 0.0);
+    }
+
+    #[test]
+    fn rejected_proposal_does_not_advance_current() {
+        let mut solver = SimulatedAnnealing::default();
+        let problem = SequenceAnnealingProblem::new(&[0.0], vec![&[1.0]]);
+        let config = SimulatedAnnealingConfig::new(1e-6, 0.9).unwrap();
+        let mut status = SimulatedAnnealingStatus::default();
+
+        solver
+            .initialize(&problem, &mut status, &(), &(), &config)
+            .unwrap();
+        let current_before = status.current.clone();
+        let best_before = status.best.clone();
+
+        solver.step(0, &problem, &mut status, &(), &config).unwrap();
+
+        assert_eq!(status.current.x, current_before.x);
+        assert_eq!(status.current.fx, current_before.fx);
+        assert_eq!(status.best.x, best_before.x);
+        assert_eq!(status.best.fx, best_before.fx);
+    }
+
+    #[test]
+    fn summary_reports_nonzero_evals_and_terminal_message() {
+        let mut solver = SimulatedAnnealing::default();
+        let problem = GradientAnnealingProblem::new(Rosenbrock { n: 2 }, &[0.0, 0.0]);
+        let result = solver
+            .process(
+                &problem,
+                &(),
+                (),
+                SimulatedAnnealingConfig::new(1.0, 0.999).unwrap(),
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.evals.f() > 0);
+        assert!(result
+            .message
+            .to_string()
+            .contains("Maximum number of steps reached"));
     }
 }

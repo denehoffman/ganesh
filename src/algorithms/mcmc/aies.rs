@@ -1,15 +1,19 @@
 use crate::{
-    algorithms::mcmc::{EnsembleStatus, Walker},
+    algorithms::mcmc::{
+        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
+    },
     core::{
         utils::{RandChoice, SampleFloat},
         MCMCSummary, Point,
     },
-    traits::{Algorithm, LogDensity, Status, SupportsTransform, Transform},
+    error::{GaneshError, GaneshResult},
+    traits::{
+        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
+        SupportsTransform, Transform,
+    },
     DVector, Float,
 };
 use fastrand::Rng;
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// A move used by the the [`AIES`] algorithm
 ///
@@ -31,6 +35,19 @@ impl AIESMove {
     pub const fn stretch(weight: Float) -> WeightedAIESMove {
         (Self::Stretch { a: 2.0 }, weight)
     }
+    /// Create a new [`AIESMove::Stretch`] with a usage weight and custom scaling parameter
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `a` is not strictly positive.
+    pub fn custom_stretch(a: Float, weight: Float) -> GaneshResult<WeightedAIESMove> {
+        if a <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Scaling parameter must be greater than 0".to_string(),
+            ));
+        }
+        Ok((Self::Stretch { a }, weight))
+    }
     /// Create a new [`AIESMove::Walk`] with a usage weight
     pub const fn walk(weight: Float) -> WeightedAIESMove {
         (Self::Walk, weight)
@@ -48,11 +65,11 @@ impl AIESMove {
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
-            Self::Stretch { a } => {
-                ensemble.update_message(&format!("Stretch Move (a = {})", &a));
+            Self::Stretch { .. } => {
+                ensemble.set_message().step_with_message("Stretch Move");
             }
             Self::Walk => {
-                ensemble.update_message("Walk Move");
+                ensemble.set_message().step_with_message("Walk Move");
             }
         }
         for (i, walker) in ensemble.iter().enumerate() {
@@ -78,23 +95,23 @@ impl AIESMove {
                     //
                     // F⁻¹(u) = ((a-1) u + 1)² / a
                     let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
-                    let x_l = &ensemble.get_compliment_walker(i, rng).get_latest();
+                    let x_l =
+                        ensemble.walkers[ensemble.get_compliment_walker_index(i, rng)].get_latest();
                     // Xₖ -> Y = Xₗ + Z(Xₖ(t) - Xₗ)
-                    let mut proposal = Point::from(
-                        transform.to_internal(&x_l.read().x).as_ref()
-                            - (transform.to_internal(&x_k.read().x).as_ref()
-                                - transform.to_internal(&x_l.read().x).as_ref())
+                    let proposal = Point::from(
+                        transform.to_internal(&x_l.x).as_ref()
+                            + (transform.to_internal(&x_k.x).as_ref()
+                                - transform.to_internal(&x_l.x).as_ref())
                             .scale(z),
-                    );
-                    proposal.log_density_transformed(problem, transform, args)?;
+                    )
+                    .log_density_transformed(problem, transform, args)?;
                     // The acceptance probability should then be (in an n-dimensional problem),
                     //
                     // Pr[stretch] = min { 1, Zⁿ⁻¹ π(Y) / π(Xₖ(t))}
                     //
                     // Then if Pr[stretch] > U[0,1], Xₖ(t+1) = Y else Xₖ(t+1) = Xₖ(t)
-                    let n = x_l.read().x.len();
-                    let r = z.ln().mul_add((n - 1) as Float, proposal.fx_checked())
-                        - x_k.read().fx_checked();
+                    let n = x_l.x.len();
+                    let r = z.ln().mul_add((n - 1) as Float, proposal.fx) - x_k.fx;
                     (proposal, r)
                 }
                 Self::Walk => {
@@ -114,26 +131,26 @@ impl AIESMove {
                     let w = ensemble
                         .iter_compliment(i)
                         .map(|x_l| {
-                            (transform.to_internal(&x_l.read().x).as_ref() - &x_s)
+                            (transform.to_internal(&x_l.x).as_ref() - &x_s)
                                 .scale(rng.normal(0.0, 1.0))
                         })
                         .sum::<DVector<Float>>();
-                    let mut proposal =
-                        Point::from(transform.to_internal(&x_k.read().x).as_ref() + w);
+                    let proposal = Point::from(transform.to_internal(&x_k.x).as_ref() + w)
+                        .log_density_transformed(problem, transform, args)?;
                     // Xₖ -> Y = Xₖ + W
                     // where W ~ Norm(μ=0, σ=Cₛ)
-                    proposal.log_density_transformed(problem, transform, args)?;
                     // Pr[walk] = min { 1, π(Y) / π(Xₖ(t))}
-                    let r = proposal.fx_checked() - x_k.read().fx_checked();
+                    let r = proposal.fx - x_k.fx;
                     (proposal, r)
                 }
             };
             if r > rng.float().ln() {
-                positions.push(Arc::new(RwLock::new(proposal.to_external(transform))))
+                positions.push(proposal.to_external(transform))
             } else {
-                positions.push(x_k)
+                positions.push(x_k.clone())
             }
         }
+        ensemble.evals.record_many_f(ensemble.walkers.len());
         ensemble.push(positions);
         Ok(())
     }
@@ -142,33 +159,75 @@ impl AIESMove {
 /// The internal configuration struct for the [`AIES`] algorithm.
 #[derive(Clone)]
 pub struct AIESConfig {
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
-    walkers: Vec<Walker>,
     moves: Vec<WeightedAIESMove>,
+    chain_storage: ChainStorageMode,
 }
 impl SupportsTransform for AIESConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
     }
 }
+impl SupportsParameterNames for AIESConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
+    }
+}
 impl AIESConfig {
-    /// Create a new configuratione with the initial positions of the walkers.
-    ///
-    /// This sets the default move list to use a [`AIESMove::Stretch`] move 100% of the time.
-    ///
-    /// # See Also
-    /// [`Walker::new`]
-    pub fn new(x0: Vec<DVector<Float>>) -> Self {
-        Self {
-            transform: None,
-            walkers: x0.into_iter().map(Walker::new).collect(),
-            moves: vec![AIESMove::stretch(1.0)],
-        }
+    /// Create a new configuration with default move settings.
+    pub fn new() -> Self {
+        Self::default()
     }
     /// Set the moves for the [`AIES`] algorithm to use.
-    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the provided move weights are invalid.
+    pub fn with_moves<T: AsRef<[WeightedAIESMove]>>(mut self, moves: T) -> GaneshResult<Self> {
+        validate_weighted_moves(
+            &moves
+                .as_ref()
+                .iter()
+                .map(|move_weight| move_weight.1)
+                .collect::<Vec<_>>(),
+            "AIES",
+        )?;
         self.moves = moves.as_ref().to_vec();
+        Ok(self)
+    }
+    /// Set how much chain history to retain in memory during sampling.
+    pub const fn with_chain_storage(mut self, chain_storage: ChainStorageMode) -> Self {
+        self.chain_storage = chain_storage;
         self
+    }
+}
+impl Default for AIESConfig {
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            transform: None,
+            moves: vec![AIESMove::stretch(1.0)],
+            chain_storage: ChainStorageMode::default(),
+        }
+    }
+}
+
+/// Initialization payload for an [`AIES`] run.
+#[derive(Clone)]
+pub struct AIESInit {
+    walkers: Vec<DVector<Float>>,
+}
+impl AIESInit {
+    /// Create a new initialization payload with the starting walker positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if the walker set has inconsistent dimensions or fewer than
+    /// two walkers.
+    pub fn new(walkers: Vec<DVector<Float>>) -> GaneshResult<Self> {
+        validate_walker_inputs(&walkers, "AIES", 2)?;
+        Ok(Self { walkers })
     }
 }
 
@@ -205,15 +264,22 @@ where
 {
     type Summary = MCMCSummary;
     type Config = AIESConfig;
+    type Init = AIESInit;
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut EnsembleStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        status.walkers = config.walkers.clone();
-        status.log_density_latest(problem, args)
+        status.walkers = init.walkers.iter().cloned().map(Walker::new).collect();
+        for walker in status.walkers.iter_mut() {
+            walker.set_chain_storage(config.chain_storage);
+        }
+        status.log_density_latest(problem, args)?;
+        status.set_message().initialize();
+        Ok(())
     }
 
     fn step(
@@ -227,7 +293,9 @@ where
         let step_type_index = self
             .rng
             .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .unwrap_or(0);
+            .unwrap_or_else(|| {
+                unreachable!("AIESConfig validates that move weights contain a positive entry")
+            });
         let step_type = config.moves[step_type_index].0;
         step_type.step(problem, &config.transform, args, status, &mut self.rng)
     }
@@ -238,16 +306,27 @@ where
         _func: &P,
         status: &EnsembleStatus,
         _args: &U,
-        _config: &Self::Config,
+        _init: &Self::Init,
+        config: &Self::Config,
     ) -> Result<Self::Summary, E> {
+        let mut message = status.message().clone();
+        if matches!(message.status_type, StatusType::Custom)
+            && message
+                .text()
+                .is_some_and(|text| text.contains("Maximum number of steps reached"))
+        {
+            let text = message.text.clone();
+            if let Some(text) = text {
+                message.succeed_with_message(text);
+            }
+        }
         Ok(MCMCSummary {
             bounds: None,
-            parameter_names: None,
-            message: status.message().to_string(),
+            parameter_names: config.parameter_names.clone(),
+            message,
             chain: status.get_chain(None, None),
-            cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
-            converged: status.converged(),
+            chain_storage: config.chain_storage,
+            evals: status.evals,
             dimension: status.dimension(),
         })
     }
@@ -255,7 +334,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_functions::Rosenbrock;
+    use crate::{
+        core::{Callbacks, MaxSteps},
+        test_functions::Rosenbrock,
+        traits::Algorithm,
+    };
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
 
     fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
         (0..n_walkers)
@@ -263,15 +348,67 @@ mod tests {
             .collect()
     }
 
+    struct CenteredLogDensity {
+        target: Float,
+    }
+    impl crate::traits::LogDensity<(), Infallible> for CenteredLogDensity {
+        fn log_density(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
+            Ok(-Float::powi(x[0] - self.target, 2))
+        }
+    }
+
     #[test]
     fn test_aies_config_builders() {
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(0.5), AIESMove::walk(0.5)];
 
-        let config = AIESConfig::new(walkers.clone()).with_moves(moves.clone());
+        let init = AIESInit::new(walkers.clone()).unwrap();
+        let config = AIESConfig::default().with_moves(moves.clone()).unwrap();
 
-        assert_eq!(config.walkers.len(), walkers.len());
+        assert_eq!(init.walkers.len(), walkers.len());
         assert_eq!(config.moves.len(), moves.len());
+    }
+
+    #[test]
+    fn test_aies_rejects_invalid_move_weights() {
+        let err = match AIESConfig::default()
+            .with_moves([AIESMove::stretch(-1.0), AIESMove::walk(1.0)])
+        {
+            Err(err) => err,
+            Ok(_) => panic!("negative AIES move weights should be rejected"),
+        };
+        assert!(err.to_string().contains("finite and non-negative"));
+
+        let err =
+            match AIESConfig::default().with_moves([AIESMove::stretch(0.0), AIESMove::walk(0.0)]) {
+                Err(err) => err,
+                Ok(_) => panic!("zero-sum AIES move weights should be rejected"),
+            };
+        assert!(err.to_string().contains("sum to a positive finite value"));
+    }
+
+    #[test]
+    fn test_aies_rejects_invalid_walker_inputs() {
+        let err = match AIESInit::new(Vec::new()) {
+            Err(err) => err,
+            Ok(_) => panic!("empty AIES walker lists should be rejected"),
+        };
+        assert!(err.to_string().contains("at least 2 walkers"));
+
+        let err = match AIESInit::new(vec![DVector::from_row_slice(&[1.0])]) {
+            Err(err) => err,
+            Ok(_) => panic!("single-walker AIES inputs should be rejected"),
+        };
+        assert!(err.to_string().contains("at least 2 walkers"));
+
+        let err = match AIESInit::new(vec![
+            DVector::from_row_slice(&[1.0, 2.0]),
+            DVector::from_row_slice(&[3.0]),
+        ]) {
+            Err(err) => err,
+            Ok(_) => panic!("mixed-dimension AIES walkers should be rejected"),
+        };
+        assert!(err.to_string().contains("same dimension"));
     }
 
     #[test]
@@ -283,12 +420,12 @@ mod tests {
         AIESMove::Stretch { a: 2.0 }
             .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
-        assert!(status.message().contains("Stretch Move"));
+        assert!(status.message().to_string().contains("Stretch Move"));
 
         AIESMove::Walk
             .step(&problem, &None, &(), &mut status, &mut rng)
             .unwrap();
-        assert!(status.message().contains("Walk Move"));
+        assert!(status.message().to_string().contains("Walk Move"));
     }
 
     #[test]
@@ -296,15 +433,18 @@ mod tests {
         let mut aies = AIES::default();
 
         let walkers = make_walkers(3, 2);
-        let config = AIESConfig::new(walkers.clone());
+        let init = AIESInit::new(walkers.clone()).unwrap();
+        let config = AIESConfig::default();
         let problem = Rosenbrock { n: 2 };
         let mut status = EnsembleStatus::default();
 
-        aies.initialize(&problem, &mut status, &(), &config)
+        aies.initialize(&problem, &mut status, &(), &init, &config)
             .unwrap();
         assert_eq!(status.walkers.len(), walkers.len());
 
-        let summary = aies.summarize(0, &problem, &status, &(), &config).unwrap();
+        let summary = aies
+            .summarize(0, &problem, &status, &(), &init, &config)
+            .unwrap();
         assert_eq!(summary.dimension, status.dimension());
     }
 
@@ -315,12 +455,139 @@ mod tests {
 
         let walkers = make_walkers(3, 2);
         let moves = vec![AIESMove::stretch(1.0), AIESMove::walk(1.0)];
-        let config = AIESConfig::new(walkers).with_moves(moves);
+        let init = AIESInit::new(walkers).unwrap();
+        let config = AIESConfig::default().with_moves(moves).unwrap();
 
         let mut status = EnsembleStatus::default();
-        aies.initialize(&problem, &mut status, &(), &config)
+        aies.initialize(&problem, &mut status, &(), &init, &config)
             .unwrap();
 
         assert!(aies.step(0, &problem, &mut status, &(), &config).is_ok());
+    }
+
+    #[test]
+    fn stretch_move_proposes_toward_current_from_compliment() {
+        let mut rng = Rng::with_seed(0);
+        let a: Float = 2.0;
+        let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
+        let expected = 1.0 + z * (2.0 - 1.0);
+        let problem = CenteredLogDensity { target: expected };
+        let mut ensemble = EnsembleStatus {
+            walkers: vec![
+                Walker::new(DVector::from_row_slice(&[2.0])),
+                Walker::new(DVector::from_row_slice(&[1.0])),
+            ],
+            ..Default::default()
+        };
+        ensemble.log_density_latest(&problem, &()).unwrap();
+
+        AIESMove::Stretch { a }
+            .step(&problem, &None, &(), &mut ensemble, &mut Rng::with_seed(0))
+            .unwrap();
+
+        let x0 = ensemble.walkers[0].get_latest();
+        assert_relative_eq!(x0.x[0], expected);
+    }
+
+    #[test]
+    fn summary_marks_max_steps_as_success_and_counts_initial_evals() {
+        let mut aies = AIES::default();
+        let walkers = make_walkers(4, 2);
+        let init = AIESInit::new(walkers).unwrap();
+        let config = AIESConfig::default();
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                init,
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert!(result.evals.f() >= 4);
+        assert_eq!(result.evals.g(), 0);
+        assert!(result.message.success());
+        assert!(result
+            .message
+            .text_or_empty()
+            .contains("Maximum number of steps reached"));
+    }
+
+    #[test]
+    fn summary_uses_parameter_names_from_config() {
+        let mut aies = AIES::default();
+        let init = AIESInit::new(make_walkers(4, 2)).unwrap();
+        let config = AIESConfig::default().with_parameter_names(["alpha", "beta"]);
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                init,
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.parameter_names,
+            Some(vec!["alpha".to_string(), "beta".to_string()])
+        );
+    }
+
+    #[test]
+    fn rolling_chain_storage_limits_retained_history() {
+        let mut aies = AIES::default();
+        let init = AIESInit::new(make_walkers(4, 2)).unwrap();
+        let config =
+            AIESConfig::default().with_chain_storage(ChainStorageMode::Rolling { window: 2 });
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                init,
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Rolling { window: 2 }
+        );
+        assert!(result.chain.iter().all(|walker| walker.len() <= 2));
+        assert_eq!(result.dimension.1, 2);
+    }
+
+    #[test]
+    fn sampled_chain_storage_downsamples_retained_history() {
+        let mut aies = AIES::default();
+        let init = AIESInit::new(make_walkers(4, 2)).unwrap();
+        let config = AIESConfig::default().with_chain_storage(ChainStorageMode::Sampled {
+            keep_every: 2,
+            max_samples: Some(3),
+        });
+
+        let result = aies
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                init,
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(4)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.chain_storage,
+            ChainStorageMode::Sampled {
+                keep_every: 2,
+                max_samples: Some(3),
+            }
+        );
+        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
+        assert_eq!(result.dimension.1, 3);
     }
 }

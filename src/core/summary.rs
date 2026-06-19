@@ -1,5 +1,13 @@
-use crate::{core::transforms::Bounds, traits::Bound, DMatrix, DVector, Float};
+use crate::{
+    algorithms::mcmc::ChainStorageMode,
+    core::{
+        mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds, EvalCounts, MCMCDiagnostics,
+    },
+    traits::{Bound, StatusMessage},
+    DMatrix, DVector, Float,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Error as SerdeJsonError;
 use std::fmt::Display;
 
 /// A trait used with the associated [`Summary`](`crate::traits::Algorithm`) type to set parameter names.
@@ -22,6 +30,66 @@ pub trait HasParameterNames: Sized {
     }
 }
 
+/// A rendered summary containing both human-readable and machine-readable representations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedSummary {
+    /// The summary rendered using its [`Display`] implementation.
+    pub pretty: String,
+    /// The summary rendered as JSON.
+    pub json: String,
+}
+
+/// Helper methods for summary types that support both display formatting and serialization.
+pub trait SummaryExport: Display + Serialize {
+    /// Render the summary as a string using its [`Display`] implementation.
+    fn to_pretty_string(&self) -> String {
+        self.to_string()
+    }
+
+    /// Render the summary as a compact JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
+    fn to_json_string(&self) -> Result<String, SerdeJsonError> {
+        serde_json::to_string(self)
+    }
+
+    /// Render the summary as an indented JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
+    fn to_json_string_pretty(&self) -> Result<String, SerdeJsonError> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Render the summary as both a display string and compact JSON in one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to JSON.
+    fn render(&self) -> Result<RenderedSummary, SerdeJsonError> {
+        Ok(RenderedSummary {
+            pretty: self.to_pretty_string(),
+            json: self.to_json_string()?,
+        })
+    }
+
+    /// Render the summary as both a display string and indented JSON in one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the summary cannot be serialized to indented JSON.
+    fn render_pretty_json(&self) -> Result<RenderedSummary, SerdeJsonError> {
+        Ok(RenderedSummary {
+            pretty: self.to_pretty_string(),
+            json: self.to_json_string_pretty()?,
+        })
+    }
+}
+impl<T> SummaryExport for T where T: Display + Serialize {}
+
 /// A struct that holds the results of a minimization run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MinimizationSummary {
@@ -30,7 +98,7 @@ pub struct MinimizationSummary {
     /// The names of the parameters. This is `None` if no names were set.
     pub parameter_names: Option<Vec<String>>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The initial parameters of the minimization.
     pub x0: DVector<Float>,
     /// The current parameters of the minimization.
@@ -39,12 +107,9 @@ pub struct MinimizationSummary {
     pub std: DVector<Float>,
     /// The current value of the minimization problem function at [`MinimizationSummary::x`].
     pub fx: Float,
-    /// The number of function evaluations.
-    pub cost_evals: usize,
-    /// The number of gradient evaluations.
-    pub gradient_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
     /// Covariance of fit parameters.
     pub covariance: DMatrix<Float>,
 }
@@ -68,19 +133,19 @@ impl Display for MinimizationSummary {
         builder.push_record(["FIT RESULTS"]);
         builder.push_record(["Status", "f(x)", "", "#f(x)", "", "#∇f(x)", ""]);
         builder.push_record([
-            if self.converged {
+            if self.message.success() {
                 "Converged"
             } else {
                 "Invalid Minimum"
             },
             &format!("{:.5}", self.fx),
             "",
-            &format!("{:.5}", self.cost_evals),
+            &format!("{:.5}", self.evals.f()),
             "",
-            &format!("{:.5}", self.gradient_evals),
+            &format!("{:.5}", self.evals.g()),
             "",
         ]);
-        builder.push_record(["Message", &self.message]);
+        builder.push_record(["Message", &self.message.to_string()]);
 
         let names = self
             .parameter_names
@@ -169,17 +234,16 @@ pub struct SimulatedAnnealingSummary<I> {
     /// The bounds of the parameters. This is `None` if no bounds were set.
     pub bounds: Option<Bounds>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The initial parameters of the minimization.
     pub x0: I,
     /// The current parameters of the minimization.
     pub x: I,
     /// The standard deviations of the parameters at the end of the fit.
     pub fx: Float,
-    /// The number of function evaluations.
-    pub cost_evals: usize,
-    /// Flag that says whether or not the fit is in a converged state.
-    pub converged: bool,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 
 /// A struct that holds the results of an MCMC sampling.
@@ -190,21 +254,29 @@ pub struct MCMCSummary {
     /// The names of the parameters. This is `None` if no names were set.
     pub parameter_names: Option<Vec<String>>,
     /// A message that can be set by minimization algorithms.
-    pub message: String,
+    pub message: StatusMessage,
     /// The chain of positions sampled by each walker with dimension `(n_walkers, n_steps,
     /// n_variables)`.
     pub chain: Vec<Vec<DVector<Float>>>,
-    /// The number of function evaluations.
-    pub cost_evals: usize,
-    /// The number of gradient evaluations.
-    pub gradient_evals: usize,
-    /// Flag that says whether or not the sampler is in a converged state.
-    pub converged: bool,
+    /// The mode used to retain chain history in memory during sampling.
+    pub chain_storage: ChainStorageMode,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
 }
 
 impl MCMCSummary {
+    /// Compute diagnostics from the retained chain.
+    ///
+    /// The diagnostics are computed from the retained chain after optional burn-in and thinning.
+    /// Acceptance rates are inferred from retained chain transitions, so `Rolling` and `Sampled`
+    /// storage modes describe the retained transitions rather than the full original run.
+    pub fn diagnostics(&self, burn: Option<usize>, thin: Option<usize>) -> MCMCDiagnostics {
+        diagnostics_from_chain(&self.get_chain(burn, thin))
+    }
+
     /// Get a [`Vec`] containing a [`Vec`] of positions for each
     /// [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble
     ///
@@ -253,6 +325,34 @@ impl HasParameterNames for MCMCSummary {
     }
 }
 
+impl Display for MCMCSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MCMC Summary: status={}, cost_evals={}, gradient_evals={}, dimension={:?}",
+            self.message,
+            self.evals.f(),
+            self.evals.g(),
+            self.dimension
+        )
+    }
+}
+
+impl<I> Display for SimulatedAnnealingSummary<I>
+where
+    I: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Simulated Annealing Summary: status={}, f(x)={:.5}, cost_evals={}",
+            self.message,
+            self.fx,
+            self.evals.f()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,16 +363,75 @@ mod tests {
         let result = MinimizationSummary {
             bounds: None,
             parameter_names: None,
-            message: "Success".to_string(),
+            message: StatusMessage::default().set_success(),
             x0: dvector![1.0, 2.0, 3.0],
             x: dvector![1.0, 2.0, 3.0],
             std: dvector![0.1, 0.2, 0.3],
             fx: 3.0,
-            cost_evals: 10,
-            gradient_evals: 5,
-            converged: true,
+            evals: EvalCounts::new(10, 5, 1),
             covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         };
         println!("{}", result);
+    }
+
+    #[test]
+    fn minimization_summary_can_render_pretty_and_json() {
+        let result = MinimizationSummary {
+            bounds: None,
+            parameter_names: Some(vec!["alpha".to_string(), "beta".to_string()]),
+            message: StatusMessage::default().set_success_with_message("ok"),
+            x0: dvector![1.0, 2.0],
+            x: dvector![0.5, 1.5],
+            std: dvector![0.1, 0.2],
+            fx: 1.25,
+            evals: EvalCounts::new(10, 4, 1),
+            covariance: dmatrix![1.0, 0.0, 0.0, 1.0],
+        };
+
+        let rendered = result.render().unwrap();
+
+        assert!(rendered.pretty.contains("FIT RESULTS"));
+        assert!(rendered.json.contains("\"fx\":1.25"));
+        assert!(rendered
+            .json
+            .contains("\"parameter_names\":[\"alpha\",\"beta\"]"));
+    }
+
+    #[test]
+    fn mcmc_summary_can_render_pretty_json() {
+        let result = MCMCSummary {
+            bounds: None,
+            parameter_names: Some(vec!["x".to_string()]),
+            message: StatusMessage::default().set_initialized_with_message("warmup"),
+            chain: vec![vec![dvector![1.0], dvector![2.0]]],
+            chain_storage: ChainStorageMode::Full,
+            evals: EvalCounts::new(8, 0, 0),
+            dimension: (1, 2, 1),
+        };
+
+        let rendered = result.render_pretty_json().unwrap();
+
+        assert!(rendered.pretty.contains("MCMC Summary"));
+        assert!(rendered.pretty.contains("cost_evals=8"));
+        assert!(rendered.json.contains("\n  \"dimension\": [\n"));
+        assert!(rendered.json.contains("\"n_f_evals\": 8"));
+    }
+
+    #[test]
+    fn simulated_annealing_summary_can_render_json() {
+        let result = SimulatedAnnealingSummary {
+            bounds: None,
+            message: StatusMessage::default().set_success_with_message("done"),
+            x0: "start".to_string(),
+            x: "finish".to_string(),
+            fx: 0.5,
+            evals: EvalCounts::new(12, 0, 0),
+        };
+
+        let rendered = result.render().unwrap();
+
+        assert!(rendered.pretty.contains("Simulated Annealing Summary"));
+        assert!(rendered.json.contains("\"fx\":0.5"));
+        assert!(rendered.json.contains("\"x\":\"finish\""));
     }
 }

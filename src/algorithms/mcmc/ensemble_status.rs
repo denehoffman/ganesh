@@ -1,17 +1,13 @@
 use crate::{
-    algorithms::mcmc::{integrated_autocorrelation_times, Walker},
-    core::Point,
-    traits::{LogDensity, Status, Transform},
+    algorithms::mcmc::Walker,
+    core::{mcmc_diagnostics::integrated_autocorrelation_times, EvalCounts, EvaluatedPoint},
+    traits::{LogDensity, ProgressStatus, Status, StatusMessage, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
 use nalgebra::RowDVector;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::ops::{ControlFlow, Deref, DerefMut};
 
 /// A collection of [`Walker`]s
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -19,13 +15,10 @@ pub struct EnsembleStatus {
     /// A list of each [`Walker`] in the ensemble
     pub walkers: Vec<Walker>,
     /// A message indicating the state of the sampler
-    pub message: String,
-    /// The number of function evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_f_evals: usize,
-    /// The number of gradient evaluations (approximately, this is left up to individual
-    /// [`Algorithm`](crate::traits::Algorithm)s to correctly compute and may not be exact).
-    pub n_g_evals: usize,
+    pub message: StatusMessage,
+    /// Evaluation counts requested by the algorithm API.
+    #[serde(flatten)]
+    pub evals: EvalCounts,
 }
 impl Deref for EnsembleStatus {
     type Target = Vec<Walker>;
@@ -43,12 +36,12 @@ impl EnsembleStatus {
     /// Get the dimension of the [`EnsembleStatus`] `(n_walkers, n_steps, n_variables)`
     pub fn dimension(&self) -> (usize, usize, usize) {
         let n_walkers = self.walkers.len();
-        let (n_steps, n_variables) = self.walkers[0].dimension();
+        let (n_steps, n_variables) = self.walkers.first().map_or((0, 0), Walker::dimension);
         (n_walkers, n_steps, n_variables)
     }
     /// Add a set of positions to the [`EnsembleStatus`], adding each position to the corresponding
     /// [`Walker`] in the given order
-    pub fn push(&mut self, positions: Vec<Arc<RwLock<Point<DVector<Float>>>>>) {
+    pub fn push(&mut self, positions: Vec<EvaluatedPoint<DVector<Float>>>) {
         self.walkers
             .iter_mut()
             .zip(positions)
@@ -69,40 +62,44 @@ impl EnsembleStatus {
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {
             walker.log_density_latest(func, args)?;
+            self.evals.record_f();
         }
         Ok(())
     }
-    /// Randomly draw a [`Walker`] from the [`EnsembleStatus`] other than the one at the provided `index`
-    pub fn get_compliment_walker(&self, index: usize, rng: &mut Rng) -> Walker {
+    /// Randomly draw the index of a [`Walker`] from the [`EnsembleStatus`] other than the one at
+    /// the provided `index`
+    pub fn get_compliment_walker_index(&self, index: usize, rng: &mut Rng) -> usize {
         let n_tot = self.walkers.len();
         let r = rng.usize(0..n_tot - 1);
-        let j = if r >= index { r + 1 } else { r };
-        self.walkers[j].clone()
+        if r >= index {
+            r + 1
+        } else {
+            r
+        }
     }
-    /// Randomly draw `n` [`Walker`]s from the [`EnsembleStatus`] other than the one at the provided `index`
+    /// Randomly draw `n` [`Walker`] indices from the [`EnsembleStatus`] other than the one at the provided `index`
     ///
     /// # Panics
     ///
     /// This method will panic if you try to draw more [`Walker`]s than are in the [`EnsembleStatus`]
     /// (aside from the excluded one at the provided `index`).
-    pub fn get_compliment_walkers(&self, index: usize, n: usize, rng: &mut Rng) -> Vec<Walker> {
+    pub fn get_compliment_walker_indices(
+        &self,
+        index: usize,
+        n: usize,
+        rng: &mut Rng,
+    ) -> Vec<usize> {
         assert!(n < self.walkers.len());
         let mut indices: Vec<usize> = (0..self.walkers.len()).filter(|&i| i != index).collect();
         rng.shuffle(&mut indices);
-        indices[..n]
-            .iter()
-            .map(|&j| self.walkers[j].clone())
-            .collect()
+        indices.truncate(n);
+        indices
     }
     /// Get the average position of all [`Walker`]s in internal coordinates
     pub fn internal_mean(&self, transform: &Option<Box<dyn Transform>>) -> DVector<Float> {
         self.walkers
             .iter()
-            .map(|walker| {
-                transform
-                    .to_internal(&walker.get_latest().read().x)
-                    .into_owned()
-            })
+            .map(|walker| transform.to_internal(walker.latest_position()).into_owned())
             .sum::<DVector<Float>>()
             .unscale(self.walkers.len() as Float)
     }
@@ -118,11 +115,7 @@ impl EnsembleStatus {
             .enumerate()
             .filter_map(|(i, walker)| {
                 if i != index {
-                    Some(
-                        transform
-                            .to_internal(&walker.get_latest().read().x)
-                            .into_owned(),
-                    )
+                    Some(transform.to_internal(walker.latest_position()).into_owned())
                 } else {
                     None
                 }
@@ -134,13 +127,13 @@ impl EnsembleStatus {
     pub fn iter_compliment(
         &self,
         index: usize,
-    ) -> impl Iterator<Item = Arc<RwLock<Point<DVector<Float>>>>> + '_ {
+    ) -> impl Iterator<Item = &EvaluatedPoint<DVector<Float>>> + '_ {
         self.walkers
             .iter()
             .enumerate()
             .filter_map(move |(i, walker)| {
                 if i != index {
-                    Some(walker.get_latest())
+                    walker.latest_evaluated()
                 } else {
                     None
                 }
@@ -160,13 +153,13 @@ impl EnsembleStatus {
             .iter()
             .map(|walker| {
                 walker
-                    .history
-                    .iter()
+                    .retained_positions()
+                    .into_iter()
                     .skip(burn)
                     .enumerate()
                     .filter_map(|(i, position)| {
                         if i % thin == 0 {
-                            Some(position.read().x.clone())
+                            Some(position.x.clone())
                         } else {
                             None
                         }
@@ -196,11 +189,7 @@ impl EnsembleStatus {
         let position: Vec<RowDVector<Float>> = self
             .walkers
             .iter()
-            .map(|walker| {
-                transform
-                    .to_internal(&walker.get_latest().read().x)
-                    .transpose()
-            })
+            .map(|walker| transform.to_internal(walker.latest_position()).transpose())
             .collect::<Vec<RowDVector<Float>>>();
         DMatrix::from_rows(position.as_slice())
     }
@@ -234,17 +223,30 @@ impl Status for EnsembleStatus {
         for walker in self.walkers.iter_mut() {
             walker.reset();
         }
+        self.message = Default::default();
+        self.evals = Default::default();
     }
 
-    fn converged(&self) -> bool {
-        false
-    }
-
-    fn message(&self) -> &str {
+    fn message(&self) -> &StatusMessage {
         &self.message
     }
 
-    fn update_message(&mut self, message: &str) {
-        self.message = message.to_string();
+    fn set_message(&mut self) -> &mut StatusMessage {
+        &mut self.message
+    }
+
+    fn check_invariants(&mut self) -> ControlFlow<()> {
+        if self
+            .walkers
+            .iter()
+            .filter_map(Walker::latest_evaluated)
+            .any(|point| point.fx.is_nan())
+        {
+            self.set_message().fail_with_message("log density is NaN");
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
     }
 }
+
+impl ProgressStatus for EnsembleStatus {}

@@ -1,9 +1,10 @@
 use crate::{
     algorithms::gradient::GradientStatus,
     core::{Callbacks, MinimizationSummary},
+    error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, CostFunction, Gradient, SupportsTransform, Terminator, Transform,
-        TransformedProblem,
+        Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
+        Terminator, Transform, TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
@@ -53,8 +54,7 @@ where
             algorithm.ema_counter = 0;
         }
         if algorithm.ema_counter >= self.patience {
-            status.set_converged();
-            status.with_message(&format!(
+            status.set_message().succeed_with_message(format!(
                 "EMA LOSS HAS NOT IMPROVED IN {} STEPS",
                 algorithm.ema_counter
             ));
@@ -67,7 +67,7 @@ where
 /// The internal configuration struct for the [`Adam`] algorithm.
 #[derive(Clone)]
 pub struct AdamConfig {
-    x0: DVector<Float>,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     alpha: Float,
     beta_1: Float,
@@ -75,13 +75,79 @@ pub struct AdamConfig {
     epsilon: Float,
 }
 impl AdamConfig {
-    /// Create a new configuration by setting the starting position of the algorithm.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not strictly positive.
+    pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Initial learning rate must be positive and greater than 0".to_string(),
+            ));
+        }
+        self.alpha = value;
+        Ok(self)
+    }
+    /// Set the value for the hyperparameter $`\beta_1`$ (default = `0.9`).
+    ///
+    /// This represents the exponential decay rate of the first moment estimate, $`m`$.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `[0, 1)`.
+    pub fn with_beta_1(mut self, value: Float) -> GaneshResult<Self> {
+        if !(0.0..1.0).contains(&value) {
+            return Err(GaneshError::ConfigError(
+                "beta_1 must be in the range [0, 1)".to_string(),
+            ));
+        }
+        self.beta_1 = value;
+        Ok(self)
+    }
+    /// Set the value for the hyperparameter $`\beta_2`$ (default = `0.999`).
+    ///
+    /// This represents the exponential decay rate of the second moment estimate, $`v`$.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not in the interval `[0, 1)`.
+    pub fn with_beta_2(mut self, value: Float) -> GaneshResult<Self> {
+        if !(0.0..1.0).contains(&value) {
+            return Err(GaneshError::ConfigError(
+                "beta_2 must be in the range [0, 1)".to_string(),
+            ));
+        }
+        self.beta_2 = value;
+        Ok(self)
+    }
+    /// Set the value for the divide-by-zero tolerance in the update step (default = `1e-8`).
+    ///
+    /// This ensures the update does not divide by zero if the bias-corrected second raw moment
+    /// estimate is zero for any parameter.
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is not strictly positive.
+    pub fn with_epsilon(mut self, value: Float) -> GaneshResult<Self> {
+        if value <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Divide-by-zero tolerance must be positive and greater than 0".to_string(),
+            ));
+        }
+        self.epsilon = value;
+        Ok(self)
+    }
+}
+
+impl Default for AdamConfig {
+    fn default() -> Self {
         Self {
-            x0: DVector::from_row_slice(x0.as_ref()),
+            parameter_names: None,
             transform: None,
             alpha: 0.001,
             beta_1: 0.9,
@@ -89,37 +155,15 @@ impl AdamConfig {
             epsilon: 1e-8, // NOTE: I think this can be independent of bit precision
         }
     }
-    /// Set the initial learning rate $`\alpha`$ (default = `0.001`).
-    pub const fn with_alpha(mut self, value: Float) -> Self {
-        self.alpha = value;
-        self
-    }
-    /// Set the value for the hyperparameter $`\beta_1`$ (default = `0.9`).
-    ///
-    /// This represents the exponential decay rate of the first moment estimate, $`m`$.
-    pub const fn with_beta_1(mut self, value: Float) -> Self {
-        self.beta_1 = value;
-        self
-    }
-    /// Set the value for the hyperparameter $`\beta_2`$ (default = `0.999`).
-    ///
-    /// This represents the exponential decay rate of the second moment estimate, $`v`$.
-    pub const fn with_beta_2(mut self, value: Float) -> Self {
-        self.beta_2 = value;
-        self
-    }
-    /// Set the value for the divide-by-zero tolerance in the update step (default = `1e-8`).
-    ///
-    /// This ensures the update does not divide by zero if the bias-corrected second raw moment
-    /// estimate is zero for any parameter.
-    pub const fn with_epsilon(mut self, value: Float) -> Self {
-        self.epsilon = value;
-        self
-    }
 }
 impl SupportsTransform for AdamConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for AdamConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -145,20 +189,22 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = AdamConfig;
+    type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut GradientStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
-        self.x = t_problem.to_owned_internal(&config.x0);
+        self.x = t_problem.to_owned_internal(init);
         self.g = DVector::zeros(self.x.len());
-        self.f = t_problem.evaluate(&config.x0, args)?;
-        status.with_position((config.x0.clone(), self.f));
-        status.inc_n_f_evals();
+        self.f = t_problem.evaluate(&self.x, args)?;
+        status.initialize((init.clone(), self.f));
+        status.evals.record_f();
         self.m = DVector::zeros(self.x.len());
         self.v = DVector::zeros(self.x.len());
         Ok(())
@@ -174,7 +220,7 @@ where
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &config.transform);
         self.g = t_problem.gradient(&self.x, args)?;
-        status.inc_n_g_evals();
+        status.evals.record_g();
         self.m = self.m.scale(config.beta_1) + self.g.scale(1.0 - config.beta_1);
         self.v =
             self.v.scale(config.beta_2) + self.g.map(|gi| gi.powi(2)).scale(1.0 - config.beta_2);
@@ -185,8 +231,8 @@ where
             .scale(alpha_t)
             .component_div(&self.v.map(|vi| vi.sqrt() + config.epsilon));
         self.f = t_problem.evaluate(&self.x, args)?;
-        status.inc_n_f_evals();
-        status.with_position((t_problem.to_owned_external(&self.x), self.f));
+        status.evals.record_f();
+        status.set_position((t_problem.to_owned_external(&self.x), self.f));
         Ok(())
     }
 
@@ -196,18 +242,17 @@ where
         _problem: &P,
         status: &GradientStatus,
         _args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: config.x0.clone(),
+            x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
             bounds: None,
-            converged: status.converged,
-            cost_evals: status.n_f_evals,
-            gradient_evals: status.n_g_evals,
+            evals: status.evals,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: status
                 .err
                 .clone()
@@ -258,11 +303,12 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    AdamConfig::new(starting_value),
+                    DVector::from_row_slice(&starting_value),
+                    AdamConfig::default(),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
     }
@@ -284,12 +330,12 @@ mod tests {
                 .process(
                     &problem,
                     &(),
-                    AdamConfig::new(starting_value)
-                        .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
+                    DVector::from_row_slice(&starting_value),
+                    AdamConfig::default().with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
                     Adam::default_callbacks().with_terminator(MaxSteps(1_000_000)),
                 )
                 .unwrap();
-            assert!(result.converged);
+            assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
     }

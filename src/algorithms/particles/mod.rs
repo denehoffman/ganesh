@@ -1,5 +1,5 @@
 use crate::{
-    core::Point,
+    core::EvaluatedPoint,
     traits::{CostFunction, Observer},
     DVector, Float,
 };
@@ -29,7 +29,7 @@ pub struct TrackingSwarmObserver {
     /// The history of the swarm particles
     pub history: Vec<Vec<SwarmParticle>>,
     /// The history of the best position in the swarm
-    pub best_history: Vec<Point<DVector<Float>>>,
+    pub best_history: Vec<EvaluatedPoint<DVector<Float>>>,
 }
 impl TrackingSwarmObserver {
     /// Create a new observer to track the swarm history, wrapped in an [`Arc<Mutex<_>>`]
@@ -55,6 +55,6 @@ where
         _config: &PSOConfig,
     ) {
         self.history.push(status.swarm.particles.clone());
-        self.best_history.push(status.get_best());
+        self.best_history.push(status.gbest.clone());
     }
 }

@@ -4,19 +4,54 @@ pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
 
 /// [`Bounds`] and other implementations of [`Transform`](`crate::traits::Transform`)
 pub mod transforms;
-pub use transforms::Bounds;
+pub use transforms::{Bounds, ScaleTransform};
 
 /// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;
-pub use callbacks::{Callbacks, DebugObserver, MaxSteps};
+pub use callbacks::{Callbacks, DebugObserver, MaxSteps, ProgressObserver};
+
+/// Checkpoint helpers and signal-triggered checkpointing utilities.
+pub mod checkpoints;
+pub use checkpoints::{
+    AtomicCheckpointSignal, CheckpointAction, CheckpointOnSignal, CheckpointStore,
+    CtrlCCheckpointSignal,
+};
+
+/// Diagnostics computed from retained MCMC chains.
+pub mod mcmc_diagnostics;
+pub use mcmc_diagnostics::MCMCDiagnostics;
+
+/// Shared evaluation-count bookkeeping.
+pub mod eval_counts;
+pub use eval_counts::EvalCounts;
+
+/// Scalar support shared by current and future generic optimizer APIs.
+pub mod scalar;
+pub use scalar::RealScalar;
+
+/// Linear algebra backend traits and implementations.
+pub mod linalg;
+#[cfg(feature = "backend-ndarray")]
+pub use linalg::NdArrayBackend;
+pub use linalg::{LinearAlgebra, Matrix, NalgebraBackend, Scalar, Vector};
 
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
-pub use point::Point;
+pub use point::{EvaluatedPoint, Point};
 
 /// Summary types for the result of the minimization.
 pub mod summary;
-pub use summary::{MCMCSummary, MinimizationSummary, SimulatedAnnealingSummary};
+pub use summary::{
+    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary,
+    SimulatedAnnealingSummary, SummaryExport,
+};
+
+/// Multistart minimization orchestration helpers.
+pub mod multistart;
+pub use multistart::{
+    minimize_multistart, restart_seed, FixedRestarts, MultiStartState, MultiStartSummary,
+    RestartFactory, RestartPolicy,
+};
 
 /// Utility functions.
 pub mod utils;

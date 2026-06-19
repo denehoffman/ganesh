@@ -4,6 +4,7 @@ use dyn_clone::DynClone;
 use nalgebra::{DMatrix, DVector, LU};
 
 use crate::{
+    error::{GaneshError, GaneshResult},
     traits::{CostFunction, Gradient},
     Float,
 };
@@ -36,19 +37,46 @@ pub trait Transform: DynClone + Send + Sync {
     /// The Jacobian of the map from external to internal coordinates.
     #[inline]
     fn to_internal_jacobian(&self, x: &DVector<Float>) -> DMatrix<Float> {
+        #[allow(clippy::expect_used)]
+        self.try_to_internal_jacobian(x)
+            .expect("J is not invertible")
+    }
+
+    /// The Jacobian of the map from external to internal coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
+    #[inline]
+    fn try_to_internal_jacobian(&self, x: &DVector<Float>) -> GaneshResult<DMatrix<Float>> {
         let z = self.to_internal(x);
         let j = self.to_external_jacobian(&z);
-        #[allow(clippy::expect_used)]
-        LU::new(j).try_inverse().expect("J is not invertible")
+        LU::new(j).try_inverse().ok_or_else(|| {
+            GaneshError::NumericalError("Transform Jacobian is not invertible".to_string())
+        })
     }
 
     /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.
     #[inline]
     fn to_internal_component_hessian(&self, b: usize, x: &DVector<Float>) -> DMatrix<Float> {
-        let z = self.to_internal(x);
-        let j = self.to_external_jacobian(&z);
         #[allow(clippy::expect_used)]
-        let k = LU::new(j).try_inverse().expect("J is not invertible");
+        self.try_to_internal_component_hessian(b, x)
+            .expect("J is not invertible")
+    }
+
+    /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.
+    ///
+    /// # Errors
+    ///
+    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
+    #[inline]
+    fn try_to_internal_component_hessian(
+        &self,
+        b: usize,
+        x: &DVector<Float>,
+    ) -> GaneshResult<DMatrix<Float>> {
+        let z = self.to_internal(x);
+        let k = self.try_to_internal_jacobian(x)?;
         let n = z.len();
         let mut g = DMatrix::zeros(n, n);
         for a in 0..n {
@@ -56,7 +84,7 @@ pub trait Transform: DynClone + Send + Sync {
             let s = &k.transpose() * h_a * &k;
             g -= s * k[(b, a)];
         }
-        g
+        Ok(g)
     }
 
     /// The gradient on the internal space given an internal coordinate `z` and the external
@@ -371,10 +399,96 @@ where
         Ok(self.t.pullback_gradient(z, &gy))
     }
     #[inline]
+    fn evaluate_with_gradient(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>), E> {
+        let y = self.t.to_external(z);
+        let (v, gy) = self.f.evaluate_with_gradient(y.as_ref(), args)?;
+        Ok((v, self.t.pullback_gradient(z, &gy)))
+    }
+    #[inline]
     fn hessian(&self, z: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
         let y = self.t.to_external(z);
-        let gy = self.f.gradient(y.as_ref(), args)?;
-        let hy = self.f.hessian(y.as_ref(), args)?;
+        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
         Ok(self.t.pullback_hessian(z, &gy, &hy))
+    }
+    #[inline]
+    fn gradient_with_hessian(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(DVector<Float>, DMatrix<Float>), E> {
+        let y = self.t.to_external(z);
+        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
+        Ok((
+            self.t.pullback_gradient(z, &gy),
+            self.t.pullback_hessian(z, &gy, &hy),
+        ))
+    }
+    #[inline]
+    fn evaluate_with_gradient_and_hessian(
+        &self,
+        z: &DVector<Float>,
+        args: &U,
+    ) -> Result<(Float, DVector<Float>, DMatrix<Float>), E> {
+        let y = self.t.to_external(z);
+        let (v, gy, hy) = self
+            .f
+            .evaluate_with_gradient_and_hessian(y.as_ref(), args)?;
+        Ok((
+            v,
+            self.t.pullback_gradient(z, &gy),
+            self.t.pullback_hessian(z, &gy, &hy),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct SingularScale;
+
+    impl Transform for SingularScale {
+        fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(z.clone())
+        }
+
+        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
+            Cow::Owned(x.clone())
+        }
+
+        fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
+        }
+
+        fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
+            DMatrix::zeros(z.len(), z.len())
+        }
+    }
+
+    #[test]
+    fn try_to_internal_jacobian_returns_numerical_error_for_singular_transform() {
+        let t = SingularScale;
+        let x = DVector::from_vec(vec![1.0, 2.0]);
+
+        let err = t.try_to_internal_jacobian(&x).unwrap_err();
+
+        assert!(matches!(err, GaneshError::NumericalError(_)));
+        assert!(err.to_string().contains("not invertible"));
+    }
+
+    #[test]
+    fn try_to_internal_component_hessian_returns_numerical_error_for_singular_transform() {
+        let t = SingularScale;
+        let x = DVector::from_vec(vec![1.0, 2.0]);
+
+        let err = t.try_to_internal_component_hessian(0, &x).unwrap_err();
+
+        assert!(matches!(err, GaneshError::NumericalError(_)));
+        assert!(err.to_string().contains("not invertible"));
     }
 }

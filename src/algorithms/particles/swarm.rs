@@ -1,7 +1,7 @@
 use crate::{
     core::{
         utils::{generate_random_vector_in_limits, SampleFloat},
-        Bounds, Point,
+        Bounds, EvaluatedPoint, Point,
     },
     traits::{CostFunction, Transform},
     DVector, Float,
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// A swarm of particles used in particle swarm optimization and similar methods.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Swarm {
     /// A list of the particles in the swarm
     pub particles: Vec<SwarmParticle>,
@@ -59,11 +59,11 @@ impl Swarm {
         args: &U,
     ) -> Result<(), E> {
         let mut particle_positions = self.position_initializer.init_positions(rng);
-        let mut particle_velocities = self.velocity_initializer.init_velocities(
-            rng,
-            self.position_initializer.get_dimension(),
-            self.position_initializer.get_n_particles(),
-        );
+        let dimension = self.position_initializer.get_dimension().unwrap_or(0);
+        let n_particles = self.position_initializer.get_n_particles();
+        let mut particle_velocities =
+            self.velocity_initializer
+                .init_velocities(rng, dimension, n_particles);
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         particle_positions
@@ -74,7 +74,7 @@ impl Swarm {
             .for_each(|velocity| *velocity = transform.to_internal(velocity).into_owned());
         self.particles = particle_positions
             .into_iter()
-            .zip(particle_velocities.into_iter())
+            .zip(particle_velocities)
             .map(|(position, velocity)| {
                 SwarmParticle::new(position, velocity, func, args, transform)
             })
@@ -104,31 +104,27 @@ impl Swarm {
         self.boundary_method = boundary_method;
         self
     }
-    /// Get index of the particle with the maximum value in a circular window around the given index.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the window size is zero.
-    pub fn index_of_max_in_circular_window(
+    /// Get index of the particle with the minimum value in a circular window around the given index.
+    pub fn index_of_min_in_circular_window(
         &self,
         center_index: usize,
         window_radius: usize,
-    ) -> usize {
+    ) -> Option<usize> {
         let len = self.particles.len();
+        if len == 0 {
+            return None;
+        }
 
         let window_indices = (center_index as isize - window_radius as isize
             ..=center_index as isize + window_radius as isize)
             .map(|i| ((i % len as isize + len as isize) % len as isize) as usize);
 
-        #[allow(clippy::expect_used)]
-        window_indices
-            .max_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
-            .expect("Window has zero size!")
+        window_indices.min_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
     }
 }
 
 /// Methods for handling boundaries in swarm optimizations
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmBoundaryMethod {
     #[default]
     /// Set infeasable values to +inf
@@ -138,7 +134,7 @@ pub enum SwarmBoundaryMethod {
 }
 
 /// Swarm topologies which determine the flow of information
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmTopology {
     /// Each particle is connected to all others
     #[default]
@@ -148,7 +144,7 @@ pub enum SwarmTopology {
 }
 
 /// The algorithmic method to update the swarm positions
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum SwarmUpdateMethod {
     /// Update the positions and targets in separate loops (slower but sometimes more stable)
     #[default]
@@ -184,17 +180,17 @@ pub enum SwarmPositionInitializer {
     },
 }
 impl SwarmPositionInitializer {
-    fn get_dimension(&self) -> usize {
+    fn get_dimension(&self) -> Option<usize> {
         match self {
             Self::RandomInLimits {
                 bounds,
                 n_particles: _,
-            } => bounds.len(),
-            Self::Custom(positions) => positions[0].len(),
+            } => Some(bounds.len()),
+            Self::Custom(positions) => positions.first().map(DVector::len),
             Self::LatinHypercube {
                 bounds,
                 n_particles: _,
-            } => bounds.len(),
+            } => Some(bounds.len()),
         }
     }
     fn get_n_particles(&self) -> usize {
@@ -245,7 +241,7 @@ impl SwarmPositionInitializer {
 }
 
 /// Methods for setting the initial velocity of particles in a swarm
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum SwarmVelocityInitializer {
     /// Initialize all velocities to zero
     #[default]
@@ -274,14 +270,14 @@ impl SwarmVelocityInitializer {
 }
 
 /// A particle with a position, velocity, and best known position
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SwarmParticle {
     /// The position of the particle (in unbounded space)
-    pub position: Point<DVector<Float>>,
+    pub position: EvaluatedPoint<DVector<Float>>,
     /// The velocity of the particle (in unbounded space)
     pub velocity: DVector<Float>,
     /// The best position of the particle (as measured by the minimum value of `fx`)
-    pub best: Point<DVector<Float>>,
+    pub best: EvaluatedPoint<DVector<Float>>,
 }
 impl SwarmParticle {
     /// Create a new particle with the given position, velocity, and cost function
@@ -298,8 +294,7 @@ impl SwarmParticle {
         args: &U,
         transform: &Option<Box<dyn Transform>>,
     ) -> Result<Self, E> {
-        let mut position = position;
-        position.evaluate_transformed(func, transform, args)?;
+        let position = position.evaluate_transformed(func, transform, args)?;
         Ok(Self {
             position: position.clone(),
             velocity,
@@ -332,32 +327,69 @@ impl SwarmParticle {
         if let Some(internal_bounds) = internal_bounds {
             match boundary_method {
                 SwarmBoundaryMethod::Inf => {
-                    self.position
-                        .set_position(transform.to_external(&new_position_internal).into_owned());
                     if !internal_bounds.contains(&new_position_internal) {
-                        self.position.fx = Some(Float::INFINITY);
+                        self.position = EvaluatedPoint::new(
+                            transform.to_external(&new_position_internal).into_owned(),
+                            Float::INFINITY,
+                        );
                     } else {
-                        self.position.evaluate(func, args)?;
+                        self.position =
+                            Point::from(transform.to_external(&new_position_internal).into_owned())
+                                .evaluate(func, args)?;
                         evals += 1;
                     }
                 }
                 SwarmBoundaryMethod::Shr => {
                     let bounds_excess = internal_bounds.get_excess(&new_position_internal);
-                    self.position.set_position(
+                    self.position = Point::from(
                         transform
                             .to_external(&(new_position_internal - bounds_excess))
                             .into_owned(),
-                    );
-                    self.position.evaluate(func, args)?;
+                    )
+                    .evaluate(func, args)?;
                     evals += 1;
                 }
             }
         } else {
-            self.position
-                .set_position(transform.to_external(&new_position_internal).into_owned());
-            self.position.evaluate(func, args)?;
+            self.position = Point::from(transform.to_external(&new_position_internal).into_owned())
+                .evaluate(func, args)?;
             evals += 1;
         }
         Ok(evals)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::EvaluatedPoint;
+
+    fn particle_with_best(x: &[Float], fx: Float) -> SwarmParticle {
+        let best = EvaluatedPoint::new(DVector::from_column_slice(x), fx);
+        SwarmParticle {
+            position: best.clone(),
+            velocity: DVector::zeros(best.x.len()),
+            best,
+        }
+    }
+
+    #[test]
+    fn circular_window_returns_lowest_fx_neighbor() {
+        let mut swarm = Swarm::new(SwarmPositionInitializer::Custom(Vec::new()));
+        swarm.particles = vec![
+            particle_with_best(&[0.0], 3.0),
+            particle_with_best(&[1.0], 1.0),
+            particle_with_best(&[2.0], 2.0),
+        ];
+
+        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), Some(1));
+        assert_eq!(swarm.index_of_min_in_circular_window(2, 1), Some(1));
+    }
+
+    #[test]
+    fn circular_window_returns_none_for_empty_swarm() {
+        let swarm = Swarm::new(SwarmPositionInitializer::Custom(Vec::new()));
+
+        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), None);
     }
 }

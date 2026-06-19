@@ -1,8 +1,9 @@
 use crate::{
+    DVector, Float,
     algorithms::gradient::GradientStatus,
     core::Bounds,
-    traits::{linesearch::LineSearchOutput, Gradient, LineSearch},
-    DVector, Float,
+    error::{GaneshError, GaneshResult},
+    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
 };
 
 /// The line search algorithm from Hager and Zhang (2006)[^1].
@@ -46,71 +47,91 @@ impl HagerZhangLineSearch {
     }
     /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method will panic if the condition $`0 < \delta < \sigma`$ is not met.
-    pub fn with_delta(mut self, delta: Float) -> Self {
-        assert!(0.0 < delta);
-        assert!(delta < self.sigma);
+    /// Returns a configuration error if `delta` does not satisfy `0 < delta < sigma`.
+    pub fn with_delta(mut self, delta: Float) -> GaneshResult<Self> {
+        if !(0.0 < delta && delta < self.sigma) {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch requires 0 < delta < sigma".to_string(),
+            ));
+        }
         self.delta = delta;
-        self
+        Ok(self)
     }
     /// Set the parameter $`\sigma`$ used in the second Wolfe condition (defaults to 0.9).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method will panic if the condition $`\delta < \sigma < 1`$ is not met.
-    pub fn with_sigma(mut self, sigma: Float) -> Self {
-        assert!(1.0 > sigma);
-        assert!(sigma > self.delta);
+    /// Returns a configuration error if `sigma` does not satisfy `delta < sigma < 1`.
+    pub fn with_sigma(mut self, sigma: Float) -> GaneshResult<Self> {
+        if !(self.delta < sigma && sigma < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch requires delta < sigma < 1".to_string(),
+            ));
+        }
         self.sigma = sigma;
-        self
+        Ok(self)
     }
     /// Set the parameter $`\delta`$ used in the Armijo condition evaluation (defaults to 0.1) and the parameter $`\sigma`$ used in the second Wolfe condition (defaults to 0.9) simultaneously.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method will panic if the condition $`0 < \delta < \sigma < 1`$ is not met.
-    pub fn with_delta_sigma(mut self, delta: Float, sigma: Float) -> Self {
-        assert!(0.0 < delta);
-        assert!(1.0 > sigma);
-        assert!(delta < sigma);
+    /// Returns a configuration error if `delta` and `sigma` do not satisfy `0 < delta < sigma < 1`.
+    pub fn with_delta_sigma(mut self, delta: Float, sigma: Float) -> GaneshResult<Self> {
+        if !(0.0 < delta && delta < sigma && sigma < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch requires 0 < delta < sigma < 1".to_string(),
+            ));
+        }
         self.delta = delta;
         self.sigma = sigma;
-        self
+        Ok(self)
     }
     /// Set the tolerance parameter $`\epsilon`$ used in the approximate Wolfe termination
     /// conditions (defaults to `MACH_EPS^(1/3)`).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// this method will panic if $`\epsilon > 0`$ is not met.
-    pub fn with_epsilon(mut self, epsilon: Float) -> Self {
-        assert!(epsilon > 0.0);
+    /// Returns a configuration error if `epsilon` is not strictly positive.
+    pub fn with_epsilon(mut self, epsilon: Float) -> GaneshResult<Self> {
+        if epsilon <= 0.0 {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch epsilon must be > 0".to_string(),
+            ));
+        }
         self.epsilon = epsilon;
-        self
+        Ok(self)
     }
 
     /// Set the parameter $`\theta`$ used in interval updates (defaults to 0.5).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method will panic if $`0 < \theta < 1`$ is not met.
-    pub fn with_theta(mut self, theta: Float) -> Self {
-        assert!(0.0 < theta && theta < 1.0);
+    /// Returns a configuration error if `theta` is not in the interval `(0, 1)`.
+    pub fn with_theta(mut self, theta: Float) -> GaneshResult<Self> {
+        if !(0.0 < theta && theta < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch theta must be in (0, 1)".to_string(),
+            ));
+        }
         self.theta = theta;
-        self
+        Ok(self)
     }
 
     /// Set the parameter $`\gamma`$ which determines when a bisection is performed (defaults to 0.66).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method will panic if $`0 < \gamma < 1`$ is not met.
-    pub fn with_gamma(mut self, gamma: Float) -> Self {
-        assert!(0.0 < gamma && gamma < 1.0);
+    /// Returns a configuration error if `gamma` is not in the interval `(0, 1)`.
+    pub fn with_gamma(mut self, gamma: Float) -> GaneshResult<Self> {
+        if !(0.0 < gamma && gamma < 1.0) {
+            return Err(GaneshError::ConfigError(
+                "HagerZhangLineSearch gamma must be in (0, 1)".to_string(),
+            ));
+        }
         self.gamma = gamma;
-        self
+        Ok(self)
     }
 
     /// Set the maximum number of bisections allowed in the interval update step (defaults to 50).
@@ -128,7 +149,7 @@ impl HagerZhangLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<Float, E> {
-        status.inc_n_f_evals();
+        status.evals.record_f();
         func.evaluate(x, args)
     }
     fn g_eval<U, E>(
@@ -138,8 +159,18 @@ impl HagerZhangLineSearch {
         args: &U,
         status: &mut GradientStatus,
     ) -> Result<DVector<Float>, E> {
-        status.inc_n_g_evals();
+        status.evals.record_g();
         func.gradient(x, args)
+    }
+    fn f_g_eval<U, E>(
+        &self,
+        func: &dyn Gradient<U, E>,
+        x: &DVector<Float>,
+        args: &U,
+        status: &mut GradientStatus,
+    ) -> Result<(Float, DVector<Float>), E> {
+        status.evals.record_fg();
+        func.evaluate_with_gradient(x, args)
     }
 }
 
@@ -160,12 +191,15 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         let dphi_vec = |alpha: Float, st: &mut GradientStatus| -> Result<DVector<Float>, E> {
             self.g_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
+        let phi_dphi_vec =
+            |alpha: Float, st: &mut GradientStatus| -> Result<(Float, DVector<Float>), E> {
+                self.f_g_eval(problem, &(x0 + p.scale(alpha)), args, st)
+            };
         let dphi = |dphi_vec: &DVector<Float>| -> Float { dphi_vec.dot(p) };
         let secant = |a: Float, dphi_a: Float, b: Float, dphi_b: Float| -> Float {
             a.mul_add(dphi_b, -(b * dphi_a)) / (dphi_b - dphi_a)
         };
-        let phi_0 = phi(0.0, status)?;
-        let g_0 = dphi_vec(0.0, status)?;
+        let (phi_0, g_0) = phi_dphi_vec(0.0, status)?;
         let dphi_0 = dphi(&g_0);
         let epsilon_k = self.epsilon * phi_0.abs();
         let update =
@@ -266,8 +300,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         let mut b_k = max_step.unwrap_or(1e5);
         let mut i = 0;
         loop {
-            let phi_a_k = phi(a_k, status)?;
-            let g_a_k = dphi_vec(a_k, status)?;
+            let (phi_a_k, g_a_k) = phi_dphi_vec(a_k, status)?;
             let dphi_a_k = dphi(&g_a_k);
             if check(a_k, phi_a_k, dphi_a_k) {
                 return Ok(Ok(LineSearchOutput {
@@ -276,8 +309,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
                     g: g_a_k,
                 }));
             }
-            let phi_b_k = phi(b_k, status)?;
-            let g_b_k = dphi_vec(b_k, status)?;
+            let (phi_b_k, g_b_k) = phi_dphi_vec(b_k, status)?;
             let dphi_b_k = dphi(&g_b_k);
             if check(b_k, phi_b_k, dphi_b_k) {
                 return Ok(Ok(LineSearchOutput {
@@ -310,40 +342,42 @@ mod tests {
 
     #[test]
     fn with_delta_sets_value() {
-        let ls = HagerZhangLineSearch::default().with_delta(0.2);
+        let ls = HagerZhangLineSearch::default().with_delta(0.2).unwrap();
         assert_eq!(ls.delta, 0.2);
     }
 
     #[test]
     fn with_sigma_sets_value() {
-        let ls = HagerZhangLineSearch::default().with_sigma(0.7);
+        let ls = HagerZhangLineSearch::default().with_sigma(0.7).unwrap();
         assert_eq!(ls.sigma, 0.7);
     }
 
     #[test]
     fn with_delta_sigma_sets_both() {
-        let ls = HagerZhangLineSearch::default().with_delta_sigma(0.05, 0.8);
+        let ls = HagerZhangLineSearch::default()
+            .with_delta_sigma(0.05, 0.8)
+            .unwrap();
         assert_eq!(ls.delta, 0.05);
         assert_eq!(ls.sigma, 0.8);
     }
 
     #[test]
     fn with_epsilon_sets_value() {
-        let ls = HagerZhangLineSearch::default().with_epsilon(1e-8);
+        let ls = HagerZhangLineSearch::default().with_epsilon(1e-8).unwrap();
         assert_eq!(ls.epsilon, 1e-8);
         assert!(ls.epsilon > 0.0);
     }
 
     #[test]
     fn with_theta_sets_value() {
-        let ls = HagerZhangLineSearch::default().with_theta(0.6);
+        let ls = HagerZhangLineSearch::default().with_theta(0.6).unwrap();
         assert_eq!(ls.theta, 0.6);
         assert!(0.0 < ls.theta && ls.theta < 1.0);
     }
 
     #[test]
     fn with_gamma_sets_value() {
-        let ls = HagerZhangLineSearch::default().with_gamma(0.7);
+        let ls = HagerZhangLineSearch::default().with_gamma(0.7).unwrap();
         assert_eq!(ls.gamma, 0.7);
         assert!(0.0 < ls.gamma && ls.gamma < 1.0);
     }
@@ -355,66 +389,66 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn with_delta_panics_when_nonpositive() {
-        let _ = HagerZhangLineSearch::default().with_delta(0.0);
+    fn with_delta_errors_when_nonpositive() {
+        assert!(HagerZhangLineSearch::default().with_delta(0.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_delta_panics_when_not_less_than_sigma() {
-        let _ = HagerZhangLineSearch::default()
-            .with_sigma(0.4)
-            .with_delta(0.5);
+    fn with_delta_errors_when_not_less_than_sigma() {
+        let ls = HagerZhangLineSearch::default().with_sigma(0.4).unwrap();
+        assert!(ls.with_delta(0.5).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_sigma_panics_when_not_less_than_one() {
-        let _ = HagerZhangLineSearch::default().with_sigma(1.0);
+    fn with_sigma_errors_when_not_less_than_one() {
+        assert!(HagerZhangLineSearch::default().with_sigma(1.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_sigma_panics_when_not_greater_than_delta() {
-        let _ = HagerZhangLineSearch::default()
-            .with_delta(0.2)
-            .with_sigma(0.1);
+    fn with_sigma_errors_when_not_greater_than_delta() {
+        let ls = HagerZhangLineSearch::default().with_delta(0.2).unwrap();
+        assert!(ls.with_sigma(0.1).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_delta_sigma_panics_when_bad_ordering() {
-        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.5, 0.2);
+    fn with_delta_sigma_errors_when_bad_ordering() {
+        assert!(
+            HagerZhangLineSearch::default()
+                .with_delta_sigma(0.5, 0.2)
+                .is_err()
+        );
     }
 
     #[test]
-    #[should_panic]
-    fn with_delta_sigma_panics_when_sigma_not_less_than_one() {
-        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.2, 1.0);
+    fn with_delta_sigma_errors_when_sigma_not_less_than_one() {
+        assert!(
+            HagerZhangLineSearch::default()
+                .with_delta_sigma(0.2, 1.0)
+                .is_err()
+        );
     }
 
     #[test]
-    #[should_panic]
-    fn with_delta_sigma_panics_when_delta_not_positive() {
-        let _ = HagerZhangLineSearch::default().with_delta_sigma(0.0, 0.5);
+    fn with_delta_sigma_errors_when_delta_not_positive() {
+        assert!(
+            HagerZhangLineSearch::default()
+                .with_delta_sigma(0.0, 0.5)
+                .is_err()
+        );
     }
 
     #[test]
-    #[should_panic]
-    fn with_epsilon_panics_when_nonpositive() {
-        let _ = HagerZhangLineSearch::default().with_epsilon(0.0);
+    fn with_epsilon_errors_when_nonpositive() {
+        assert!(HagerZhangLineSearch::default().with_epsilon(0.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_theta_panics_when_out_of_range() {
-        let _ = HagerZhangLineSearch::default().with_theta(1.0);
+    fn with_theta_errors_when_out_of_range() {
+        assert!(HagerZhangLineSearch::default().with_theta(1.0).is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn with_gamma_panics_when_out_of_range() {
-        let _ = HagerZhangLineSearch::default().with_gamma(0.0);
+    fn with_gamma_errors_when_out_of_range() {
+        assert!(HagerZhangLineSearch::default().with_gamma(0.0).is_err());
     }
 }

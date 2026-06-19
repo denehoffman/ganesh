@@ -1,7 +1,12 @@
 use crate::{
     algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
     core::{utils::generate_random_vector, Bounds, MinimizationSummary},
-    traits::{Algorithm, CostFunction, Status, SupportsBounds, SupportsTransform, Transform},
+    error::{GaneshError, GaneshResult},
+    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
+    traits::{
+        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
+        Transform,
+    },
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -10,59 +15,84 @@ use std::cmp::Ordering;
 /// The internal configuration struct for the [`PSO`] algorithm.
 #[derive(Clone)]
 pub struct PSOConfig {
-    swarm: Swarm,
     bounds: Option<Bounds>,
+    bounds_handling: BoundsHandlingMode,
+    parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
     omega: Float,
     c1: Float,
     c2: Float,
 }
 impl PSOConfig {
-    /// Create a new configuration by defining the [`Swarm`].
-    pub const fn new(swarm: Swarm) -> Self {
+    /// Create a new configuration with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Sets the inertial weight $`\omega`$ (default = `0.8`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
+    pub fn with_omega(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Inertial weight must be greater than 0".to_string(),
+            ));
+        }
+        self.omega = value;
+        Ok(self)
+    }
+    /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
+    /// to move towards its personal best (default = `0.1`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
+    pub fn with_c1(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Cognitive weight must be greater than 0".to_string(),
+            ));
+        }
+        self.c1 = value;
+        Ok(self)
+    }
+    /// Sets the social weight $`c_2`$ which controls the particle's tendency
+    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
+    /// (default = `0.1`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if `value` is negative.
+    pub fn with_c2(mut self, value: Float) -> GaneshResult<Self> {
+        if value < 0.0 {
+            return Err(GaneshError::ConfigError(
+                "Social weight must be greater than 0".to_string(),
+            ));
+        }
+        self.c2 = value;
+        Ok(self)
+    }
+    /// Set the policy used to handle configured bounds when a transform is also present.
+    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
+        self.bounds_handling = bounds_handling;
+        self
+    }
+}
+impl Default for PSOConfig {
+    fn default() -> Self {
         Self {
-            swarm,
             bounds: None,
+            bounds_handling: BoundsHandlingMode::Auto,
+            parameter_names: None,
             transform: None,
             omega: 0.8,
             c1: 0.1,
             c2: 0.1,
         }
     }
-    /// Sets the inertial weight $`\omega`$ (default = `0.8`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`\omega < 0`$.
-    pub fn with_omega(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.omega = value;
-        self
-    }
-    /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
-    /// to move towards its personal best (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_1 < 0`$.
-    pub fn with_c1(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.c1 = value;
-        self
-    }
-    /// Sets the social weight $`c_2`$ which controls the particle's tendency
-    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
-    /// (default = `0.1`).
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if $`c_2 < 0`$.
-    pub fn with_c2(mut self, value: Float) -> Self {
-        assert!(value >= 0.0);
-        self.c2 = value;
-        self
-    }
 }
+
 impl SupportsBounds for PSOConfig {
     fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
         &mut self.bounds
@@ -71,6 +101,11 @@ impl SupportsBounds for PSOConfig {
 impl SupportsTransform for PSOConfig {
     fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
         &mut self.transform
+    }
+}
+impl SupportsParameterNames for PSOConfig {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
@@ -116,10 +151,10 @@ impl PSO {
         let swarm = &status.swarm;
         match swarm.topology {
             SwarmTopology::Global => status.gbest.x.clone(),
-            SwarmTopology::Ring => {
-                let ind = swarm.index_of_max_in_circular_window(i, 2);
-                swarm.particles[ind].best.x.clone()
-            }
+            SwarmTopology::Ring => swarm.index_of_min_in_circular_window(i, 2).map_or_else(
+                || status.gbest.x.clone(),
+                |ind| swarm.particles[ind].best.x.clone(),
+            ),
         }
     }
     fn update<U, E>(
@@ -142,6 +177,8 @@ impl PSO {
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         for particle in &mut status.swarm.particles {
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
@@ -156,8 +193,8 @@ impl PSO {
 
         for (i, particle) in &mut status.swarm.particles.iter_mut().enumerate() {
             let dim = particle.position.x.len();
-            let rv1 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
-            let rv2 = generate_random_vector(dim, 0.0, 0.1, &mut self.rng);
+            let rv1 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
+            let rv2 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
             particle.velocity = particle.velocity.scale(config.omega)
                 + rv1
                     .component_mul(&(&particle.best.x - &particle.position.x))
@@ -165,13 +202,13 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(config.c2);
-            status.n_f_evals += particle.update_position(
+            status.evals.record_many_f(particle.update_position(
                 func,
                 args,
-                config.bounds.as_ref(),
-                &config.transform,
+                bounds.as_ref(),
+                &transform,
                 status.swarm.boundary_method,
-            )?;
+            )?);
         }
         Ok(())
     }
@@ -182,6 +219,8 @@ impl PSO {
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
+        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
             .map(|i| self.nbest(i, status))
             .collect();
@@ -196,13 +235,13 @@ impl PSO {
                 + rv2
                     .component_mul(&(&nbests[i] - &particle.position.x))
                     .scale(config.c2);
-            status.n_f_evals += particle.update_position(
+            status.evals.record_many_f(particle.update_position(
                 func,
                 args,
-                config.bounds.as_ref(),
-                &config.transform,
+                bounds.as_ref(),
+                &transform,
                 status.swarm.boundary_method,
-            )?;
+            )?);
             if particle.position.total_cmp(&particle.best) == Ordering::Less {
                 particle.best = particle.position.clone();
             }
@@ -220,24 +259,32 @@ where
 {
     type Summary = MinimizationSummary;
     type Config = PSOConfig;
+    type Init = Swarm;
     fn initialize(
         &mut self,
         problem: &P,
         status: &mut SwarmStatus,
         args: &U,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        status.swarm = config.swarm.clone();
+        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
+            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
+        status.swarm = init.clone();
         status
             .swarm
-            .initialize(&mut self.rng, &config.transform, problem, args)?;
-        status.gbest = status.swarm.particles[0].best.clone();
+            .initialize(&mut self.rng, &transform, problem, args)?;
+        status.evals.record_many_f(status.swarm.particles.len());
+        if let Some(first) = status.swarm.particles.first() {
+            status.gbest = first.best.clone();
+        }
         for particle in &mut status.swarm.particles {
             if particle.best.total_cmp(&status.gbest) == Ordering::Less {
                 status.gbest = particle.best.clone();
             }
         }
-        status.update_message("Initialized");
+        status.initial_gbest = status.gbest.clone();
+        status.set_message().initialize();
         Ok(())
     }
 
@@ -258,18 +305,17 @@ where
         _func: &P,
         status: &SwarmStatus,
         _args: &U,
+        _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
         Ok(MinimizationSummary {
-            x0: DVector::from_element(status.gbest.x.len(), 0.0),
+            x0: status.initial_gbest.x.clone(),
             x: status.gbest.x.clone(),
-            fx: status.gbest.fx_checked(),
+            fx: status.gbest.fx,
             bounds: config.bounds.clone(),
-            converged: status.converged,
-            cost_evals: status.n_f_evals,
-            gradient_evals: 0,
+            evals: status.evals,
             message: status.message.clone(),
-            parameter_names: None,
+            parameter_names: config.parameter_names.clone(),
             std: DVector::from_element(status.gbest.x.len(), 0.0),
             covariance: DMatrix::identity(status.gbest.x.len(), status.gbest.x.len()),
         })
@@ -281,9 +327,18 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
-        core::{Callbacks, MaxSteps},
+        core::{utils::generate_random_vector, Callbacks, EvaluatedPoint, MaxSteps},
         test_functions::Rastrigin,
     };
+    use approx::assert_relative_eq;
+    use std::convert::Infallible;
+
+    struct Quadratic;
+    impl CostFunction<(), Infallible> for Quadratic {
+        fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
 
     #[test]
     fn test_pso() {
@@ -299,23 +354,92 @@ mod tests {
 
         // Create a new Sampler
         let mut solver = PSO::default();
+        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
+            n_particles: 50,
+        });
+        let config = PSOConfig::default()
+            .with_c1(0.1)
+            .unwrap()
+            .with_c2(0.1)
+            .unwrap()
+            .with_omega(0.8)
+            .unwrap();
 
         // Run the particle swarm optimizer
         let result = solver
-            .process(
-                &problem,
-                &(),
-                PSOConfig::new(Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                    bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
-                    n_particles: 50,
-                }))
-                .with_c1(0.1)
-                .with_c2(0.1)
-                .with_omega(0.8),
-                callbacks,
-            )
+            .process(&problem, &(), init, config, callbacks)
             .unwrap();
 
         println!("{}", result);
+    }
+
+    #[test]
+    fn synchronous_update_uses_unit_random_coefficients() {
+        let mut solver = PSO::new(Some(0));
+        let particle = crate::algorithms::particles::SwarmParticle {
+            position: EvaluatedPoint::new(DVector::from_row_slice(&[1.0]), 1.0),
+            velocity: DVector::from_row_slice(&[0.0]),
+            best: EvaluatedPoint::new(DVector::from_row_slice(&[2.0]), 0.0),
+        };
+        let mut status = SwarmStatus {
+            gbest: particle.best.clone(),
+            swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::new())),
+            ..Default::default()
+        };
+        status.swarm.particles = vec![particle];
+
+        let config = PSOConfig::default()
+            .with_omega(0.0)
+            .unwrap()
+            .with_c1(1.0)
+            .unwrap()
+            .with_c2(0.0)
+            .unwrap();
+
+        let mut rng = Rng::with_seed(0);
+        let expected = generate_random_vector(1, 0.0, 1.0, &mut rng);
+
+        solver
+            .update_sync(&mut status, &Quadratic, &(), &config)
+            .unwrap();
+
+        assert_relative_eq!(status.swarm.particles[0].velocity[0], expected[0]);
+        assert_relative_eq!(status.swarm.particles[0].position.x[0], 1.0 + expected[0]);
+    }
+
+    #[test]
+    fn transform_bounds_mode_is_selectable_for_pso() {
+        let config = PSOConfig::default()
+            .with_bounds([(0.0, 1.0)])
+            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
+
+        assert!(matches!(
+            config.bounds_handling,
+            BoundsHandlingMode::TransformBounds
+        ));
+    }
+
+    #[test]
+    fn summary_reports_initial_eval_count_and_terminal_message() {
+        let problem = Rastrigin { n: 2 };
+        let callbacks = Callbacks::empty().with_terminator(MaxSteps(2));
+        let mut solver = PSO::default();
+        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
+            bounds: vec![(-5.0, 5.0), (-5.0, 5.0)],
+            n_particles: 8,
+        });
+        let config = PSOConfig::default();
+
+        let result = solver
+            .process(&problem, &(), init, config, callbacks)
+            .unwrap();
+
+        assert!(result.evals.f() >= 8);
+        assert_eq!(result.evals.g(), 0);
+        assert!(result
+            .message
+            .to_string()
+            .contains("Maximum number of steps reached"));
     }
 }
