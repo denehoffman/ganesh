@@ -59,11 +59,11 @@ impl Swarm {
         args: &U,
     ) -> Result<(), E> {
         let mut particle_positions = self.position_initializer.init_positions(rng);
-        let mut particle_velocities = self.velocity_initializer.init_velocities(
-            rng,
-            self.position_initializer.get_dimension(),
-            self.position_initializer.get_n_particles(),
-        );
+        let dimension = self.position_initializer.get_dimension().unwrap_or(0);
+        let n_particles = self.position_initializer.get_n_particles();
+        let mut particle_velocities =
+            self.velocity_initializer
+                .init_velocities(rng, dimension, n_particles);
         // If we use the Transform method, the particles have been initialized in external space,
         // but we need to convert them to the unbounded internal space
         particle_positions
@@ -105,25 +105,21 @@ impl Swarm {
         self
     }
     /// Get index of the particle with the minimum value in a circular window around the given index.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the window size is zero.
     pub fn index_of_min_in_circular_window(
         &self,
         center_index: usize,
         window_radius: usize,
-    ) -> usize {
+    ) -> Option<usize> {
         let len = self.particles.len();
+        if len == 0 {
+            return None;
+        }
 
         let window_indices = (center_index as isize - window_radius as isize
             ..=center_index as isize + window_radius as isize)
             .map(|i| ((i % len as isize + len as isize) % len as isize) as usize);
 
-        #[allow(clippy::expect_used)]
-        window_indices
-            .min_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
-            .expect("Window has zero size!")
+        window_indices.min_by(|&a, &b| self.particles[a].total_cmp(&self.particles[b]))
     }
 }
 
@@ -184,17 +180,17 @@ pub enum SwarmPositionInitializer {
     },
 }
 impl SwarmPositionInitializer {
-    fn get_dimension(&self) -> usize {
+    fn get_dimension(&self) -> Option<usize> {
         match self {
             Self::RandomInLimits {
                 bounds,
                 n_particles: _,
-            } => bounds.len(),
-            Self::Custom(positions) => positions[0].len(),
+            } => Some(bounds.len()),
+            Self::Custom(positions) => positions.first().map(DVector::len),
             Self::LatinHypercube {
                 bounds,
                 n_particles: _,
-            } => bounds.len(),
+            } => Some(bounds.len()),
         }
     }
     fn get_n_particles(&self) -> usize {
@@ -386,7 +382,14 @@ mod tests {
             particle_with_best(&[2.0], 2.0),
         ];
 
-        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), 1);
-        assert_eq!(swarm.index_of_min_in_circular_window(2, 1), 1);
+        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), Some(1));
+        assert_eq!(swarm.index_of_min_in_circular_window(2, 1), Some(1));
+    }
+
+    #[test]
+    fn circular_window_returns_none_for_empty_swarm() {
+        let swarm = Swarm::new(SwarmPositionInitializer::Custom(Vec::new()));
+
+        assert_eq!(swarm.index_of_min_in_circular_window(0, 1), None);
     }
 }

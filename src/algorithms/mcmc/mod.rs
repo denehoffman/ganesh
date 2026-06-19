@@ -197,7 +197,9 @@ impl Walker {
         self.current = Some(position);
         self.current_retained = self.should_retain_current();
         if self.current_retained {
-            self.history.push(self.get_latest().clone());
+            if let Some(current) = &self.current {
+                self.history.push(current.clone());
+            }
         }
         self.enforce_history_limit();
     }
