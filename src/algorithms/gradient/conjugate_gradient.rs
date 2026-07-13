@@ -1,13 +1,25 @@
+use crate::algorithms::{
+    gradient::BackendGradientStatus, line_search::BackendBacktrackingLineSearch,
+};
+use crate::core::{
+    BackendMinimizationSummary, LinearAlgebra, Matrix, NalgebraBackend, PseudoInverse, RealScalar,
+    Vector,
+};
+use crate::traits::{
+    BackendLineSearch, BackendLineSearchOutput, BackendTransform, BackendTransformedProblem,
+    Gradient,
+};
 use crate::{
-    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
-    core::{Callbacks, MaxSteps, MinimizationSummary},
+    algorithms::{gradient::LegacyGradientStatus, line_search::LegacyStrongWolfeLineSearch},
+    core::{Callbacks, LegacyMinimizationSummary, MaxSteps},
     error::{GaneshError, GaneshResult},
     traits::{
-        linesearch::LineSearchOutput, Algorithm, Gradient, LineSearch, Status,
+        Algorithm, LegacyGradient, LegacyLineSearch, LegacyLineSearchOutput, Status,
         SupportsParameterNames, SupportsTransform, Terminator, Transform, TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
+use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
 /// A [`Terminator`] which stops [`ConjugateGradient`] once the gradient norm is sufficiently small.
@@ -41,17 +53,17 @@ impl ConjugateGradientGTerminator {
     }
 }
 
-impl<P, U, E> Terminator<ConjugateGradient, P, GradientStatus, U, E, ConjugateGradientConfig>
+impl<P, U, E> Terminator<ConjugateGradient, P, LegacyGradientStatus, U, E, ConjugateGradientConfig>
     for ConjugateGradientGTerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut ConjugateGradient,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &ConjugateGradientConfig,
     ) -> ControlFlow<()> {
@@ -96,7 +108,7 @@ pub enum ConjugateGradientUpdate {
 pub struct ConjugateGradientConfig {
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
-    line_search: StrongWolfeLineSearch,
+    line_search: LegacyStrongWolfeLineSearch,
     update: ConjugateGradientUpdate,
 }
 
@@ -107,7 +119,7 @@ impl ConjugateGradientConfig {
     }
 
     /// Set the line search algorithm to use.
-    pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {
+    pub const fn with_line_search(mut self, line_search: LegacyStrongWolfeLineSearch) -> Self {
         self.line_search = line_search;
         self
     }
@@ -131,7 +143,7 @@ impl SupportsParameterNames for ConjugateGradientConfig {
     }
 }
 
-/// Nonlinear Conjugate Gradient optimizer for unconstrained smooth minimization.
+/// Nonlinear conjugate-gradient optimizer for unconstrained smooth minimization.
 ///
 /// This implementation uses a strong-Wolfe line search and supports several standard formulas for
 /// the conjugate-gradient coefficient through [`ConjugateGradientUpdate`].
@@ -142,7 +154,7 @@ pub struct ConjugateGradient {
     g: DVector<Float>,
     g_previous: DVector<Float>,
     d: DVector<Float>,
-    line_search: StrongWolfeLineSearch,
+    line_search: LegacyStrongWolfeLineSearch,
 }
 
 impl Default for ConjugateGradient {
@@ -153,7 +165,7 @@ impl Default for ConjugateGradient {
             g: DVector::zeros(0),
             g_previous: DVector::zeros(0),
             d: DVector::zeros(0),
-            line_search: StrongWolfeLineSearch::default(),
+            line_search: LegacyStrongWolfeLineSearch::default(),
         }
     }
 }
@@ -213,18 +225,18 @@ impl ConjugateGradient {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for ConjugateGradient
+impl<P, U, E> Algorithm<P, LegacyGradientStatus, U, E> for ConjugateGradient
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = ConjugateGradientConfig;
     type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -246,7 +258,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -255,7 +267,7 @@ where
             self.d = -&self.g;
         }
 
-        if let Ok(LineSearchOutput { alpha, fx, g }) = self
+        if let Ok(LegacyLineSearchOutput { alpha, fx, g }) = self
             .line_search
             .search(&self.x, &self.d, None, &t_problem, None, args, status)?
         {
@@ -279,12 +291,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientStatus,
+        status: &LegacyGradientStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -307,7 +319,7 @@ where
         *self = Self::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -317,13 +329,303 @@ where
     }
 }
 
+/// Configuration for the scalar- and backend-generic nonlinear conjugate-gradient optimizer.
+pub struct BackendConjugateGradientConfig<
+    T: RealScalar = f64,
+    B: LinearAlgebra<T> = NalgebraBackend,
+    L = BackendBacktrackingLineSearch<T, B>,
+> {
+    /// Conjugate-gradient coefficient update.
+    pub update: ConjugateGradientUpdate,
+    /// Line-search implementation.
+    pub line_search: L,
+    /// Optional coordinate transform.
+    pub transform: Option<Box<dyn BackendTransform<T, B>>>,
+}
+
+impl<T, B, L> Default for BackendConjugateGradientConfig<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    L: Default,
+{
+    fn default() -> Self {
+        Self {
+            update: ConjugateGradientUpdate::default(),
+            line_search: L::default(),
+            transform: None,
+        }
+    }
+}
+
+impl<T, B, L> BackendConjugateGradientConfig<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Select the coefficient update formula.
+    pub const fn with_update(mut self, update: ConjugateGradientUpdate) -> Self {
+        self.update = update;
+        self
+    }
+
+    /// Configure a coordinate transform.
+    pub fn with_transform<X>(mut self, transform: X) -> Self
+    where
+        X: BackendTransform<T, B> + 'static,
+    {
+        self.transform = Some(Box::new(transform));
+        self
+    }
+}
+
+/// Scalar- and backend-generic nonlinear conjugate-gradient optimizer.
+#[derive(Clone, Debug)]
+pub struct BackendConjugateGradient<
+    T: RealScalar = f64,
+    B: LinearAlgebra<T> = NalgebraBackend,
+    L = BackendBacktrackingLineSearch<T, B>,
+> {
+    x: Vector<T, B>,
+    fx: T,
+    gradient: Vector<T, B>,
+    direction: Vector<T, B>,
+    line_search: L,
+    _backend: PhantomData<B>,
+}
+
+impl<T, B, L> Default for BackendConjugateGradient<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    L: Default,
+{
+    fn default() -> Self {
+        Self {
+            x: Vector::zeros(0),
+            fx: T::infinity(),
+            gradient: Vector::zeros(0),
+            direction: Vector::zeros(0),
+            line_search: L::default(),
+            _backend: PhantomData,
+        }
+    }
+}
+
+impl<T, B, L> BackendConjugateGradient<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn beta(&self, update: ConjugateGradientUpdate, next: &Vector<T, B>) -> T {
+        let y = next.sub(&self.gradient);
+        let gradient_norm_sq = self.gradient.dot(&self.gradient);
+        let next_norm_sq = next.dot(next);
+        let direction_y = self.direction.dot(&y);
+        let zero = T::zero();
+        let beta = match update {
+            ConjugateGradientUpdate::FletcherReeves => {
+                if gradient_norm_sq <= T::epsilon() {
+                    zero
+                } else {
+                    next_norm_sq / gradient_norm_sq
+                }
+            }
+            ConjugateGradientUpdate::PolakRibierePlus => {
+                if gradient_norm_sq <= T::epsilon() {
+                    zero
+                } else {
+                    let value = next.dot(&y) / gradient_norm_sq;
+                    if value > zero {
+                        value
+                    } else {
+                        zero
+                    }
+                }
+            }
+            ConjugateGradientUpdate::HestenesStiefelPlus => {
+                if direction_y.abs() <= T::epsilon() {
+                    zero
+                } else {
+                    let value = next.dot(&y) / direction_y;
+                    if value > zero {
+                        value
+                    } else {
+                        zero
+                    }
+                }
+            }
+            ConjugateGradientUpdate::DaiYuan => {
+                if direction_y.abs() <= T::epsilon() {
+                    zero
+                } else {
+                    next_norm_sq / direction_y
+                }
+            }
+            ConjugateGradientUpdate::HagerZhang => {
+                if direction_y.abs() <= T::epsilon() {
+                    zero
+                } else {
+                    let correction = y.sub(
+                        &self
+                            .direction
+                            .scale(T::literal(2.0) * y.dot(&y) / direction_y),
+                    );
+                    correction.dot(next) / direction_y
+                }
+            }
+        };
+        if beta.is_finite() {
+            beta
+        } else {
+            zero
+        }
+    }
+}
+
+impl<T, B, L, P, U, E> Algorithm<P, BackendGradientStatus<T, B>, U, E>
+    for BackendConjugateGradient<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> BackendLineSearch<T, B, BackendTransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
+{
+    type Summary = BackendMinimizationSummary<T, B>;
+    type Config = BackendConjugateGradientConfig<T, B, L>;
+    type Init = Vector<T, B>;
+
+    fn initialize(
+        &mut self,
+        problem: &P,
+        status: &mut BackendGradientStatus<T, B>,
+        args: &U,
+        init: &Self::Init,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let transformed = BackendTransformedProblem::new(problem, config.transform.as_deref());
+        self.x = transformed.to_internal(init);
+        (self.fx, self.gradient) = transformed.evaluate_with_gradient(&self.x, args)?;
+        self.direction = self.gradient.neg();
+        self.line_search = config.line_search.clone();
+        status.evals.record_fg();
+        status.initialize(init.clone(), self.fx);
+        Ok(())
+    }
+
+    fn step(
+        &mut self,
+        _current_step: usize,
+        problem: &P,
+        status: &mut BackendGradientStatus<T, B>,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        if self.gradient.norm() <= T::epsilon().cbrt() {
+            status
+                .set_message()
+                .succeed_with_message("GRADIENT CONVERGED");
+            return Ok(());
+        }
+        if self.direction.dot(&self.gradient) >= T::zero() {
+            self.direction = self.gradient.neg();
+        }
+        let transformed = BackendTransformedProblem::new(problem, config.transform.as_deref());
+        if let Ok(BackendLineSearchOutput {
+            alpha,
+            fx,
+            gradient,
+        }) = self.line_search.search(
+            &self.x,
+            &self.direction,
+            None,
+            &transformed,
+            args,
+            &mut status.evals,
+        )? {
+            self.x = self.x.add_scaled(&self.direction, alpha);
+            self.fx = fx;
+            let beta = self.beta(config.update, &gradient);
+            self.gradient = gradient;
+            self.direction = self.gradient.neg().add_scaled(&self.direction, beta);
+            if self.direction.dot(&self.gradient) >= T::zero() {
+                self.direction = self.gradient.neg();
+            }
+            status.set_position(transformed.to_external(&self.x), self.fx);
+        } else {
+            self.direction = self.gradient.neg();
+        }
+        Ok(())
+    }
+
+    fn postprocessing(
+        &mut self,
+        problem: &P,
+        status: &mut BackendGradientStatus<T, B>,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let transformed = BackendTransformedProblem::new(problem, config.transform.as_deref());
+        let external = transformed.to_external(&self.x);
+        let hessian = problem.hessian(&external, args)?;
+        status.evals.record_h();
+        status.set_hess(hessian);
+        Ok(())
+    }
+
+    fn summarize(
+        &self,
+        _current_step: usize,
+        _problem: &P,
+        status: &BackendGradientStatus<T, B>,
+        _args: &U,
+        init: &Self::Init,
+        _config: &Self::Config,
+    ) -> Result<Self::Summary, E> {
+        let dimension = status.x.len();
+        Ok(BackendMinimizationSummary {
+            parameter_names: None,
+            message: status.message.clone(),
+            x0: init.clone(),
+            x: status.x.clone(),
+            std: status
+                .err
+                .clone()
+                .unwrap_or_else(|| Vector::zeros(dimension)),
+            fx: status.fx,
+            evals: status.evals,
+            covariance: status
+                .cov
+                .clone()
+                .unwrap_or_else(|| Matrix::identity(dimension)),
+        })
+    }
+
+    fn reset(&mut self) {
+        self.x = Vector::zeros(0);
+        self.fx = T::infinity();
+        self.gradient = Vector::zeros(0);
+        self.direction = Vector::zeros(0);
+        self.line_search = L::default();
+    }
+
+    fn default_callbacks() -> Callbacks<Self, P, BackendGradientStatus<T, B>, U, E, Self::Config> {
+        Callbacks::empty().with_terminator(MaxSteps::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        algorithms::line_search::StrongWolfeLineSearch,
+        algorithms::line_search::LegacyStrongWolfeLineSearch,
         core::{Bounds, MaxSteps},
         test_functions::Rosenbrock,
+        traits::BackendBounds,
     };
     use approx::assert_relative_eq;
     use nalgebra::dvector;
@@ -359,7 +661,7 @@ mod tests {
                 dvector![-1.2, 1.0],
                 ConjugateGradientConfig::default()
                     .with_update(ConjugateGradientUpdate::HagerZhang)
-                    .with_line_search(StrongWolfeLineSearch::default()),
+                    .with_line_search(LegacyStrongWolfeLineSearch::default()),
                 ConjugateGradient::default_callbacks().with_terminator(MaxSteps(1_000)),
             )
             .unwrap();
@@ -386,5 +688,26 @@ mod tests {
         assert!(result.fx < 1e-10);
         assert!(result.x[0] >= -2.0 && result.x[0] <= 2.0);
         assert!(result.x[1] >= -1.0 && result.x[1] <= 3.0);
+    }
+
+    #[test]
+    fn backend_conjugate_gradient_runs_f32_with_bounds() {
+        let problem = Rosenbrock { n: 2 };
+        let bounds = BackendBounds::new([(-2.0_f32, 2.0), (-1.0, 3.0)]).unwrap();
+        let config = BackendConjugateGradientConfig::default().with_transform(bounds);
+        let mut solver = BackendConjugateGradient::<f32>::default();
+        let result = solver
+            .process(
+                &problem,
+                &(),
+                Vector::from_vec(vec![-1.2, 1.0]),
+                config,
+                BackendConjugateGradient::<f32>::default_callbacks()
+                    .with_terminator(MaxSteps(5_000)),
+            )
+            .unwrap();
+        assert!(result.fx < 1e-3);
+        assert!((result.x.get(0) - 1.0).abs() < 0.05);
+        assert!((result.x.get(1) - 1.0).abs() < 0.05);
     }
 }

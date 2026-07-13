@@ -730,7 +730,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        traits::{transform::TransformExt, CostFunction, Gradient, TransformedProblem},
+        traits::{transform::TransformExt, LegacyCostFunction, LegacyGradient, TransformedProblem},
         DVector,
     };
 
@@ -1016,12 +1016,12 @@ mod tests {
     }
 
     struct Quadratic;
-    impl CostFunction for Quadratic {
+    impl LegacyCostFunction for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(x.map(|xi| xi * xi * 0.5).sum())
         }
     }
-    impl Gradient for Quadratic {
+    impl LegacyGradient for Quadratic {
         fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
             Ok(x.clone())
         }

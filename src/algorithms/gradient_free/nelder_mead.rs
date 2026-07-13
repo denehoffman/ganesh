@@ -1,10 +1,10 @@
 use crate::{
-    algorithms::gradient_free::GradientFreeStatus,
-    core::{Bounds, Callbacks, EvaluatedPoint, MinimizationSummary, Point},
+    algorithms::gradient_free::LegacyGradientFreeStatus,
+    core::{Bounds, Callbacks, EvaluatedPoint, LegacyMinimizationSummary, Point},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CheckpointableAlgorithm, CostFunction, Status, SupportsBounds,
+        Algorithm, CheckpointableAlgorithm, LegacyCostFunction, Status, SupportsBounds,
         SupportsParameterNames, SupportsTransform, Terminator, Transform,
     },
     DMatrix, DVector, Float,
@@ -200,7 +200,7 @@ impl NelderMeadInit {
 impl SimplexConstructionMethod {
     fn generate<U, E>(
         &self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         transform: &Option<Box<dyn Transform>>,
         bounds: Option<&Bounds>,
         args: &U,
@@ -453,17 +453,17 @@ impl Default for NelderMeadFTerminator {
         }
     }
 }
-impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+impl<P, U, E> Terminator<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
     for NelderMeadFTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &NelderMeadConfig,
     ) -> ControlFlow<()> {
@@ -565,17 +565,17 @@ impl Default for NelderMeadXTerminator {
     }
 }
 
-impl<P, U, E> Terminator<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+impl<P, U, E> Terminator<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
     for NelderMeadXTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut NelderMead,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &NelderMeadConfig,
     ) -> ControlFlow<()> {
@@ -872,21 +872,21 @@ pub struct NelderMeadCheckpoint {
     /// The original starting point used for summary output.
     pub initial_x0: DVector<Float>,
     /// The saved gradient-free status.
-    pub status: GradientFreeStatus,
+    pub status: LegacyGradientFreeStatus,
     /// The next step index to execute when resuming.
     pub next_step: usize,
 }
-impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for NelderMead
+impl<P, U, E> Algorithm<P, LegacyGradientFreeStatus, U, E> for NelderMead
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = NelderMeadConfig;
     type Init = NelderMeadInit;
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -912,7 +912,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -1075,12 +1075,12 @@ where
         &self,
         _current_step: usize,
         _func: &P,
-        status: &GradientFreeStatus,
+        status: &LegacyGradientFreeStatus,
         _args: &U,
         _init: &Self::Init,
         config: &Self::Config,
-    ) -> Result<MinimizationSummary, E> {
-        Ok(MinimizationSummary {
+    ) -> Result<LegacyMinimizationSummary, E> {
+        Ok(LegacyMinimizationSummary {
             x0: self.initial_x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -1099,7 +1099,7 @@ where
         })
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientFreeStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -1114,13 +1114,13 @@ where
     }
 }
 
-impl<P, U, E> CheckpointableAlgorithm<P, GradientFreeStatus, U, E> for NelderMead
+impl<P, U, E> CheckpointableAlgorithm<P, LegacyGradientFreeStatus, U, E> for NelderMead
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     type Checkpoint = NelderMeadCheckpoint;
 
-    fn checkpoint(&self, status: &GradientFreeStatus, next_step: usize) -> Self::Checkpoint {
+    fn checkpoint(&self, status: &LegacyGradientFreeStatus, next_step: usize) -> Self::Checkpoint {
         NelderMeadCheckpoint {
             simplex: self.simplex.clone(),
             initial_x0: self.initial_x0.clone(),
@@ -1133,7 +1133,7 @@ where
         &mut self,
         checkpoint: &Self::Checkpoint,
         config: &Self::Config,
-    ) -> (GradientFreeStatus, usize) {
+    ) -> (LegacyGradientFreeStatus, usize) {
         let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
             resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
         self.internal_bounds = bounds.map(|b| b.apply(&transform));
@@ -1171,10 +1171,10 @@ mod tests {
         }
     }
 
-    impl<P, U, E, Sig> Observer<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+    impl<P, U, E, Sig> Observer<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
         for TriggerAbortAtStep<Sig>
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
         Sig: AbortSignal + Clone,
     {
         fn observe(
@@ -1182,7 +1182,7 @@ mod tests {
             current_step: usize,
             _algorithm: &NelderMead,
             _problem: &P,
-            _status: &GradientFreeStatus,
+            _status: &LegacyGradientFreeStatus,
             _args: &U,
             _config: &NelderMeadConfig,
         ) {
@@ -1626,7 +1626,7 @@ mod tests {
             ]),
             ..Default::default()
         };
-        let mut status = GradientFreeStatus::default();
+        let mut status = LegacyGradientFreeStatus::default();
 
         let terminated = NelderMeadXTerminator::Diameter { eps_abs: 1.5 }.check_for_termination(
             0,
@@ -1651,7 +1651,7 @@ mod tests {
             ]),
             ..Default::default()
         };
-        let mut status = GradientFreeStatus::default();
+        let mut status = LegacyGradientFreeStatus::default();
 
         let terminated = NelderMeadXTerminator::Higham { eps_rel: 2.0 }.check_for_termination(
             0,
@@ -1815,31 +1815,6 @@ mod tests {
         let _ = NelderMeadConfig::default()
             .with_alpha_beta(1.6, 1.5)
             .unwrap();
-    }
-
-    #[test]
-    fn with_alpha_beta_sets_values() {
-        let nmc = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.1, 2.2);
-        assert_eq!(nmc.alpha, 1.1);
-        assert_eq!(nmc.beta, 2.2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_alpha_nonpositive() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.0, 2.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_beta_not_gt_one() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(0.5, 1.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
-        let _ = NelderMeadConfig::new([1.0, 1.0]).with_alpha_beta(1.6, 1.5);
     }
 
     #[test]

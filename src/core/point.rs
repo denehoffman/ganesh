@@ -1,5 +1,6 @@
 use crate::{
-    traits::{CostFunction, LogDensity, Transform},
+    core::{LinearAlgebra, RealScalar, Vector},
+    traits::{CostFunction, LegacyCostFunction, LegacyLogDensity, LogDensity, Transform},
     DVector, Float,
 };
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,40 @@ impl<I> Point<I> {
     }
 }
 
+impl<T, B> Point<Vector<T, B>>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Evaluate a scalar/backend-generic objective and retain the scalar value with the point.
+    ///
+    /// # Errors
+    /// Returns an error when objective evaluation fails.
+    pub fn evaluate<P, U, E>(self, func: &P, args: &U) -> Result<EvaluatedPoint<Vector<T, B>, T>, E>
+    where
+        P: CostFunction<T, B, U, E>,
+    {
+        let value = func.evaluate(&self.x, args)?;
+        Ok(EvaluatedPoint::new(self.x, value))
+    }
+
+    /// Evaluate a scalar/backend-generic log density.
+    ///
+    /// # Errors
+    /// Returns an error when density evaluation fails.
+    pub fn log_density<P, U, E>(
+        self,
+        func: &P,
+        args: &U,
+    ) -> Result<EvaluatedPoint<Vector<T, B>, T>, E>
+    where
+        P: LogDensity<T, B, U, E>,
+    {
+        let value = func.log_density(&self.x, args)?;
+        Ok(EvaluatedPoint::new(self.x, value))
+    }
+}
+
 impl Point<DVector<Float>> {
     /// Evaluate the given function at the point's coordinate.
     ///
@@ -38,7 +73,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate<U, E>(
         self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
     ) -> Result<EvaluatedPoint<DVector<Float>>, E> {
         let fx = func.evaluate(&self.x, args)?;
@@ -53,7 +88,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn log_density<U, E>(
         self,
-        func: &dyn LogDensity<U, E>,
+        func: &dyn LegacyLogDensity<U, E>,
         args: &U,
     ) -> Result<EvaluatedPoint<DVector<Float>>, E> {
         let fx = func.log_density(&self.x, args)?;
@@ -68,7 +103,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn evaluate_transformed<T, U, E>(
         self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         transform: &Option<T>,
         args: &U,
     ) -> Result<EvaluatedPoint<DVector<Float>>, E>
@@ -88,7 +123,7 @@ impl Point<DVector<Float>> {
     /// `std::convert::Infallible` if the function evaluation never fails.
     pub fn log_density_transformed<T, U, E>(
         self,
-        func: &dyn LogDensity<U, E>,
+        func: &dyn LegacyLogDensity<U, E>,
         transform: &Option<T>,
         args: &U,
     ) -> Result<EvaluatedPoint<DVector<Float>>, E>
@@ -142,36 +177,38 @@ impl From<DVector<Float>> for Point<DVector<Float>> {
 
 /// Coordinates in parameter space together with a computed scalar value.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub struct EvaluatedPoint<I> {
+pub struct EvaluatedPoint<I, T = f64> {
     /// The point's position.
     pub x: I,
     /// The point's computed value.
-    pub fx: Float,
+    pub fx: T,
 }
 
-impl<I> EvaluatedPoint<I> {
+impl<I, T> EvaluatedPoint<I, T> {
     /// Create a new evaluated point from coordinates and value.
-    pub const fn new(x: I, fx: Float) -> Self {
+    pub const fn new(x: I, fx: T) -> Self {
         Self { x, fx }
     }
 
     /// Return the computed value.
-    pub const fn value(&self) -> Float {
-        self.fx
+    pub const fn value(&self) -> &T {
+        &self.fx
     }
 
     /// Convert the [`EvaluatedPoint`] into an `I`-`Float` tuple.
-    pub fn into_parts(self) -> (I, Float) {
+    pub fn into_parts(self) -> (I, T) {
         (self.x, self.fx)
     }
+}
 
+impl<I, T: RealScalar> EvaluatedPoint<I, T> {
     /// Compare two points by their `fx` value.
     pub fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.fx.total_cmp(&other.fx)
     }
 }
 
-impl EvaluatedPoint<DVector<Float>> {
+impl EvaluatedPoint<DVector<Float>, Float> {
     /// Converts the point's `x` from internal coordinates to external coordinates.
     pub fn to_external<T>(&self, transform: &Option<T>) -> Self
     where
@@ -189,19 +226,19 @@ impl EvaluatedPoint<DVector<Float>> {
     }
 }
 
-impl<I: Debug> Display for EvaluatedPoint<I> {
+impl<I: Debug, T: Debug> Display for EvaluatedPoint<I, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "x: {:?}, f(x): {:?}", self.x, self.fx)
     }
 }
 
-impl<I> PartialEq for EvaluatedPoint<I> {
+impl<I, T: PartialEq> PartialEq for EvaluatedPoint<I, T> {
     fn eq(&self, other: &Self) -> bool {
         self.fx == other.fx
     }
 }
 
-impl<I> PartialOrd for EvaluatedPoint<I> {
+impl<I, T: PartialOrd> PartialOrd for EvaluatedPoint<I, T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.fx.partial_cmp(&other.fx)
     }

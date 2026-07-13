@@ -1,9 +1,9 @@
 use crate::{
-    DVector, Float,
-    algorithms::gradient::GradientStatus,
+    algorithms::gradient::LegacyGradientStatus,
     core::Bounds,
     error::{GaneshError, GaneshResult},
-    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
+    traits::{LegacyGradient, LegacyLineSearch, LegacyLineSearchOutput},
+    DVector, Float,
 };
 
 /// A line search which implements Algorithms 3.5 and 3.6 from Nocedal and Wright's book "Numerical
@@ -92,30 +92,30 @@ impl MoreThuenteLineSearch {
 impl MoreThuenteLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<Float, E> {
         status.evals.record_f();
         func.evaluate(x, args)
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.evals.record_g();
         func.gradient(x, args)
     }
     fn f_g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<(Float, DVector<Float>), E> {
         status.evals.record_fg();
         func.evaluate_with_gradient(x, args)
@@ -124,7 +124,7 @@ impl MoreThuenteLineSearch {
     #[allow(clippy::too_many_arguments)]
     fn zoom<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x0: &DVector<Float>,
         args: &U,
         f0: Float,
@@ -132,8 +132,8 @@ impl MoreThuenteLineSearch {
         p: &DVector<Float>,
         alpha_lo: Float,
         alpha_hi: Float,
-        status: &mut GradientStatus,
-    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
+        status: &mut LegacyGradientStatus,
+    ) -> Result<Result<LegacyLineSearchOutput, LegacyLineSearchOutput>, E> {
         let mut alpha_lo = alpha_lo;
         let mut alpha_hi = alpha_hi;
         let dphi0 = g0.dot(p);
@@ -151,7 +151,7 @@ impl MoreThuenteLineSearch {
                 let g_i = self.g_eval(func, &x, args, status)?;
                 let dphi = g_i.dot(p);
                 if Float::abs(dphi) <= -self.c2 * dphi0 {
-                    return Ok(Ok(LineSearchOutput {
+                    return Ok(Ok(LegacyLineSearchOutput {
                         alpha: alpha_i,
                         fx: f_i,
                         g: g_i,
@@ -167,13 +167,13 @@ impl MoreThuenteLineSearch {
             if i > self.max_zoom {
                 let g_i = self.g_eval(func, &x, args, status)?;
                 if valid {
-                    return Ok(Ok(LineSearchOutput {
+                    return Ok(Ok(LegacyLineSearchOutput {
                         alpha: alpha_i,
                         fx: f_i,
                         g: g_i,
                     }));
                 } else {
-                    return Ok(Err(LineSearchOutput {
+                    return Ok(Err(LegacyLineSearchOutput {
                         alpha: alpha_i,
                         fx: f_i,
                         g: g_i,
@@ -184,17 +184,17 @@ impl MoreThuenteLineSearch {
     }
 }
 
-impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
+impl<U, E> LegacyLineSearch<LegacyGradientStatus, U, E> for MoreThuenteLineSearch {
     fn search(
         &mut self,
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn LegacyGradient<U, E>,
         _bounds: Option<&Bounds>,
         args: &U,
-        status: &mut GradientStatus,
-    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
+        status: &mut LegacyGradientStatus,
+    ) -> Result<Result<LegacyLineSearchOutput, LegacyLineSearchOutput>, E> {
         let (f0, g0) = self.f_g_eval(problem, x0, args, status)?;
         let alpha_max = max_step.unwrap_or(1.0); // TODO: 1e5?
         let mut alpha_im1 = 0.0;
@@ -211,7 +211,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
             let g_i = self.g_eval(problem, &x, args, status)?;
             let dphi = g_i.dot(p);
             if Float::abs(dphi) <= self.c2 * Float::abs(dphi0) {
-                return Ok(Ok(LineSearchOutput {
+                return Ok(Ok(LegacyLineSearchOutput {
                     alpha: alpha_i,
                     fx: f_i,
                     g: g_i,
@@ -225,7 +225,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for MoreThuenteLineSearch {
             alpha_i = 0.8f64.mul_add(alpha_max - alpha_i, alpha_i);
             i += 1;
             if i > self.max_iters {
-                return Ok(Err(LineSearchOutput {
+                return Ok(Err(LegacyLineSearchOutput {
                     alpha: alpha_i,
                     fx: f_i,
                     g: g_i,
@@ -287,28 +287,22 @@ mod tests {
 
     #[test]
     fn with_c1_c2_errors_when_bad_ordering() {
-        assert!(
-            MoreThuenteLineSearch::default()
-                .with_c1_c2(0.9, 0.1)
-                .is_err()
-        );
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(0.9, 0.1)
+            .is_err());
     }
 
     #[test]
     fn with_c1_c2_errors_when_c2_not_less_than_one() {
-        assert!(
-            MoreThuenteLineSearch::default()
-                .with_c1_c2(1e-4, 1.0)
-                .is_err()
-        );
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(1e-4, 1.0)
+            .is_err());
     }
 
     #[test]
     fn with_c1_c2_errors_when_c1_not_positive() {
-        assert!(
-            MoreThuenteLineSearch::default()
-                .with_c1_c2(0.0, 0.5)
-                .is_err()
-        );
+        assert!(MoreThuenteLineSearch::default()
+            .with_c1_c2(0.0, 0.5)
+            .is_err());
     }
 }

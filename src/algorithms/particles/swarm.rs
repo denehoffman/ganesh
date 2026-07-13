@@ -3,7 +3,7 @@ use crate::{
         utils::{generate_random_vector_in_limits, SampleFloat},
         Bounds, EvaluatedPoint, Point,
     },
-    traits::{CostFunction, Transform},
+    traits::{LegacyCostFunction, Transform},
     DVector, Float,
 };
 use fastrand::Rng;
@@ -45,17 +45,17 @@ impl Swarm {
     }
     /// Create particles in the swarm using the given random number generator, dimension, bounds, and cost function.
     /// The method uses the configured [`SwarmPositionInitializer`] and [`SwarmVelocityInitializer`] to create the particles.
-    /// The [`CostFunction`] and user data are needed to evaluate the value at the particle's position.
+    /// The [`LegacyCostFunction`] and user data are needed to evaluate the value at the particle's position.
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`LegacyCostFunction::evaluate`] for more
     /// information.
     pub fn initialize<U, E>(
         &mut self,
         rng: &mut Rng,
         transform: &Option<Box<dyn Transform>>,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
     ) -> Result<(), E> {
         let mut particle_positions = self.position_initializer.init_positions(rng);
@@ -91,7 +91,7 @@ impl Swarm {
         self.update_method = value;
         self
     }
-    /// Set the [`PSO`](super::PSO)'s [`SwarmVelocityInitializer`].
+    /// Set the [`LegacyPSO`](super::LegacyPSO)'s [`SwarmVelocityInitializer`].
     pub fn with_velocity_initializer(
         mut self,
         velocity_initializer: SwarmVelocityInitializer,
@@ -99,7 +99,7 @@ impl Swarm {
         self.velocity_initializer = velocity_initializer;
         self
     }
-    /// Set the [`SwarmBoundaryMethod`] for the [`PSO`](super::PSO).
+    /// Set the [`SwarmBoundaryMethod`] for the [`LegacyPSO`](super::LegacyPSO).
     pub const fn with_boundary_method(mut self, boundary_method: SwarmBoundaryMethod) -> Self {
         self.boundary_method = boundary_method;
         self
@@ -285,12 +285,12 @@ impl SwarmParticle {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`LegacyCostFunction::evaluate`] for more
     /// information.
     pub fn new<U, E>(
         position: Point<DVector<Float>>,
         velocity: DVector<Float>,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
         transform: &Option<Box<dyn Transform>>,
     ) -> Result<Self, E> {
@@ -309,11 +309,11 @@ impl SwarmParticle {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`] for more
+    /// Returns an `Err(E)` if the evaluation fails. See [`LegacyCostFunction::evaluate`] for more
     /// information.
     pub fn update_position<U, E>(
         &mut self,
-        func: &dyn CostFunction<U, E>,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
         bounds: Option<&Bounds>,
         transform: &Option<Box<dyn Transform>>,

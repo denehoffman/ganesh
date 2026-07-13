@@ -1,16 +1,14 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::{
-        gradient::{LBFGSBConfig, LBFGSB},
-        gradient_free::{
-            nelder_mead::{NelderMeadConfig, NelderMeadInit},
-            NelderMead,
-        },
-        mcmc::{ess::ESSInit, AutocorrelationTerminator, ESSConfig, ESS},
+        gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
+        gradient_free::{LegacyNelderMead, LegacyNelderMeadConfig, LegacyNelderMeadInit},
+        mcmc::{ess::ESSInit, AutocorrelationTerminator, LegacyESS, LegacyESSConfig},
     },
     core::{summary::HasParameterNames, utils::SampleFloat, Bounds},
     traits::{
-        Algorithm, CostFunction, Gradient, LogDensity, SupportsTransform, Transform, TransformExt,
+        Algorithm, LegacyCostFunction, LegacyGradient, LegacyLogDensity, SupportsTransform,
+        Transform, TransformExt,
     },
     PI,
 };
@@ -67,7 +65,7 @@ fn write_data_chain(
 }
 
 struct Problem;
-impl CostFunction<Vec<DVector<f64>>> for Problem {
+impl LegacyCostFunction<Vec<DVector<f64>>> for Problem {
     fn evaluate(&self, x: &DVector<f64>, args: &Vec<DVector<f64>>) -> Result<f64, Infallible> {
         let mu = Vector2::new(x[0], x[1]);
         let sigma = Matrix2::new(x[2], x[3], x[3], x[4]);
@@ -90,9 +88,9 @@ impl CostFunction<Vec<DVector<f64>>> for Problem {
         Ok((n * (2.0 * (2.0 * PI).ln() + ln_det)) + quad_sum)
     }
 }
-impl Gradient<Vec<DVector<f64>>> for Problem {}
+impl LegacyGradient<Vec<DVector<f64>>> for Problem {}
 
-impl LogDensity<Vec<DVector<f64>>> for Problem {
+impl LegacyLogDensity<Vec<DVector<f64>>> for Problem {
     fn log_density(&self, x: &DVector<f64>, args: &Vec<DVector<f64>>) -> Result<f64, Infallible> {
         Ok(-self.evaluate(x, args)?)
     }
@@ -177,17 +175,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let transform = internal_bounds.compose(spd_transform);
 
     println!("Running fit (Nelder-Mead)...");
-    let nm_init = NelderMeadInit::new([0.5, 1.0, 0.7, 0.1, 0.7]);
-    let nm_config = NelderMeadConfig::default().with_transform(&transform);
-    let res = NelderMead::default()
+    let nm_init = LegacyNelderMeadInit::new([0.5, 1.0, 0.7, 0.1, 0.7]);
+    let nm_config = LegacyNelderMeadConfig::default().with_transform(&transform);
+    let res = LegacyNelderMead::default()
         .process_with_default_callbacks(&Problem, &data, nm_init, nm_config)?
         .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
     println!("{}", res);
 
     println!("Running fit (L-BFGS-B)...");
     let lbfgsb_init = DVector::from_row_slice(&[0.5, 1.0, 0.7, 0.1, 0.7]);
-    let lbfgsb_config = LBFGSBConfig::default().with_transform(&transform);
-    let res = LBFGSB::default()
+    let lbfgsb_config = LegacyLBFGSBConfig::default().with_transform(&transform);
+    let res = LegacyLBFGSB::default()
         .process_with_default_callbacks(&Problem, &data, lbfgsb_init, lbfgsb_config)?
         .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
     println!("{}", res);
@@ -200,15 +198,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let walkers = Vec::from_iter((0..n_walkers).map(|_| {
         transform.to_owned_external(&DVector::from_fn(5, |i, _| rng.normal(x_min_int[i], 0.2)))
     }));
-    println!("Running MCMC (ESS)...");
+    println!("Running MCMC (LegacyESS)...");
     let ess_init = ESSInit::new(walkers)?;
-    let ess_config = ESSConfig::default().with_transform(&transform);
-    let sample = ESS::default().process(
+    let ess_config = LegacyESSConfig::default().with_transform(&transform);
+    let sample = LegacyESS::default().process(
         &Problem,
         &data,
         ess_init,
         ess_config,
-        ESS::default_callbacks().with_terminator(aco.clone()),
+        LegacyESS::default_callbacks().with_terminator(aco.clone()),
     )?;
 
     let burn = (aco.lock().taus.last().unwrap() * 10.0) as usize;

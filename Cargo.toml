@@ -48,7 +48,6 @@ approx = "0.5.1"
 
 [features]
 default = []
-f32 = []
 backend-ndarray = ["dep:ndarray", "dep:ndarray-linalg"]
 backend-ndarray-openblas-system = ["backend-ndarray", "ndarray-linalg/openblas-system"]
 backend-ndarray-openblas-static = ["backend-ndarray", "ndarray-linalg/openblas-static"]

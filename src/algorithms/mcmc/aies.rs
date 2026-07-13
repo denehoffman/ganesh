@@ -1,14 +1,15 @@
 use crate::{
     algorithms::mcmc::{
-        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
+        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, LegacyEnsembleStatus,
+        Walker,
     },
     core::{
         utils::{RandChoice, SampleFloat},
-        MCMCSummary, Point,
+        LegacyMCMCSummary, Point,
     },
     error::{GaneshError, GaneshResult},
     traits::{
-        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
+        status::StatusType, Algorithm, LegacyLogDensity, Status, SupportsParameterNames,
         SupportsTransform, Transform,
     },
     DVector, Float,
@@ -57,11 +58,11 @@ impl AIESMove {
         problem: &P,
         transform: &Option<Box<dyn Transform>>,
         args: &U,
-        ensemble: &mut EnsembleStatus,
+        ensemble: &mut LegacyEnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
-        P: LogDensity<U, E>,
+        P: LegacyLogDensity<U, E>,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -258,17 +259,17 @@ impl AIES {
     }
 }
 
-impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for AIES
+impl<P, U, E> Algorithm<P, LegacyEnsembleStatus, U, E> for AIES
 where
-    P: LogDensity<U, E>,
+    P: LegacyLogDensity<U, E>,
 {
-    type Summary = MCMCSummary;
+    type Summary = LegacyMCMCSummary;
     type Config = AIESConfig;
     type Init = AIESInit;
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut LegacyEnsembleStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -286,7 +287,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut LegacyEnsembleStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -304,7 +305,7 @@ where
         &self,
         _current_step: usize,
         _func: &P,
-        status: &EnsembleStatus,
+        status: &LegacyEnsembleStatus,
         _args: &U,
         _init: &Self::Init,
         config: &Self::Config,
@@ -320,7 +321,7 @@ where
                 message.succeed_with_message(text);
             }
         }
-        Ok(MCMCSummary {
+        Ok(LegacyMCMCSummary {
             bounds: None,
             parameter_names: config.parameter_names.clone(),
             message,
@@ -351,7 +352,7 @@ mod tests {
     struct CenteredLogDensity {
         target: Float,
     }
-    impl crate::traits::LogDensity<(), Infallible> for CenteredLogDensity {
+    impl crate::traits::LegacyLogDensity<(), Infallible> for CenteredLogDensity {
         fn log_density(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
             Ok(-Float::powi(x[0] - self.target, 2))
         }
@@ -415,7 +416,7 @@ mod tests {
     fn test_aiesmove_updates_message() {
         let mut rng = Rng::with_seed(0);
         let problem = Rosenbrock { n: 2 };
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
 
         AIESMove::Stretch { a: 2.0 }
             .step(&problem, &None, &(), &mut status, &mut rng)
@@ -436,7 +437,7 @@ mod tests {
         let init = AIESInit::new(walkers.clone()).unwrap();
         let config = AIESConfig::default();
         let problem = Rosenbrock { n: 2 };
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
 
         aies.initialize(&problem, &mut status, &(), &init, &config)
             .unwrap();
@@ -458,7 +459,7 @@ mod tests {
         let init = AIESInit::new(walkers).unwrap();
         let config = AIESConfig::default().with_moves(moves).unwrap();
 
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         aies.initialize(&problem, &mut status, &(), &init, &config)
             .unwrap();
 
@@ -472,7 +473,7 @@ mod tests {
         let z = (a - 1.0).mul_add(rng.float(), 1.0).powi(2) / a;
         let expected = 1.0 + z * (2.0 - 1.0);
         let problem = CenteredLogDensity { target: expected };
-        let mut ensemble = EnsembleStatus {
+        let mut ensemble = LegacyEnsembleStatus {
             walkers: vec![
                 Walker::new(DVector::from_row_slice(&[2.0])),
                 Walker::new(DVector::from_row_slice(&[1.0])),

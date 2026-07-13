@@ -1,11 +1,10 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::mcmc::{
-        ess::{ESSConfig, ESSInit},
-        AutocorrelationTerminator, ESSMove, ESS,
+        ess::ESSInit, AutocorrelationTerminator, ESSMove, LegacyESS, LegacyESSConfig,
     },
     core::{utils::SampleFloat, Callbacks, MaxSteps},
-    traits::{Algorithm, LogDensity},
+    traits::{Algorithm, LegacyLogDensity},
     DMatrix, DVector, Float,
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
@@ -15,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     struct Problem;
     // Implement Function (args is the inverse of the covariance matrix)
     // NOTE: this is just proportional to the log of the multinormal!
-    impl LogDensity<DMatrix<Float>> for Problem {
+    impl LegacyLogDensity<DMatrix<Float>> for Problem {
         fn log_density(
             &self,
             x: &DVector<Float>,
@@ -44,9 +43,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_verbose(true)
         .build();
 
-    let mut sampler = ESS::default();
+    let mut sampler = LegacyESS::default();
     let init = ESSInit::new(x0.clone()).unwrap();
-    let config = ESSConfig::default().with_moves([
+    let config = LegacyESSConfig::default().with_moves([
         ESSMove::gaussian(0.1),
         ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
         ESSMove::differential(0.2),

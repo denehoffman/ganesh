@@ -8,22 +8,27 @@ use crate::{
         gradient::{
             adam::AdamEMATerminator,
             lbfgsb::{LBFGSBFTerminator, LBFGSBGTerminator, LBFGSBInfNormGTerminator},
-            Adam, AdamConfig, ConjugateGradient, ConjugateGradientConfig,
-            ConjugateGradientGTerminator, GradientStatus, LBFGSBConfig, TrustRegion,
-            TrustRegionConfig, TrustRegionGTerminator, LBFGSB,
+            LegacyAdam, LegacyAdamConfig, LegacyConjugateGradient, LegacyConjugateGradientConfig,
+            LegacyConjugateGradientGTerminator as ConjugateGradientGTerminator,
+            LegacyGradientStatus, LegacyLBFGSB, LegacyLBFGSBConfig, LegacyTrustRegion,
+            LegacyTrustRegionConfig, LegacyTrustRegionGTerminator as TrustRegionGTerminator,
         },
         gradient_free::{
             nelder_mead::{NelderMeadFTerminator, NelderMeadXTerminator},
             simulated_annealing::SimulatedAnnealingTerminator,
-            CMAESConditionCovTerminator, CMAESConfig, CMAESEqualFunValuesTerminator,
+            CMAESConditionCovTerminator, CMAESEqualFunValuesTerminator,
             CMAESNoEffectAxisTerminator, CMAESNoEffectCoordTerminator, CMAESSigmaTerminator,
             CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator,
-            CMAESTolXUpTerminator, DifferentialEvolution, DifferentialEvolutionConfig,
-            GradientFreeStatus, NelderMead, NelderMeadConfig, SimulatedAnnealing,
-            SimulatedAnnealingConfig, SimulatedAnnealingGenerator, SimulatedAnnealingStatus, CMAES,
+            CMAESTolXUpTerminator, LegacyCMAES, LegacyCMAESConfig, LegacyDifferentialEvolution,
+            LegacyDifferentialEvolutionConfig, LegacyGradientFreeStatus, LegacyNelderMead,
+            LegacyNelderMeadConfig, LegacySimulatedAnnealing, LegacySimulatedAnnealingConfig,
+            LegacySimulatedAnnealingGenerator, LegacySimulatedAnnealingStatus,
         },
-        mcmc::{AIESConfig, AutocorrelationTerminator, ESSConfig, EnsembleStatus, AIES, ESS},
-        particles::{PSOConfig, SwarmStatus, PSO},
+        mcmc::{
+            AutocorrelationTerminator, LegacyAIES, LegacyAIESConfig, LegacyESS, LegacyESSConfig,
+            LegacyEnsembleStatus,
+        },
+        particles::{LegacyPSO, LegacyPSOConfig, LegacySwarmStatus},
     },
     core::{Callbacks, DebugObserver, MaxSteps, ProgressObserver},
     error::GaneshError,
@@ -31,7 +36,9 @@ use crate::{
         extract_optional_field, extract_optional_one_or_many_field, extract_required_field,
         get_field,
     },
-    traits::{Algorithm, CostFunction, Gradient, LogDensity, ProgressStatus, Status},
+    traits::{
+        Algorithm, LegacyCostFunction, LegacyGradient, LegacyLogDensity, ProgressStatus, Status,
+    },
     Float,
 };
 use serde::{Deserialize, Serialize};
@@ -758,9 +765,9 @@ impl PyLBFGSBOptions {
     /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> PyResult<Callbacks<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>>
+    ) -> PyResult<Callbacks<LegacyLBFGSB, P, LegacyGradientStatus, U, E, LegacyLBFGSBConfig>>
     where
-        P: Gradient<U, E>,
+        P: LegacyGradient<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -848,9 +855,9 @@ impl Default for PyNelderMeadOptions {
 impl PyNelderMeadOptions {
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<NelderMead, P, GradientFreeStatus, U, E, NelderMeadConfig>
+    ) -> Callbacks<LegacyNelderMead, P, LegacyGradientFreeStatus, U, E, LegacyNelderMeadConfig>
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -936,9 +943,11 @@ pub struct PyPSOOptions {
 }
 
 impl PyPSOOptions {
-    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<PSO, P, SwarmStatus, U, E, PSOConfig>
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<LegacyPSO, P, LegacySwarmStatus, U, E, LegacyPSOConfig>
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
         U: std::fmt::Debug,
     {
         apply_common_callbacks(
@@ -984,9 +993,16 @@ pub struct PyDifferentialEvolutionOptions {
 impl PyDifferentialEvolutionOptions {
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<DifferentialEvolution, P, GradientFreeStatus, U, E, DifferentialEvolutionConfig>
+    ) -> Callbacks<
+        LegacyDifferentialEvolution,
+        P,
+        LegacyGradientFreeStatus,
+        U,
+        E,
+        LegacyDifferentialEvolutionConfig,
+    >
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
         U: std::fmt::Debug,
     {
         apply_common_callbacks(
@@ -1031,9 +1047,11 @@ pub struct PyAIESOptions {
 }
 
 impl PyAIESOptions {
-    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<AIES, P, EnsembleStatus, U, E, AIESConfig>
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<LegacyAIES, P, LegacyEnsembleStatus, U, E, LegacyAIESConfig>
     where
-        P: LogDensity<U, E>,
+        P: LegacyLogDensity<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1085,9 +1103,11 @@ pub struct PyESSOptions {
 }
 
 impl PyESSOptions {
-    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<ESS, P, EnsembleStatus, U, E, ESSConfig>
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<LegacyESS, P, LegacyEnsembleStatus, U, E, LegacyESSConfig>
     where
-        P: LogDensity<U, E>,
+        P: LegacyLogDensity<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1168,9 +1188,9 @@ impl Default for PyCMAESOptions {
 impl PyCMAESOptions {
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> Callbacks<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+    ) -> Callbacks<LegacyCMAES, P, LegacyGradientFreeStatus, U, E, LegacyCMAESConfig>
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1304,9 +1324,11 @@ impl Default for PyAdamOptions {
 }
 
 impl PyAdamOptions {
-    pub fn build_callbacks<P, U, E>(&self) -> Callbacks<Adam, P, GradientStatus, U, E, AdamConfig>
+    pub fn build_callbacks<P, U, E>(
+        &self,
+    ) -> Callbacks<LegacyAdam, P, LegacyGradientStatus, U, E, LegacyAdamConfig>
     where
-        P: Gradient<U, E>,
+        P: LegacyGradient<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1379,9 +1401,18 @@ impl PyConjugateGradientOptions {
     /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> PyResult<Callbacks<ConjugateGradient, P, GradientStatus, U, E, ConjugateGradientConfig>>
+    ) -> PyResult<
+        Callbacks<
+            LegacyConjugateGradient,
+            P,
+            LegacyGradientStatus,
+            U,
+            E,
+            LegacyConjugateGradientConfig,
+        >,
+    >
     where
-        P: Gradient<U, E>,
+        P: LegacyGradient<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1451,9 +1482,11 @@ impl PyTrustRegionOptions {
     /// Returns a Python configuration error if any embedded terminator settings are invalid.
     pub fn build_callbacks<P, U, E>(
         &self,
-    ) -> PyResult<Callbacks<TrustRegion, P, GradientStatus, U, E, TrustRegionConfig>>
+    ) -> PyResult<
+        Callbacks<LegacyTrustRegion, P, LegacyGradientStatus, U, E, LegacyTrustRegionConfig>,
+    >
     where
-        P: Gradient<U, E>,
+        P: LegacyGradient<U, E>,
         U: std::fmt::Debug,
     {
         let mut callbacks = apply_common_callbacks(
@@ -1519,9 +1552,16 @@ impl Default for PySimulatedAnnealingOptions {
 impl PySimulatedAnnealingOptions {
     pub fn build_callbacks<P, U, E, I>(
         &self,
-    ) -> Callbacks<SimulatedAnnealing, P, SimulatedAnnealingStatus<I>, U, E, SimulatedAnnealingConfig>
+    ) -> Callbacks<
+        LegacySimulatedAnnealing,
+        P,
+        LegacySimulatedAnnealingStatus<I>,
+        U,
+        E,
+        LegacySimulatedAnnealingConfig,
+    >
     where
-        P: SimulatedAnnealingGenerator<U, E, Input = I>,
+        P: LegacySimulatedAnnealingGenerator<U, E, Input = I>,
         I: Serialize + for<'de> Deserialize<'de> + Clone + Default + std::fmt::Debug,
         U: std::fmt::Debug,
     {
@@ -1573,21 +1613,21 @@ mod tests {
 
     use super::*;
     use crate::{
-        algorithms::gradient::{LBFGSBConfig, LBFGSB},
-        traits::{Algorithm, CostFunction, Gradient},
+        algorithms::gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
+        traits::{Algorithm, LegacyCostFunction, LegacyGradient},
         DVector,
     };
     use std::convert::Infallible;
 
     struct Quadratic;
 
-    impl CostFunction for Quadratic {
+    impl LegacyCostFunction for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(x.dot(x))
         }
     }
 
-    impl Gradient for Quadratic {
+    impl LegacyGradient for Quadratic {
         fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
             Ok(x * 2.0)
         }
@@ -1626,8 +1666,8 @@ class StructuralLBFGSBOptions:
             let callbacks = options
                 .build_callbacks::<Quadratic, (), Infallible>()
                 .unwrap();
-            let config = LBFGSBConfig::default();
-            let _summary = LBFGSB::default()
+            let config = LegacyLBFGSBConfig::default();
+            let _summary = LegacyLBFGSB::default()
                 .process(
                     &Quadratic,
                     &(),

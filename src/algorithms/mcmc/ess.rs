@@ -1,14 +1,15 @@
 use crate::{
     algorithms::mcmc::{
-        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
+        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, LegacyEnsembleStatus,
+        Walker,
     },
     core::{
         utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
-        EvalCounts, MCMCSummary, Point,
+        EvalCounts, LegacyMCMCSummary, Point,
     },
     error::{GaneshError, GaneshResult},
     traits::{
-        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
+        status::StatusType, Algorithm, LegacyLogDensity, Status, SupportsParameterNames,
         SupportsTransform, Transform,
     },
     DMatrix, DVector, Float, PI,
@@ -108,11 +109,11 @@ impl ESSMove {
         problem: &P,
         transform: &Option<Box<dyn Transform>>,
         args: &U,
-        ensemble: &mut EnsembleStatus,
+        ensemble: &mut LegacyEnsembleStatus,
         rng: &mut Rng,
     ) -> Result<(), E>
     where
-        P: LogDensity<U, E>,
+        P: LegacyLogDensity<U, E>,
     {
         let mut positions = Vec::with_capacity(ensemble.len());
         match self {
@@ -399,17 +400,17 @@ impl ESS {
         }
     }
 }
-impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
+impl<P, U, E> Algorithm<P, LegacyEnsembleStatus, U, E> for ESS
 where
-    P: LogDensity<U, E>,
+    P: LegacyLogDensity<U, E>,
 {
-    type Summary = MCMCSummary;
+    type Summary = LegacyMCMCSummary;
     type Config = ESSConfig;
     type Init = ESSInit;
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut LegacyEnsembleStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -428,7 +429,7 @@ where
         &mut self,
         current_step: usize,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut LegacyEnsembleStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -456,7 +457,7 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &EnsembleStatus,
+        status: &LegacyEnsembleStatus,
         _args: &U,
         _init: &Self::Init,
         config: &Self::Config,
@@ -472,7 +473,7 @@ where
                 message.succeed_with_message(text);
             }
         }
-        Ok(MCMCSummary {
+        Ok(LegacyMCMCSummary {
             bounds: None,
             parameter_names: config.parameter_names.clone(),
             message,
@@ -879,7 +880,7 @@ struct DPGMResult {
 #[allow(clippy::unnecessary_cast)]
 fn dpgm(
     n_components: usize,
-    ensemble: &EnsembleStatus,
+    ensemble: &LegacyEnsembleStatus,
     transform: &Option<Box<dyn Transform>>,
     rng: &mut Rng,
 ) -> DPGMResult
@@ -1134,7 +1135,7 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let init = ESSInit::new(walkers).unwrap();
         let cfg = ESSConfig::default();
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 
         ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
@@ -1152,7 +1153,7 @@ mod tests {
         let walkers = make_walkers(3, 2);
         let init = ESSInit::new(walkers).unwrap();
         let cfg = ESSConfig::default();
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
         ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
 
@@ -1169,7 +1170,7 @@ mod tests {
         let cfg = ESSConfig::default()
             .with_moves(vec![ESSMove::gaussian(1.0)])
             .unwrap();
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 
         ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
@@ -1192,7 +1193,7 @@ mod tests {
             )
             .unwrap()])
             .unwrap();
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         let f = Rosenbrock { n: 2 };
 
         ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
@@ -1204,7 +1205,7 @@ mod tests {
     #[test]
     fn adaptive_mu_stays_finite_when_no_expand_or_contract_updates_occur() {
         let mut rng = Rng::with_seed(0);
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         let problem = Rosenbrock { n: 2 };
         status.walkers = ESSInit::new(make_walkers(3, 2))
             .unwrap()
@@ -1369,7 +1370,7 @@ mod tests {
             positions.push(Walker::new(x));
         }
 
-        let mut status = EnsembleStatus::default();
+        let mut status = LegacyEnsembleStatus::default();
         status.walkers = positions;
 
         let mut rng2 = Rng::with_seed(0);

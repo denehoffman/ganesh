@@ -1,7 +1,7 @@
 //! Multistart minimization orchestration helpers.
 
 use crate::{
-    core::{Callbacks, MinimizationSummary},
+    core::{Callbacks, LegacyMinimizationSummary},
     traits::{Algorithm, Status},
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::convert::Infallible;
 /// Lightweight state exposed to restart factories and policies during multistart orchestration.
 #[derive(Debug, Clone, Default)]
 pub struct MultiStartState {
-    runs: Vec<MinimizationSummary>,
+    runs: Vec<LegacyMinimizationSummary>,
 }
 
 impl MultiStartState {
@@ -20,7 +20,7 @@ impl MultiStartState {
     }
 
     /// Get the completed run summaries gathered so far.
-    pub fn runs(&self) -> &[MinimizationSummary] {
+    pub fn runs(&self) -> &[LegacyMinimizationSummary] {
         &self.runs
     }
 
@@ -35,7 +35,7 @@ impl MultiStartState {
     }
 
     /// Get the best run summary seen so far.
-    pub fn best(&self) -> Option<&MinimizationSummary> {
+    pub fn best(&self) -> Option<&LegacyMinimizationSummary> {
         self.best_index().map(|index| &self.runs[index])
     }
 
@@ -48,7 +48,7 @@ impl MultiStartState {
             .map(|(index, _)| index)
     }
 
-    pub(crate) fn push(&mut self, summary: MinimizationSummary) {
+    pub(crate) fn push(&mut self, summary: LegacyMinimizationSummary) {
         self.runs.push(summary);
     }
 }
@@ -57,7 +57,7 @@ impl MultiStartState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiStartSummary {
     /// The summary for each completed run.
-    pub runs: Vec<MinimizationSummary>,
+    pub runs: Vec<LegacyMinimizationSummary>,
     /// The index of the best run in [`MultiStartSummary::runs`], if any runs completed.
     pub best_run_index: Option<usize>,
     /// The number of completed restarts, counting the first run separately.
@@ -66,7 +66,7 @@ pub struct MultiStartSummary {
 
 impl MultiStartSummary {
     /// Get the best run summary.
-    pub fn best(&self) -> Option<&MinimizationSummary> {
+    pub fn best(&self) -> Option<&LegacyMinimizationSummary> {
         self.best_run_index.map(|index| &self.runs[index])
     }
 
@@ -121,7 +121,7 @@ pub type RestartBundle<A, P, S, U, E> = (
 /// Produces the algorithm, init payload, config, and callbacks for each multistart run.
 pub trait RestartFactory<A, P, S: Status, U = (), E = Infallible>: Send
 where
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
+    A: Algorithm<P, S, U, E, Summary = LegacyMinimizationSummary>,
 {
     /// Create the next run bundle for the given `run_index`.
     fn create(&mut self, run_index: usize, state: &MultiStartState)
@@ -131,7 +131,7 @@ where
 impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
 where
     S: Status,
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
+    A: Algorithm<P, S, U, E, Summary = LegacyMinimizationSummary>,
     F: FnMut(usize, &MultiStartState) -> RestartBundle<A, P, S, U, E> + Send,
 {
     fn create(
@@ -164,7 +164,7 @@ pub fn minimize_multistart<P, U, E, A, S, F, R>(
 ) -> Result<MultiStartSummary, E>
 where
     S: Status,
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
+    A: Algorithm<P, S, U, E, Summary = LegacyMinimizationSummary>,
     F: RestartFactory<A, P, S, U, E>,
     R: RestartPolicy,
 {
@@ -222,7 +222,7 @@ mod tests {
     }
 
     impl Algorithm<(), DummyStatus, (), Infallible> for DummyAlgorithm {
-        type Summary = MinimizationSummary;
+        type Summary = LegacyMinimizationSummary;
         type Config = DummyConfig;
         type Init = DummyConfig;
 
@@ -259,7 +259,7 @@ mod tests {
             _init: &Self::Init,
             config: &Self::Config,
         ) -> Result<Self::Summary, Infallible> {
-            Ok(MinimizationSummary {
+            Ok(LegacyMinimizationSummary {
                 bounds: None,
                 parameter_names: None,
                 message: status.message.clone(),

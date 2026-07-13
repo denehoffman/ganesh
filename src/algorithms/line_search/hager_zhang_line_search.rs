@@ -1,18 +1,18 @@
 use crate::{
-    DVector, Float,
-    algorithms::gradient::GradientStatus,
+    algorithms::gradient::LegacyGradientStatus,
     core::Bounds,
     error::{GaneshError, GaneshResult},
-    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
+    traits::{LegacyGradient, LegacyLineSearch, LegacyLineSearchOutput},
+    DVector, Float,
 };
 
 /// The line search algorithm from Hager and Zhang (2006)[^1].
 ///
 /// This is intended to be used with a conjugate gradient algorithm, but as it satisfies the strong Wolfe conditions, it can be used
-/// with the [`LBFGSB`](`crate::algorithms::gradient::LBFGSB`) algorithm as well, although it tends to result in more function/gradient
+/// with the [`LegacyLBFGSB`](`crate::algorithms::gradient::LegacyLBFGSB`) algorithm as well, although it tends to result in more function/gradient
 /// evaluations than the [`MoreThuenteLineSearch`](`crate::algorithms::line_search::MoreThuenteLineSearch`).
 ///
-/// [^1]: [W. W. Hager and H. Zhang, “A New Conjugate Gradient Method with Guaranteed Descent and an Efficient Line Search,” SIAM J. Optim., vol. 16, no. 1, pp. 170–192, Jan. 2005, doi: 10.1137/030601880.](https://doi.org/10.1137/030601880)
+/// [^1]: [W. W. Hager and H. Zhang, “A New Conjugate LegacyGradient Method with Guaranteed Descent and an Efficient Line Search,” SIAM J. Optim., vol. 16, no. 1, pp. 170–192, Jan. 2005, doi: 10.1137/030601880.](https://doi.org/10.1137/030601880)
 
 #[derive(Clone)]
 pub struct HagerZhangLineSearch {
@@ -144,55 +144,55 @@ impl HagerZhangLineSearch {
 impl HagerZhangLineSearch {
     fn f_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<Float, E> {
         status.evals.record_f();
         func.evaluate(x, args)
     }
     fn g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<DVector<Float>, E> {
         status.evals.record_g();
         func.gradient(x, args)
     }
     fn f_g_eval<U, E>(
         &self,
-        func: &dyn Gradient<U, E>,
+        func: &dyn LegacyGradient<U, E>,
         x: &DVector<Float>,
         args: &U,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
     ) -> Result<(Float, DVector<Float>), E> {
         status.evals.record_fg();
         func.evaluate_with_gradient(x, args)
     }
 }
 
-impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
+impl<U, E> LegacyLineSearch<LegacyGradientStatus, U, E> for HagerZhangLineSearch {
     fn search(
         &mut self,
         x0: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn LegacyGradient<U, E>,
         _bounds: Option<&Bounds>,
         args: &U,
-        status: &mut GradientStatus,
-    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
-        let phi = |alpha: Float, st: &mut GradientStatus| -> Result<Float, E> {
+        status: &mut LegacyGradientStatus,
+    ) -> Result<Result<LegacyLineSearchOutput, LegacyLineSearchOutput>, E> {
+        let phi = |alpha: Float, st: &mut LegacyGradientStatus| -> Result<Float, E> {
             self.f_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
-        let dphi_vec = |alpha: Float, st: &mut GradientStatus| -> Result<DVector<Float>, E> {
+        let dphi_vec = |alpha: Float, st: &mut LegacyGradientStatus| -> Result<DVector<Float>, E> {
             self.g_eval(problem, &(x0 + p.scale(alpha)), args, st)
         };
         let phi_dphi_vec =
-            |alpha: Float, st: &mut GradientStatus| -> Result<(Float, DVector<Float>), E> {
+            |alpha: Float, st: &mut LegacyGradientStatus| -> Result<(Float, DVector<Float>), E> {
                 self.f_g_eval(problem, &(x0 + p.scale(alpha)), args, st)
             };
         let dphi = |dphi_vec: &DVector<Float>| -> Float { dphi_vec.dot(p) };
@@ -202,52 +202,55 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
         let (phi_0, g_0) = phi_dphi_vec(0.0, status)?;
         let dphi_0 = dphi(&g_0);
         let epsilon_k = self.epsilon * phi_0.abs();
-        let update =
-            |a: Float, b: Float, c: Float, st: &mut GradientStatus| -> Result<(Float, Float), E> {
-                if c <= a || c >= b {
-                    // U0
-                    return Ok((a, b));
-                }
-                let dphi_c = dphi(&dphi_vec(c, st)?);
-                if dphi_c >= 0.0 {
-                    // U1
-                    Ok((a, c))
+        let update = |a: Float,
+                      b: Float,
+                      c: Float,
+                      st: &mut LegacyGradientStatus|
+         -> Result<(Float, Float), E> {
+            if c <= a || c >= b {
+                // U0
+                return Ok((a, b));
+            }
+            let dphi_c = dphi(&dphi_vec(c, st)?);
+            if dphi_c >= 0.0 {
+                // U1
+                Ok((a, c))
+            } else {
+                let phi_c = phi(c, st)?;
+                if phi_c <= phi_0 + epsilon_k {
+                    // U2
+                    Ok((c, b))
                 } else {
-                    let phi_c = phi(c, st)?;
-                    if phi_c <= phi_0 + epsilon_k {
-                        // U2
-                        Ok((c, b))
-                    } else {
-                        // U3
-                        let mut a_hat = a;
-                        let mut b_hat = c;
-                        let mut i = 0;
-                        loop {
-                            let d = (1.0 - self.theta).mul_add(a_hat, self.theta * b_hat);
-                            let dphi_d = dphi(&dphi_vec(d, st)?);
-                            if dphi_d >= 0.0 || i >= self.max_bisects {
-                                // U3a
-                                return Ok((a_hat, d));
+                    // U3
+                    let mut a_hat = a;
+                    let mut b_hat = c;
+                    let mut i = 0;
+                    loop {
+                        let d = (1.0 - self.theta).mul_add(a_hat, self.theta * b_hat);
+                        let dphi_d = dphi(&dphi_vec(d, st)?);
+                        if dphi_d >= 0.0 || i >= self.max_bisects {
+                            // U3a
+                            return Ok((a_hat, d));
+                        } else {
+                            let phi_d = phi(d, st)?;
+                            if phi_d <= phi_0 + epsilon_k {
+                                // U3b
+                                a_hat = d;
                             } else {
-                                let phi_d = phi(d, st)?;
-                                if phi_d <= phi_0 + epsilon_k {
-                                    // U3b
-                                    a_hat = d;
-                                } else {
-                                    // U3c
-                                    b_hat = d;
-                                }
+                                // U3c
+                                b_hat = d;
                             }
-                            i += 1;
                         }
+                        i += 1;
                     }
                 }
-            };
+            }
+        };
         let secant_2 = |a: Float,
                         dphi_a: Float,
                         b: Float,
                         dphi_b: Float,
-                        st: &mut GradientStatus|
+                        st: &mut LegacyGradientStatus|
          -> Result<(Float, Float), E> {
             let c = secant(a, dphi_a, b, dphi_b);
             let (a_star, b_star) = update(a, b, c, st)?;
@@ -303,7 +306,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
             let (phi_a_k, g_a_k) = phi_dphi_vec(a_k, status)?;
             let dphi_a_k = dphi(&g_a_k);
             if check(a_k, phi_a_k, dphi_a_k) {
-                return Ok(Ok(LineSearchOutput {
+                return Ok(Ok(LegacyLineSearchOutput {
                     alpha: a_k,
                     fx: phi_a_k,
                     g: g_a_k,
@@ -312,7 +315,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
             let (phi_b_k, g_b_k) = phi_dphi_vec(b_k, status)?;
             let dphi_b_k = dphi(&g_b_k);
             if check(b_k, phi_b_k, dphi_b_k) {
-                return Ok(Ok(LineSearchOutput {
+                return Ok(Ok(LegacyLineSearchOutput {
                     alpha: b_k,
                     fx: phi_b_k,
                     g: g_b_k,
@@ -325,7 +328,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for HagerZhangLineSearch {
             }
             (a_k, b_k) = (a, b);
             if i > self.max_iters {
-                return Ok(Err(LineSearchOutput {
+                return Ok(Err(LegacyLineSearchOutput {
                     alpha: a_k,
                     fx: phi_a_k,
                     g: g_a_k,
@@ -412,29 +415,23 @@ mod tests {
 
     #[test]
     fn with_delta_sigma_errors_when_bad_ordering() {
-        assert!(
-            HagerZhangLineSearch::default()
-                .with_delta_sigma(0.5, 0.2)
-                .is_err()
-        );
+        assert!(HagerZhangLineSearch::default()
+            .with_delta_sigma(0.5, 0.2)
+            .is_err());
     }
 
     #[test]
     fn with_delta_sigma_errors_when_sigma_not_less_than_one() {
-        assert!(
-            HagerZhangLineSearch::default()
-                .with_delta_sigma(0.2, 1.0)
-                .is_err()
-        );
+        assert!(HagerZhangLineSearch::default()
+            .with_delta_sigma(0.2, 1.0)
+            .is_err());
     }
 
     #[test]
     fn with_delta_sigma_errors_when_delta_not_positive() {
-        assert!(
-            HagerZhangLineSearch::default()
-                .with_delta_sigma(0.0, 0.5)
-                .is_err()
-        );
+        assert!(HagerZhangLineSearch::default()
+            .with_delta_sigma(0.0, 0.5)
+            .is_err());
     }
 
     #[test]

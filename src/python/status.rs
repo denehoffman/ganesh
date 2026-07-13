@@ -9,11 +9,11 @@ use pyo3::{
 
 use crate::{
     algorithms::{
-        gradient::GradientStatus,
-        gradient_free::{GradientFreeStatus, SimulatedAnnealingStatus},
-        mcmc::EnsembleStatus,
+        gradient::LegacyGradientStatus,
+        gradient_free::{LegacyGradientFreeStatus, LegacySimulatedAnnealingStatus},
+        mcmc::LegacyEnsembleStatus,
         particles::{
-            SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmStatus,
+            LegacySwarmStatus, SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer,
             SwarmTopology, SwarmUpdateMethod, SwarmVelocityInitializer,
         },
     },
@@ -299,7 +299,7 @@ impl From<&PyStatusMessage> for StatusMessage {
 #[pyclass(skip_from_py_object, module = "ganesh", name = "GradientStatus")]
 #[derive(Clone)]
 pub struct PyGradientStatus {
-    status: GradientStatus,
+    status: LegacyGradientStatus,
 }
 
 #[pymethods]
@@ -407,7 +407,7 @@ impl PyGradientStatus {
         optional_vector_to_python(py, &self.status.err)
     }
 
-    /// Export the GradientStatus as a plain Python dictionary.
+    /// Export the LegacyGradientStatus as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -425,19 +425,19 @@ impl PyGradientStatus {
     }
 }
 
-impl From<GradientStatus> for PyGradientStatus {
-    fn from(status: GradientStatus) -> Self {
+impl From<LegacyGradientStatus> for PyGradientStatus {
+    fn from(status: LegacyGradientStatus) -> Self {
         Self { status }
     }
 }
 
-impl From<PyGradientStatus> for GradientStatus {
+impl From<PyGradientStatus> for LegacyGradientStatus {
     fn from(status: PyGradientStatus) -> Self {
         status.status
     }
 }
 
-impl From<&PyGradientStatus> for GradientStatus {
+impl From<&PyGradientStatus> for LegacyGradientStatus {
     fn from(status: &PyGradientStatus) -> Self {
         status.status.clone()
     }
@@ -447,7 +447,7 @@ impl From<&PyGradientStatus> for GradientStatus {
 #[pyclass(skip_from_py_object, module = "ganesh", name = "GradientFreeStatus")]
 #[derive(Clone)]
 pub struct PyGradientFreeStatus {
-    status: GradientFreeStatus,
+    status: LegacyGradientFreeStatus,
 }
 
 #[pymethods]
@@ -555,7 +555,7 @@ impl PyGradientFreeStatus {
         optional_vector_to_python(py, &self.status.err)
     }
 
-    /// Export the GradientFreeStatus as a plain Python dictionary.
+    /// Export the LegacyGradientFreeStatus as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -573,19 +573,19 @@ impl PyGradientFreeStatus {
     }
 }
 
-impl From<GradientFreeStatus> for PyGradientFreeStatus {
-    fn from(status: GradientFreeStatus) -> Self {
+impl From<LegacyGradientFreeStatus> for PyGradientFreeStatus {
+    fn from(status: LegacyGradientFreeStatus) -> Self {
         Self { status }
     }
 }
 
-impl From<PyGradientFreeStatus> for GradientFreeStatus {
+impl From<PyGradientFreeStatus> for LegacyGradientFreeStatus {
     fn from(status: PyGradientFreeStatus) -> Self {
         status.status
     }
 }
 
-impl From<&PyGradientFreeStatus> for GradientFreeStatus {
+impl From<&PyGradientFreeStatus> for LegacyGradientFreeStatus {
     fn from(status: &PyGradientFreeStatus) -> Self {
         status.status.clone()
     }
@@ -595,7 +595,7 @@ impl From<&PyGradientFreeStatus> for GradientFreeStatus {
 #[pyclass(skip_from_py_object, module = "ganesh", name = "EnsembleStatus")]
 #[derive(Clone)]
 pub struct PyEnsembleStatus {
-    status: EnsembleStatus,
+    status: LegacyEnsembleStatus,
 }
 
 #[pymethods]
@@ -698,7 +698,7 @@ impl PyEnsembleStatus {
         tensor3_to_python(py, &chain_to_python(&self.status.get_chain(burn, thin)))
     }
 
-    /// Export the EnsembleStatus as a plain Python dictionary.
+    /// Export the LegacyEnsembleStatus as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -716,19 +716,19 @@ impl PyEnsembleStatus {
     }
 }
 
-impl From<EnsembleStatus> for PyEnsembleStatus {
-    fn from(status: EnsembleStatus) -> Self {
+impl From<LegacyEnsembleStatus> for PyEnsembleStatus {
+    fn from(status: LegacyEnsembleStatus) -> Self {
         Self { status }
     }
 }
 
-impl From<PyEnsembleStatus> for EnsembleStatus {
+impl From<PyEnsembleStatus> for LegacyEnsembleStatus {
     fn from(status: PyEnsembleStatus) -> Self {
         status.status
     }
 }
 
-impl From<&PyEnsembleStatus> for EnsembleStatus {
+impl From<&PyEnsembleStatus> for LegacyEnsembleStatus {
     fn from(status: &PyEnsembleStatus) -> Self {
         status.status.clone()
     }
@@ -738,7 +738,7 @@ impl From<&PyEnsembleStatus> for EnsembleStatus {
 #[pyclass(skip_from_py_object, module = "ganesh", name = "SwarmStatus")]
 #[derive(Clone)]
 pub struct PySwarmStatus {
-    status: SwarmStatus,
+    status: LegacySwarmStatus,
 }
 
 #[pymethods]
@@ -826,7 +826,7 @@ impl PySwarmStatus {
         swarm_to_python(py, &self.status.swarm)
     }
 
-    /// Export the SwarmStatus as a plain Python dictionary.
+    /// Export the LegacySwarmStatus as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -845,19 +845,19 @@ impl PySwarmStatus {
     }
 }
 
-impl From<SwarmStatus> for PySwarmStatus {
-    fn from(status: SwarmStatus) -> Self {
+impl From<LegacySwarmStatus> for PySwarmStatus {
+    fn from(status: LegacySwarmStatus) -> Self {
         Self { status }
     }
 }
 
-impl From<PySwarmStatus> for SwarmStatus {
+impl From<PySwarmStatus> for LegacySwarmStatus {
     fn from(status: PySwarmStatus) -> Self {
         status.status
     }
 }
 
-impl From<&PySwarmStatus> for SwarmStatus {
+impl From<&PySwarmStatus> for LegacySwarmStatus {
     fn from(status: &PySwarmStatus) -> Self {
         status.status.clone()
     }
@@ -871,7 +871,7 @@ impl From<&PySwarmStatus> for SwarmStatus {
 )]
 #[derive(Clone)]
 pub struct PySimulatedAnnealingStatus {
-    status: SimulatedAnnealingStatus<DVector<Float>>,
+    status: LegacySimulatedAnnealingStatus<DVector<Float>>,
 }
 
 #[pymethods]
@@ -969,7 +969,7 @@ impl PySimulatedAnnealingStatus {
         Py::new(py, PyEvalCounts::from(self.status.evals))
     }
 
-    /// Export the SimulatedAnnealingStatus as a plain Python dictionary.
+    /// Export the LegacySimulatedAnnealingStatus as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -986,19 +986,19 @@ impl PySimulatedAnnealingStatus {
     }
 }
 
-impl From<SimulatedAnnealingStatus<DVector<Float>>> for PySimulatedAnnealingStatus {
-    fn from(status: SimulatedAnnealingStatus<DVector<Float>>) -> Self {
+impl From<LegacySimulatedAnnealingStatus<DVector<Float>>> for PySimulatedAnnealingStatus {
+    fn from(status: LegacySimulatedAnnealingStatus<DVector<Float>>) -> Self {
         Self { status }
     }
 }
 
-impl From<PySimulatedAnnealingStatus> for SimulatedAnnealingStatus<DVector<Float>> {
+impl From<PySimulatedAnnealingStatus> for LegacySimulatedAnnealingStatus<DVector<Float>> {
     fn from(status: PySimulatedAnnealingStatus) -> Self {
         status.status
     }
 }
 
-impl From<&PySimulatedAnnealingStatus> for SimulatedAnnealingStatus<DVector<Float>> {
+impl From<&PySimulatedAnnealingStatus> for LegacySimulatedAnnealingStatus<DVector<Float>> {
     fn from(status: &PySimulatedAnnealingStatus) -> Self {
         status.status.clone()
     }
@@ -1016,7 +1016,7 @@ impl<'py> IntoPyObject<'py> for StatusMessage {
     }
 }
 
-impl<'py> IntoPyObject<'py> for GradientStatus {
+impl<'py> IntoPyObject<'py> for LegacyGradientStatus {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -1028,7 +1028,7 @@ impl<'py> IntoPyObject<'py> for GradientStatus {
     }
 }
 
-impl<'py> IntoPyObject<'py> for GradientFreeStatus {
+impl<'py> IntoPyObject<'py> for LegacyGradientFreeStatus {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -1040,7 +1040,7 @@ impl<'py> IntoPyObject<'py> for GradientFreeStatus {
     }
 }
 
-impl<'py> IntoPyObject<'py> for EnsembleStatus {
+impl<'py> IntoPyObject<'py> for LegacyEnsembleStatus {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -1052,7 +1052,7 @@ impl<'py> IntoPyObject<'py> for EnsembleStatus {
     }
 }
 
-impl<'py> IntoPyObject<'py> for SwarmStatus {
+impl<'py> IntoPyObject<'py> for LegacySwarmStatus {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -1064,7 +1064,7 @@ impl<'py> IntoPyObject<'py> for SwarmStatus {
     }
 }
 
-impl<'py> IntoPyObject<'py> for SimulatedAnnealingStatus<DVector<Float>> {
+impl<'py> IntoPyObject<'py> for LegacySimulatedAnnealingStatus<DVector<Float>> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -1089,8 +1089,8 @@ mod tests {
         core::{EvalCounts, EvaluatedPoint},
     };
 
-    fn sample_gradient_status() -> GradientStatus {
-        GradientStatus {
+    fn sample_gradient_status() -> LegacyGradientStatus {
+        LegacyGradientStatus {
             message: StatusMessage::default().set_step_with_message("iterating"),
             x: DVector::from_vec(vec![0.25, 0.75]),
             fx: 0.5,
@@ -1104,7 +1104,7 @@ mod tests {
         }
     }
 
-    fn sample_swarm_status() -> SwarmStatus {
+    fn sample_swarm_status() -> LegacySwarmStatus {
         let best = EvaluatedPoint::new(DVector::from_vec(vec![0.25, -0.25]), 0.125);
         let other = EvaluatedPoint::new(DVector::from_vec(vec![1.0, 1.5]), 2.0);
         let mut swarm = Swarm::new(SwarmPositionInitializer::RandomInLimits {
@@ -1116,7 +1116,7 @@ mod tests {
         swarm.boundary_method = SwarmBoundaryMethod::Shr;
         swarm.velocity_initializer =
             SwarmVelocityInitializer::RandomInLimits(vec![(-0.5, 0.5), (-0.5, 0.5)]);
-        SwarmStatus {
+        LegacySwarmStatus {
             gbest: best,
             initial_gbest: other,
             message: StatusMessage::default().set_step_with_message("swarm moved"),
@@ -1129,7 +1129,7 @@ mod tests {
     fn status_wrapper_roundtrip_converts_back_to_native() {
         let native = sample_gradient_status();
         let wrapper = PyGradientStatus::from(native.clone());
-        let roundtrip = GradientStatus::from(wrapper);
+        let roundtrip = LegacyGradientStatus::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
         assert_eq!(roundtrip.evals.h(), native.evals.h());
         assert_eq!(roundtrip.message.text(), native.message.text());
@@ -1138,7 +1138,7 @@ mod tests {
     #[test]
     fn borrowed_status_wrapper_converts_back_to_native() {
         let wrapper = PySwarmStatus::from(sample_swarm_status());
-        let native = SwarmStatus::from(&wrapper);
+        let native = LegacySwarmStatus::from(&wrapper);
         assert_eq!(native.evals.f(), 22);
         assert_eq!(native.message.text(), Some("swarm moved"));
         assert_eq!(native.gbest.fx, 0.125);

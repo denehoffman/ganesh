@@ -290,7 +290,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        algorithms::gradient::{LBFGSBConfig, LBFGSB},
+        algorithms::gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
         core::{summary::HasParameterNames, MaxSteps},
         test_functions::Rosenbrock,
         DVector,
@@ -343,13 +343,13 @@ mod tests {
         let arc_refcel = Arc::new(RefCell::new(Trivial::default()));
         let arc_rwlock = Arc::new(RwLock::new(Trivial::default()));
         let arc_mutex = Arc::new(Mutex::new(Trivial::default()));
-        let res = LBFGSB::default()
+        let res = LegacyLBFGSB::default()
             .process(
                 &Rosenbrock { n: 2 },
                 &(),
                 DVector::from_row_slice(&[2.0, 3.0]),
-                LBFGSBConfig::default(),
-                LBFGSB::default_callbacks()
+                LegacyLBFGSBConfig::default(),
+                LegacyLBFGSB::default_callbacks()
                     .with_terminator(rc_refcel.clone())
                     .with_terminator(rc_rwlock.clone())
                     .with_terminator(rc_mutex.clone())

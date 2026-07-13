@@ -1,4 +1,5 @@
 use crate::{
+    core::{LinearAlgebra, LinearSolve, Matrix, PseudoInverse, RandomScalar, RealScalar, Vector},
     error::{GaneshError, GaneshResult},
     DMatrix, DVector, Float,
 };
@@ -7,6 +8,73 @@ use fastrand_contrib::RngExt;
 use nalgebra::Cholesky;
 use parking_lot::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Sample uniformly from `[lower, upper)` using a generic scalar representation.
+pub fn sample_uniform<T: RandomScalar>(lower: T, upper: T, rng: &mut Rng) -> T {
+    lower + (upper - lower) * T::random_unit(rng)
+}
+
+/// Generate a backend-native vector with independent uniform entries.
+pub fn generate_backend_random_vector<T, B>(
+    dimension: usize,
+    lower: T,
+    upper: T,
+    rng: &mut Rng,
+) -> Vector<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    Vector::from_vec(
+        (0..dimension)
+            .map(|_| sample_uniform(lower, upper, rng))
+            .collect(),
+    )
+}
+
+/// Sample a standard normal variate using the Box-Muller transform.
+pub fn sample_standard_normal<T: RandomScalar>(rng: &mut Rng) -> T {
+    let mut u1 = T::random_unit(rng);
+    while u1 <= T::zero() {
+        u1 = T::random_unit(rng);
+    }
+    let u2 = T::random_unit(rng);
+    (-T::literal(2.0) * u1.ln()).sqrt() * (T::literal(2.0 * std::f64::consts::PI) * u2).cos()
+}
+
+/// Choose an index proportionally to nonnegative generic scalar weights.
+pub fn weighted_choice<T: RandomScalar>(weights: &[T], rng: &mut Rng) -> Option<usize> {
+    let total = weights
+        .iter()
+        .copied()
+        .fold(T::zero(), |sum, value| sum + value);
+    if !total.is_finite() || total <= T::zero() {
+        return None;
+    }
+    let target = T::random_unit(rng) * total;
+    let mut cumulative = T::zero();
+    for (index, weight) in weights.iter().copied().enumerate() {
+        if weight < T::zero() || !weight.is_finite() {
+            return None;
+        }
+        cumulative = cumulative + weight;
+        if target <= cumulative {
+            return Some(index);
+        }
+    }
+    weights.len().checked_sub(1)
+}
+
+/// Convert a backend-native Hessian to covariance using available solve capabilities.
+pub fn backend_hessian_to_covariance<T, B>(hessian: &Matrix<T, B>) -> Option<Matrix<T, B>>
+where
+    T: RealScalar,
+    B: LinearSolve<T> + PseudoInverse<T>,
+{
+    hessian
+        .lu_inverse()
+        .or_else(|| hessian.pseudo_inverse(T::epsilon().cbrt()))
+}
 
 pub(crate) fn generate_random_vector(
     dimension: usize,
@@ -95,29 +163,14 @@ pub trait SampleFloat {
     }
 }
 impl SampleFloat for Rng {
-    #[cfg(not(feature = "f32"))]
     fn range(&mut self, lower: Float, upper: Float) -> Float {
         self.f64_range(lower..upper)
     }
-    #[cfg(feature = "f32")]
-    fn range(&mut self, lower: Float, upper: Float) -> Float {
-        self.f32_range(lower..upper)
-    }
-    #[cfg(not(feature = "f32"))]
     fn float(&mut self) -> Float {
         self.f64()
     }
-    #[cfg(feature = "f32")]
-    fn float(&mut self) -> Float {
-        self.f32()
-    }
-    #[cfg(not(feature = "f32"))]
     fn normal(&mut self, mu: Float, sigma: Float) -> Float {
         self.f64_normal(mu, sigma)
-    }
-    #[cfg(feature = "f32")]
-    fn normal(&mut self, mu: Float, sigma: Float) -> Float {
-        self.f32_normal(mu, sigma)
     }
 }
 
@@ -190,7 +243,25 @@ pub fn maybe_warn(msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{Matrix, NalgebraBackend};
     use fastrand::Rng;
+
+    #[test]
+    fn backend_generic_sampling_and_covariance_support_f32() {
+        let mut rng = Rng::with_seed(11);
+        let vector = generate_backend_random_vector::<f32, NalgebraBackend>(8, -2.0, 3.0, &mut rng);
+        assert!(vector
+            .to_vec()
+            .iter()
+            .all(|value| (-2.0..3.0).contains(value)));
+        let normal = sample_standard_normal::<f32>(&mut rng);
+        assert!(normal.is_finite());
+        assert_eq!(weighted_choice(&[0.0_f32, 1.0], &mut rng), Some(1));
+
+        let hessian = Matrix::<f32>::identity(2).scale(2.0);
+        let covariance = backend_hessian_to_covariance(&hessian).unwrap();
+        assert!((covariance.get(0, 0) - 0.5).abs() < 1e-5);
+    }
 
     #[test]
     fn test_pseudo_inverse() {

@@ -14,13 +14,30 @@ pub use callback::{Observer, Terminator};
 pub mod checkpoint;
 pub use checkpoint::CheckpointableAlgorithm;
 
-/// Module containing the [`CostFunction`] trait.
+/// Legacy f64/nalgebra problem traits retained while built-in algorithms migrate.
 pub mod cost_function;
-pub use cost_function::{CostFunction, GenericCostFunction, GenericGradient, Gradient, LogDensity};
+#[doc(hidden)]
+pub use cost_function::{
+    CostFunction as LegacyCostFunction, GenericCostFunction, GenericGradient,
+    Gradient as LegacyGradient, LogDensity as LegacyLogDensity,
+};
+
+/// Scalar- and backend-generic numerical problem traits.
+pub mod numeric_problem;
+pub use numeric_problem::{
+    GradientHessian, ScalarCostFunction as CostFunction, ScalarGradient as Gradient,
+    ScalarLogDensity as LogDensity, ValueGradientHessian,
+};
 
 /// Module containing various line-search methods.
 pub mod linesearch;
-pub use linesearch::LineSearch;
+pub use linesearch::{
+    BackendLineSearch as LineSearch, BackendLineSearchOutput as LineSearchOutput,
+};
+#[doc(hidden)]
+pub use linesearch::{BackendLineSearch, BackendLineSearchOutput, BackendLineSearchResult};
+#[doc(hidden)]
+pub use linesearch::{LineSearch as LegacyLineSearch, LineSearchOutput as LegacyLineSearchOutput};
 
 /// Module containing the [`Status`] trait.
 pub mod status;
@@ -33,3 +50,10 @@ pub use boundlike::{Bound, BoundLike};
 /// Module containing the [`Transform`] trait.
 pub mod transform;
 pub use transform::{Transform, TransformExt, TransformedProblem};
+
+/// Scalar- and backend-generic coordinate transforms.
+pub mod backend_transform;
+pub use backend_transform::{
+    BackendBounds, BackendScaleTransform, BackendTransform, BackendTransformedProblem,
+    IdentityTransform, ScalarBound,
+};

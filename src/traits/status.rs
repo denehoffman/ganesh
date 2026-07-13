@@ -4,7 +4,7 @@ use std::{
     ops::ControlFlow,
 };
 
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// An enum indicating the status of an [`Algorithm`](crate::traits::Algorithm)
 #[non_exhaustive]
@@ -201,7 +201,7 @@ mod optional_cow_static_str {
 ///
 /// This must be implemented for own [`Algorithm`](crate::traits::Algorithm)s that need
 /// different status information than the ones implemented in this crate.
-pub trait Status: Clone + Default + Serialize + DeserializeOwned {
+pub trait Status: Clone + Default {
     /// Resets the status to its default state. This is called at the beginning of every
     /// [`Algorithm::process`](crate::traits::Algorithm::process) run. Only members that are
     /// not persistent between runs should be reset. For example, the initial parameters of

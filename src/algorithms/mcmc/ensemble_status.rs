@@ -1,7 +1,7 @@
 use crate::{
     algorithms::mcmc::Walker,
     core::{mcmc_diagnostics::integrated_autocorrelation_times, EvalCounts, EvaluatedPoint},
-    traits::{LogDensity, ProgressStatus, Status, StatusMessage, Transform},
+    traits::{LegacyLogDensity, ProgressStatus, Status, StatusMessage, Transform},
     DMatrix, DVector, Float,
 };
 use fastrand::Rng;
@@ -54,10 +54,10 @@ impl EnsembleStatus {
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See
-    /// [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
+    /// [`LegacyCostFunction::evaluate`](`crate::traits::LegacyCostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E>,
+        func: &dyn LegacyLogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
         for walker in self.walkers.iter_mut() {

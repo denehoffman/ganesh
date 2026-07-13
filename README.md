@@ -44,6 +44,11 @@
 * Traits which make developing future algorithms simple and consistent.
 * A simple interface that lets new users get started quickly.
 * A pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
+* Scalar- and backend-generic Rust APIs with `f64`/nalgebra defaults, native `f32`, and optional
+  ndarray support.
+
+Rust precision is selected through type parameters, so `f32` and `f64` can coexist without feature
+switching. Python bindings intentionally remain NumPy `float64`-facing.
 
 ## Quick Start
 
@@ -51,31 +56,36 @@ This crate provides some common test functions in the [`test_functions`](https:/
 
 ```rust
 use ganesh::traits::*;
-use ganesh::{Float, DVector};
+use ganesh::{LinearAlgebra, RealScalar, Vector};
 use std::convert::Infallible;
 
 pub struct Rosenbrock {
     pub n: usize,
 }
-impl CostFunction for Rosenbrock {
-    fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-        Ok((0..(self.n - 1))
-            .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
-            .sum())
+impl<T, B> CostFunction<T, B> for Rosenbrock
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn evaluate(&self, x: &Vector<T, B>, _args: &()) -> Result<T, Infallible> {
+        Ok((0..(self.n - 1)).fold(T::zero(), |sum, i| {
+            sum + T::literal(100.0) * (x.get(i + 1) - x.get(i).powi(2)).powi(2)
+                + (T::one() - x.get(i)).powi(2)
+        }))
     }
 }
 ```
 To minimize this function, we could consider using the Nelder-Mead algorithm:
 ```rust
-use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
+use ganesh::algorithms::gradient_free::NelderMead;
 use ganesh::traits::*;
-use ganesh::{Float, DVector};
+use ganesh::{Vector, test_functions::Rosenbrock};
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
-    let mut nm = NelderMead::default();
-    let init = NelderMeadInit::new([2.0, 2.0]);
+    let mut nm = NelderMead::<f64>::default();
+    let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
     let result = nm.process_default(&problem, &(), init)?;
     println!("{}", result);
     Ok(())
@@ -86,14 +96,14 @@ We could also use some more verbose syntax if we wanted additional customization
 ```rust
 use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 use ganesh::traits::*;
-use ganesh::{Float, DVector};
+use ganesh::{Vector, test_functions::Rosenbrock};
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
-    let mut nm = NelderMead::default();
-    let init = ganesh::algorithms::gradient_free::nelder_mead::NelderMeadInit::new([2.0, 2.0]);
-    let config = NelderMeadConfig::default();
+    let mut nm = NelderMead::<f64>::default();
+    let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
+    let config = NelderMeadConfig::<f64>::default();
     let result = nm.process(
         &problem,
         &(),

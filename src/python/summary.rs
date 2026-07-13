@@ -12,7 +12,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     algorithms::mcmc::ChainStorageMode,
     core::{
-        MCMCDiagnostics, MCMCSummary, MinimizationSummary, MultiStartSummary,
+        LegacyMCMCSummary, LegacyMinimizationSummary, MCMCDiagnostics, MultiStartSummary,
         SimulatedAnnealingSummary,
     },
     python::{
@@ -79,13 +79,14 @@ where
 
 #[allow(dead_code)]
 pub(crate) fn restore_minimization_summary(state: &[u8]) -> PyResult<PyMinimizationSummary> {
-    let summary: MinimizationSummary = deserialize_pickle(state, "MinimizationSummary")?;
+    let summary: LegacyMinimizationSummary =
+        deserialize_pickle(state, "LegacyMinimizationSummary")?;
     Ok(PyMinimizationSummary::from(summary))
 }
 
 #[allow(dead_code)]
 pub(crate) fn restore_mcmc_summary(state: &[u8]) -> PyResult<PyMCMCSummary> {
-    let summary: MCMCSummary = deserialize_pickle(state, "MCMCSummary")?;
+    let summary: LegacyMCMCSummary = deserialize_pickle(state, "LegacyMCMCSummary")?;
     Ok(PyMCMCSummary::from(summary))
 }
 
@@ -184,7 +185,7 @@ fn flat_chain_to_python(chain: &[crate::DVector<crate::Float>]) -> Vec<Vec<crate
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MinimizationSummary")]
 #[derive(Clone)]
 pub struct PyMinimizationSummary {
-    summary: MinimizationSummary,
+    summary: LegacyMinimizationSummary,
 }
 
 #[pymethods]
@@ -310,7 +311,7 @@ impl PyMinimizationSummary {
         matrix_to_python(py, &covariance)
     }
 
-    /// Export the MinimizationSummary as a plain Python dictionary.
+    /// Export the LegacyMinimizationSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -325,25 +326,25 @@ impl PyMinimizationSummary {
     }
 }
 
-impl From<MinimizationSummary> for PyMinimizationSummary {
-    fn from(summary: MinimizationSummary) -> Self {
+impl From<LegacyMinimizationSummary> for PyMinimizationSummary {
+    fn from(summary: LegacyMinimizationSummary) -> Self {
         Self { summary }
     }
 }
 
-impl From<PyMinimizationSummary> for MinimizationSummary {
+impl From<PyMinimizationSummary> for LegacyMinimizationSummary {
     fn from(summary: PyMinimizationSummary) -> Self {
         summary.summary
     }
 }
 
-impl From<&PyMinimizationSummary> for MinimizationSummary {
+impl From<&PyMinimizationSummary> for LegacyMinimizationSummary {
     fn from(summary: &PyMinimizationSummary) -> Self {
         summary.summary.clone()
     }
 }
 
-/// Python-facing typed wrapper for [`MCMCSummary`].
+/// Python-facing typed wrapper for [`LegacyMCMCSummary`].
 ///
 /// Notes
 /// -----
@@ -353,7 +354,7 @@ impl From<&PyMinimizationSummary> for MinimizationSummary {
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MCMCSummary")]
 #[derive(Clone)]
 pub struct PyMCMCSummary {
-    summary: MCMCSummary,
+    summary: LegacyMCMCSummary,
 }
 
 #[pymethods]
@@ -501,7 +502,7 @@ impl PyMCMCSummary {
         tensor3_to_python(py, &chain_to_python(&self.summary.get_chain(burn, thin)))
     }
 
-    /// Export the MCMCSummary as a plain Python dictionary.
+    /// Export the LegacyMCMCSummary as a plain Python dictionary.
     ///
     /// Returns
     /// -------
@@ -516,19 +517,19 @@ impl PyMCMCSummary {
     }
 }
 
-impl From<MCMCSummary> for PyMCMCSummary {
-    fn from(summary: MCMCSummary) -> Self {
+impl From<LegacyMCMCSummary> for PyMCMCSummary {
+    fn from(summary: LegacyMCMCSummary) -> Self {
         Self { summary }
     }
 }
 
-impl From<PyMCMCSummary> for MCMCSummary {
+impl From<PyMCMCSummary> for LegacyMCMCSummary {
     fn from(summary: PyMCMCSummary) -> Self {
         summary.summary
     }
 }
 
-impl From<&PyMCMCSummary> for MCMCSummary {
+impl From<&PyMCMCSummary> for LegacyMCMCSummary {
     fn from(summary: &PyMCMCSummary) -> Self {
         summary.summary.clone()
     }
@@ -538,7 +539,7 @@ impl From<&PyMCMCSummary> for MCMCSummary {
 ///
 /// Notes
 /// -----
-/// Each completed run is exposed as a [`MinimizationSummary`] wrapper.
+/// Each completed run is exposed as a [`LegacyMinimizationSummary`] wrapper.
 #[pyclass(skip_from_py_object, module = "ganesh", name = "MultiStartSummary")]
 #[derive(Clone)]
 pub struct PyMultiStartSummary {
@@ -557,7 +558,7 @@ impl PyMultiStartSummary {
     ///
     /// Returns
     /// -------
-    /// list[`MinimizationSummary`]
+    /// list[`LegacyMinimizationSummary`]
     #[getter]
     pub fn runs<'py>(&self, py: Python<'py>) -> PyResult<Vec<Py<PyMinimizationSummary>>> {
         self.summary
@@ -583,7 +584,7 @@ impl PyMultiStartSummary {
     ///
     /// Returns
     /// -------
-    /// `MinimizationSummary` | None
+    /// `LegacyMinimizationSummary` | None
     #[getter]
     pub fn best_run<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyMinimizationSummary>>> {
         self.summary
@@ -782,7 +783,7 @@ impl From<&PySimulatedAnnealingSummary>
     }
 }
 
-impl IntoPySummary for MinimizationSummary {
+impl IntoPySummary for LegacyMinimizationSummary {
     fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
@@ -809,7 +810,7 @@ impl IntoPySummary for MinimizationSummary {
     }
 }
 
-impl IntoPySummary for MCMCSummary {
+impl IntoPySummary for LegacyMCMCSummary {
     fn to_py_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         dict.set_item("bounds", self.bounds.as_ref().map(bounds_to_python))?;
@@ -878,7 +879,7 @@ impl IntoPySummary for SimulatedAnnealingSummary<crate::DVector<crate::Float>> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for MinimizationSummary {
+impl<'py> IntoPyObject<'py> for LegacyMinimizationSummary {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -890,7 +891,7 @@ impl<'py> IntoPyObject<'py> for MinimizationSummary {
     }
 }
 
-impl<'py> IntoPyObject<'py> for MCMCSummary {
+impl<'py> IntoPyObject<'py> for LegacyMCMCSummary {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -937,8 +938,8 @@ mod tests {
         DMatrix, DVector,
     };
 
-    fn sample_summary() -> MinimizationSummary {
-        MinimizationSummary {
+    fn sample_summary() -> LegacyMinimizationSummary {
+        LegacyMinimizationSummary {
             bounds: Some(Bounds::new_default([
                 (Some(-1.0), Some(1.0)),
                 (None, Some(2.0)),
@@ -969,7 +970,7 @@ mod tests {
     fn summary_wrapper_roundtrip_converts_back_to_native() {
         let native = sample_summary();
         let wrapper = PyMinimizationSummary::from(native.clone());
-        let roundtrip = MinimizationSummary::from(wrapper);
+        let roundtrip = LegacyMinimizationSummary::from(wrapper);
         assert_eq!(roundtrip.fx, native.fx);
         assert_eq!(roundtrip.evals, native.evals);
         assert_eq!(roundtrip.message.text(), native.message.text());
@@ -978,7 +979,7 @@ mod tests {
     #[test]
     fn borrowed_summary_wrapper_converts_back_to_native() {
         let wrapper = PyMinimizationSummary::from(sample_summary());
-        let native = MinimizationSummary::from(&wrapper);
+        let native = LegacyMinimizationSummary::from(&wrapper);
         assert_eq!(native.fx, 1.25);
         assert_eq!(native.parameter_names.unwrap(), vec!["alpha", "beta"]);
     }

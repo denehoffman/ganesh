@@ -1,7 +1,7 @@
 use crate::{
     core::{EvaluatedPoint, Point},
     error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LogDensity, Terminator},
+    traits::{Algorithm, LegacyLogDensity, Terminator},
     DVector, Float,
 };
 use parking_lot::Mutex;
@@ -10,16 +10,28 @@ use std::{ops::ControlFlow, sync::Arc};
 
 /// Affine Invariant MCMC Ensemble Sampler
 pub mod aies;
-pub use aies::{AIESConfig, AIESMove, AIES};
+pub mod backend_aies;
+#[doc(hidden)]
+pub use aies::{AIESConfig as LegacyAIESConfig, AIESMove, AIES as LegacyAIES};
+pub use backend_aies::{BackendAIES as AIES, BackendAIESConfig as AIESConfig};
+#[doc(hidden)]
+pub use backend_aies::{BackendAIES, BackendAIESConfig, BackendEnsembleStatus};
 
+pub mod backend_ess;
 /// Ensemble Slice Sampler
 pub mod ess;
-pub use ess::{ESSConfig, ESSMove, ESS};
+#[doc(hidden)]
+pub use backend_ess::{BackendESS, BackendESSConfig};
+pub use backend_ess::{BackendESS as ESS, BackendESSConfig as ESSConfig};
+#[doc(hidden)]
+pub use ess::{ESSConfig as LegacyESSConfig, ESSMove, ESS as LegacyESS};
 
-/// The [`EnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
+/// The [`LegacyEnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
 pub mod ensemble_status;
 pub use crate::core::mcmc_diagnostics::integrated_autocorrelation_times;
-pub use ensemble_status::EnsembleStatus;
+pub use backend_aies::BackendEnsembleStatus as EnsembleStatus;
+#[doc(hidden)]
+pub use ensemble_status::EnsembleStatus as LegacyEnsembleStatus;
 
 /// Controls how much MCMC chain history is retained in memory.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -174,10 +186,10 @@ impl Walker {
     ///
     /// # Errors
     ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more information.
+    /// Returns an `Err(E)` if the evaluation fails. See [`LegacyCostFunction::evaluate`](`crate::traits::LegacyCostFunction::evaluate`) for more information.
     pub fn log_density_latest<U, E>(
         &mut self,
-        func: &dyn LogDensity<U, E>,
+        func: &dyn LegacyLogDensity<U, E>,
         args: &U,
     ) -> Result<(), E> {
         let current = self
@@ -270,7 +282,7 @@ impl Walker {
 /// ```rust
 /// use fastrand::Rng;
 /// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
-/// use ganesh::algorithms::mcmc::{ess::ESSInit, ESSMove, ESS, ESSConfig};
+/// use ganesh::algorithms::mcmc::{ess::ESSInit, ESSMove, LegacyESS, LegacyESSConfig};
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::{core::{utils::SampleFloat, Callbacks}, Float, DVector};
 /// use ganesh::traits::*;
@@ -287,9 +299,9 @@ impl Walker {
 ///     .with_n_check(20)
 ///     .with_verbose(true)
 ///     .build();
-/// let mut sampler = ESS::new(Some(1));
+/// let mut sampler = LegacyESS::new(Some(1));
 /// let init = ESSInit::new(x0.clone()).unwrap();
-/// let config = ESSConfig::default()
+/// let config = LegacyESSConfig::default()
 ///     .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
 ///     .unwrap();
 /// let result = sampler
@@ -383,16 +395,16 @@ impl Default for AutocorrelationTerminator {
     }
 }
 
-impl<A, P, U, E, C> Terminator<A, P, EnsembleStatus, U, E, C> for AutocorrelationTerminator
+impl<A, P, U, E, C> Terminator<A, P, LegacyEnsembleStatus, U, E, C> for AutocorrelationTerminator
 where
-    A: Algorithm<P, EnsembleStatus, U, E, Config = C>,
+    A: Algorithm<P, LegacyEnsembleStatus, U, E, Config = C>,
 {
     fn check_for_termination(
         &mut self,
         current_step: usize,
         _algorithm: &mut A,
         _problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut LegacyEnsembleStatus,
         _args: &U,
         _config: &C,
     ) -> ControlFlow<()> {
@@ -458,9 +470,9 @@ mod tests {
             .with_n_taus_threshold(51)
             .with_verbose(false)
             .build();
-        let mut sampler = ESS::new(Some(1));
+        let mut sampler = LegacyESS::new(Some(1));
         let init = crate::algorithms::mcmc::ess::ESSInit::new(x0).unwrap();
-        let config = ESSConfig::default()
+        let config = LegacyESSConfig::default()
             .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
             .unwrap();
         let result = sampler

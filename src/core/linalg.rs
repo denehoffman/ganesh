@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, LU};
 #[cfg(feature = "backend-ndarray")]
 use ndarray::{Array1, Array2};
 #[cfg(feature = "backend-ndarray")]
-use ndarray_linalg::{Determinant, Inverse, Lapack, Solve};
+use ndarray_linalg::{Determinant as NdDeterminant, Eigh, Inverse, Lapack, Solve, UPLO};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -72,7 +72,10 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn mat_mul(lhs: &Self::MatrixStorage, rhs: &Self::MatrixStorage) -> Self::MatrixStorage;
     /// Matrix-vector product.
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage;
+}
 
+/// Backend capability for solving dense linear systems and computing inverses.
+pub trait LinearSolve<T: RealScalar>: LinearAlgebra<T> {
     /// Solve `matrix * x = rhs` using an LU-style solve.
     fn lu_solve(
         matrix: &Self::MatrixStorage,
@@ -85,10 +88,26 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     ) -> Option<Self::MatrixStorage>;
     /// Compute the inverse using an LU-style operation.
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage>;
-    /// Compute the pseudoinverse when the backend supports it.
+}
+
+/// Backend capability for computing a matrix pseudoinverse.
+pub trait PseudoInverse<T: RealScalar>: LinearAlgebra<T> {
+    /// Compute the pseudoinverse.
     fn pseudo_inverse(matrix: &Self::MatrixStorage, epsilon: T) -> Option<Self::MatrixStorage>;
+}
+
+/// Backend capability for computing a determinant.
+pub trait Determinant<T: RealScalar>: LinearAlgebra<T> {
     /// Compute the determinant.
     fn determinant(matrix: &Self::MatrixStorage) -> Option<T>;
+}
+
+/// Backend capability for symmetric eigendecomposition.
+pub trait SymmetricEigen<T: RealScalar>: LinearAlgebra<T> {
+    /// Return eigenvalues and column-oriented eigenvectors of a symmetric matrix.
+    fn symmetric_eigen(
+        matrix: &Self::MatrixStorage,
+    ) -> Option<(Self::VectorStorage, Self::MatrixStorage)>;
 }
 
 /// Scalar wrapper for future public APIs that want a crate-owned scalar type.
@@ -105,7 +124,7 @@ impl<T: RealScalar> Copy for Scalar<T> {}
 
 impl<T: RealScalar> Debug for Scalar<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        Debug::fmt(&self.0, f)
     }
 }
 
@@ -475,7 +494,13 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
     pub fn mul_mat(&self, rhs: &Self) -> Self {
         Self::from_storage(B::mat_mul(&self.storage, &rhs.storage))
     }
+}
 
+impl<T, B> Matrix<T, B>
+where
+    T: RealScalar,
+    B: LinearSolve<T>,
+{
     /// Solve `self * x = rhs` using an LU-style solve.
     pub fn lu_solve(&self, rhs: &Vector<T, B>) -> Option<Vector<T, B>> {
         B::lu_solve(&self.storage, &rhs.storage).map(Vector::from_storage)
@@ -490,12 +515,36 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
     pub fn lu_inverse(&self) -> Option<Self> {
         B::lu_inverse(&self.storage).map(Self::from_storage)
     }
+}
 
-    /// Compute the pseudoinverse if the backend supports it.
+impl<T, B> Matrix<T, B>
+where
+    T: RealScalar,
+    B: SymmetricEigen<T>,
+{
+    /// Compute eigenvalues and column-oriented eigenvectors of a symmetric matrix.
+    pub fn symmetric_eigen(&self) -> Option<(Vector<T, B>, Self)> {
+        B::symmetric_eigen(&self.storage)
+            .map(|(values, vectors)| (Vector::from_storage(values), Self::from_storage(vectors)))
+    }
+}
+
+impl<T, B> Matrix<T, B>
+where
+    T: RealScalar,
+    B: PseudoInverse<T>,
+{
+    /// Compute the pseudoinverse.
     pub fn pseudo_inverse(&self, epsilon: T) -> Option<Self> {
         B::pseudo_inverse(&self.storage, epsilon).map(Self::from_storage)
     }
+}
 
+impl<T, B> Matrix<T, B>
+where
+    T: RealScalar,
+    B: Determinant<T>,
+{
     /// Compute the determinant.
     pub fn determinant(&self) -> Option<T> {
         B::determinant(&self.storage)
@@ -609,7 +658,7 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
     type MatrixStorage = DMatrix<T>;
 
     fn vector_zeros(len: usize) -> Self::VectorStorage {
-        DVector::from_element(len, T::zero())
+        DVector::from_element(len, <T as RealScalar>::zero())
     }
 
     fn vector_from_vec(values: Vec<T>) -> Self::VectorStorage {
@@ -661,7 +710,7 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
     }
 
     fn matrix_zeros(rows: usize, cols: usize) -> Self::MatrixStorage {
-        DMatrix::from_element(rows, cols, T::zero())
+        DMatrix::from_element(rows, cols, <T as RealScalar>::zero())
     }
 
     fn matrix_identity(n: usize) -> Self::MatrixStorage {
@@ -711,7 +760,9 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage {
         matrix * vector
     }
+}
 
+impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraBackend {
     fn lu_solve(
         matrix: &Self::MatrixStorage,
         rhs: &Self::VectorStorage,
@@ -729,13 +780,29 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage> {
         LU::new(matrix.clone()).try_inverse()
     }
+}
 
+impl<T: RealScalar + nalgebra::RealField> PseudoInverse<T> for NalgebraBackend {
     fn pseudo_inverse(matrix: &Self::MatrixStorage, epsilon: T) -> Option<Self::MatrixStorage> {
         matrix.clone().pseudo_inverse(epsilon).ok()
     }
+}
 
+impl<T: RealScalar + nalgebra::RealField> Determinant<T> for NalgebraBackend {
     fn determinant(matrix: &Self::MatrixStorage) -> Option<T> {
         matrix.is_square().then(|| matrix.clone().determinant())
+    }
+}
+
+impl<T: RealScalar + nalgebra::RealField> SymmetricEigen<T> for NalgebraBackend {
+    fn symmetric_eigen(
+        matrix: &Self::MatrixStorage,
+    ) -> Option<(Self::VectorStorage, Self::MatrixStorage)> {
+        if !matrix.is_square() {
+            return None;
+        }
+        let decomposition = nalgebra::linalg::SymmetricEigen::new(matrix.clone());
+        Some((decomposition.eigenvalues, decomposition.eigenvectors))
     }
 }
 
@@ -747,7 +814,7 @@ pub struct NdArrayBackend;
 #[cfg(feature = "backend-ndarray")]
 impl<T> LinearAlgebra<T> for NdArrayBackend
 where
-    T: RealScalar + Lapack + ndarray::ScalarOperand,
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
     type VectorStorage = Array1<T>;
     type MatrixStorage = Array2<T>;
@@ -797,7 +864,7 @@ where
     }
 
     fn vec_norm(value: &Self::VectorStorage) -> T {
-        num_traits::Float::sqrt(value.dot(value))
+        RealScalar::sqrt(value.dot(value))
     }
 
     fn vec_all_finite(value: &Self::VectorStorage) -> bool {
@@ -855,7 +922,13 @@ where
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage {
         matrix.dot(vector)
     }
+}
 
+#[cfg(feature = "backend-ndarray")]
+impl<T> LinearSolve<T> for NdArrayBackend
+where
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
+{
     fn lu_solve(
         matrix: &Self::MatrixStorage,
         rhs: &Self::VectorStorage,
@@ -879,13 +952,37 @@ where
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage> {
         matrix.inv().ok()
     }
+}
 
+#[cfg(feature = "backend-ndarray")]
+impl<T> PseudoInverse<T> for NdArrayBackend
+where
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
+{
     fn pseudo_inverse(_matrix: &Self::MatrixStorage, _epsilon: T) -> Option<Self::MatrixStorage> {
         None
     }
+}
 
+#[cfg(feature = "backend-ndarray")]
+impl<T> Determinant<T> for NdArrayBackend
+where
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
+{
     fn determinant(matrix: &Self::MatrixStorage) -> Option<T> {
         matrix.det().ok()
+    }
+}
+
+#[cfg(feature = "backend-ndarray")]
+impl<T> SymmetricEigen<T> for NdArrayBackend
+where
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
+{
+    fn symmetric_eigen(
+        matrix: &Self::MatrixStorage,
+    ) -> Option<(Self::VectorStorage, Self::MatrixStorage)> {
+        matrix.clone().eigh(UPLO::Lower).ok()
     }
 }
 
@@ -912,7 +1009,7 @@ mod tests {
 
     fn matrix_contract<B>()
     where
-        B: LinearAlgebra<f64>,
+        B: LinearAlgebra<f64> + LinearSolve<f64> + Determinant<f64>,
     {
         let mut matrix = Matrix::<f64, B>::identity(2);
         matrix.set(0, 1, 2.0);

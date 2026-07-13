@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
-    algorithms::line_search::HagerZhangLineSearch,
-    algorithms::{gradient::GradientStatus, gradient_free::GradientFreeStatus},
+    algorithms::line_search::LegacyHagerZhangLineSearch,
+    algorithms::{gradient::LegacyGradientStatus, gradient_free::LegacyGradientFreeStatus},
     core::transforms::Bounds,
     test_functions::Rosenbrock,
-    traits::{LineSearch, ProgressStatus, Status, Transform},
+    traits::{LegacyLineSearch, ProgressStatus, Status, Transform},
     DVector,
 };
 
@@ -17,9 +17,9 @@ fn bench_hager_zhang_origin(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     (
-                        HagerZhangLineSearch::default(),
+                        LegacyHagerZhangLineSearch::default(),
                         Rosenbrock { n: ndim },
-                        ganesh::algorithms::gradient::GradientStatus::default(),
+                        ganesh::algorithms::gradient::LegacyGradientStatus::default(),
                     )
                 },
                 |(mut ls, problem, mut status)| {
@@ -67,7 +67,7 @@ fn bench_status_updates(c: &mut Criterion) {
             |b, &ndim| {
                 let x = DVector::from_element(ndim, 1.25);
                 b.iter_batched(
-                    GradientStatus::default,
+                    LegacyGradientStatus::default,
                     |mut status| {
                         status.set_position((black_box(x.clone()), black_box(3.5)));
                         black_box(status);
@@ -82,7 +82,7 @@ fn bench_status_updates(c: &mut Criterion) {
             |b, &ndim| {
                 let x = DVector::from_element(ndim, 1.25);
                 b.iter_batched(
-                    GradientStatus::default,
+                    LegacyGradientStatus::default,
                     |mut status| {
                         let fx = black_box(3.5);
                         let message = format!("f(x) = {fx}");
@@ -101,7 +101,7 @@ fn bench_status_updates(c: &mut Criterion) {
             |b, &ndim| {
                 let x = DVector::from_element(ndim, 1.25);
                 b.iter_batched(
-                    GradientFreeStatus::default,
+                    LegacyGradientFreeStatus::default,
                     |mut status| {
                         status.set_position((black_box(x.clone()), black_box(3.5)));
                         black_box(status);
@@ -114,7 +114,7 @@ fn bench_status_updates(c: &mut Criterion) {
 
     group.bench_function("gradient_eval_counters", |b| {
         b.iter_batched(
-            GradientStatus::default,
+            LegacyGradientStatus::default,
             |mut status| {
                 status.evals.record_fgh();
                 black_box(status);
@@ -124,7 +124,7 @@ fn bench_status_updates(c: &mut Criterion) {
     });
 
     group.bench_function("gradient_progress_render", |b| {
-        let mut status = GradientStatus::default();
+        let mut status = LegacyGradientStatus::default();
         status.set_position((DVector::from_element(8, 1.25), 3.5));
         status.evals.record_f();
         let mut out = String::new();

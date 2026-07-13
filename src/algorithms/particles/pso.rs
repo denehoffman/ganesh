@@ -1,11 +1,11 @@
 use crate::{
-    algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
-    core::{utils::generate_random_vector, Bounds, MinimizationSummary},
+    algorithms::particles::{LegacySwarmStatus, Swarm, SwarmTopology, SwarmUpdateMethod},
+    core::{utils::generate_random_vector, Bounds, LegacyMinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
-        Transform,
+        Algorithm, LegacyCostFunction, Status, SupportsBounds, SupportsParameterNames,
+        SupportsTransform, Transform,
     },
     DMatrix, DVector, Float,
 };
@@ -147,7 +147,7 @@ impl PSO {
             rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
         }
     }
-    fn nbest(&self, i: usize, status: &SwarmStatus) -> DVector<Float> {
+    fn nbest(&self, i: usize, status: &LegacySwarmStatus) -> DVector<Float> {
         let swarm = &status.swarm;
         match swarm.topology {
             SwarmTopology::Global => status.gbest.x.clone(),
@@ -159,8 +159,8 @@ impl PSO {
     }
     fn update<U, E>(
         &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        status: &mut LegacySwarmStatus,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -172,8 +172,8 @@ impl PSO {
     }
     fn update_sync<U, E>(
         &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        status: &mut LegacySwarmStatus,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -214,8 +214,8 @@ impl PSO {
     }
     fn update_async<U, E>(
         &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
+        status: &mut LegacySwarmStatus,
+        func: &dyn LegacyCostFunction<U, E>,
         args: &U,
         config: &PSOConfig,
     ) -> Result<(), E> {
@@ -253,17 +253,17 @@ impl PSO {
     }
 }
 
-impl<P, U, E> Algorithm<P, SwarmStatus, U, E> for PSO
+impl<P, U, E> Algorithm<P, LegacySwarmStatus, U, E> for PSO
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = PSOConfig;
     type Init = Swarm;
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut SwarmStatus,
+        status: &mut LegacySwarmStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -292,7 +292,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut SwarmStatus,
+        status: &mut LegacySwarmStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -303,12 +303,12 @@ where
         &self,
         _current_step: usize,
         _func: &P,
-        status: &SwarmStatus,
+        status: &LegacySwarmStatus,
         _args: &U,
         _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: status.initial_gbest.x.clone(),
             x: status.gbest.x.clone(),
             fx: status.gbest.fx,
@@ -334,7 +334,7 @@ mod tests {
     use std::convert::Infallible;
 
     struct Quadratic;
-    impl CostFunction<(), Infallible> for Quadratic {
+    impl LegacyCostFunction<(), Infallible> for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
             Ok(x.dot(x))
         }
@@ -382,7 +382,7 @@ mod tests {
             velocity: DVector::from_row_slice(&[0.0]),
             best: EvaluatedPoint::new(DVector::from_row_slice(&[2.0]), 0.0),
         };
-        let mut status = SwarmStatus {
+        let mut status = LegacySwarmStatus {
             gbest: particle.best.clone(),
             swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::new())),
             ..Default::default()

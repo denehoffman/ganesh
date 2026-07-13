@@ -1,6 +1,7 @@
 use ganesh::{
     algorithms::mcmc::{
-        aies::AIESInit, ess::ESSInit, AIESConfig, ChainStorageMode, ESSConfig, ESSMove, AIES, ESS,
+        aies::AIESInit, ess::ESSInit, ChainStorageMode, ESSMove, LegacyAIES, LegacyAIESConfig,
+        LegacyESS, LegacyESSConfig,
     },
     core::MaxSteps,
     test_functions::rosenbrock::Rosenbrock,
@@ -74,16 +75,16 @@ fn main() {
 
     match sampler {
         "aies" => {
-            let mut solver = AIES::default();
+            let mut solver = LegacyAIES::default();
             let init = AIESInit::new(x0).unwrap();
-            let config = AIESConfig::default().with_chain_storage(chain_storage);
+            let config = LegacyAIESConfig::default().with_chain_storage(chain_storage);
             let summary = solver
                 .process(
                     &problem,
                     &(),
                     init,
                     config,
-                    AIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
+                    LegacyAIES::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
             println!(
@@ -96,9 +97,9 @@ fn main() {
             );
         }
         "ess" => {
-            let mut solver = ESS::default();
+            let mut solver = LegacyESS::default();
             let init = ESSInit::new(x0).unwrap();
-            let config = ESSConfig::default()
+            let config = LegacyESSConfig::default()
                 .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                 .unwrap()
                 .with_n_adaptive(10)
@@ -110,7 +111,7 @@ fn main() {
                     &(),
                     init,
                     config,
-                    ESS::default_callbacks().with_terminator(MaxSteps(n_steps)),
+                    LegacyESS::default_callbacks().with_terminator(MaxSteps(n_steps)),
                 )
                 .unwrap();
             println!(

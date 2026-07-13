@@ -1,12 +1,12 @@
 use crate::{
-    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
-    core::{Bounds, Callbacks, MinimizationSummary},
+    algorithms::{gradient::LegacyGradientStatus, line_search::LegacyStrongWolfeLineSearch},
+    core::{Bounds, Callbacks, LegacyMinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        linesearch::LineSearchOutput, Algorithm, Bound, CheckpointableAlgorithm, Gradient,
-        LineSearch, Status, SupportsBounds, SupportsParameterNames, SupportsTransform, Terminator,
-        Transform, TransformedProblem,
+        Algorithm, Bound, CheckpointableAlgorithm, LegacyGradient, LegacyLineSearch,
+        LegacyLineSearchOutput, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
+        Terminator, Transform, TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
@@ -47,16 +47,16 @@ impl LBFGSBFTerminator {
         Ok(Self { eps_abs })
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
+impl<P, U, E> Terminator<LBFGSB, P, LegacyGradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
@@ -104,16 +104,16 @@ impl LBFGSBGTerminator {
         Ok(Self { eps_abs })
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, LegacyGradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
@@ -155,16 +155,17 @@ impl LBFGSBInfNormGTerminator {
         Ok(Self { eps_abs })
     }
 }
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
+impl<P, U, E> Terminator<LBFGSB, P, LegacyGradientStatus, U, E, LBFGSBConfig>
+    for LBFGSBInfNormGTerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut LBFGSB,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &LBFGSBConfig,
     ) -> ControlFlow<()> {
@@ -195,7 +196,7 @@ pub struct LBFGSBConfig {
     bounds_handling: BoundsHandlingMode,
     parameter_names: Option<Vec<String>>,
     transform: Option<Box<dyn Transform>>,
-    line_search: StrongWolfeLineSearch,
+    line_search: LegacyStrongWolfeLineSearch,
     m: usize,
     max_step: Float,
     error_mode: LBFGSBErrorMode,
@@ -235,8 +236,8 @@ impl LBFGSBConfig {
         self.m = limit;
         Ok(self)
     }
-    /// Set the line search algorithm to use (default = [`StrongWolfeLineSearch::default`]).
-    pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {
+    /// Set the line search algorithm to use (default = [`LegacyStrongWolfeLineSearch::default`]).
+    pub const fn with_line_search(mut self, line_search: LegacyStrongWolfeLineSearch) -> Self {
         self.line_search = line_search;
         self
     }
@@ -260,7 +261,7 @@ impl Default for LBFGSBConfig {
             bounds_handling: BoundsHandlingMode::default(),
             parameter_names: None,
             transform: None,
-            line_search: StrongWolfeLineSearch::default(),
+            line_search: LegacyStrongWolfeLineSearch::default(),
             m: 10,
             max_step: 1e8,
             error_mode: Default::default(),
@@ -290,7 +291,7 @@ pub struct LBFGSB {
     f_previous: Float,
     y_store: VecDeque<DVector<Float>>,
     s_store: VecDeque<DVector<Float>>,
-    line_search: StrongWolfeLineSearch,
+    line_search: LegacyStrongWolfeLineSearch,
 }
 
 /// A step-boundary checkpoint for the [`LBFGSB`] algorithm.
@@ -315,7 +316,7 @@ pub struct LBFGSBCheckpoint {
     /// Stored `s_k` correction vectors.
     pub s_store: VecDeque<DVector<Float>>,
     /// The saved gradient status.
-    pub status: GradientStatus,
+    pub status: LegacyGradientStatus,
     /// The next step index to execute when resuming.
     pub next_step: usize,
 }
@@ -335,7 +336,7 @@ impl Default for LBFGSB {
             f_previous: Float::INFINITY,
             y_store: VecDeque::default(),
             s_store: VecDeque::default(),
-            line_search: StrongWolfeLineSearch::default(),
+            line_search: LegacyStrongWolfeLineSearch::default(),
         }
     }
 }
@@ -588,17 +589,17 @@ impl LBFGSB {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB
+impl<P, U, E> Algorithm<P, LegacyGradientStatus, U, E> for LBFGSB
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = LBFGSBConfig;
     type Init = DVector<Float>;
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -648,14 +649,14 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
         let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
         let d = self.compute_step_direction();
         let max_step = self.compute_max_step(&d, config.max_step);
-        if let Ok(LineSearchOutput {
+        if let Ok(LegacyLineSearchOutput {
             alpha,
             fx: f_kp1,
             g: g_kp1,
@@ -696,7 +697,7 @@ where
     fn postprocessing(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -717,12 +718,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientStatus,
+        status: &LegacyGradientStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -755,7 +756,7 @@ where
         self.s_store = VecDeque::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -766,13 +767,13 @@ where
     }
 }
 
-impl<P, U, E> CheckpointableAlgorithm<P, GradientStatus, U, E> for LBFGSB
+impl<P, U, E> CheckpointableAlgorithm<P, LegacyGradientStatus, U, E> for LBFGSB
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     type Checkpoint = LBFGSBCheckpoint;
 
-    fn checkpoint(&self, status: &GradientStatus, next_step: usize) -> Self::Checkpoint {
+    fn checkpoint(&self, status: &LegacyGradientStatus, next_step: usize) -> Self::Checkpoint {
         LBFGSBCheckpoint {
             x: self.x.clone(),
             g: self.g.clone(),
@@ -792,7 +793,7 @@ where
         &mut self,
         checkpoint: &Self::Checkpoint,
         config: &Self::Config,
-    ) -> (GradientStatus, usize) {
+    ) -> (LegacyGradientStatus, usize) {
         self.x = checkpoint.x.clone();
         self.g = checkpoint.g.clone();
         self.l = checkpoint.l.clone();
@@ -820,7 +821,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        algorithms::line_search::HagerZhangLineSearch,
+        algorithms::line_search::LegacyHagerZhangLineSearch,
         core::{AtomicCheckpointSignal, CheckpointOnSignal, CheckpointStore, MaxSteps},
         test_functions::Rosenbrock,
         traits::{AbortSignal, CheckpointableAlgorithm, Observer},
@@ -842,10 +843,10 @@ mod tests {
         }
     }
 
-    impl<P, U, E, Sig> Observer<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>
+    impl<P, U, E, Sig> Observer<LBFGSB, P, LegacyGradientStatus, U, E, LBFGSBConfig>
         for TriggerAbortAtStep<Sig>
     where
-        P: Gradient<U, E>,
+        P: LegacyGradient<U, E>,
         Sig: AbortSignal + Clone,
     {
         fn observe(
@@ -853,7 +854,7 @@ mod tests {
             current_step: usize,
             _algorithm: &LBFGSB,
             _problem: &P,
-            _status: &GradientStatus,
+            _status: &LegacyGradientStatus,
             _args: &U,
             _config: &LBFGSBConfig,
         ) {
@@ -963,9 +964,11 @@ mod tests {
                     &problem,
                     &(),
                     DVector::from_row_slice(&starting_value),
-                    LBFGSBConfig::default().with_line_search(StrongWolfeLineSearch::HagerZhang(
-                        HagerZhangLineSearch::default(),
-                    )),
+                    LBFGSBConfig::default().with_line_search(
+                        LegacyStrongWolfeLineSearch::HagerZhang(
+                            LegacyHagerZhangLineSearch::default(),
+                        ),
+                    ),
                     LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
                 )
                 .unwrap();

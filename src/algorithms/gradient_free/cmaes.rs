@@ -1,13 +1,14 @@
 use crate::{
-    algorithms::gradient_free::GradientFreeStatus,
+    algorithms::gradient_free::LegacyGradientFreeStatus,
     core::{
-        utils::SampleFloat, Bounds, Callbacks, EvaluatedPoint, MaxSteps, MinimizationSummary, Point,
+        utils::SampleFloat, Bounds, Callbacks, EvaluatedPoint, LegacyMinimizationSummary, MaxSteps,
+        Point,
     },
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
-        Terminator, Transform,
+        Algorithm, LegacyCostFunction, Status, SupportsBounds, SupportsParameterNames,
+        SupportsTransform, Terminator, Transform,
     },
     DMatrix, DVector, Float,
 };
@@ -26,17 +27,17 @@ pub struct CMAESSigmaTerminator {
 #[derive(Clone, Copy, Default)]
 pub struct CMAESNoEffectAxisTerminator;
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
     for CMAESNoEffectAxisTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -60,17 +61,17 @@ where
 #[derive(Clone, Copy, Default)]
 pub struct CMAESNoEffectCoordTerminator;
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
     for CMAESNoEffectCoordTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -102,17 +103,17 @@ impl Default for CMAESConditionCovTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
     for CMAESConditionCovTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -130,17 +131,17 @@ where
 #[derive(Clone, Copy, Default)]
 pub struct CMAESEqualFunValuesTerminator;
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
     for CMAESEqualFunValuesTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -158,17 +159,17 @@ where
 #[derive(Clone, Copy, Default)]
 pub struct CMAESStagnationTerminator;
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig>
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
     for CMAESStagnationTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -193,16 +194,17 @@ impl Default for CMAESTolXUpTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESTolXUpTerminator
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
+    for CMAESTolXUpTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -227,16 +229,17 @@ impl Default for CMAESTolFunTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESTolFunTerminator
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
+    for CMAESTolFunTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -261,16 +264,17 @@ impl Default for CMAESTolXTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESTolXTerminator
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
+    for CMAESTolXTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -293,16 +297,17 @@ impl Default for CMAESSigmaTerminator {
     }
 }
 
-impl<P, U, E> Terminator<CMAES, P, GradientFreeStatus, U, E, CMAESConfig> for CMAESSigmaTerminator
+impl<P, U, E> Terminator<CMAES, P, LegacyGradientFreeStatus, U, E, CMAESConfig>
+    for CMAESSigmaTerminator
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut CMAES,
         _problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         _args: &U,
         _config: &CMAESConfig,
     ) -> ControlFlow<()> {
@@ -582,7 +587,7 @@ impl CMAES {
         args: &U,
     ) -> Result<Vec<CMAESCandidate>, E>
     where
-        P: CostFunction<U, E>,
+        P: LegacyCostFunction<U, E>,
     {
         let mut population = Vec::with_capacity(self.lambda);
         for _ in 0..self.lambda {
@@ -769,18 +774,18 @@ impl CMAES {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for CMAES
+impl<P, U, E> Algorithm<P, LegacyGradientFreeStatus, U, E> for CMAES
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = CMAESConfig;
     type Init = CMAESInit;
 
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -808,7 +813,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         _config: &Self::Config,
     ) -> Result<(), E> {
@@ -826,12 +831,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientFreeStatus,
+        status: &LegacyGradientFreeStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -854,7 +859,7 @@ where
         *self = Self::new(Some(0));
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientFreeStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -881,7 +886,7 @@ mod tests {
     use std::convert::Infallible;
 
     struct Quadratic;
-    impl CostFunction<(), Infallible> for Quadratic {
+    impl LegacyCostFunction<(), Infallible> for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(x.dot(x))
         }
@@ -1007,7 +1012,7 @@ mod tests {
             d_vec: dvector![1e8, 1e-1],
             ..Default::default()
         };
-        let mut status = GradientFreeStatus::default();
+        let mut status = LegacyGradientFreeStatus::default();
         let mut terminator = CMAESConditionCovTerminator::default();
 
         let result = terminator.check_for_termination(
@@ -1035,7 +1040,7 @@ mod tests {
         };
         let window = solver.equal_fun_values_window();
         solver.best_history = std::iter::repeat_n(1.0, window).collect();
-        let mut status = GradientFreeStatus::default();
+        let mut status = LegacyGradientFreeStatus::default();
         let mut terminator = CMAESEqualFunValuesTerminator;
 
         let result = terminator.check_for_termination(

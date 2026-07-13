@@ -1,7 +1,8 @@
 use crate::{
     algorithms::mcmc::ChainStorageMode,
     core::{
-        mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds, EvalCounts, MCMCDiagnostics,
+        mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds, EvalCounts, LinearAlgebra,
+        MCMCDiagnostics, Matrix, NalgebraBackend, RealScalar, Vector,
     },
     traits::{Bound, StatusMessage},
     DMatrix, DVector, Float,
@@ -117,6 +118,76 @@ pub struct MinimizationSummary {
 impl HasParameterNames for MinimizationSummary {
     fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
         &mut self.parameter_names
+    }
+}
+
+/// Scalar- and backend-generic result of a minimization run.
+///
+/// Serialization is deliberately not a core requirement: it is available to adapters when the
+/// selected scalar and backend storage types support it.
+#[derive(Debug, Clone)]
+pub struct BackendMinimizationSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+    /// Optional parameter names.
+    pub parameter_names: Option<Vec<String>>,
+    /// Final status message.
+    pub message: StatusMessage,
+    /// Initial parameters.
+    pub x0: Vector<T, B>,
+    /// Final parameters.
+    pub x: Vector<T, B>,
+    /// Parameter standard deviations.
+    pub std: Vector<T, B>,
+    /// Final objective value.
+    pub fx: T,
+    /// Evaluation counts requested by the algorithm.
+    pub evals: EvalCounts,
+    /// Covariance matrix.
+    pub covariance: Matrix<T, B>,
+}
+
+impl<T, B> Default for BackendMinimizationSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            message: StatusMessage::default(),
+            x0: Vector::zeros(0),
+            x: Vector::zeros(0),
+            std: Vector::zeros(0),
+            fx: T::zero(),
+            evals: EvalCounts::default(),
+            covariance: Matrix::zeros(0, 0),
+        }
+    }
+}
+
+impl<T, B> HasParameterNames for BackendMinimizationSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
+    }
+}
+
+impl<T, B> Display for BackendMinimizationSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Minimization Summary: status={}, f(x)={}, cost_evals={}, gradient_evals={}",
+            self.message,
+            self.fx,
+            self.evals.f(),
+            self.evals.g()
+        )
     }
 }
 
@@ -265,6 +336,107 @@ pub struct MCMCSummary {
     pub evals: EvalCounts,
     /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
     pub dimension: (usize, usize, usize),
+}
+
+/// Scalar- and backend-generic MCMC result.
+#[derive(Debug, Clone)]
+pub struct BackendMCMCSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+    /// Optional parameter names.
+    pub parameter_names: Option<Vec<String>>,
+    /// Final status message.
+    pub message: StatusMessage,
+    /// Retained positions grouped by walker.
+    pub chain: Vec<Vec<Vector<T, B>>>,
+    /// Evaluation counts requested by the sampler.
+    pub evals: EvalCounts,
+    /// `(walkers, retained steps, variables)`.
+    pub dimension: (usize, usize, usize),
+}
+
+impl<T, B> Default for BackendMCMCSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            parameter_names: None,
+            message: StatusMessage::default(),
+            chain: Vec::new(),
+            evals: EvalCounts::default(),
+            dimension: (0, 0, 0),
+        }
+    }
+}
+
+impl<T, B> HasParameterNames for BackendMCMCSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
+    }
+}
+
+impl<T, B> Display for BackendMCMCSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MCMC Summary: status={}, density_evals={}, dimension={:?}",
+            self.message,
+            self.evals.f(),
+            self.dimension
+        )
+    }
+}
+
+impl<T, B> BackendMCMCSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Return a burned and thinned clone of the retained backend-native chain.
+    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<Vector<T, B>>> {
+        let burn = burn.unwrap_or(0);
+        let thin = thin.unwrap_or(1).max(1);
+        self.chain
+            .iter()
+            .map(|walker| walker.iter().skip(burn).step_by(thin).cloned().collect())
+            .collect()
+    }
+
+    /// Return the burned and thinned chain flattened across walkers.
+    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vector<T, B>> {
+        self.get_chain(burn, thin).into_iter().flatten().collect()
+    }
+
+    /// Compute diagnostics through the crate's stable f64 reporting boundary.
+    pub fn diagnostics(&self, burn: Option<usize>, thin: Option<usize>) -> MCMCDiagnostics {
+        let chain = self
+            .get_chain(burn, thin)
+            .into_iter()
+            .map(|walker| {
+                walker
+                    .into_iter()
+                    .map(|position| {
+                        DVector::from_vec(
+                            position
+                                .to_vec()
+                                .into_iter()
+                                .map(|value| value.to_f64().unwrap_or(f64::NAN))
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .collect::<Vec<Vec<DVector<f64>>>>();
+        diagnostics_from_chain(&chain)
+    }
 }
 
 impl MCMCSummary {

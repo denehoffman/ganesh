@@ -19,25 +19,25 @@ use super::{
 };
 use crate::{
     algorithms::{
-        gradient::GradientStatus,
-        gradient_free::{GradientFreeStatus, SimulatedAnnealingStatus},
-        mcmc::{ChainStorageMode, EnsembleStatus, Walker},
+        gradient::LegacyGradientStatus,
+        gradient_free::{LegacyGradientFreeStatus, LegacySimulatedAnnealingStatus},
+        mcmc::{ChainStorageMode, LegacyEnsembleStatus, Walker},
         particles::{
-            Swarm, SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer, SwarmStatus,
+            LegacySwarmStatus, Swarm, SwarmBoundaryMethod, SwarmParticle, SwarmPositionInitializer,
             SwarmTopology, SwarmUpdateMethod, SwarmVelocityInitializer,
         },
     },
     core::{
-        transforms::Bounds, EvalCounts, EvaluatedPoint, MCMCSummary, MinimizationSummary,
-        MultiStartSummary, SimulatedAnnealingSummary,
+        transforms::Bounds, EvalCounts, EvaluatedPoint, LegacyMCMCSummary,
+        LegacyMinimizationSummary, MultiStartSummary, SimulatedAnnealingSummary,
     },
     traits::StatusMessage,
     DMatrix, DVector,
 };
 
 #[pyfunction]
-fn _testing_sample_minimization_summary() -> MinimizationSummary {
-    MinimizationSummary {
+fn _testing_sample_minimization_summary() -> LegacyMinimizationSummary {
+    LegacyMinimizationSummary {
         bounds: Some(Bounds::new_default([
             (Some(-1.0), Some(1.0)),
             (None, Some(2.0)),
@@ -54,8 +54,8 @@ fn _testing_sample_minimization_summary() -> MinimizationSummary {
 }
 
 #[pyfunction]
-fn _testing_sample_mcmc_summary() -> MCMCSummary {
-    MCMCSummary {
+fn _testing_sample_mcmc_summary() -> LegacyMCMCSummary {
+    LegacyMCMCSummary {
         bounds: Some(Bounds::new_default([(Some(-1.0), Some(1.0))])),
         parameter_names: Some(vec!["theta".into()]),
         message: StatusMessage::default().set_initialized_with_message("warmup"),
@@ -87,7 +87,7 @@ fn _testing_sample_simulated_annealing_summary() -> SimulatedAnnealingSummary<DV
 
 #[pyfunction]
 fn _testing_sample_multistart_summary() -> MultiStartSummary {
-    let best = MinimizationSummary {
+    let best = LegacyMinimizationSummary {
         bounds: Some(Bounds::new_default([
             (Some(-1.0), Some(1.0)),
             (None, Some(2.0)),
@@ -101,7 +101,7 @@ fn _testing_sample_multistart_summary() -> MultiStartSummary {
         evals: EvalCounts::new(10, 4, 0),
         covariance: DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
     };
-    let other = MinimizationSummary {
+    let other = LegacyMinimizationSummary {
         fx: 2.0,
         ..best.clone()
     };
@@ -136,7 +136,7 @@ fn _restore_simulated_annealing_summary(
 
 #[pyfunction]
 fn _testing_sample_gradient_status() -> PyGradientStatus {
-    PyGradientStatus::from(GradientStatus {
+    PyGradientStatus::from(LegacyGradientStatus {
         message: StatusMessage::default().set_step_with_message("iterating"),
         x: DVector::from_vec(vec![0.25, 0.75]),
         fx: 0.5,
@@ -152,7 +152,7 @@ fn _testing_sample_gradient_status() -> PyGradientStatus {
 
 #[pyfunction]
 fn _testing_sample_gradient_free_status() -> PyGradientFreeStatus {
-    PyGradientFreeStatus::from(GradientFreeStatus {
+    PyGradientFreeStatus::from(LegacyGradientFreeStatus {
         message: StatusMessage::default().set_step_with_message("simplex updated"),
         x: DVector::from_vec(vec![1.0, -1.0]),
         fx: 2.5,
@@ -172,7 +172,7 @@ fn _testing_sample_ensemble_status() -> PyEnsembleStatus {
         DVector::from_vec(vec![1.5, 0.5]),
         -0.25,
     ));
-    PyEnsembleStatus::from(EnsembleStatus {
+    PyEnsembleStatus::from(LegacyEnsembleStatus {
         walkers: vec![first, second],
         message: StatusMessage::default().set_initialized_with_message("sampling"),
         evals: EvalCounts::new(14, 0, 0),
@@ -204,7 +204,7 @@ fn _testing_sample_swarm_status() -> PySwarmStatus {
             best: other.clone(),
         },
     ];
-    PySwarmStatus::from(SwarmStatus {
+    PySwarmStatus::from(LegacySwarmStatus {
         gbest: best,
         initial_gbest: other,
         message: StatusMessage::default().set_step_with_message("swarm moved"),
@@ -215,7 +215,7 @@ fn _testing_sample_swarm_status() -> PySwarmStatus {
 
 #[pyfunction]
 fn _testing_sample_simulated_annealing_status() -> PySimulatedAnnealingStatus {
-    PySimulatedAnnealingStatus::from(SimulatedAnnealingStatus {
+    PySimulatedAnnealingStatus::from(LegacySimulatedAnnealingStatus {
         temperature: 0.75,
         initial: EvaluatedPoint::new(DVector::from_vec(vec![1.5, -0.5]), 1.0),
         best: EvaluatedPoint::new(DVector::from_vec(vec![0.25, 0.5]), 0.125),

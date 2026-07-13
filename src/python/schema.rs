@@ -4,12 +4,16 @@
 use serde::Serialize;
 
 use crate::algorithms::{
-    gradient::{AdamConfig, ConjugateGradientConfig, LBFGSBConfig, TrustRegionConfig},
-    gradient_free::{
-        CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig, SimulatedAnnealingConfig,
+    gradient::{
+        LegacyAdamConfig, LegacyConjugateGradientConfig, LegacyLBFGSBConfig,
+        LegacyTrustRegionConfig,
     },
-    mcmc::{AIESConfig, ESSConfig},
-    particles::PSOConfig,
+    gradient_free::{
+        LegacyCMAESConfig, LegacyDifferentialEvolutionConfig, LegacyNelderMeadConfig,
+        LegacySimulatedAnnealingConfig,
+    },
+    mcmc::{LegacyAIESConfig, LegacyESSConfig},
+    particles::LegacyPSOConfig,
 };
 
 /// A machine-readable schema for a Python-facing config class.
@@ -88,7 +92,7 @@ const fn field(
     }
 }
 
-impl HasPyConfigSchema for LBFGSBConfig {
+impl HasPyConfigSchema for LegacyLBFGSBConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "LBFGSBConfig",
@@ -148,7 +152,7 @@ impl HasPyConfigSchema for LBFGSBConfig {
     }
 }
 
-impl HasPyConfigSchema for NelderMeadConfig {
+impl HasPyConfigSchema for LegacyNelderMeadConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "NelderMeadConfig",
@@ -236,7 +240,7 @@ impl HasPyConfigSchema for NelderMeadConfig {
     }
 }
 
-impl HasPyConfigSchema for PSOConfig {
+impl HasPyConfigSchema for LegacyPSOConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "PSOConfig",
@@ -317,7 +321,7 @@ impl HasPyConfigSchema for PSOConfig {
     }
 }
 
-impl HasPyConfigSchema for AIESConfig {
+impl HasPyConfigSchema for LegacyAIESConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "AIESConfig",
@@ -342,7 +346,7 @@ impl HasPyConfigSchema for AIESConfig {
                     ConfigFieldKind::ObjectSequence,
                     false,
                     Some("None"),
-                    "Optional list of AIES move helper objects.",
+                    "Optional list of LegacyAIES move helper objects.",
                 ),
                 field(
                     "chain_storage",
@@ -356,7 +360,7 @@ impl HasPyConfigSchema for AIESConfig {
     }
 }
 
-impl HasPyConfigSchema for ESSConfig {
+impl HasPyConfigSchema for LegacyESSConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "ESSConfig",
@@ -381,7 +385,7 @@ impl HasPyConfigSchema for ESSConfig {
                     ConfigFieldKind::ObjectSequence,
                     false,
                     Some("None"),
-                    "Optional list of ESS move helper objects.",
+                    "Optional list of LegacyESS move helper objects.",
                 ),
                 field(
                     "n_adaptive",
@@ -395,7 +399,7 @@ impl HasPyConfigSchema for ESSConfig {
                     ConfigFieldKind::Integer,
                     false,
                     Some("10000"),
-                    "Maximum internal ESS proposal steps.",
+                    "Maximum internal LegacyESS proposal steps.",
                 ),
                 field(
                     "mu",
@@ -416,7 +420,7 @@ impl HasPyConfigSchema for ESSConfig {
     }
 }
 
-impl HasPyConfigSchema for DifferentialEvolutionConfig {
+impl HasPyConfigSchema for LegacyDifferentialEvolutionConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "DifferentialEvolutionConfig",
@@ -476,7 +480,7 @@ impl HasPyConfigSchema for DifferentialEvolutionConfig {
     }
 }
 
-impl HasPyConfigSchema for CMAESConfig {
+impl HasPyConfigSchema for LegacyCMAESConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "CMAESConfig",
@@ -522,7 +526,7 @@ impl HasPyConfigSchema for CMAESConfig {
     }
 }
 
-impl HasPyConfigSchema for SimulatedAnnealingConfig {
+impl HasPyConfigSchema for LegacySimulatedAnnealingConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "SimulatedAnnealingConfig",
@@ -547,7 +551,7 @@ impl HasPyConfigSchema for SimulatedAnnealingConfig {
     }
 }
 
-impl HasPyConfigSchema for AdamConfig {
+impl HasPyConfigSchema for LegacyAdamConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "AdamConfig",
@@ -600,7 +604,7 @@ impl HasPyConfigSchema for AdamConfig {
     }
 }
 
-impl HasPyConfigSchema for ConjugateGradientConfig {
+impl HasPyConfigSchema for LegacyConjugateGradientConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "ConjugateGradientConfig",
@@ -639,7 +643,7 @@ impl HasPyConfigSchema for ConjugateGradientConfig {
     }
 }
 
-impl HasPyConfigSchema for TrustRegionConfig {
+impl HasPyConfigSchema for LegacyTrustRegionConfig {
     fn schema() -> ConfigSchema {
         ConfigSchema {
             name: "TrustRegionConfig",
@@ -698,7 +702,7 @@ mod tests {
 
     #[test]
     fn lbfgsb_schema_contains_python_fields() {
-        let schema = LBFGSBConfig::schema();
+        let schema = LegacyLBFGSBConfig::schema();
         assert_eq!(schema.name, "LBFGSBConfig");
         assert!(schema.fields.iter().any(|field| field.name == "x0"));
         assert!(schema
@@ -709,7 +713,7 @@ mod tests {
 
     #[test]
     fn cmaes_schema_exports_to_json() {
-        let json = CMAESConfig::schema_json_pretty().unwrap();
+        let json = LegacyCMAESConfig::schema_json_pretty().unwrap();
         assert!(json.contains("\"name\": \"CMAESConfig\""));
         assert!(json.contains("\"sigma\""));
     }

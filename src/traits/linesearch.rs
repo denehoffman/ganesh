@@ -1,6 +1,8 @@
+use crate::core::{EvalCounts, LinearAlgebra, NalgebraBackend, RealScalar, Vector};
+use crate::traits::Gradient;
 use crate::{
     core::Bounds,
-    traits::{Gradient, Status},
+    traits::{LegacyGradient, Status},
     DVector, Float,
 };
 use dyn_clone::DynClone;
@@ -35,7 +37,7 @@ pub trait LineSearch<S: Status, U, E>: DynClone + Send + Sync {
     /// # Errors
     ///
     /// Returns an `Err(E)` if the evaluation fails. See
-    /// [`CostFunction::evaluate`](`crate::traits::CostFunction::evaluate`) for more
+    /// [`LegacyCostFunction::evaluate`](`crate::traits::LegacyCostFunction::evaluate`) for more
     /// information.
     #[allow(clippy::too_many_arguments)]
     fn search(
@@ -43,10 +45,47 @@ pub trait LineSearch<S: Status, U, E>: DynClone + Send + Sync {
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn LegacyGradient<U, E>,
         bounds: Option<&Bounds>,
         args: &U,
         status: &mut S,
     ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E>;
 }
 dyn_clone::clone_trait_object!(<S:Status, U, E> LineSearch<S, U, E>);
+
+/// Output of a scalar- and backend-generic line search.
+#[derive(Clone, Debug)]
+pub struct BackendLineSearchOutput<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+    /// Accepted step size.
+    pub alpha: T,
+    /// Objective value at the accepted point.
+    pub fx: T,
+    /// Gradient at the accepted point.
+    pub gradient: Vector<T, B>,
+}
+
+/// Successful or best-effort line-search output.
+pub type BackendLineSearchResult<T, B> =
+    Result<BackendLineSearchOutput<T, B>, BackendLineSearchOutput<T, B>>;
+
+/// Backend-generic line-search contract.
+pub trait BackendLineSearch<T, B, P, U = (), E = std::convert::Infallible>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: Gradient<T, B, U, E> + ?Sized,
+{
+    /// Search along `direction`, returning the best result even when line-search conditions fail.
+    ///
+    /// # Errors
+    /// Returns an objective/gradient evaluation error.
+    fn search(
+        &mut self,
+        x: &Vector<T, B>,
+        direction: &Vector<T, B>,
+        max_step: Option<T>,
+        problem: &P,
+        args: &U,
+        evals: &mut EvalCounts,
+    ) -> Result<BackendLineSearchResult<T, B>, E>;
+}

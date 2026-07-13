@@ -27,13 +27,16 @@ pub use eval_counts::EvalCounts;
 
 /// Scalar support shared by current and future generic optimizer APIs.
 pub mod scalar;
-pub use scalar::RealScalar;
+pub use scalar::{RandomScalar, RealScalar};
 
 /// Linear algebra backend traits and implementations.
 pub mod linalg;
 #[cfg(feature = "backend-ndarray")]
 pub use linalg::NdArrayBackend;
-pub use linalg::{LinearAlgebra, Matrix, NalgebraBackend, Scalar, Vector};
+pub use linalg::{
+    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraBackend, PseudoInverse, Scalar,
+    SymmetricEigen, Vector,
+};
 
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
@@ -41,9 +44,15 @@ pub use point::{EvaluatedPoint, Point};
 
 /// Summary types for the result of the minimization.
 pub mod summary;
+#[doc(hidden)]
+pub use summary::{BackendMCMCSummary, BackendMinimizationSummary};
 pub use summary::{
-    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary,
-    SimulatedAnnealingSummary, SummaryExport,
+    BackendMCMCSummary as MCMCSummary, BackendMinimizationSummary as MinimizationSummary,
+    HasParameterNames, RenderedSummary, SimulatedAnnealingSummary, SummaryExport,
+};
+#[doc(hidden)]
+pub use summary::{
+    MCMCSummary as LegacyMCMCSummary, MinimizationSummary as LegacyMinimizationSummary,
 };
 
 /// Multistart minimization orchestration helpers.

@@ -262,7 +262,7 @@ pub trait LogDensity<U = (), E = Infallible> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{CostFunction, Gradient},
+        traits::{LegacyCostFunction as CostFunction, LegacyGradient as Gradient},
         DVector, Float,
     };
     use approx::assert_relative_eq;

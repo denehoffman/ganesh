@@ -137,21 +137,22 @@ where
 ///
 /// ```rust
 /// use ganesh::traits::*;
-/// use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
+/// use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 /// use ganesh::test_functions::Rosenbrock;
 /// use ganesh::core::DebugObserver;
+/// use ganesh::Vector;
 ///
 /// let problem = Rosenbrock { n: 2 };
-/// let mut nm = NelderMead::default();
-/// let init = NelderMeadInit::new([2.3, 3.4]);
-/// let config = NelderMeadConfig::default();
+/// let mut nm = NelderMead::<f64>::default();
+/// let init = Vector::<f64>::from_vec(vec![2.3, 3.4]);
+/// let config = NelderMeadConfig::<f64>::default();
 /// let result = nm
 ///     .process(
 ///         &problem,
 ///         &(),
 ///         init,
 ///         config,
-///         NelderMead::default_callbacks().with_observer(DebugObserver),
+///         NelderMead::<f64>::default_callbacks().with_observer(DebugObserver),
 ///     )
 ///     .unwrap();
 /// // ^ This will print debug messages for each step

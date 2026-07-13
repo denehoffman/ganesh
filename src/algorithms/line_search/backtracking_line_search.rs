@@ -1,10 +1,13 @@
+use crate::core::{EvalCounts, LinearAlgebra, NalgebraBackend, RealScalar, Vector};
+use crate::traits::{BackendLineSearch, BackendLineSearchOutput, Gradient};
 use crate::{
-    DVector, Float,
-    algorithms::gradient::GradientStatus,
+    algorithms::gradient::LegacyGradientStatus,
     core::Bounds,
     error::{GaneshError, GaneshResult},
-    traits::{Gradient, LineSearch, linesearch::LineSearchOutput},
+    traits::{LegacyGradient, LegacyLineSearch, LegacyLineSearchOutput},
+    DVector, Float,
 };
+use std::marker::PhantomData;
 
 /// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
 /// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).
@@ -56,19 +59,19 @@ impl BacktrackingLineSearch {
     }
 }
 
-impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
+impl<U, E> LegacyLineSearch<LegacyGradientStatus, U, E> for BacktrackingLineSearch {
     fn search(
         &mut self,
         x: &DVector<Float>,
         p: &DVector<Float>,
         max_step: Option<Float>,
-        problem: &dyn Gradient<U, E>,
+        problem: &dyn LegacyGradient<U, E>,
         _bounds: Option<&Bounds>,
         args: &U,
-        status: &mut GradientStatus,
-    ) -> Result<Result<LineSearchOutput, LineSearchOutput>, E> {
+        status: &mut LegacyGradientStatus,
+    ) -> Result<Result<LegacyLineSearchOutput, LegacyLineSearchOutput>, E> {
         let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
-        let phi = |alpha: Float, args: &U, st: &mut GradientStatus| -> Result<Float, E> {
+        let phi = |alpha: Float, args: &U, st: &mut LegacyGradientStatus| -> Result<Float, E> {
             st.evals.record_f();
             problem.evaluate(&(x + p.scale(alpha)), args)
         };
@@ -81,7 +84,7 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
             if armijo {
                 status.evals.record_g();
                 let g_alpha_i = problem.gradient(&(x + p.scale(alpha_i)), args)?;
-                return Ok(Ok(LineSearchOutput {
+                return Ok(Ok(LegacyLineSearchOutput {
                     alpha: alpha_i,
                     fx: phi_alpha_i,
                     g: g_alpha_i,
@@ -89,6 +92,107 @@ impl<U, E> LineSearch<GradientStatus, U, E> for BacktrackingLineSearch {
             }
             alpha_i *= self.rho;
             phi_alpha_i = phi(alpha_i, args, status)?;
+        }
+    }
+}
+
+/// Scalar- and backend-generic Armijo backtracking line search.
+#[derive(Clone, Debug)]
+pub struct BackendBacktrackingLineSearch<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend>
+{
+    rho: T,
+    c: T,
+    _backend: PhantomData<B>,
+}
+
+impl<T, B> Default for BackendBacktrackingLineSearch<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            rho: T::literal(0.5),
+            c: T::literal(1e-4),
+            _backend: PhantomData,
+        }
+    }
+}
+
+impl<T, B> BackendBacktrackingLineSearch<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Configure the backtracking contraction factor.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless `rho` is in `(0, 1)`.
+    pub fn with_rho(mut self, rho: T) -> GaneshResult<Self> {
+        if rho <= T::zero() || rho >= T::one() {
+            return Err(GaneshError::ConfigError(
+                "backtracking rho must be in (0, 1)".to_string(),
+            ));
+        }
+        self.rho = rho;
+        Ok(self)
+    }
+
+    /// Configure the Armijo sufficient-decrease factor.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless `c` is in `(0, 1)`.
+    pub fn with_c(mut self, c: T) -> GaneshResult<Self> {
+        if c <= T::zero() || c >= T::one() {
+            return Err(GaneshError::ConfigError(
+                "backtracking c must be in (0, 1)".to_string(),
+            ));
+        }
+        self.c = c;
+        Ok(self)
+    }
+}
+
+impl<T, B, P, U, E> BackendLineSearch<T, B, P, U, E> for BackendBacktrackingLineSearch<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: Gradient<T, B, U, E> + ?Sized,
+{
+    fn search(
+        &mut self,
+        x: &Vector<T, B>,
+        direction: &Vector<T, B>,
+        max_step: Option<T>,
+        problem: &P,
+        args: &U,
+        evals: &mut EvalCounts,
+    ) -> Result<Result<BackendLineSearchOutput<T, B>, BackendLineSearchOutput<T, B>>, E> {
+        let mut alpha = max_step.unwrap_or_else(T::one);
+        let (fx, gradient) = problem.evaluate_with_gradient(x, args)?;
+        evals.record_fg();
+        let directional_derivative = gradient.dot(direction);
+        loop {
+            let trial = x.add_scaled(direction, alpha);
+            let trial_fx = problem.evaluate(&trial, args)?;
+            evals.record_f();
+            if trial_fx <= fx + self.c * alpha * directional_derivative {
+                let trial_gradient = problem.gradient(&trial, args)?;
+                evals.record_g();
+                return Ok(Ok(BackendLineSearchOutput {
+                    alpha,
+                    fx: trial_fx,
+                    gradient: trial_gradient,
+                }));
+            }
+            alpha = alpha * self.rho;
+            if alpha <= T::epsilon() {
+                return Ok(Err(BackendLineSearchOutput {
+                    alpha: T::zero(),
+                    fx,
+                    gradient,
+                }));
+            }
         }
     }
 }
@@ -127,5 +231,46 @@ mod tests {
     #[test]
     fn with_c_errors_when_out_of_range_high() {
         assert!(BacktrackingLineSearch::default().with_c(1.0).is_err());
+    }
+
+    struct Quadratic;
+
+    impl<T, B> crate::traits::CostFunction<T, B> for Quadratic
+    where
+        T: RealScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn evaluate(&self, x: &Vector<T, B>, _: &()) -> Result<T, std::convert::Infallible> {
+            Ok(x.dot(x))
+        }
+    }
+
+    impl<T, B> Gradient<T, B> for Quadratic
+    where
+        T: RealScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn gradient(
+            &self,
+            x: &Vector<T, B>,
+            _: &(),
+        ) -> Result<Vector<T, B>, std::convert::Infallible> {
+            Ok(x.scale(T::literal(2.0)))
+        }
+    }
+
+    #[test]
+    fn backend_backtracking_supports_f32() {
+        let mut search = BackendBacktrackingLineSearch::<f32>::default();
+        let x = Vector::from_vec(vec![2.0, -1.0]);
+        let direction = x.scale(-2.0);
+        let mut evals = EvalCounts::default();
+        let result = search
+            .search(&x, &direction, None, &Quadratic, &(), &mut evals)
+            .unwrap()
+            .unwrap();
+        assert!(result.fx < 5.0);
+        assert!(result.alpha > 0.0);
+        assert!(evals.f() > 0);
     }
 }

@@ -1,10 +1,10 @@
 use crate::{
-    algorithms::gradient_free::GradientFreeStatus,
-    core::{Bounds, Callbacks, EvaluatedPoint, MaxSteps, MinimizationSummary, Point},
+    algorithms::gradient_free::LegacyGradientFreeStatus,
+    core::{Bounds, Callbacks, EvaluatedPoint, LegacyMinimizationSummary, MaxSteps, Point},
     error::{GaneshError, GaneshResult},
     traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
     traits::{
-        Algorithm, CostFunction, SupportsBounds, SupportsParameterNames, SupportsTransform,
+        Algorithm, LegacyCostFunction, SupportsBounds, SupportsParameterNames, SupportsTransform,
         Transform,
     },
     DMatrix, DVector, Float,
@@ -216,18 +216,18 @@ impl DifferentialEvolution {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientFreeStatus, U, E> for DifferentialEvolution
+impl<P, U, E> Algorithm<P, LegacyGradientFreeStatus, U, E> for DifferentialEvolution
 where
-    P: CostFunction<U, E>,
+    P: LegacyCostFunction<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = DifferentialEvolutionConfig;
     type Init = DifferentialEvolutionInit;
 
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -278,7 +278,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientFreeStatus,
+        status: &mut LegacyGradientFreeStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -324,12 +324,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientFreeStatus,
+        status: &LegacyGradientFreeStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.x0.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -352,7 +352,7 @@ where
         *self = Self::new(Some(0));
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientFreeStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -367,7 +367,7 @@ mod tests {
     use std::convert::Infallible;
 
     struct Quadratic;
-    impl CostFunction<(), Infallible> for Quadratic {
+    impl LegacyCostFunction<(), Infallible> for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(x.dot(x))
         }

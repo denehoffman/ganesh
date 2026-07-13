@@ -1,13 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::{
-        gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        gradient_free::{
-            nelder_mead::{NelderMeadConfig, NelderMeadInit},
-            NelderMead,
+        gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
+        gradient_free::{LegacyNelderMead, LegacyNelderMeadConfig, LegacyNelderMeadInit},
+        mcmc::{
+            aies::AIESInit, ess::ESSInit, ESSMove, LegacyAIES, LegacyAIESConfig, LegacyESS,
+            LegacyESSConfig,
         },
-        mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, ESSMove, AIES, ESS},
-        particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
+        particles::{LegacyPSO, LegacyPSOConfig, Swarm, SwarmPositionInitializer},
     },
     core::MaxSteps,
     test_functions::{rastrigin::Rastrigin, rosenbrock::Rosenbrock},
@@ -39,17 +39,17 @@ fn matrix_walkers(n: usize) -> Vec<DVector<Float>> {
 }
 
 fn benchmark_lbfgsb(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/LBFGSB");
+    let mut group = c.benchmark_group("Matrix/LegacyLBFGSB");
     for n in OPT_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
-                        LBFGSB::default(),
+                        LegacyLBFGSB::default(),
                         DVector::from_vec(rosenbrock_start(ndim)),
-                        LBFGSBConfig::default(),
-                        LBFGSB::default_callbacks().with_terminator(MaxSteps(LBFGSB_STEPS)),
+                        LegacyLBFGSBConfig::default(),
+                        LegacyLBFGSB::default_callbacks().with_terminator(MaxSteps(LBFGSB_STEPS)),
                     )
                 },
                 |(problem, mut solver, init, cfg, callbacks)| {
@@ -70,10 +70,10 @@ fn benchmark_nelder_mead(c: &mut Criterion) {
                 || {
                     (
                         Rosenbrock { n: ndim },
-                        NelderMead::default(),
-                        NelderMeadInit::new(rosenbrock_start(ndim)),
-                        NelderMeadConfig::default(),
-                        NelderMead::default_callbacks()
+                        LegacyNelderMead::default(),
+                        LegacyNelderMeadInit::new(rosenbrock_start(ndim)),
+                        LegacyNelderMeadConfig::default(),
+                        LegacyNelderMead::default_callbacks()
                             .with_terminator(MaxSteps(NELDER_MEAD_STEPS)),
                     )
                 },
@@ -88,7 +88,7 @@ fn benchmark_nelder_mead(c: &mut Criterion) {
 }
 
 fn benchmark_pso(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/PSO");
+    let mut group = c.benchmark_group("Matrix/LegacyPSO");
     for n in OPT_DIMS {
         group.bench_with_input(BenchmarkId::new("Rastrigin", n), &n, |b, &ndim| {
             let bounds = vec![(-5.12, 5.12); ndim];
@@ -96,19 +96,19 @@ fn benchmark_pso(c: &mut Criterion) {
                 || {
                     (
                         Rastrigin { n: ndim },
-                        PSO::default(),
+                        LegacyPSO::default(),
                         Swarm::new(SwarmPositionInitializer::RandomInLimits {
                             bounds: bounds.clone(),
                             n_particles: 24,
                         }),
-                        PSOConfig::default()
+                        LegacyPSOConfig::default()
                             .with_c1(0.1)
                             .unwrap()
                             .with_c2(0.1)
                             .unwrap()
                             .with_omega(0.8)
                             .unwrap(),
-                        PSO::default_callbacks().with_terminator(MaxSteps(PSO_STEPS)),
+                        LegacyPSO::default_callbacks().with_terminator(MaxSteps(PSO_STEPS)),
                     )
                 },
                 |(problem, mut solver, init, cfg, callbacks)| {
@@ -122,17 +122,17 @@ fn benchmark_pso(c: &mut Criterion) {
 }
 
 fn benchmark_aies(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/AIES");
+    let mut group = c.benchmark_group("Matrix/LegacyAIES");
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
-                        AIES::default(),
+                        LegacyAIES::default(),
                         AIESInit::new(matrix_walkers(ndim)).unwrap(),
-                        AIESConfig::default(),
-                        AIES::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
+                        LegacyAIESConfig::default(),
+                        LegacyAIES::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
                     )
                 },
                 |(problem, mut solver, init, cfg, callbacks)| {
@@ -146,21 +146,21 @@ fn benchmark_aies(c: &mut Criterion) {
 }
 
 fn benchmark_ess(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/ESS");
+    let mut group = c.benchmark_group("Matrix/LegacyESS");
     for n in MCMC_DIMS {
         group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
             b.iter_batched(
                 || {
                     (
                         Rosenbrock { n: ndim },
-                        ESS::default(),
+                        LegacyESS::default(),
                         ESSInit::new(matrix_walkers(ndim)).unwrap(),
-                        ESSConfig::default()
+                        LegacyESSConfig::default()
                             .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                             .unwrap()
                             .with_n_adaptive(5)
                             .with_max_steps(64),
-                        ESS::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
+                        LegacyESS::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
                     )
                 },
                 |(problem, mut solver, init, cfg, callbacks)| {

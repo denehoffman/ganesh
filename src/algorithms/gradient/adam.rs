@@ -1,13 +1,19 @@
+use crate::algorithms::gradient::BackendGradientStatus;
+use crate::core::{
+    BackendMinimizationSummary, LinearAlgebra, Matrix, NalgebraBackend, RealScalar, Vector,
+};
+use crate::traits::{BackendTransform, BackendTransformedProblem, CostFunction, Gradient};
 use crate::{
-    algorithms::gradient::GradientStatus,
-    core::{Callbacks, MinimizationSummary},
+    algorithms::gradient::LegacyGradientStatus,
+    core::{Callbacks, LegacyMinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
-        Terminator, Transform, TransformedProblem,
+        Algorithm, LegacyCostFunction, LegacyGradient, Status, SupportsParameterNames,
+        SupportsTransform, Terminator, Transform, TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
+use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
 /// A [`Terminator`] which terminates the [`Adam`] algorithm if the Exponential Moving Average (EMA)
@@ -31,16 +37,16 @@ impl Default for AdamEMATerminator {
         }
     }
 }
-impl<P, U, E> Terminator<Adam, P, GradientStatus, U, E, AdamConfig> for AdamEMATerminator
+impl<P, U, E> Terminator<Adam, P, LegacyGradientStatus, U, E, AdamConfig> for AdamEMATerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut Adam,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &AdamConfig,
     ) -> ControlFlow<()> {
@@ -183,18 +189,18 @@ pub struct Adam {
     ema_loss: Float,
     ema_counter: usize,
 }
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for Adam
+impl<P, U, E> Algorithm<P, LegacyGradientStatus, U, E> for Adam
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = AdamConfig;
     type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -214,7 +220,7 @@ where
         &mut self,
         i_step: usize,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -240,12 +246,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientStatus,
+        status: &LegacyGradientStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -269,11 +275,211 @@ where
         self.ema_counter = 0;
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
         Callbacks::empty().with_terminator(AdamEMATerminator::default())
+    }
+}
+
+/// Configuration for scalar- and backend-generic Adam.
+pub struct BackendAdamConfig<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+    /// Learning rate.
+    pub alpha: T,
+    /// First-moment decay.
+    pub beta_1: T,
+    /// Second-moment decay.
+    pub beta_2: T,
+    /// Denominator stabilizer.
+    pub epsilon: T,
+    /// EMA decay used for convergence detection.
+    pub ema_decay: T,
+    /// Minimum EMA change treated as improvement.
+    pub ema_tolerance: T,
+    /// Consecutive stable EMA steps required for convergence.
+    pub patience: usize,
+    /// Optional coordinate transform.
+    pub transform: Option<Box<dyn BackendTransform<T, B>>>,
+}
+
+impl<T, B> Default for BackendAdamConfig<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            alpha: T::literal(0.001),
+            beta_1: T::literal(0.9),
+            beta_2: T::literal(0.999),
+            epsilon: T::literal(1e-8),
+            ema_decay: T::literal(0.9),
+            ema_tolerance: T::epsilon().sqrt(),
+            patience: 1,
+            transform: None,
+        }
+    }
+}
+
+impl<T, B> BackendAdamConfig<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Configure a coordinate transform.
+    pub fn with_transform<X>(mut self, transform: X) -> Self
+    where
+        X: BackendTransform<T, B> + 'static,
+    {
+        self.transform = Some(Box::new(transform));
+        self
+    }
+}
+
+/// Scalar- and backend-generic Adam optimizer.
+#[derive(Clone, Debug)]
+pub struct BackendAdam<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+    x: Vector<T, B>,
+    fx: T,
+    first_moment: Vector<T, B>,
+    second_moment: Vector<T, B>,
+    ema_loss: T,
+    ema_counter: usize,
+    _backend: PhantomData<B>,
+}
+
+impl<T, B> Default for BackendAdam<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            x: Vector::zeros(0),
+            fx: T::zero(),
+            first_moment: Vector::zeros(0),
+            second_moment: Vector::zeros(0),
+            ema_loss: T::zero(),
+            ema_counter: 0,
+            _backend: PhantomData,
+        }
+    }
+}
+
+impl<T, B, P, U, E> Algorithm<P, BackendGradientStatus<T, B>, U, E> for BackendAdam<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: Gradient<T, B, U, E>,
+{
+    type Summary = BackendMinimizationSummary<T, B>;
+    type Config = BackendAdamConfig<T, B>;
+    type Init = Vector<T, B>;
+
+    fn initialize(
+        &mut self,
+        problem: &P,
+        status: &mut BackendGradientStatus<T, B>,
+        args: &U,
+        init: &Self::Init,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let transformed = BackendTransformedProblem::new(problem, config.transform.as_deref());
+        self.x = transformed.to_internal(init);
+        self.fx = transformed.evaluate(&self.x, args)?;
+        self.first_moment = Vector::zeros(self.x.len());
+        self.second_moment = Vector::zeros(self.x.len());
+        self.ema_loss = self.fx;
+        self.ema_counter = 0;
+        status.evals.record_f();
+        status.initialize(init.clone(), self.fx);
+        Ok(())
+    }
+
+    fn step(
+        &mut self,
+        current_step: usize,
+        problem: &P,
+        status: &mut BackendGradientStatus<T, B>,
+        args: &U,
+        config: &Self::Config,
+    ) -> Result<(), E> {
+        let transformed = BackendTransformedProblem::new(problem, config.transform.as_deref());
+        let gradient = transformed.gradient(&self.x, args)?;
+        status.evals.record_g();
+        let one = T::one();
+        self.first_moment = self
+            .first_moment
+            .scale(config.beta_1)
+            .add(&gradient.scale(one - config.beta_1));
+        self.second_moment = Vector::from_vec(
+            (0..gradient.len())
+                .map(|index| {
+                    config.beta_2 * self.second_moment.get(index)
+                        + (one - config.beta_2) * gradient.get(index).powi(2)
+                })
+                .collect(),
+        );
+        let exponent = current_step.saturating_add(1).min(i32::MAX as usize) as i32;
+        let alpha = config.alpha * (one - config.beta_2.powi(exponent)).sqrt()
+            / (one - config.beta_1.powi(exponent));
+        self.x = Vector::from_vec(
+            (0..self.x.len())
+                .map(|index| {
+                    self.x.get(index)
+                        - alpha * self.first_moment.get(index)
+                            / (self.second_moment.get(index).sqrt() + config.epsilon)
+                })
+                .collect(),
+        );
+        self.fx = transformed.evaluate(&self.x, args)?;
+        status.evals.record_f();
+        status.set_position(transformed.to_external(&self.x), self.fx);
+
+        let previous = self.ema_loss;
+        self.ema_loss = config.ema_decay * previous + (one - config.ema_decay) * self.fx;
+        if (self.ema_loss - previous).abs() < config.ema_tolerance {
+            self.ema_counter += 1;
+        } else {
+            self.ema_counter = 0;
+        }
+        if self.ema_counter >= config.patience {
+            status
+                .set_message()
+                .succeed_with_message("EMA LOSS CONVERGED");
+        }
+        Ok(())
+    }
+
+    fn summarize(
+        &self,
+        _current_step: usize,
+        _problem: &P,
+        status: &BackendGradientStatus<T, B>,
+        _args: &U,
+        init: &Self::Init,
+        _config: &Self::Config,
+    ) -> Result<Self::Summary, E> {
+        let dimension = status.x.len();
+        Ok(BackendMinimizationSummary {
+            parameter_names: None,
+            message: status.message.clone(),
+            x0: init.clone(),
+            x: status.x.clone(),
+            std: Vector::zeros(dimension),
+            fx: status.fx,
+            evals: status.evals,
+            covariance: Matrix::identity(dimension),
+        })
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn default_callbacks() -> Callbacks<Self, P, BackendGradientStatus<T, B>, U, E, Self::Config> {
+        Callbacks::empty().with_terminator(crate::core::MaxSteps::default())
     }
 }
 
@@ -285,6 +491,29 @@ mod tests {
         test_functions::Rosenbrock,
     };
     use approx::assert_relative_eq;
+    use std::convert::Infallible;
+
+    struct GenericQuadratic;
+
+    impl<T, B> crate::traits::CostFunction<T, B> for GenericQuadratic
+    where
+        T: RealScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn evaluate(&self, x: &Vector<T, B>, _: &()) -> Result<T, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
+
+    impl<T, B> Gradient<T, B> for GenericQuadratic
+    where
+        T: RealScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn gradient(&self, x: &Vector<T, B>, _: &()) -> Result<Vector<T, B>, Infallible> {
+            Ok(x.scale(T::literal(2.0)))
+        }
+    }
 
     #[test]
     fn test_adam() {
@@ -338,5 +567,28 @@ mod tests {
             assert!(result.message.success());
             assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.cbrt());
         }
+    }
+
+    #[test]
+    fn backend_adam_optimizes_f32_quadratic() {
+        let mut solver = BackendAdam::<f32>::default();
+        let config = BackendAdamConfig {
+            alpha: 0.05,
+            ema_tolerance: 1e-7,
+            patience: 20,
+            ..BackendAdamConfig::default()
+        };
+        let result = solver
+            .process(
+                &GenericQuadratic,
+                &(),
+                Vector::from_vec(vec![3.0, -2.0]),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(20_000)),
+            )
+            .unwrap();
+        assert!(result.fx < 1e-5);
+        assert!(result.evals.f() > 0);
+        assert!(result.evals.g() > 0);
     }
 }

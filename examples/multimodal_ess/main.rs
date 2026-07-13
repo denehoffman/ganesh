@@ -1,11 +1,10 @@
 use fastrand::Rng;
 use ganesh::{
     algorithms::mcmc::{
-        ess::{ESSConfig, ESSInit},
-        AutocorrelationTerminator, ESSMove, ESS,
+        ess::ESSInit, AutocorrelationTerminator, ESSMove, LegacyESS, LegacyESSConfig,
     },
     core::{utils::SampleFloat, Callbacks, MaxSteps},
-    traits::{Algorithm, LogDensity},
+    traits::{Algorithm, LegacyLogDensity},
     DVector, Float,
 };
 use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
@@ -14,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Define the function to sample (a multimodal distribution)
     struct Problem;
     // Implement Function (Himmelblau's test function)
-    impl LogDensity for Problem {
+    impl LegacyLogDensity for Problem {
         fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(-((x[0].powi(2) + x[1] - 11.0).powi(2) + (x[0] + x[1].powi(2) - 7.0).powi(2)))
         }
@@ -37,9 +36,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_n_taus_threshold(6)
         .build();
 
-    let mut sampler = ESS::default();
+    let mut sampler = LegacyESS::default();
     let init = ESSInit::new(x0.clone()).unwrap();
-    let config = ESSConfig::default().with_moves([
+    let config = LegacyESSConfig::default().with_moves([
         ESSMove::gaussian(0.1),
         ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
         ESSMove::differential(0.2),

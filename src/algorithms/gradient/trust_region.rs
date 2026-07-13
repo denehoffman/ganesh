@@ -1,10 +1,10 @@
 use crate::{
-    algorithms::gradient::GradientStatus,
-    core::{Callbacks, MinimizationSummary},
+    algorithms::gradient::LegacyGradientStatus,
+    core::{Callbacks, LegacyMinimizationSummary},
     error::{GaneshError, GaneshResult},
     traits::{
-        Algorithm, CostFunction, Gradient, Status, SupportsParameterNames, SupportsTransform,
-        Terminator, Transform, TransformedProblem,
+        Algorithm, LegacyCostFunction, LegacyGradient, Status, SupportsParameterNames,
+        SupportsTransform, Terminator, Transform, TransformedProblem,
     },
     DMatrix, DVector, Float,
 };
@@ -42,17 +42,17 @@ impl TrustRegionGTerminator {
     }
 }
 
-impl<P, U, E> Terminator<TrustRegion, P, GradientStatus, U, E, TrustRegionConfig>
+impl<P, U, E> Terminator<TrustRegion, P, LegacyGradientStatus, U, E, TrustRegionConfig>
     for TrustRegionGTerminator
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
     fn check_for_termination(
         &mut self,
         _current_step: usize,
         algorithm: &mut TrustRegion,
         _problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         _args: &U,
         _config: &TrustRegionConfig,
     ) -> ControlFlow<()> {
@@ -262,18 +262,18 @@ impl TrustRegion {
     }
 }
 
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for TrustRegion
+impl<P, U, E> Algorithm<P, LegacyGradientStatus, U, E> for TrustRegion
 where
-    P: Gradient<U, E>,
+    P: LegacyGradient<U, E>,
 {
-    type Summary = MinimizationSummary;
+    type Summary = LegacyMinimizationSummary;
     type Config = TrustRegionConfig;
     type Init = DVector<Float>;
 
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
@@ -295,7 +295,7 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -335,7 +335,7 @@ where
     fn postprocessing(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut LegacyGradientStatus,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
@@ -351,12 +351,12 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientStatus,
+        status: &LegacyGradientStatus,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        Ok(MinimizationSummary {
+        Ok(LegacyMinimizationSummary {
             x0: init.clone(),
             x: status.x.clone(),
             fx: status.fx,
@@ -379,7 +379,7 @@ where
         *self = Self::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
+    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientStatus, U, E, Self::Config>
     where
         Self: Sized,
     {
@@ -399,12 +399,12 @@ mod tests {
     use std::convert::Infallible;
 
     struct IllConditionedQuadratic;
-    impl crate::traits::CostFunction<(), Infallible> for IllConditionedQuadratic {
+    impl crate::traits::LegacyCostFunction<(), Infallible> for IllConditionedQuadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(0.5 * x[0].mul_add(x[0], 100.0 * x[1] * x[1]))
         }
     }
-    impl crate::traits::Gradient<(), Infallible> for IllConditionedQuadratic {
+    impl crate::traits::LegacyGradient<(), Infallible> for IllConditionedQuadratic {
         fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
             Ok(DVector::from_vec(vec![x[0], 100.0 * x[1]]))
         }

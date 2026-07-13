@@ -1,19 +1,22 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::{
-        gradient::{GradientStatus, TrustRegion as CurrentTrustRegion, TrustRegionConfig},
+        gradient::{
+            LegacyGradientStatus, LegacyTrustRegion as CurrentTrustRegion, LegacyTrustRegionConfig,
+            TrustRegion as GenericTrustRegion, TrustRegionConfig as GenericTrustRegionConfig,
+        },
         gradient_free::{
-            DifferentialEvolution as CurrentDifferentialEvolution, DifferentialEvolutionConfig,
-            DifferentialEvolutionInit, GradientFreeStatus,
+            DifferentialEvolution as GenericDifferentialEvolution,
+            DifferentialEvolutionConfig as GenericDifferentialEvolutionConfig,
+            LegacyDifferentialEvolution as CurrentDifferentialEvolution,
+            LegacyDifferentialEvolutionConfig as DifferentialEvolutionConfig,
+            LegacyDifferentialEvolutionInit as DifferentialEvolutionInit, LegacyGradientFreeStatus,
         },
     },
-    prototype::scalar::{
-        CostFunction as GenericCostFunction, DifferentialEvolution as GenericDifferentialEvolution,
-        DifferentialEvolutionConfig as GenericDifferentialEvolutionConfig,
-        Gradient as GenericGradient, TrustRegion as GenericTrustRegion,
-        TrustRegionConfig as GenericTrustRegionConfig,
+    traits::{
+        Algorithm, CostFunction as GenericCostFunction, Gradient as GenericGradient,
+        LegacyCostFunction as CostFunction, LegacyGradient as Gradient,
     },
-    traits::{Algorithm, CostFunction, Gradient},
     DMatrix, DVector, Float, LinearAlgebra, Matrix, NalgebraBackend, RealScalar, Vector,
 };
 use std::convert::Infallible;
@@ -74,7 +77,7 @@ fn generic_start(n: usize) -> Vector<f64, NalgebraBackend> {
 }
 
 fn bench_trust_region(c: &mut Criterion) {
-    let mut group = c.benchmark_group("PrototypeScalar/TrustRegion");
+    let mut group = c.benchmark_group("PrototypeScalar/LegacyTrustRegion");
     for n in DIMS {
         group.bench_with_input(BenchmarkId::new("current_f64", n), &n, |b, &ndim| {
             b.iter_batched(
@@ -82,9 +85,9 @@ fn bench_trust_region(c: &mut Criterion) {
                     (
                         Quadratic,
                         CurrentTrustRegion::default(),
-                        GradientStatus::default(),
+                        LegacyGradientStatus::default(),
                         start(ndim),
-                        TrustRegionConfig::default(),
+                        LegacyTrustRegionConfig::default(),
                     )
                 },
                 |(problem, mut solver, mut status, init, config)| {
@@ -134,7 +137,7 @@ fn bench_differential_evolution(c: &mut Criterion) {
                     (
                         Quadratic,
                         CurrentDifferentialEvolution::new(Some(7)),
-                        GradientFreeStatus::default(),
+                        LegacyGradientFreeStatus::default(),
                         DifferentialEvolutionInit::new(start(ndim).as_slice()).unwrap(),
                         DifferentialEvolutionConfig::default()
                             .with_population_size(DE_POPULATION)

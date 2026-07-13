@@ -5,22 +5,26 @@ use pyo3::{types::PyAnyMethods, Borrowed, Bound, FromPyObject, PyAny, PyResult};
 use crate::{
     algorithms::{
         gradient::{
-            lbfgsb::LBFGSBErrorMode, AdamConfig, ConjugateGradientConfig, ConjugateGradientUpdate,
-            LBFGSBConfig, TrustRegionConfig, TrustRegionSubproblem,
+            lbfgsb::LBFGSBErrorMode, ConjugateGradientUpdate, LegacyAdamConfig,
+            LegacyConjugateGradientConfig, LegacyLBFGSBConfig, LegacyTrustRegionConfig,
+            LegacyTrustRegionSubproblem as TrustRegionSubproblem,
         },
         gradient_free::{
-            nelder_mead::{NelderMeadInit, SimplexConstructionMethod, SimplexExpansionMethod},
-            CMAESConfig, CMAESInit, DifferentialEvolutionConfig, DifferentialEvolutionInit,
-            NelderMeadConfig, SimulatedAnnealingConfig,
+            nelder_mead::{SimplexConstructionMethod, SimplexExpansionMethod},
+            LegacyCMAESConfig, LegacyCMAESInit, LegacyDifferentialEvolutionConfig,
+            LegacyDifferentialEvolutionInit, LegacyNelderMeadConfig, LegacyNelderMeadInit,
+            LegacySimulatedAnnealingConfig,
         },
-        line_search::{HagerZhangLineSearch, MoreThuenteLineSearch, StrongWolfeLineSearch},
+        line_search::{
+            LegacyHagerZhangLineSearch, LegacyMoreThuenteLineSearch, LegacyStrongWolfeLineSearch,
+        },
         mcmc::{
             aies::{AIESInit, WeightedAIESMove},
             ess::{ESSInit, WeightedESSMove},
-            AIESConfig, AIESMove, ChainStorageMode, ESSConfig, ESSMove,
+            AIESMove, ChainStorageMode, ESSMove, LegacyAIESConfig, LegacyESSConfig,
         },
         particles::{
-            PSOConfig, Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology,
+            LegacyPSOConfig, Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology,
             SwarmUpdateMethod,
         },
     },
@@ -166,14 +170,14 @@ fn parse_simplex_expansion_method(value: &str) -> PyResult<SimplexExpansionMetho
     }
 }
 
-fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSearch> {
+fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<LegacyStrongWolfeLineSearch> {
     if let Ok(kind) = obj.extract::<String>() {
         return match normalize_choice(&kind).as_str() {
-            "more_thuente" => Ok(StrongWolfeLineSearch::MoreThuente(
-                MoreThuenteLineSearch::default(),
+            "more_thuente" => Ok(LegacyStrongWolfeLineSearch::MoreThuente(
+                LegacyMoreThuenteLineSearch::default(),
             )),
-            "hager_zhang" => Ok(StrongWolfeLineSearch::HagerZhang(
-                HagerZhangLineSearch::default(),
+            "hager_zhang" => Ok(LegacyStrongWolfeLineSearch::HagerZhang(
+                LegacyHagerZhangLineSearch::default(),
             )),
             _ => Err(config_error(format!(
                 "unknown line_search `{kind}`; expected one of more_thuente, hager_zhang"
@@ -186,14 +190,14 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
         "more_thuente" => {
             require_structural_fields(
                 obj,
-                "MoreThuenteLineSearch",
+                "LegacyMoreThuenteLineSearch",
                 &["kind", "max_iterations", "max_zoom", "c1", "c2"],
             )?;
             let max_iterations: Option<usize> = extract_optional_field(obj, "max_iterations")?;
             let max_zoom: Option<usize> = extract_optional_field(obj, "max_zoom")?;
             let c1: Option<Float> = extract_optional_field(obj, "c1")?;
             let c2: Option<Float> = extract_optional_field(obj, "c2")?;
-            let mut line_search = MoreThuenteLineSearch::default()
+            let mut line_search = LegacyMoreThuenteLineSearch::default()
                 .with_c1_c2(c1.unwrap_or(1e-4), c2.unwrap_or(0.9))?;
             if let Some(max_iterations) = max_iterations {
                 line_search = line_search.with_max_iterations(max_iterations);
@@ -201,12 +205,12 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
             if let Some(max_zoom) = max_zoom {
                 line_search = line_search.with_max_zoom(max_zoom);
             }
-            Ok(StrongWolfeLineSearch::MoreThuente(line_search))
+            Ok(LegacyStrongWolfeLineSearch::MoreThuente(line_search))
         }
         "hager_zhang" => {
             require_structural_fields(
                 obj,
-                "HagerZhangLineSearch",
+                "LegacyHagerZhangLineSearch",
                 &[
                     "kind",
                     "max_iterations",
@@ -225,7 +229,7 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
             let theta: Option<Float> = extract_optional_field(obj, "theta")?;
             let gamma: Option<Float> = extract_optional_field(obj, "gamma")?;
             let max_bisects: Option<usize> = extract_optional_field(obj, "max_bisects")?;
-            let mut line_search = HagerZhangLineSearch::default()
+            let mut line_search = LegacyHagerZhangLineSearch::default()
                 .with_delta_sigma(delta.unwrap_or(0.1), sigma.unwrap_or(0.9))?
                 .with_epsilon(epsilon.unwrap_or_else(|| Float::EPSILON.cbrt()))?
                 .with_theta(theta.unwrap_or(0.5))?
@@ -236,7 +240,7 @@ fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSe
             if let Some(max_bisects) = max_bisects {
                 line_search = line_search.with_max_bisects(max_bisects);
             }
-            Ok(StrongWolfeLineSearch::HagerZhang(line_search))
+            Ok(LegacyStrongWolfeLineSearch::HagerZhang(line_search))
         }
         _ => Err(config_error(format!(
             "unknown line_search kind `{kind}`; expected one of more_thuente, hager_zhang"
@@ -345,7 +349,7 @@ fn parse_aies_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedAIESMove> {
             Ok(AIESMove::walk(weight))
         }
         _ => Err(config_error(format!(
-            "unknown AIES move kind `{kind}`; expected one of stretch, walk"
+            "unknown LegacyAIES move kind `{kind}`; expected one of stretch, walk"
         ))),
     }
 }
@@ -388,7 +392,7 @@ fn parse_ess_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedESSMove> {
             }
         }
         _ => Err(config_error(format!(
-            "unknown ESS move kind `{kind}`; expected one of differential, gaussian, global"
+            "unknown LegacyESS move kind `{kind}`; expected one of differential, gaussian, global"
         ))),
     }
 }
@@ -401,14 +405,14 @@ fn parse_ess_moves<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Vec<WeightedESSMove
     Ok(moves)
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyLBFGSBConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "LBFGSBConfig",
+            "LegacyLBFGSBConfig",
             &[
                 "memory_limit",
                 "bounds",
@@ -444,14 +448,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyNelderMeadConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "NelderMeadConfig",
+            "LegacyNelderMeadConfig",
             &[
                 "bounds",
                 "parameter_names",
@@ -503,18 +507,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyNelderMeadInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
-        require_structural_fields(&obj, "NelderMeadInit", &["x0", "construction_method"])?;
+        require_structural_fields(&obj, "LegacyNelderMeadInit", &["x0", "construction_method"])?;
         let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
         let construction_method: Option<Bound<'py, PyAny>> =
             extract_optional_field(&obj, "construction_method")?;
         if x0.is_some() && construction_method.is_some() {
             return Err(config_error(
-                "NelderMeadInit accepts either `x0` or `construction_method`, not both",
+                "LegacyNelderMeadInit accepts either `x0` or `construction_method`, not both",
             ));
         }
         if let Some(construction_method) = construction_method {
@@ -523,21 +527,21 @@ impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
             )?))
         } else {
             let x0 = x0.ok_or_else(|| {
-                config_error("NelderMeadInit requires either `x0` or `construction_method`")
+                config_error("LegacyNelderMeadInit requires either `x0` or `construction_method`")
             })?;
             Ok(Self::new(extract_vector(&x0)?))
         }
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyPSOConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "PSOConfig",
+            "LegacyPSOConfig",
             &[
                 "bounds",
                 "parameter_names",
@@ -605,14 +609,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyAIESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "AIESConfig",
+            "LegacyAIESConfig",
             &["parameter_names", "moves", "chain_storage"],
         )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -644,14 +648,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AIESInit {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyESSConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "ESSConfig",
+            "LegacyESSConfig",
             &[
                 "parameter_names",
                 "n_adaptive",
@@ -701,14 +705,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyDifferentialEvolutionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "DifferentialEvolutionConfig",
+            "LegacyDifferentialEvolutionConfig",
             &[
                 "population_size",
                 "differential_weight",
@@ -741,12 +745,16 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyDifferentialEvolutionInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
-        require_structural_fields(&obj, "DifferentialEvolutionInit", &["x0", "initial_scale"])?;
+        require_structural_fields(
+            &obj,
+            "LegacyDifferentialEvolutionInit",
+            &["x0", "initial_scale"],
+        )?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
 
@@ -758,14 +766,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyCMAESConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "CMAESConfig",
+            "LegacyCMAESConfig",
             &["population_size", "bounds", "parameter_names"],
         )?;
         let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
@@ -782,26 +790,26 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for CMAESInit {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyCMAESInit {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
-        require_structural_fields(&obj, "CMAESInit", &["x0", "sigma"])?;
+        require_structural_fields(&obj, "LegacyCMAESInit", &["x0", "sigma"])?;
         let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
         let sigma: Float = extract_required_field(&obj, "sigma")?;
         Self::new(&x0, sigma).map_err(Into::into)
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for SimulatedAnnealingConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacySimulatedAnnealingConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "SimulatedAnnealingConfig",
+            "LegacySimulatedAnnealingConfig",
             &["initial_temperature", "cooling_rate"],
         )?;
         let initial_temperature: Option<Float> =
@@ -816,14 +824,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SimulatedAnnealingConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyAdamConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "AdamConfig",
+            "LegacyAdamConfig",
             &["parameter_names", "alpha", "beta_1", "beta_2", "epsilon"],
         )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -849,14 +857,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyConjugateGradientConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "ConjugateGradientConfig",
+            "LegacyConjugateGradientConfig",
             &["parameter_names", "line_search", "update"],
         )?;
         let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
@@ -874,14 +882,14 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
+impl<'a, 'py> FromPyObject<'a, 'py> for LegacyTrustRegionConfig {
     type Error = pyo3::PyErr;
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let obj = obj.to_owned();
         require_structural_fields(
             &obj,
-            "TrustRegionConfig",
+            "LegacyTrustRegionConfig",
             &[
                 "parameter_names",
                 "subproblem",
@@ -920,12 +928,12 @@ mod tests {
     use super::*;
     use crate::{
         algorithms::{
-            gradient::LBFGSB,
-            gradient_free::{DifferentialEvolution, DifferentialEvolutionInit},
-            mcmc::{aies::AIESInit, ess::ESSInit, AIES, ESS},
+            gradient::LegacyLBFGSB,
+            gradient_free::{LegacyDifferentialEvolution, LegacyDifferentialEvolutionInit},
+            mcmc::{aies::AIESInit, ess::ESSInit, LegacyAIES, LegacyESS},
         },
         core::{Callbacks, MaxSteps},
-        traits::{Algorithm, CostFunction, Gradient, LogDensity},
+        traits::{Algorithm, LegacyCostFunction, LegacyGradient, LegacyLogDensity},
         DVector,
     };
     use std::{convert::Infallible, ffi::CString};
@@ -933,19 +941,19 @@ mod tests {
     struct Quadratic;
     struct GaussianLogDensity;
 
-    impl CostFunction for Quadratic {
+    impl LegacyCostFunction for Quadratic {
         fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(x.dot(x))
         }
     }
 
-    impl Gradient for Quadratic {
+    impl LegacyGradient for Quadratic {
         fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
             Ok(x * 2.0)
         }
     }
 
-    impl LogDensity<(), Infallible> for GaussianLogDensity {
+    impl LegacyLogDensity<(), Infallible> for GaussianLogDensity {
         fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
             Ok(-0.5 * x.dot(x))
         }
@@ -980,8 +988,8 @@ class StructuralLBFGSB:
             let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
             let config_like = module.getattr("StructuralLBFGSB").unwrap().call0().unwrap();
 
-            let config: LBFGSBConfig = config_like.extract().unwrap();
-            let summary = LBFGSB::default()
+            let config: LegacyLBFGSBConfig = config_like.extract().unwrap();
+            let summary = LegacyLBFGSB::default()
                 .process(
                     &Quadratic,
                     &(),
@@ -1012,9 +1020,9 @@ class StructuralLBFGSB:
             config_dict.set_item("bounds", py.None()).unwrap();
             config_dict.set_item("parameter_names", py.None()).unwrap();
 
-            let init: DifferentialEvolutionInit = init_dict.as_any().extract().unwrap();
-            let config: DifferentialEvolutionConfig = config_dict.as_any().extract().unwrap();
-            let _summary = DifferentialEvolution::default()
+            let init: LegacyDifferentialEvolutionInit = init_dict.as_any().extract().unwrap();
+            let config: LegacyDifferentialEvolutionConfig = config_dict.as_any().extract().unwrap();
+            let _summary = LegacyDifferentialEvolution::default()
                 .process(
                     &Quadratic,
                     &(),
@@ -1064,8 +1072,8 @@ class StructuralAIESConfig:
                 .unwrap();
 
             let init: AIESInit = init_like.extract().unwrap();
-            let config: AIESConfig = config_like.extract().unwrap();
-            let summary = AIES::default()
+            let config: LegacyAIESConfig = config_like.extract().unwrap();
+            let summary = LegacyAIES::default()
                 .process(
                     &GaussianLogDensity,
                     &(),
@@ -1103,8 +1111,8 @@ class StructuralESS:
             let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
             let obj = module.getattr("StructuralESS").unwrap().call0().unwrap();
             let init: ESSInit = obj.extract().unwrap();
-            let config: ESSConfig = obj.extract().unwrap();
-            let _summary = ESS::default()
+            let config: LegacyESSConfig = obj.extract().unwrap();
+            let _summary = LegacyESS::default()
                 .process(
                     &GaussianLogDensity,
                     &(),

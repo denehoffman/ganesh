@@ -1,42 +1,137 @@
-//! Scalar support shared by current and future generic optimizer APIs.
+//! Scalar support shared by generic optimizer APIs.
 
-use fastrand::Rng;
-use num_traits::{Float, FromPrimitive, ToPrimitive};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
-/// Floating-point scalar contract supported by `ganesh` algorithms.
+/// Real floating-point operations required by `ganesh` algorithms.
 ///
-/// The generic scalar migration is intentionally limited to Rust's native floating-point types.
-/// The scalar contract is intentionally independent from any linear algebra backend. Backend
-/// capabilities live in [`crate::core::linalg`], while this trait covers numeric operations and
-/// fixed algorithm constants.
-pub trait RealScalar: Float + FromPrimitive + ToPrimitive + Debug + Send + Sync + 'static {
-    /// Convert an `f64` algorithm constant into this scalar type.
+/// This crate-owned contract is intentionally independent of any linear-algebra library and is
+/// open to downstream newtypes and alternative floating-point representations. Algorithms add
+/// narrower capability bounds, such as [`RandomScalar`], only when needed.
+pub trait RealScalar:
+    Copy
+    + Clone
+    + Debug
+    + Display
+    + PartialEq
+    + PartialOrd
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Neg<Output = Self>
+    + Send
+    + Sync
+    + 'static
+{
+    /// Additive identity.
+    fn zero() -> Self;
+    /// Multiplicative identity.
+    fn one() -> Self;
+    /// Positive infinity.
+    fn infinity() -> Self;
+    /// Machine epsilon for the representation.
+    fn epsilon() -> Self;
+    /// Convert an algorithm constant into this scalar representation.
     fn literal(value: f64) -> Self;
+    /// Convert to the stable f64 reporting/diagnostic boundary.
+    fn to_f64(self) -> Option<f64>;
+    /// Absolute value.
+    fn abs(self) -> Self;
+    /// Square root.
+    fn sqrt(self) -> Self;
+    /// Cube root.
+    fn cbrt(self) -> Self;
+    /// Integer power.
+    fn powi(self, exponent: i32) -> Self;
+    /// Exponential.
+    fn exp(self) -> Self;
+    /// Natural logarithm.
+    fn ln(self) -> Self;
+    /// Cosine.
+    fn cos(self) -> Self;
+    /// Fused multiply-add when supported by the representation.
+    fn mul_add(self, multiplier: Self, addend: Self) -> Self;
+    /// Whether this value is finite.
+    fn is_finite(self) -> bool;
+    /// Whether this value is NaN.
+    fn is_nan(self) -> bool;
+    /// Compare values using a deterministic total order, including NaNs and signed zeroes.
+    fn total_cmp(&self, other: &Self) -> std::cmp::Ordering;
+}
 
+/// Scalar capability required by algorithms that draw random floating-point values.
+pub trait RandomScalar: RealScalar {
     /// Sample a scalar value in `[0, 1)` from the given random number generator.
-    fn random_unit(rng: &mut Rng) -> Self;
+    fn random_unit(rng: &mut fastrand::Rng) -> Self;
 }
 
-impl RealScalar for f64 {
-    fn literal(value: f64) -> Self {
-        value
-    }
+macro_rules! impl_native_scalar {
+    ($type:ty, $sample:ident) => {
+        impl RealScalar for $type {
+            fn zero() -> Self {
+                0.0
+            }
+            fn one() -> Self {
+                1.0
+            }
+            fn infinity() -> Self {
+                Self::INFINITY
+            }
+            fn epsilon() -> Self {
+                Self::EPSILON
+            }
+            fn literal(value: f64) -> Self {
+                value as Self
+            }
+            fn to_f64(self) -> Option<f64> {
+                Some(self as f64)
+            }
+            fn abs(self) -> Self {
+                self.abs()
+            }
+            fn sqrt(self) -> Self {
+                self.sqrt()
+            }
+            fn cbrt(self) -> Self {
+                self.cbrt()
+            }
+            fn powi(self, exponent: i32) -> Self {
+                self.powi(exponent)
+            }
+            fn exp(self) -> Self {
+                self.exp()
+            }
+            fn ln(self) -> Self {
+                self.ln()
+            }
+            fn cos(self) -> Self {
+                self.cos()
+            }
+            fn mul_add(self, multiplier: Self, addend: Self) -> Self {
+                self.mul_add(multiplier, addend)
+            }
+            fn is_finite(self) -> bool {
+                self.is_finite()
+            }
+            fn is_nan(self) -> bool {
+                self.is_nan()
+            }
+            fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
+                <$type>::total_cmp(self, other)
+            }
+        }
 
-    fn random_unit(rng: &mut Rng) -> Self {
-        rng.f64()
-    }
+        impl RandomScalar for $type {
+            fn random_unit(rng: &mut fastrand::Rng) -> Self {
+                rng.$sample()
+            }
+        }
+    };
 }
 
-impl RealScalar for f32 {
-    fn literal(value: f64) -> Self {
-        value as Self
-    }
-
-    fn random_unit(rng: &mut Rng) -> Self {
-        rng.f32()
-    }
-}
+impl_native_scalar!(f64, f64);
+impl_native_scalar!(f32, f32);
 
 #[cfg(test)]
 mod tests {
@@ -44,15 +139,10 @@ mod tests {
 
     #[test]
     fn literals_and_random_samples_follow_scalar_type() {
-        let value32 = f32::literal(1.25);
-        let value64 = f64::literal(1.25);
-        assert_eq!(value32, 1.25_f32);
-        assert_eq!(value64, 1.25_f64);
-
-        let mut rng = Rng::with_seed(7);
-        let sample32 = f32::random_unit(&mut rng);
-        let sample64 = f64::random_unit(&mut rng);
-        assert!((0.0..1.0).contains(&sample32));
-        assert!((0.0..1.0).contains(&sample64));
+        assert_eq!(f32::literal(1.25), 1.25_f32);
+        assert_eq!(f64::literal(1.25), 1.25_f64);
+        let mut rng = fastrand::Rng::with_seed(7);
+        assert!((0.0..1.0).contains(&f32::random_unit(&mut rng)));
+        assert!((0.0..1.0).contains(&f64::random_unit(&mut rng)));
     }
 }

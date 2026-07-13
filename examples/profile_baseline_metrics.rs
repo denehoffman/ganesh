@@ -1,12 +1,12 @@
 use ganesh::{
     algorithms::{
-        gradient::{lbfgsb::LBFGSBConfig, LBFGSB},
-        gradient_free::{
-            nelder_mead::{NelderMeadConfig, NelderMeadInit},
-            NelderMead,
+        gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
+        gradient_free::{LegacyNelderMead, LegacyNelderMeadConfig, LegacyNelderMeadInit},
+        mcmc::{
+            aies::AIESInit, ess::ESSInit, ESSMove, LegacyAIES, LegacyAIESConfig, LegacyESS,
+            LegacyESSConfig,
         },
-        mcmc::{aies::AIESInit, ess::ESSInit, AIESConfig, ESSConfig, ESSMove, AIES, ESS},
-        particles::{PSOConfig, Swarm, SwarmPositionInitializer, PSO},
+        particles::{LegacyPSO, LegacyPSOConfig, Swarm, SwarmPositionInitializer},
     },
     core::MaxSteps,
     test_functions::{rastrigin::Rastrigin, rosenbrock::Rosenbrock},
@@ -63,14 +63,14 @@ fn main() {
     match algorithm {
         "lbfgsb" => {
             let problem = Rosenbrock { n: dim };
-            let mut solver = LBFGSB::default();
+            let mut solver = LegacyLBFGSB::default();
             let summary = solver
                 .process(
                     &problem,
                     &(),
                     DVector::from_vec(vec![5.0; dim]),
-                    LBFGSBConfig::default(),
-                    LBFGSB::default_callbacks().with_terminator(MaxSteps(80)),
+                    LegacyLBFGSBConfig::default(),
+                    LegacyLBFGSB::default_callbacks().with_terminator(MaxSteps(80)),
                 )
                 .unwrap();
             print_metrics(
@@ -85,16 +85,16 @@ fn main() {
         }
         "nelder_mead" => {
             let problem = Rosenbrock { n: dim };
-            let mut solver = NelderMead::default();
-            let init = NelderMeadInit::new(vec![5.0; dim]);
-            let config = NelderMeadConfig::default();
+            let mut solver = LegacyNelderMead::default();
+            let init = LegacyNelderMeadInit::new(vec![5.0; dim]);
+            let config = LegacyNelderMeadConfig::default();
             let summary = solver
                 .process(
                     &problem,
                     &(),
                     init,
                     config,
-                    NelderMead::default_callbacks().with_terminator(MaxSteps(120)),
+                    LegacyNelderMead::default_callbacks().with_terminator(MaxSteps(120)),
                 )
                 .unwrap();
             print_metrics(
@@ -109,13 +109,13 @@ fn main() {
         }
         "pso" => {
             let problem = Rastrigin { n: dim };
-            let mut solver = PSO::default();
+            let mut solver = LegacyPSO::default();
             let bounds = vec![(-5.12, 5.12); dim];
             let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
                 bounds,
                 n_particles: 24,
             });
-            let config = PSOConfig::default()
+            let config = LegacyPSOConfig::default()
                 .with_c1(0.1)
                 .unwrap()
                 .with_c2(0.1)
@@ -128,7 +128,7 @@ fn main() {
                     &(),
                     init,
                     config,
-                    PSO::default_callbacks().with_terminator(MaxSteps(60)),
+                    LegacyPSO::default_callbacks().with_terminator(MaxSteps(60)),
                 )
                 .unwrap();
             print_metrics(
@@ -145,16 +145,16 @@ fn main() {
             let n_walkers = parse_usize_arg(&args, 3, 12, "walker count");
             let steps = parse_usize_arg(&args, 4, 40, "step count");
             let problem = Rosenbrock { n: dim };
-            let mut solver = AIES::default();
+            let mut solver = LegacyAIES::default();
             let init = AIESInit::new(make_walkers(dim, n_walkers)).unwrap();
-            let config = AIESConfig::default();
+            let config = LegacyAIESConfig::default();
             let summary = solver
                 .process(
                     &problem,
                     &(),
                     init,
                     config,
-                    AIES::default_callbacks().with_terminator(MaxSteps(steps)),
+                    LegacyAIES::default_callbacks().with_terminator(MaxSteps(steps)),
                 )
                 .unwrap();
             print_metrics(
@@ -171,9 +171,9 @@ fn main() {
             let n_walkers = parse_usize_arg(&args, 3, 12, "walker count");
             let steps = parse_usize_arg(&args, 4, 40, "step count");
             let problem = Rosenbrock { n: dim };
-            let mut solver = ESS::default();
+            let mut solver = LegacyESS::default();
             let init = ESSInit::new(make_walkers(dim, n_walkers)).unwrap();
-            let config = ESSConfig::default()
+            let config = LegacyESSConfig::default()
                 .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
                 .unwrap()
                 .with_n_adaptive(5)
@@ -184,7 +184,7 @@ fn main() {
                     &(),
                     init,
                     config,
-                    ESS::default_callbacks().with_terminator(MaxSteps(steps)),
+                    LegacyESS::default_callbacks().with_terminator(MaxSteps(steps)),
                 )
                 .unwrap();
             print_metrics(

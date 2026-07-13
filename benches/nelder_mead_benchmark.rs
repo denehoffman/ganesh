@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::gradient_free::{
-        nelder_mead::{NelderMeadConfig, NelderMeadInit, SimplexConstructionMethod},
-        NelderMead,
+        nelder_mead::SimplexConstructionMethod, LegacyNelderMead, LegacyNelderMeadConfig,
+        LegacyNelderMeadInit,
     },
     test_functions::rosenbrock::Rosenbrock,
     traits::Algorithm,
@@ -15,12 +15,12 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let problem = Rosenbrock { n: *ndim };
-                    let solver = NelderMead::default();
-                    let init = NelderMeadInit::new_with_method(
+                    let solver = LegacyNelderMead::default();
+                    let init = LegacyNelderMeadInit::new_with_method(
                         SimplexConstructionMethod::orthogonal(vec![5.0; *ndim]),
                     );
-                    let cfg = NelderMeadConfig::default();
-                    let cbs = NelderMead::default_callbacks();
+                    let cfg = LegacyNelderMeadConfig::default();
+                    let cbs = LegacyNelderMead::default_callbacks();
                     (problem, solver, init, cfg, cbs)
                 },
                 |(problem, mut solver, init, cfg, cbs)| {
@@ -37,12 +37,14 @@ fn nelder_mead_benchmark(c: &mut Criterion) {
                 b.iter_batched(
                     || {
                         let problem = Rosenbrock { n: *ndim };
-                        let solver = NelderMead::default();
-                        let init = NelderMeadInit::new_with_method(
+                        let solver = LegacyNelderMead::default();
+                        let init = LegacyNelderMeadInit::new_with_method(
                             SimplexConstructionMethod::orthogonal(vec![5.0; *ndim]),
                         );
-                        let cfg = NelderMeadConfig::default().with_adaptive(*ndim).unwrap();
-                        let cbs = NelderMead::default_callbacks();
+                        let cfg = LegacyNelderMeadConfig::default()
+                            .with_adaptive(*ndim)
+                            .unwrap();
+                        let cbs = LegacyNelderMead::default_callbacks();
                         (problem, solver, init, cfg, cbs)
                     },
                     |(problem, mut solver, init, cfg, cbs)| {

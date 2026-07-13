@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, LU};
 
 use crate::{
     error::{GaneshError, GaneshResult},
-    traits::{CostFunction, Gradient},
+    traits::{LegacyCostFunction, LegacyGradient},
     Float,
 };
 
@@ -283,8 +283,8 @@ impl Transform for Box<dyn Transform> {
 
 /// A wrapper for a problem that has been transformed.
 ///
-/// [`CostFunction`]s and [`Gradient`]s of this struct are intended to be evaluated on internal
-/// coordinates, the [`Gradient::gradient`] and [`Gradient::hessian`] methods will both provide
+/// [`LegacyCostFunction`]s and [`LegacyGradient`]s of this struct are intended to be evaluated on internal
+/// coordinates, the [`LegacyGradient::gradient`] and [`LegacyGradient::hessian`] methods will both provide
 /// internal versions of the gradient and Hessian. The external gradient and Hessian can be
 /// obtained via the [`TransformedProblem::pushforward_gradient`] and [`TransformedProblem::pushforward_hessian`]
 /// methods.
@@ -376,9 +376,9 @@ where
     }
 }
 
-impl<'a, F, U, E, T> CostFunction<U, E> for TransformedProblem<'a, F, T>
+impl<'a, F, U, E, T> LegacyCostFunction<U, E> for TransformedProblem<'a, F, T>
 where
-    F: CostFunction<U, E>,
+    F: LegacyCostFunction<U, E>,
     T: Transform,
 {
     #[inline]
@@ -387,9 +387,9 @@ where
     }
 }
 
-impl<'a, F, U, E, T> Gradient<U, E> for TransformedProblem<'a, F, T>
+impl<'a, F, U, E, T> LegacyGradient<U, E> for TransformedProblem<'a, F, T>
 where
-    F: Gradient<U, E>,
+    F: LegacyGradient<U, E>,
     T: Transform,
 {
     #[inline]
