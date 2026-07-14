@@ -11,39 +11,9 @@ repos:
         entry: cargo clippy --all-targets -- -D warnings
         language: system
         pass_filenames: false
-      - id: cargo-clippy
-        name: cargo clippy (python)
-        entry: cargo clippy --all-targets -F python -- -D warnings
-        language: system
-        pass_filenames: false
       - id: cargo-test
         name: cargo test
         entry: cargo test
-        language: system
-        pass_filenames: false
-      - id: cargo-test
-        name: cargo test (python)
-        entry: cargo test -F python
-        language: system
-        pass_filenames: false
-      - id: ty
-        name: ty
-        entry: ty check . --exclude=.yamloom.py --exclude=examples
-        language: system
-        pass_filenames: false
-      - id: ruff-check
-        name: ruff check
-        entry: ruff check --fix
-        language: system
-        pass_filenames: false
-      - id: ruff-format
-        name: ruff format
-        entry: ruff format
-        language: system
-        pass_filenames: false
-      - id: pytest
-        name: pytest
-        entry: bash -c 'maturin develop --uv && pytest'
         language: system
         pass_filenames: false
   - repo: https://github.com/denehoffman/yamloom
@@ -51,3 +21,8 @@ repos:
     hooks:
       - id: yamloom-sync
         files: ^(\.github/workflows/.*\.ya?ml|\.yamloom\.py)$
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

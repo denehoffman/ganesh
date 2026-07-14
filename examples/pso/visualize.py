@@ -1,149 +1,164 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = [
-#     "joblib",
-#     "matplotlib",
-#     "matplotloom",
-#     "numpy",
+#   "matplotlib==3.11.0",
+#   "numpy==2.5.1",
+#   "pillow==12.3.0",
 # ]
 # ///
-import pickle
+"""Animate PSO positions, memories, velocities, and global best on Rastrigin."""
+
+import json
 from pathlib import Path
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
-from joblib import Parallel, delayed
-from matplotloom import Loom
+
+plt.switch_backend('Agg')
+
+ROOT = Path(__file__).parent
+payload = json.loads((ROOT / 'data.json').read_text())
+history = payload['history']
+positions = np.asarray([frame['positions'] for frame in history])
+velocities = np.asarray([frame['velocities'] for frame in history])
+personal_bests = np.asarray([frame['personal_bests'] for frame in history])
+global_bests = np.asarray([frame['global_best'] for frame in history])
+low, high = payload['plot_bounds']
+grid = np.linspace(low, high, 420)
+x, y = np.meshgrid(grid, grid)
+z = 10 + x * x - 10 * np.cos(2 * np.pi * x) + y * y - 10 * np.cos(2 * np.pi * y)
+
+plt.style.use('seaborn-v0_8-whitegrid')
+figure, axis = plt.subplots(figsize=(8, 8), constrained_layout=True)
+axis.contourf(x, y, z, levels=28, cmap='YlGnBu', alpha=0.9)
+axis.contour(x, y, z, levels=12, colors='#334155', alpha=0.18, linewidths=0.5)
+personal = axis.scatter(
+    [],
+    [],
+    s=38,
+    facecolors='none',
+    edgecolors='#7c3aed',
+    linewidths=0.7,
+    alpha=0.55,
+    label='personal best',
+)
+velocity_arrows = axis.quiver(
+    positions[0, :, 0],
+    positions[0, :, 1],
+    np.zeros(len(positions[0])),
+    np.zeros(len(positions[0])),
+    color='#0f766e',
+    alpha=0.65,
+    angles='xy',
+    scale_units='xy',
+    scale=0.1,
+    width=0.0018,
+    headwidth=3.5,
+    label='velocity',
+)
+personal_arrows = axis.quiver(
+    positions[0, :, 0],
+    positions[0, :, 1],
+    np.zeros(len(positions[0])),
+    np.zeros(len(positions[0])),
+    color='#7c3aed',
+    alpha=0.42,
+    angles='xy',
+    scale_units='xy',
+    scale=1,
+    width=0.0014,
+    headwidth=3.5,
+    label='toward personal best',
+)
+global_arrows = axis.quiver(
+    positions[0, :, 0],
+    positions[0, :, 1],
+    np.zeros(len(positions[0])),
+    np.zeros(len(positions[0])),
+    color='#dc2626',
+    alpha=0.3,
+    angles='xy',
+    scale_units='xy',
+    scale=1,
+    width=0.0012,
+    headwidth=3.5,
+    label='toward global best',
+)
+particles = axis.scatter(
+    [],
+    [],
+    s=34,
+    color='#2563eb',
+    edgecolors='white',
+    linewidths=0.45,
+    label='particle',
+    zorder=5,
+)
+current_best = axis.scatter(
+    [],
+    [],
+    marker='*',
+    s=220,
+    color='#ef4444',
+    edgecolor='#7f1d1d',
+    linewidth=0.9,
+    label='current global best',
+    zorder=7,
+)
+axis.scatter(
+    [0],
+    [0],
+    marker='X',
+    s=90,
+    color='#111827',
+    edgecolor='white',
+    linewidth=0.6,
+    label='true minimum',
+    zorder=6,
+)
+title = axis.set_title('')
+axis.set(xlim=(low, high), ylim=(low, high), xlabel='x', ylabel='y')
+axis.legend(loc='upper right', frameon=True, fontsize=8)
+
+target = payload['minimum_value']
+final_frame = next(
+    (index for index, snapshot in enumerate(history) if snapshot['global_best_value'] <= target),
+    len(history) - 1,
+)
+frames = np.arange(final_frame + 1)
 
 
-def func(x, y):
-    return 10 + x**2 - 10 * np.cos(2 * np.pi * x) + y**2 - 10 * np.cos(2 * np.pi * y)
+def update(frame: int):
+    particles.set_offsets(positions[frame])
+    personal.set_offsets(personal_bests[frame])
+    current_best.set_offsets(global_bests[frame][None, :])
+
+    velocity_arrows.set_offsets(positions[frame])
+    velocity_arrows.set_UVC(velocities[frame, :, 0], velocities[frame, :, 1])
+    personal_vectors = personal_bests[frame] - positions[frame]
+    personal_arrows.set_offsets(positions[frame])
+    personal_arrows.set_UVC(personal_vectors[:, 0], personal_vectors[:, 1])
+    global_vectors = global_bests[frame] - positions[frame]
+    global_arrows.set_offsets(positions[frame])
+    global_arrows.set_UVC(global_vectors[:, 0], global_vectors[:, 1])
+
+    snapshot = history[frame]
+    title.set_text(
+        f'Particle swarm on Rastrigin · step {snapshot["step"]} · '
+        f'best = {snapshot["global_best_value"]:.3g}'
+    )
+    return (
+        particles,
+        personal,
+        current_best,
+        velocity_arrows,
+        personal_arrows,
+        global_arrows,
+        title,
+    )
 
 
-def plot_frame(istep, nsteps, loom):
-    print(f'Plotting frame {istep} / {nsteps}')
-    fig, ax = plt.subplots(figsize=(12, 12))
-    ax.imshow(Z, extent=(-10, 10, -10, 10), origin='lower', cmap='viridis', alpha=0.5)
-    ax.contour(X, Y, Z, 10, colors='black', alpha=0.4)
-    ax.scatter(
-        0,
-        0,
-        marker='x',
-        color='black',
-        alpha=0.5,
-    )
-    ax.scatter(
-        [
-            history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        marker='o',
-        color='blue',
-        alpha=0.5,
-    )
-    ax.scatter(
-        [history[istep][iparticle]['best']['x'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['best']['x'][0][1] for iparticle in range(nparticles)],
-        marker='o',
-        color='green',
-        alpha=0.5,
-    )
-    ax.quiver(
-        [
-            history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['best']['x'][0][0]
-            - history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['best']['x'][0][1]
-            - history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        color='green',
-        units='dots',
-        width=1,
-        angles='xy',
-        scale_units='xy',
-        scale=1,
-    )
-    ax.scatter(
-        best_history[istep]['x'][0][0],
-        best_history[istep]['x'][0][1],
-        marker='o',
-        color='red',
-        alpha=0.5,
-    )
-    ax.quiver(
-        [
-            history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        [
-            best_history[istep]['x'][0][0]
-            - history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            best_history[istep]['x'][0][1]
-            - history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        color='red',
-        units='dots',
-        width=0.2,
-        angles='xy',
-        scale_units='xy',
-        scale=1,
-    )
-    ax.quiver(
-        [
-            history[istep][iparticle]['position']['x'][0][0]
-            for iparticle in range(nparticles)
-        ],
-        [
-            history[istep][iparticle]['position']['x'][0][1]
-            for iparticle in range(nparticles)
-        ],
-        [history[istep][iparticle]['velocity'][0][0] for iparticle in range(nparticles)],
-        [history[istep][iparticle]['velocity'][0][1] for iparticle in range(nparticles)],
-        color='blue',
-        units='dots',
-        width=1,
-        angles='xy',
-        scale_units='xy',
-        scale=0.1,
-    )
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(-10, 10)
-    loom.save_frame(fig, istep)
-
-
-if __name__ == '__main__':
-    with Path('data.pkl').open('rb') as f:
-        swarm_history = pickle.load(f)
-    history = swarm_history['history']
-    best_history = swarm_history['best_history']
-    nsteps = len(history)
-    nparticles = len(history[0])
-    g = np.linspace(-10, 10, 1000)
-    X, Y = np.meshgrid(g, g)
-    Z = func(X, Y)
-    with Loom('pso.gif', fps=30, parallel=True, overwrite=True) as loom:
-        Parallel(n_jobs=-1)(delayed(plot_frame)(i, nsteps, loom) for i in range(nsteps))
+movie = animation.FuncAnimation(figure, update, frames=frames, interval=67, blit=False)
+movie.save(ROOT / 'pso.gif', writer=animation.PillowWriter(fps=15), dpi=120)

@@ -1,29 +1,30 @@
-/// Implementation of the Nelder-Mead simplex algorithm
+/// Nelder-Mead minimization.
 pub mod nelder_mead;
-pub use nelder_mead::{NelderMead, NelderMeadConfig};
+pub use nelder_mead::{
+    NelderMead, NelderMeadCheckpoint, NelderMeadConfig, NelderMeadFTerminator,
+    NelderMeadXTerminator, SimplexExpansionMethod,
+};
 
-/// [`GradientFreeStatus`] type for gradient-free minimizers.
+/// Status used by derivative-free minimizers.
 pub mod gradient_free_status;
 pub use gradient_free_status::GradientFreeStatus;
 
-/// [`SimulatedAnnealing`] type for simulated annealing minimizers.
+/// Simulated-annealing minimization.
 pub mod simulated_annealing;
 pub use simulated_annealing::{
-    SimulatedAnnealing, SimulatedAnnealingConfig, SimulatedAnnealingGenerator,
-    SimulatedAnnealingStatus,
+    GaussianAnnealingGenerator, SimulatedAnnealing, SimulatedAnnealingConfig,
+    SimulatedAnnealingGenerator, SimulatedAnnealingTerminator,
 };
 
-/// [`CMAES`] type for covariance-matrix adaptation evolution strategy minimizers.
+/// CMA-ES minimization.
 pub mod cmaes;
 pub use cmaes::{
-    CMAESConditionCovTerminator, CMAESConfig, CMAESEqualFunValuesTerminator, CMAESInit,
+    CMAESConditionCovTerminator, CMAESConfig, CMAESEqualFunValuesTerminator,
     CMAESNoEffectAxisTerminator, CMAESNoEffectCoordTerminator, CMAESSigmaTerminator,
     CMAESStagnationTerminator, CMAESTolFunTerminator, CMAESTolXTerminator, CMAESTolXUpTerminator,
     CMAES,
 };
 
-/// [`DifferentialEvolution`] type for differential evolution minimizers.
+/// Differential-evolution minimization.
 pub mod differential_evolution;
-pub use differential_evolution::{
-    DifferentialEvolution, DifferentialEvolutionConfig, DifferentialEvolutionInit,
-};
+pub use differential_evolution::{DifferentialEvolution, DifferentialEvolutionConfig};

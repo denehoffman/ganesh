@@ -1,1118 +1,1208 @@
-//! Python-facing config extraction traits for downstream wrapper crates.
+#![allow(clippy::too_many_arguments)] // Python keyword-only constructors mirror algorithm options.
 
-use pyo3::{types::PyAnyMethods, Borrowed, Bound, FromPyObject, PyAny, PyResult};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyAnyMethods};
 
 use crate::{
     algorithms::{
         gradient::{
-            lbfgsb::LBFGSBErrorMode, AdamConfig, ConjugateGradientConfig, ConjugateGradientUpdate,
-            LBFGSBConfig, TrustRegionConfig, TrustRegionSubproblem,
+            AdamConfig, ConjugateGradientConfig, ConjugateGradientUpdate, LBFGSBConfig,
+            LBFGSBErrorMode, TrustRegionConfig, TrustRegionSubproblem,
         },
         gradient_free::{
-            nelder_mead::{NelderMeadInit, SimplexConstructionMethod, SimplexExpansionMethod},
-            CMAESConfig, CMAESInit, DifferentialEvolutionConfig, DifferentialEvolutionInit,
-            NelderMeadConfig, SimulatedAnnealingConfig,
+            CMAESConfig, DifferentialEvolutionConfig, NelderMeadConfig, SimplexExpansionMethod,
+            SimulatedAnnealingConfig,
         },
         line_search::{HagerZhangLineSearch, MoreThuenteLineSearch, StrongWolfeLineSearch},
-        mcmc::{
-            aies::{AIESInit, WeightedAIESMove},
-            ess::{ESSInit, WeightedESSMove},
-            AIESConfig, AIESMove, ChainStorageMode, ESSConfig, ESSMove,
-        },
-        particles::{
-            PSOConfig, Swarm, SwarmBoundaryMethod, SwarmPositionInitializer, SwarmTopology,
-            SwarmUpdateMethod,
-        },
+        mcmc::{AIESConfig, AIESMove, ChainStorageMode, ESSConfig, ESSMove},
+        particles::{PSOConfig, SwarmTopology, SwarmUpdateMethod, SwarmVelocityInitializer},
     },
-    error::GaneshError,
-    python::{
-        extract::{extract_optional_field, extract_required_field, get_field},
-        numeric::{extract_matrix, extract_vector},
-    },
-    traits::{
-        algorithm::BoundsHandlingMode, Bound as GaneshBound, SupportsBounds, SupportsParameterNames,
-    },
-    DVector, Float,
+    traits::{PeriodicTransform, TransformChain},
+    Bounds, NalgebraProvider, ScaleTransform, Transform,
 };
 
-fn apply_python_bounds<C>(mut config: C, bounds: Option<Vec<(Option<Float>, Option<Float>)>>) -> C
-where
-    C: SupportsBounds,
-{
-    if let Some(bounds) = bounds {
-        config = config.with_bounds(bounds.into_iter().map(GaneshBound::from));
-    }
-    config
-}
-
-fn apply_python_parameter_names<C>(mut config: C, parameter_names: Option<Vec<String>>) -> C
-where
-    C: SupportsParameterNames,
-{
-    if let Some(parameter_names) = parameter_names {
-        config = config.with_parameter_names(parameter_names);
-    }
-    config
-}
-
-fn vectors_to_dvectors(vectors: &[Vec<Float>]) -> Vec<DVector<Float>> {
-    vectors.iter().cloned().map(DVector::from_vec).collect()
-}
-
-fn config_error(message: impl Into<String>) -> pyo3::PyErr {
-    GaneshError::ConfigError(message.into()).into()
-}
-
-fn require_structural_fields(
-    obj: &Bound<'_, PyAny>,
-    config_name: &str,
-    field_names: &[&str],
-) -> PyResult<()> {
-    for field_name in field_names {
-        if get_field(obj, field_name)?.is_none() {
-            return Err(config_error(format!(
-                "structural `{config_name}` extraction requires Python field `{field_name}`"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn normalize_choice(value: &str) -> String {
-    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
-}
-
-fn parse_bounds_handling(value: &str) -> PyResult<BoundsHandlingMode> {
-    match normalize_choice(value).as_str() {
-        "auto" => Ok(BoundsHandlingMode::Auto),
-        "native_bounds" => Ok(BoundsHandlingMode::NativeBounds),
-        "transform_bounds" => Ok(BoundsHandlingMode::TransformBounds),
-        _ => Err(config_error(format!(
-            "unknown bounds_handling `{value}`; expected one of auto, native_bounds, transform_bounds"
-        ))),
+fn finite_positive(value: f64, name: &str) -> PyResult<()> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!(
+            "{name} must be finite and positive"
+        )))
     }
 }
 
-fn parse_lbfgsb_error_mode(value: &str) -> PyResult<LBFGSBErrorMode> {
-    match normalize_choice(value).as_str() {
-        "exact_hessian" => Ok(LBFGSBErrorMode::ExactHessian),
-        "skip" => Ok(LBFGSBErrorMode::Skip),
-        _ => Err(config_error(format!(
-            "unknown LBFGSB error_mode `{value}`; expected one of exact_hessian, skip"
-        ))),
-    }
+#[derive(Clone, Debug)]
+enum TransformSpec {
+    Bounds(Vec<(f64, f64)>),
+    Scale(Vec<f64>),
+    Periodic(Vec<Option<(f64, f64)>>),
+    Chain(Vec<Self>),
 }
 
-fn parse_swarm_topology(value: &str) -> PyResult<SwarmTopology> {
-    match normalize_choice(value).as_str() {
-        "global" => Ok(SwarmTopology::Global),
-        "ring" => Ok(SwarmTopology::Ring),
-        _ => Err(config_error(format!(
-            "unknown swarm topology `{value}`; expected one of global, ring"
-        ))),
-    }
-}
-
-fn parse_swarm_update_method(value: &str) -> PyResult<SwarmUpdateMethod> {
-    match normalize_choice(value).as_str() {
-        "synchronous" => Ok(SwarmUpdateMethod::Synchronous),
-        "asynchronous" => Ok(SwarmUpdateMethod::Asynchronous),
-        _ => Err(config_error(format!(
-            "unknown swarm update_method `{value}`; expected one of synchronous, asynchronous"
-        ))),
-    }
-}
-
-fn parse_swarm_boundary_method(value: &str) -> PyResult<SwarmBoundaryMethod> {
-    match normalize_choice(value).as_str() {
-        "inf" => Ok(SwarmBoundaryMethod::Inf),
-        "shr" => Ok(SwarmBoundaryMethod::Shr),
-        _ => Err(config_error(format!(
-            "unknown swarm boundary_method `{value}`; expected one of inf, shr"
-        ))),
-    }
-}
-
-fn parse_cg_update(value: &str) -> PyResult<ConjugateGradientUpdate> {
-    match normalize_choice(value).as_str() {
-        "fletcher_reeves" => Ok(ConjugateGradientUpdate::FletcherReeves),
-        "polak_ribiere_plus" => Ok(ConjugateGradientUpdate::PolakRibierePlus),
-        "hestenes_stiefel_plus" => Ok(ConjugateGradientUpdate::HestenesStiefelPlus),
-        "dai_yuan" => Ok(ConjugateGradientUpdate::DaiYuan),
-        "hager_zhang" => Ok(ConjugateGradientUpdate::HagerZhang),
-        _ => Err(config_error(format!(
-            "unknown conjugate-gradient update `{value}`; expected one of fletcher_reeves, polak_ribiere_plus, hestenes_stiefel_plus, dai_yuan, hager_zhang"
-        ))),
-    }
-}
-
-fn parse_trust_region_subproblem(value: &str) -> PyResult<TrustRegionSubproblem> {
-    match normalize_choice(value).as_str() {
-        "cauchy_point" => Ok(TrustRegionSubproblem::CauchyPoint),
-        "dogleg" => Ok(TrustRegionSubproblem::Dogleg),
-        _ => Err(config_error(format!(
-            "unknown trust-region subproblem `{value}`; expected one of cauchy_point, dogleg"
-        ))),
-    }
-}
-
-fn parse_simplex_expansion_method(value: &str) -> PyResult<SimplexExpansionMethod> {
-    match normalize_choice(value).as_str() {
-        "greedy_minimization" => Ok(SimplexExpansionMethod::GreedyMinimization),
-        "greedy_expansion" => Ok(SimplexExpansionMethod::GreedyExpansion),
-        _ => Err(config_error(format!(
-            "unknown simplex expansion_method `{value}`; expected one of greedy_minimization, greedy_expansion"
-        ))),
-    }
-}
-
-fn parse_line_search<'py>(obj: &Bound<'py, PyAny>) -> PyResult<StrongWolfeLineSearch> {
-    if let Ok(kind) = obj.extract::<String>() {
-        return match normalize_choice(&kind).as_str() {
-            "more_thuente" => Ok(StrongWolfeLineSearch::MoreThuente(
-                MoreThuenteLineSearch::default(),
-            )),
-            "hager_zhang" => Ok(StrongWolfeLineSearch::HagerZhang(
-                HagerZhangLineSearch::default(),
-            )),
-            _ => Err(config_error(format!(
-                "unknown line_search `{kind}`; expected one of more_thuente, hager_zhang"
-            ))),
-        };
-    }
-
-    let kind: String = extract_required_field(obj, "kind")?;
-    match normalize_choice(&kind).as_str() {
-        "more_thuente" => {
-            require_structural_fields(
-                obj,
-                "MoreThuenteLineSearch",
-                &["kind", "max_iterations", "max_zoom", "c1", "c2"],
-            )?;
-            let max_iterations: Option<usize> = extract_optional_field(obj, "max_iterations")?;
-            let max_zoom: Option<usize> = extract_optional_field(obj, "max_zoom")?;
-            let c1: Option<Float> = extract_optional_field(obj, "c1")?;
-            let c2: Option<Float> = extract_optional_field(obj, "c2")?;
-            let mut line_search = MoreThuenteLineSearch::default()
-                .with_c1_c2(c1.unwrap_or(1e-4), c2.unwrap_or(0.9))?;
-            if let Some(max_iterations) = max_iterations {
-                line_search = line_search.with_max_iterations(max_iterations);
-            }
-            if let Some(max_zoom) = max_zoom {
-                line_search = line_search.with_max_zoom(max_zoom);
-            }
-            Ok(StrongWolfeLineSearch::MoreThuente(line_search))
-        }
-        "hager_zhang" => {
-            require_structural_fields(
-                obj,
-                "HagerZhangLineSearch",
-                &[
-                    "kind",
-                    "max_iterations",
-                    "delta",
-                    "sigma",
-                    "epsilon",
-                    "theta",
-                    "gamma",
-                    "max_bisects",
-                ],
-            )?;
-            let max_iterations: Option<usize> = extract_optional_field(obj, "max_iterations")?;
-            let delta: Option<Float> = extract_optional_field(obj, "delta")?;
-            let sigma: Option<Float> = extract_optional_field(obj, "sigma")?;
-            let epsilon: Option<Float> = extract_optional_field(obj, "epsilon")?;
-            let theta: Option<Float> = extract_optional_field(obj, "theta")?;
-            let gamma: Option<Float> = extract_optional_field(obj, "gamma")?;
-            let max_bisects: Option<usize> = extract_optional_field(obj, "max_bisects")?;
-            let mut line_search = HagerZhangLineSearch::default()
-                .with_delta_sigma(delta.unwrap_or(0.1), sigma.unwrap_or(0.9))?
-                .with_epsilon(epsilon.unwrap_or_else(|| Float::EPSILON.cbrt()))?
-                .with_theta(theta.unwrap_or(0.5))?
-                .with_gamma(gamma.unwrap_or(0.66))?;
-            if let Some(max_iterations) = max_iterations {
-                line_search = line_search.with_max_iterations(max_iterations);
-            }
-            if let Some(max_bisects) = max_bisects {
-                line_search = line_search.with_max_bisects(max_bisects);
-            }
-            Ok(StrongWolfeLineSearch::HagerZhang(line_search))
-        }
-        _ => Err(config_error(format!(
-            "unknown line_search kind `{kind}`; expected one of more_thuente, hager_zhang"
-        ))),
-    }
-}
-
-fn parse_simplex_construction<'py>(obj: &Bound<'py, PyAny>) -> PyResult<SimplexConstructionMethod> {
-    let kind: String = extract_required_field(obj, "kind")?;
-    match normalize_choice(&kind).as_str() {
-        "scaled_orthogonal" => {
-            require_structural_fields(
-                obj,
-                "ScaledOrthogonalSimplex",
-                &[
-                    "kind",
-                    "x0",
-                    "orthogonal_multiplier",
-                    "orthogonal_zero_step",
-                ],
-            )?;
-            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(obj, "x0")?)?;
-            let orthogonal_multiplier: Option<Float> =
-                extract_optional_field(obj, "orthogonal_multiplier")?;
-            let orthogonal_zero_step: Option<Float> =
-                extract_optional_field(obj, "orthogonal_zero_step")?;
-            SimplexConstructionMethod::custom_scaled_orthogonal(
-                &x0,
-                orthogonal_multiplier.unwrap_or(1.05),
-                orthogonal_zero_step.unwrap_or(0.00025),
-            )
-            .map_err(Into::into)
-        }
-        "orthogonal" => {
-            require_structural_fields(obj, "OrthogonalSimplex", &["kind", "x0", "simplex_size"])?;
-            let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(obj, "x0")?)?;
-            let simplex_size: Option<Float> = extract_optional_field(obj, "simplex_size")?;
-            SimplexConstructionMethod::custom_orthogonal(&x0, simplex_size.unwrap_or(1.0))
-                .map_err(Into::into)
-        }
-        "custom" => {
-            require_structural_fields(obj, "CustomSimplex", &["kind", "simplex"])?;
-            let simplex = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-                obj, "simplex",
-            )?)?;
-            SimplexConstructionMethod::custom(vectors_to_dvectors(&simplex)).map_err(Into::into)
-        }
-        _ => Err(config_error(format!(
-            "unknown simplex construction kind `{kind}`; expected one of scaled_orthogonal, orthogonal, custom"
-        ))),
-    }
-}
-
-fn parse_chain_storage<'py>(obj: &Bound<'py, PyAny>) -> PyResult<ChainStorageMode> {
-    if let Ok(kind) = obj.extract::<String>() {
-        return match normalize_choice(&kind).as_str() {
-            "full" => Ok(ChainStorageMode::Full),
-            _ => Err(config_error(format!(
-                "unknown chain_storage `{kind}`; expected full or a chain storage helper object"
-            ))),
-        };
-    }
-
-    let kind: String = extract_required_field(obj, "kind")?;
-    match normalize_choice(&kind).as_str() {
-        "full" => Ok(ChainStorageMode::Full),
-        "rolling" => {
-            require_structural_fields(obj, "ChainStorageRolling", &["kind", "window"])?;
-            let window: usize = extract_required_field(obj, "window")?;
-            Ok(ChainStorageMode::Rolling { window })
-        }
-        "sampled" => {
-            require_structural_fields(
-                obj,
-                "ChainStorageSampled",
-                &["kind", "keep_every", "max_samples"],
-            )?;
-            let keep_every: usize = extract_required_field(obj, "keep_every")?;
-            let max_samples: Option<usize> = extract_optional_field(obj, "max_samples")?;
-            Ok(ChainStorageMode::Sampled {
-                keep_every,
-                max_samples,
-            })
-        }
-        _ => Err(config_error(format!(
-            "unknown chain storage kind `{kind}`; expected one of full, rolling, sampled"
-        ))),
-    }
-}
-
-fn parse_aies_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedAIESMove> {
-    let kind: String = extract_required_field(obj, "kind")?;
-    let weight: Option<Float> = extract_optional_field(obj, "weight")?;
-    let weight = weight.unwrap_or(1.0);
-    match normalize_choice(&kind).as_str() {
-        "stretch" => {
-            require_structural_fields(obj, "AIESStretchMove", &["kind", "weight", "a"])?;
-            let a: Option<Float> = extract_optional_field(obj, "a")?;
-            a.map_or_else(
-                || Ok(AIESMove::stretch(weight)),
-                |a| AIESMove::custom_stretch(a, weight).map_err(Into::into),
-            )
-        }
-        "walk" => {
-            require_structural_fields(obj, "AIESWalkMove", &["kind", "weight"])?;
-            Ok(AIESMove::walk(weight))
-        }
-        _ => Err(config_error(format!(
-            "unknown AIES move kind `{kind}`; expected one of stretch, walk"
-        ))),
-    }
-}
-
-fn parse_aies_moves<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Vec<WeightedAIESMove>> {
-    let mut moves = Vec::new();
-    for item in obj.try_iter()? {
-        moves.push(parse_aies_move(&item?)?);
-    }
-    Ok(moves)
-}
-
-fn parse_ess_move<'py>(obj: &Bound<'py, PyAny>) -> PyResult<WeightedESSMove> {
-    let kind: String = extract_required_field(obj, "kind")?;
-    let weight: Option<Float> = extract_optional_field(obj, "weight")?;
-    let weight = weight.unwrap_or(1.0);
-    match normalize_choice(&kind).as_str() {
-        "differential" => {
-            require_structural_fields(obj, "ESSDifferentialMove", &["kind", "weight"])?;
-            Ok(ESSMove::differential(weight))
-        }
-        "gaussian" => {
-            require_structural_fields(obj, "ESSGaussianMove", &["kind", "weight"])?;
-            Ok(ESSMove::gaussian(weight))
-        }
-        "global" => {
-            require_structural_fields(
-                obj,
-                "ESSGlobalMove",
-                &["kind", "weight", "scale", "rescale_cov", "n_components"],
-            )?;
-            let scale: Option<Float> = extract_optional_field(obj, "scale")?;
-            let rescale_cov: Option<Float> = extract_optional_field(obj, "rescale_cov")?;
-            let n_components: Option<usize> = extract_optional_field(obj, "n_components")?;
-            let is_default = scale.is_none() && rescale_cov.is_none() && n_components.is_none();
-            if is_default {
-                Ok(ESSMove::global(weight))
-            } else {
-                ESSMove::custom_global(weight, scale, rescale_cov, n_components).map_err(Into::into)
+impl TransformSpec {
+    fn build(&self) -> crate::error::GaneshResult<Box<dyn Transform<f64, NalgebraProvider>>> {
+        match self {
+            Self::Bounds(bounds) => Ok(Box::new(Bounds::new(bounds.clone())?)),
+            Self::Scale(scales) => Ok(Box::new(ScaleTransform::from_parameter_scales(
+                scales.clone(),
+            )?)),
+            Self::Periodic(intervals) => Ok(Box::new(PeriodicTransform::new(intervals.clone())?)),
+            Self::Chain(items) => {
+                let mut items = items.iter();
+                let Some(first) = items.next() else {
+                    return Err(crate::error::GaneshError::ConfigError(
+                        "a transform chain requires at least one transform".into(),
+                    ));
+                };
+                let mut chain = first.build()?;
+                for item in items {
+                    chain = Box::new(TransformChain::new(chain, item.build()?));
+                }
+                Ok(chain)
             }
         }
-        _ => Err(config_error(format!(
-            "unknown ESS move kind `{kind}`; expected one of differential, gaussian, global"
-        ))),
     }
 }
 
-fn parse_ess_moves<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Vec<WeightedESSMove>> {
-    let mut moves = Vec::new();
-    for item in obj.try_iter()? {
-        moves.push(parse_ess_move(&item?)?);
+fn extract_transform(value: &Bound<'_, PyAny>) -> PyResult<TransformSpec> {
+    if let Ok(value) = value.extract::<PyRef<'_, PyBounds>>() {
+        return Ok(value.spec.clone());
     }
-    Ok(moves)
+    if let Ok(value) = value.extract::<PyRef<'_, PyScaleTransform>>() {
+        return Ok(value.spec.clone());
+    }
+    if let Ok(value) = value.extract::<PyRef<'_, PyPeriodicTransform>>() {
+        return Ok(value.spec.clone());
+    }
+    if let Ok(value) = value.extract::<PyRef<'_, PyTransformChain>>() {
+        return Ok(value.spec.clone());
+    }
+    Err(PyValueError::new_err(
+        "expected a Ganesh bounds, scale, periodic, or transform-chain object",
+    ))
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for LBFGSBConfig {
-    type Error = pyo3::PyErr;
+/// Smooth parameter bounds.
+#[pyclass(name = "Bounds", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyBounds {
+    spec: TransformSpec,
+}
 
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "LBFGSBConfig",
-            &[
-                "memory_limit",
-                "bounds",
-                "parameter_names",
-                "bounds_handling",
-                "line_search",
-                "error_mode",
-            ],
-        )?;
-        let memory_limit: Option<usize> = extract_optional_field(&obj, "memory_limit")?;
-        let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
-            extract_optional_field(&obj, "bounds")?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
-        let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
-        let error_mode: Option<String> = extract_optional_field(&obj, "error_mode")?;
-
-        let mut native = Self::default();
-        if let Some(memory_limit) = memory_limit {
-            native = native.with_memory_limit(memory_limit)?;
-        }
-        if let Some(bounds_handling) = bounds_handling {
-            native = native.with_bounds_handling(parse_bounds_handling(&bounds_handling)?);
-        }
-        if let Some(line_search) = line_search {
-            native = native.with_line_search(parse_line_search(&line_search)?);
-        }
-        if let Some(error_mode) = error_mode {
-            native = native.with_error_mode(parse_lbfgsb_error_mode(&error_mode)?);
-        }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
+#[pymethods]
+impl PyBounds {
+    #[new]
+    fn new(bounds: Vec<(f64, f64)>) -> PyResult<Self> {
+        Bounds::<f64, NalgebraProvider>::new(bounds.clone()).map_err(super::ganesh_error)?;
+        Ok(Self {
+            spec: TransformSpec::Bounds(bounds),
+        })
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadConfig {
-    type Error = pyo3::PyErr;
+/// Per-parameter characteristic scales.
+#[pyclass(name = "ScaleTransform", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyScaleTransform {
+    spec: TransformSpec,
+}
 
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "NelderMeadConfig",
-            &[
-                "bounds",
-                "parameter_names",
-                "alpha",
-                "beta",
-                "gamma",
-                "delta",
-                "adaptive_dimension",
-                "expansion_method",
-                "bounds_handling",
-            ],
-        )?;
-        let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
-            extract_optional_field(&obj, "bounds")?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let alpha: Option<Float> = extract_optional_field(&obj, "alpha")?;
-        let beta: Option<Float> = extract_optional_field(&obj, "beta")?;
-        let gamma: Option<Float> = extract_optional_field(&obj, "gamma")?;
-        let delta: Option<Float> = extract_optional_field(&obj, "delta")?;
-        let adaptive_dimension: Option<usize> = extract_optional_field(&obj, "adaptive_dimension")?;
-        let expansion_method: Option<String> = extract_optional_field(&obj, "expansion_method")?;
-        let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
-
-        let mut native = Self::default();
-        if let Some(alpha) = alpha {
-            native = native.with_alpha(alpha)?;
-        }
-        if let Some(beta) = beta {
-            native = native.with_beta(beta)?;
-        }
-        if let Some(gamma) = gamma {
-            native = native.with_gamma(gamma)?;
-        }
-        if let Some(delta) = delta {
-            native = native.with_delta(delta)?;
-        }
-        if let Some(adaptive_dimension) = adaptive_dimension {
-            native = native.with_adaptive(adaptive_dimension)?;
-        }
-        if let Some(expansion_method) = expansion_method {
-            native =
-                native.with_expansion_method(parse_simplex_expansion_method(&expansion_method)?);
-        }
-        if let Some(bounds_handling) = bounds_handling {
-            native = native.with_bounds_handling(parse_bounds_handling(&bounds_handling)?);
-        }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
+#[pymethods]
+impl PyScaleTransform {
+    #[new]
+    fn new(scales: Vec<f64>) -> PyResult<Self> {
+        ScaleTransform::<f64, NalgebraProvider>::from_parameter_scales(scales.clone())
+            .map_err(super::ganesh_error)?;
+        Ok(Self {
+            spec: TransformSpec::Scale(scales),
+        })
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for NelderMeadInit {
-    type Error = pyo3::PyErr;
+/// Per-parameter optional periodic intervals.
+#[pyclass(name = "PeriodicTransform", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyPeriodicTransform {
+    spec: TransformSpec,
+}
 
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(&obj, "NelderMeadInit", &["x0", "construction_method"])?;
-        let x0: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "x0")?;
-        let construction_method: Option<Bound<'py, PyAny>> =
-            extract_optional_field(&obj, "construction_method")?;
-        if x0.is_some() && construction_method.is_some() {
-            return Err(config_error(
-                "NelderMeadInit accepts either `x0` or `construction_method`, not both",
+#[pymethods]
+impl PyPeriodicTransform {
+    #[new]
+    fn new(intervals: Vec<Option<(f64, f64)>>) -> PyResult<Self> {
+        PeriodicTransform::<f64, NalgebraProvider>::new(intervals.clone())
+            .map_err(super::ganesh_error)?;
+        Ok(Self {
+            spec: TransformSpec::Periodic(intervals),
+        })
+    }
+}
+
+/// A transform sequence applied in the supplied order.
+#[pyclass(name = "TransformChain", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyTransformChain {
+    spec: TransformSpec,
+}
+
+#[pymethods]
+impl PyTransformChain {
+    #[new]
+    fn new(transforms: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let specs = transforms
+            .try_iter()?
+            .map(|item| item.and_then(|item| extract_transform(&item)))
+            .collect::<PyResult<Vec<_>>>()?;
+        if specs.is_empty() {
+            return Err(PyValueError::new_err(
+                "a transform chain requires at least one transform",
             ));
         }
-        if let Some(construction_method) = construction_method {
-            Ok(Self::new_with_method(parse_simplex_construction(
-                &construction_method,
-            )?))
-        } else {
-            let x0 = x0.ok_or_else(|| {
-                config_error("NelderMeadInit requires either `x0` or `construction_method`")
-            })?;
-            Ok(Self::new(extract_vector(&x0)?))
+        let spec = TransformSpec::Chain(specs);
+        spec.build().map_err(super::ganesh_error)?;
+        Ok(Self { spec })
+    }
+}
+
+fn parse_transform(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<TransformSpec>> {
+    value.map(extract_transform).transpose()
+}
+
+#[derive(Clone, Debug)]
+enum LineSearchSpec {
+    MoreThuente {
+        c1: f64,
+        c2: f64,
+        max_iterations: usize,
+        max_zoom: usize,
+    },
+    HagerZhang {
+        delta: f64,
+        sigma: f64,
+        epsilon: f64,
+        theta: f64,
+        gamma: f64,
+        max_iterations: usize,
+        max_bisects: usize,
+    },
+}
+
+impl LineSearchSpec {
+    fn build(&self) -> crate::error::GaneshResult<StrongWolfeLineSearch> {
+        Ok(match *self {
+            Self::MoreThuente {
+                c1,
+                c2,
+                max_iterations,
+                max_zoom,
+            } => MoreThuenteLineSearch::default()
+                .with_c1_c2(c1, c2)?
+                .with_max_iterations(max_iterations)
+                .with_max_zoom(max_zoom)
+                .into(),
+            Self::HagerZhang {
+                delta,
+                sigma,
+                epsilon,
+                theta,
+                gamma,
+                max_iterations,
+                max_bisects,
+            } => HagerZhangLineSearch::default()
+                .with_delta_sigma(delta, sigma)?
+                .with_epsilon(epsilon)?
+                .with_theta(theta)?
+                .with_gamma(gamma)?
+                .with_max_iterations(max_iterations)
+                .with_max_bisects(max_bisects)
+                .into(),
+        })
+    }
+}
+
+/// Moré–Thuente strong-Wolfe line-search settings.
+#[pyclass(name = "MoreThuenteLineSearch", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyMoreThuenteLineSearch {
+    spec: LineSearchSpec,
+}
+
+#[pymethods]
+impl PyMoreThuenteLineSearch {
+    #[new]
+    #[pyo3(signature = (*, c1=1e-4, c2=0.9, max_iterations=20, max_zoom=20))]
+    fn new(c1: f64, c2: f64, max_iterations: usize, max_zoom: usize) -> PyResult<Self> {
+        let spec = LineSearchSpec::MoreThuente {
+            c1,
+            c2,
+            max_iterations,
+            max_zoom,
+        };
+        spec.build().map_err(super::ganesh_error)?;
+        Ok(Self { spec })
+    }
+}
+
+/// Hager–Zhang strong-Wolfe line-search settings.
+#[pyclass(name = "HagerZhangLineSearch", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyHagerZhangLineSearch {
+    spec: LineSearchSpec,
+}
+
+#[pymethods]
+impl PyHagerZhangLineSearch {
+    #[new]
+    #[pyo3(signature = (*, delta=0.1, sigma=0.9, epsilon=1e-6, theta=0.5, gamma=0.66, max_iterations=100, max_bisects=50))]
+    fn new(
+        delta: f64,
+        sigma: f64,
+        epsilon: f64,
+        theta: f64,
+        gamma: f64,
+        max_iterations: usize,
+        max_bisects: usize,
+    ) -> PyResult<Self> {
+        let spec = LineSearchSpec::HagerZhang {
+            delta,
+            sigma,
+            epsilon,
+            theta,
+            gamma,
+            max_iterations,
+            max_bisects,
+        };
+        spec.build().map_err(super::ganesh_error)?;
+        Ok(Self { spec })
+    }
+}
+
+fn parse_line_search(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<LineSearchSpec>> {
+    let Some(value) = value else { return Ok(None) };
+    if let Ok(value) = value.extract::<PyRef<'_, PyMoreThuenteLineSearch>>() {
+        return Ok(Some(value.spec.clone()));
+    }
+    if let Ok(value) = value.extract::<PyRef<'_, PyHagerZhangLineSearch>>() {
+        return Ok(Some(value.spec.clone()));
+    }
+    Err(PyValueError::new_err(
+        "expected MoreThuenteLineSearch or HagerZhangLineSearch",
+    ))
+}
+
+macro_rules! apply_common {
+    ($config:expr, $names:expr, $transform:expr) => {{
+        let mut config = $config;
+        if let Some(names) = &$names {
+            config =
+                crate::traits::SupportsParameterNames::with_parameter_names(config, names.clone());
+        }
+        if let Some(transform) = &$transform {
+            config = config.with_transform(transform.build()?);
+        }
+        config
+    }};
+}
+
+/// Adam configuration.
+#[pyclass(name = "AdamConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyAdamConfig {
+    alpha: f64,
+    beta_1: f64,
+    beta_2: f64,
+    epsilon: f64,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+
+#[pymethods]
+impl PyAdamConfig {
+    #[new]
+    #[pyo3(signature = (*, alpha=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-8, parameter_names=None, transform=None))]
+    fn new(
+        alpha: f64,
+        beta_1: f64,
+        beta_2: f64,
+        epsilon: f64,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            alpha,
+            beta_1,
+            beta_2,
+            epsilon,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+
+impl PyAdamConfig {
+    /// Convert to the default Rust Adam configuration.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<AdamConfig> {
+        let config = AdamConfig::default()
+            .with_alpha(self.alpha)?
+            .with_beta_1(self.beta_1)?
+            .with_beta_2(self.beta_2)?
+            .with_epsilon(self.epsilon)?;
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// Nonlinear conjugate-gradient configuration.
+#[pyclass(name = "ConjugateGradientConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyConjugateGradientConfig {
+    update: String,
+    line_search: Option<LineSearchSpec>,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+
+#[pymethods]
+impl PyConjugateGradientConfig {
+    #[new]
+    #[pyo3(signature = (*, update="polak_ribiere_plus", line_search=None, parameter_names=None, transform=None))]
+    fn new(
+        update: &str,
+        line_search: Option<&Bound<'_, PyAny>>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            update: update.to_owned(),
+            line_search: parse_line_search(line_search)?,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+
+impl PyConjugateGradientConfig {
+    /// Convert to the default Rust conjugate-gradient configuration.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<ConjugateGradientConfig> {
+        let update = match self.update.as_str() {
+            "fletcher_reeves" => ConjugateGradientUpdate::FletcherReeves,
+            "polak_ribiere_plus" => ConjugateGradientUpdate::PolakRibierePlus,
+            "hestenes_stiefel_plus" => ConjugateGradientUpdate::HestenesStiefelPlus,
+            "dai_yuan" => ConjugateGradientUpdate::DaiYuan,
+            "hager_zhang" => ConjugateGradientUpdate::HagerZhang,
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown conjugate-gradient update `{other}`"
+                )))
+            }
+        };
+        let mut config = ConjugateGradientConfig::default().with_update(update);
+        if let Some(line_search) = &self.line_search {
+            config = config.with_line_search(line_search.build()?);
+        }
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// L-BFGS-B configuration.
+#[pyclass(name = "LBFGSBConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyLBFGSBConfig {
+    history_size: usize,
+    max_step: f64,
+    error_mode: String,
+    line_search: Option<LineSearchSpec>,
+    bounds: Option<Vec<(f64, f64)>>,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+
+#[pymethods]
+impl PyLBFGSBConfig {
+    #[new]
+    #[pyo3(signature = (*, history_size=10, max_step=1e8, error_mode="exact_hessian", line_search=None, bounds=None, parameter_names=None, transform=None))]
+    fn new(
+        history_size: usize,
+        max_step: f64,
+        error_mode: &str,
+        line_search: Option<&Bound<'_, PyAny>>,
+        bounds: Option<Vec<(f64, f64)>>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            history_size,
+            max_step,
+            error_mode: error_mode.to_owned(),
+            line_search: parse_line_search(line_search)?,
+            bounds,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+
+impl PyLBFGSBConfig {
+    /// Convert to the default Rust L-BFGS-B configuration.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<LBFGSBConfig> {
+        let mode = match self.error_mode.as_str() {
+            "exact_hessian" => LBFGSBErrorMode::ExactHessian,
+            "skip" => LBFGSBErrorMode::Skip,
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown L-BFGS-B error mode `{other}`"
+                )))
+            }
+        };
+        let mut config = LBFGSBConfig::default()
+            .with_memory_limit(self.history_size)?
+            .with_max_step(self.max_step)?
+            .with_error_mode(mode);
+        if let Some(line_search) = &self.line_search {
+            config = config.with_line_search(line_search.build()?);
+        }
+        if let Some(bounds) = &self.bounds {
+            config = config.with_bounds(bounds.clone())?;
+        }
+        if let Some(names) = &self.parameter_names {
+            config =
+                crate::traits::SupportsParameterNames::with_parameter_names(config, names.clone());
+        }
+        if let Some(transform) = &self.transform {
+            config = config.with_transform(transform.build()?)?;
+        }
+        Ok(config)
+    }
+}
+
+/// Trust-region configuration.
+#[pyclass(name = "TrustRegionConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyTrustRegionConfig {
+    subproblem: String,
+    initial_radius: f64,
+    max_radius: f64,
+    eta: f64,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+
+#[pymethods]
+impl PyTrustRegionConfig {
+    #[new]
+    #[pyo3(signature = (*, subproblem="dogleg", initial_radius=1.0, max_radius=1000.0, eta=1e-4, parameter_names=None, transform=None))]
+    fn new(
+        subproblem: &str,
+        initial_radius: f64,
+        max_radius: f64,
+        eta: f64,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            subproblem: subproblem.to_owned(),
+            initial_radius,
+            max_radius,
+            eta,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+
+impl PyTrustRegionConfig {
+    /// Convert to the default Rust trust-region configuration.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<TrustRegionConfig> {
+        let subproblem = match self.subproblem.as_str() {
+            "dogleg" => TrustRegionSubproblem::Dogleg,
+            "cauchy_point" => TrustRegionSubproblem::CauchyPoint,
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown trust-region subproblem `{other}`"
+                )))
+            }
+        };
+        let config = TrustRegionConfig::default()
+            .with_subproblem(subproblem)
+            .with_initial_radius(self.initial_radius)?
+            .with_max_radius(self.max_radius)?
+            .with_eta(self.eta)?;
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// CMA-ES configuration.
+#[pyclass(name = "CMAESConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyCMAESConfig {
+    population_size: usize,
+    initial_sigma: f64,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyCMAESConfig {
+    #[new]
+    #[pyo3(signature = (*, population_size=0, initial_sigma=0.5, parameter_names=None, transform=None))]
+    fn new(
+        population_size: usize,
+        initial_sigma: f64,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            population_size,
+            initial_sigma,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PyCMAESConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<CMAESConfig> {
+        let mut config = CMAESConfig::default().with_initial_sigma(self.initial_sigma)?;
+        if self.population_size != 0 {
+            config = config.with_population_size(self.population_size)?;
+        }
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// Differential-evolution configuration.
+#[pyclass(name = "DifferentialEvolutionConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyDifferentialEvolutionConfig {
+    population_size: usize,
+    differential_weight: f64,
+    crossover_probability: f64,
+    initial_scale: f64,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyDifferentialEvolutionConfig {
+    #[new]
+    #[pyo3(signature = (*, population_size=0, differential_weight=0.8, crossover_probability=0.9, initial_scale=1.0, parameter_names=None, transform=None))]
+    fn new(
+        population_size: usize,
+        differential_weight: f64,
+        crossover_probability: f64,
+        initial_scale: f64,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            population_size,
+            differential_weight,
+            crossover_probability,
+            initial_scale,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PyDifferentialEvolutionConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<DifferentialEvolutionConfig> {
+        let mut config = DifferentialEvolutionConfig::default()
+            .with_differential_weight(self.differential_weight)?
+            .with_crossover_probability(self.crossover_probability)?
+            .with_initial_scale(self.initial_scale)?;
+        if self.population_size != 0 {
+            config = config.with_population_size(self.population_size)?;
+        }
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// Nelder-Mead configuration.
+#[pyclass(name = "NelderMeadConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyNelderMeadConfig {
+    reflection: f64,
+    expansion: f64,
+    contraction: f64,
+    shrink: f64,
+    initial_step: f64,
+    initial_zero_step: f64,
+    expansion_method: String,
+    initial_simplex: Option<Vec<Vec<f64>>>,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyNelderMeadConfig {
+    #[new]
+    #[pyo3(signature = (*, reflection=1.0, expansion=2.0, contraction=0.5, shrink=0.5, initial_step=0.05, initial_zero_step=0.00025, expansion_method="greedy_minimization", initial_simplex=None, parameter_names=None, transform=None))]
+    fn new(
+        reflection: f64,
+        expansion: f64,
+        contraction: f64,
+        shrink: f64,
+        initial_step: f64,
+        initial_zero_step: f64,
+        expansion_method: &str,
+        initial_simplex: Option<Vec<Vec<f64>>>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            reflection,
+            expansion,
+            contraction,
+            shrink,
+            initial_step,
+            initial_zero_step,
+            expansion_method: expansion_method.to_owned(),
+            initial_simplex,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PyNelderMeadConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<NelderMeadConfig> {
+        let method = match self.expansion_method.as_str() {
+            "greedy_minimization" => SimplexExpansionMethod::GreedyMinimization,
+            "greedy_expansion" => SimplexExpansionMethod::GreedyExpansion,
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown simplex expansion method `{other}`"
+                )))
+            }
+        };
+        let mut config = NelderMeadConfig::default()
+            .with_alpha_beta(self.reflection, self.expansion)?
+            .with_gamma(self.contraction)?
+            .with_delta(self.shrink)?
+            .with_initial_step(self.initial_step)?
+            .with_initial_zero_step(self.initial_zero_step)?
+            .with_expansion_method(method);
+        if let Some(simplex) = &self.initial_simplex {
+            config = config.with_initial_simplex(
+                simplex
+                    .iter()
+                    .cloned()
+                    .map(crate::Vector::from_vec)
+                    .collect(),
+            )?;
+        }
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// Simulated-annealing configuration.
+#[pyclass(name = "SimulatedAnnealingConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PySimulatedAnnealingConfig {
+    initial_temperature: f64,
+    cooling_rate: f64,
+    proposal_scale: f64,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PySimulatedAnnealingConfig {
+    #[new]
+    #[pyo3(signature = (*, initial_temperature=1.0, cooling_rate=0.999, proposal_scale=0.1, parameter_names=None, transform=None))]
+    fn new(
+        initial_temperature: f64,
+        cooling_rate: f64,
+        proposal_scale: f64,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            initial_temperature,
+            cooling_rate,
+            proposal_scale,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PySimulatedAnnealingConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<SimulatedAnnealingConfig> {
+        let config = SimulatedAnnealingConfig::new(self.initial_temperature, self.cooling_rate)?
+            .with_proposal_scale(self.proposal_scale)?;
+        Ok(apply_common!(config, self.parameter_names, self.transform))
+    }
+}
+
+/// Weighted affine-invariant ensemble move.
+#[pyclass(name = "AIESMove", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyAIESMove {
+    kind: String,
+    scale: f64,
+    weight: f64,
+}
+
+#[pymethods]
+impl PyAIESMove {
+    #[staticmethod]
+    #[pyo3(signature = (*, scale=2.0, weight=1.0))]
+    fn stretch(scale: f64, weight: f64) -> PyResult<Self> {
+        let value = Self {
+            kind: "stretch".into(),
+            scale,
+            weight,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+    #[staticmethod]
+    #[pyo3(signature = (*, weight=1.0))]
+    fn walk(weight: f64) -> PyResult<Self> {
+        let value = Self {
+            kind: "walk".into(),
+            scale: 2.0,
+            weight,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+
+impl PyAIESMove {
+    /// Convert to a weighted Rust AIES move.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<(AIESMove, f64)> {
+        if !self.weight.is_finite() || self.weight < 0.0 {
+            return Err(crate::error::GaneshError::ConfigError(
+                "move weight must be finite and non-negative".into(),
+            ));
+        }
+        match self.kind.as_str() {
+            "stretch" => AIESMove::custom_stretch(self.scale, self.weight),
+            "walk" => Ok(AIESMove::walk(self.weight)),
+            _ => unreachable!(),
         }
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for PSOConfig {
-    type Error = pyo3::PyErr;
+/// Weighted ensemble-slice move.
+#[pyclass(name = "ESSMove", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyESSMove {
+    kind: String,
+    scale: f64,
+    rescale_covariance: f64,
+    components: usize,
+    weight: f64,
+}
 
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "PSOConfig",
-            &[
-                "bounds",
-                "parameter_names",
-                "omega",
-                "c1",
-                "c2",
-                "bounds_handling",
-            ],
-        )?;
-        let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
-            extract_optional_field(&obj, "bounds")?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let omega: Option<Float> = extract_optional_field(&obj, "omega")?;
-        let c1: Option<Float> = extract_optional_field(&obj, "c1")?;
-        let c2: Option<Float> = extract_optional_field(&obj, "c2")?;
-        let bounds_handling: Option<String> = extract_optional_field(&obj, "bounds_handling")?;
-        let mut native = Self::default();
-        if let Some(omega) = omega {
-            native = native.with_omega(omega)?;
-        }
-        if let Some(c1) = c1 {
-            native = native.with_c1(c1)?;
-        }
-        if let Some(c2) = c2 {
-            native = native.with_c2(c2)?;
-        }
-        if let Some(bounds_handling) = bounds_handling {
-            native = native.with_bounds_handling(parse_bounds_handling(&bounds_handling)?);
-        }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
+#[pymethods]
+impl PyESSMove {
+    #[staticmethod]
+    #[pyo3(signature = (*, weight=1.0))]
+    fn differential(weight: f64) -> PyResult<Self> {
+        Self::make("differential", 1.0, 1.0, 1, weight)
+    }
+    #[staticmethod]
+    #[pyo3(signature = (*, weight=1.0))]
+    fn gaussian(weight: f64) -> PyResult<Self> {
+        Self::make("gaussian", 1.0, 1.0, 1, weight)
+    }
+    #[staticmethod]
+    #[pyo3(signature = (*, scale=1.0, rescale_covariance=0.001, components=5, weight=1.0))]
+    fn global(
+        scale: f64,
+        rescale_covariance: f64,
+        components: usize,
+        weight: f64,
+    ) -> PyResult<Self> {
+        Self::make("global", scale, rescale_covariance, components, weight)
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for Swarm {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "PSOInit",
-            &["positions", "topology", "update_method", "boundary_method"],
-        )?;
-        let positions = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-            &obj,
-            "positions",
-        )?)?;
-        let topology: Option<String> = extract_optional_field(&obj, "topology")?;
-        let update_method: Option<String> = extract_optional_field(&obj, "update_method")?;
-        let boundary_method: Option<String> = extract_optional_field(&obj, "boundary_method")?;
-        let mut swarm = Self::new(SwarmPositionInitializer::Custom(vectors_to_dvectors(
-            &positions,
-        )));
-        if let Some(topology) = topology {
-            swarm = swarm.with_topology(parse_swarm_topology(&topology)?);
+impl PyESSMove {
+    fn make(
+        kind: &str,
+        scale: f64,
+        rescale_covariance: f64,
+        components: usize,
+        weight: f64,
+    ) -> PyResult<Self> {
+        let value = Self {
+            kind: kind.into(),
+            scale,
+            rescale_covariance,
+            components,
+            weight,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+    /// Convert to a weighted Rust ESS move.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<(ESSMove, f64)> {
+        if !self.weight.is_finite() || self.weight < 0.0 {
+            return Err(crate::error::GaneshError::ConfigError(
+                "move weight must be finite and non-negative".into(),
+            ));
         }
-        if let Some(update_method) = update_method {
-            swarm = swarm.with_update_method(parse_swarm_update_method(&update_method)?);
+        match self.kind.as_str() {
+            "differential" => Ok(ESSMove::differential(self.weight)),
+            "gaussian" => Ok(ESSMove::gaussian(self.weight)),
+            "global" => ESSMove::custom_global(
+                self.weight,
+                Some(self.scale),
+                Some(self.rescale_covariance),
+                Some(self.components),
+            ),
+            _ => unreachable!(),
         }
-        if let Some(boundary_method) = boundary_method {
-            swarm = swarm.with_boundary_method(parse_swarm_boundary_method(&boundary_method)?);
-        }
-        Ok(swarm)
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for AIESConfig {
-    type Error = pyo3::PyErr;
+/// Chain retention settings shared by Ganesh's MCMC algorithms.
+#[pyclass(name = "ChainStorage", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyChainStorage {
+    kind: String,
+    value: Option<usize>,
+    max_samples: Option<usize>,
+}
 
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "AIESConfig",
-            &["parameter_names", "moves", "chain_storage"],
-        )?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
-        let chain_storage: Option<Bound<'py, PyAny>> =
-            extract_optional_field(&obj, "chain_storage")?;
-
-        let mut native = Self::default();
-        if let Some(moves) = moves {
-            native = native.with_moves(parse_aies_moves(&moves)?)?;
+#[pymethods]
+impl PyChainStorage {
+    #[staticmethod]
+    fn full() -> Self {
+        Self {
+            kind: "full".into(),
+            value: None,
+            max_samples: None,
         }
-        if let Some(chain_storage) = chain_storage {
-            native = native.with_chain_storage(parse_chain_storage(&chain_storage)?);
-        }
-        Ok(apply_python_parameter_names(native, parameter_names))
+    }
+    #[staticmethod]
+    fn rolling(window: usize) -> PyResult<Self> {
+        let value = Self {
+            kind: "rolling".into(),
+            value: Some(window),
+            max_samples: None,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+    #[staticmethod]
+    #[pyo3(signature = (keep_every, *, max_samples=None))]
+    fn sampled(keep_every: usize, max_samples: Option<usize>) -> PyResult<Self> {
+        let value = Self {
+            kind: "sampled".into(),
+            value: Some(keep_every),
+            max_samples,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for AIESInit {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(&obj, "AIESInit", &["walkers"])?;
-        let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-            &obj, "walkers",
-        )?)?;
-        Self::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+impl PyChainStorage {
+    /// Convert to Rust chain-storage settings.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<ChainStorageMode> {
+        let positive = |name: &str, value: Option<usize>| {
+            value.filter(|value| *value > 0).ok_or_else(|| {
+                crate::error::GaneshError::ConfigError(format!("{name} must be positive"))
+            })
+        };
+        match self.kind.as_str() {
+            "full" => Ok(ChainStorageMode::Full),
+            "rolling" => Ok(ChainStorageMode::Rolling {
+                window: positive("window", self.value)?,
+            }),
+            "sampled" => Ok(ChainStorageMode::Sampled {
+                keep_every: positive("keep_every", self.value)?,
+                max_samples: self
+                    .max_samples
+                    .map(|value| positive("max_samples", Some(value)))
+                    .transpose()?,
+            }),
+            _ => unreachable!(),
+        }
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for ESSConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "ESSConfig",
-            &[
-                "parameter_names",
-                "n_adaptive",
-                "max_steps",
-                "mu",
-                "moves",
-                "chain_storage",
-            ],
-        )?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let n_adaptive: Option<usize> = extract_optional_field(&obj, "n_adaptive")?;
-        let max_steps: Option<usize> = extract_optional_field(&obj, "max_steps")?;
-        let mu: Option<Float> = extract_optional_field(&obj, "mu")?;
-        let moves: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "moves")?;
-        let chain_storage: Option<Bound<'py, PyAny>> =
-            extract_optional_field(&obj, "chain_storage")?;
-        let mut native = Self::default();
-        if let Some(moves) = moves {
-            native = native.with_moves(parse_ess_moves(&moves)?)?;
+/// Affine-invariant ensemble-sampler configuration.
+#[pyclass(name = "AIESConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyAIESConfig {
+    stretch_scale: f64,
+    moves: Option<Vec<PyAIESMove>>,
+    chain_storage: PyChainStorage,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyAIESConfig {
+    #[new]
+    #[pyo3(signature = (*, stretch_scale=2.0, moves=None, chain_storage=None, parameter_names=None, transform=None))]
+    fn new(
+        stretch_scale: f64,
+        moves: Option<Vec<PyAIESMove>>,
+        chain_storage: Option<PyChainStorage>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        finite_positive(stretch_scale, "stretch_scale")?;
+        let value = Self {
+            stretch_scale,
+            moves,
+            chain_storage: chain_storage.unwrap_or_else(PyChainStorage::full),
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PyAIESConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<AIESConfig> {
+        let mut config = AIESConfig::default()
+            .with_stretch_scale(self.stretch_scale)?
+            .with_chain_storage(self.chain_storage.to_rust()?);
+        if let Some(moves) = &self.moves {
+            config = config.with_moves(
+                moves
+                    .iter()
+                    .map(PyAIESMove::to_rust)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?;
         }
-        if let Some(n_adaptive) = n_adaptive {
-            native = native.with_n_adaptive(n_adaptive);
-        }
-        if let Some(max_steps) = max_steps {
-            native = native.with_max_steps(max_steps);
-        }
-        if let Some(mu) = mu {
-            native = native.with_mu(mu)?;
-        }
-        if let Some(chain_storage) = chain_storage {
-            native = native.with_chain_storage(parse_chain_storage(&chain_storage)?);
-        }
-        Ok(apply_python_parameter_names(native, parameter_names))
+        Ok(apply_common!(config, self.parameter_names, self.transform))
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for ESSInit {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(&obj, "ESSInit", &["walkers"])?;
-        let walkers = extract_matrix(&extract_required_field::<Bound<'py, PyAny>>(
-            &obj, "walkers",
-        )?)?;
-        Self::new(vectors_to_dvectors(&walkers)).map_err(Into::into)
+/// Ensemble-slice-sampler configuration.
+#[pyclass(name = "ESSConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyESSConfig {
+    bracket_width: f64,
+    max_shrink_steps: usize,
+    adaptive_steps: usize,
+    direction_scale: f64,
+    moves: Option<Vec<PyESSMove>>,
+    chain_storage: PyChainStorage,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyESSConfig {
+    #[new]
+    #[pyo3(signature = (*, bracket_width=1.0, max_shrink_steps=1000, adaptive_steps=0, direction_scale=1.0, moves=None, chain_storage=None, parameter_names=None, transform=None))]
+    fn new(
+        bracket_width: f64,
+        max_shrink_steps: usize,
+        adaptive_steps: usize,
+        direction_scale: f64,
+        moves: Option<Vec<PyESSMove>>,
+        chain_storage: Option<PyChainStorage>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            bracket_width,
+            max_shrink_steps,
+            adaptive_steps,
+            direction_scale,
+            moves,
+            chain_storage: chain_storage.unwrap_or_else(PyChainStorage::full),
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
+    }
+}
+impl PyESSConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<ESSConfig> {
+        let mut config = ESSConfig::default()
+            .with_bracket_width(self.bracket_width)?
+            .with_max_shrink_steps(self.max_shrink_steps)?
+            .with_adaptive_steps(self.adaptive_steps)
+            .with_direction_scale(self.direction_scale)?
+            .with_chain_storage(self.chain_storage.to_rust()?);
+        if let Some(moves) = &self.moves {
+            config = config.with_moves(
+                moves
+                    .iter()
+                    .map(PyESSMove::to_rust)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?;
+        }
+        Ok(apply_common!(config, self.parameter_names, self.transform))
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "DifferentialEvolutionConfig",
-            &[
-                "population_size",
-                "differential_weight",
-                "crossover_probability",
-                "bounds",
-                "parameter_names",
-            ],
-        )?;
-        let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
-        let differential_weight: Option<Float> =
-            extract_optional_field(&obj, "differential_weight")?;
-        let crossover_probability: Option<Float> =
-            extract_optional_field(&obj, "crossover_probability")?;
-        let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
-            extract_optional_field(&obj, "bounds")?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-
-        let mut native = Self::default();
-        if let Some(population_size) = population_size {
-            native = native.with_population_size(population_size)?;
-        }
-        if let Some(differential_weight) = differential_weight {
-            native = native.with_differential_weight(differential_weight)?;
-        }
-        if let Some(crossover_probability) = crossover_probability {
-            native = native.with_crossover_probability(crossover_probability)?;
-        }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
+/// Particle-swarm configuration.
+#[pyclass(name = "PSOConfig", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyPSOConfig {
+    particles: usize,
+    inertia: f64,
+    cognitive: f64,
+    social: f64,
+    initial_scale: f64,
+    position_bounds: Option<Vec<(f64, f64)>>,
+    topology: String,
+    ring_radius: usize,
+    update_method: String,
+    velocity_scale: Option<f64>,
+    parameter_names: Option<Vec<String>>,
+    transform: Option<TransformSpec>,
+}
+#[pymethods]
+impl PyPSOConfig {
+    #[new]
+    #[pyo3(signature = (*, particles=0, inertia=0.7298, cognitive=1.49618, social=1.49618, initial_scale=1.0, position_bounds=None, topology="global", ring_radius=1, update_method="synchronous", velocity_scale=None, parameter_names=None, transform=None))]
+    fn new(
+        particles: usize,
+        inertia: f64,
+        cognitive: f64,
+        social: f64,
+        initial_scale: f64,
+        position_bounds: Option<Vec<(f64, f64)>>,
+        topology: &str,
+        ring_radius: usize,
+        update_method: &str,
+        velocity_scale: Option<f64>,
+        parameter_names: Option<Vec<String>>,
+        transform: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let value = Self {
+            particles,
+            inertia,
+            cognitive,
+            social,
+            initial_scale,
+            position_bounds,
+            topology: topology.to_owned(),
+            ring_radius,
+            update_method: update_method.to_owned(),
+            velocity_scale,
+            parameter_names,
+            transform: parse_transform(transform)?,
+        };
+        value.to_rust().map_err(super::ganesh_error)?;
+        Ok(value)
     }
 }
 
-impl<'a, 'py> FromPyObject<'a, 'py> for DifferentialEvolutionInit {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(&obj, "DifferentialEvolutionInit", &["x0", "initial_scale"])?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
-        let initial_scale: Option<Float> = extract_optional_field(&obj, "initial_scale")?;
-
-        let mut native = Self::new(&x0)?;
-        if let Some(initial_scale) = initial_scale {
-            native = native.with_initial_scale(initial_scale)?;
+impl PyPSOConfig {
+    /// Convert to Rust.
+    pub fn to_rust(&self) -> crate::error::GaneshResult<PSOConfig> {
+        let topology = match self.topology.as_str() {
+            "global" => SwarmTopology::Global,
+            "ring" => SwarmTopology::Ring {
+                radius: self.ring_radius,
+            },
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown topology `{other}`"
+                )))
+            }
+        };
+        let update = match self.update_method.as_str() {
+            "synchronous" => SwarmUpdateMethod::Synchronous,
+            "asynchronous" => SwarmUpdateMethod::Asynchronous,
+            other => {
+                return Err(crate::error::GaneshError::ConfigError(format!(
+                    "unknown update method `{other}`"
+                )))
+            }
+        };
+        let velocity = self
+            .velocity_scale
+            .map_or(SwarmVelocityInitializer::Zero, |scale| {
+                SwarmVelocityInitializer::Uniform { scale }
+            });
+        let mut config = PSOConfig::default()
+            .with_omega(self.inertia)?
+            .with_c1(self.cognitive)?
+            .with_c2(self.social)?
+            .with_initial_scale(self.initial_scale)?
+            .with_topology(topology)
+            .with_update_method(update)
+            .with_velocity_initializer(velocity);
+        if let Some(bounds) = &self.position_bounds {
+            config = config.with_uniform_initialization(bounds.clone())?;
         }
-        Ok(native)
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for CMAESConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "CMAESConfig",
-            &["population_size", "bounds", "parameter_names"],
-        )?;
-        let population_size: Option<usize> = extract_optional_field(&obj, "population_size")?;
-        let bounds: Option<Vec<(Option<Float>, Option<Float>)>> =
-            extract_optional_field(&obj, "bounds")?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-
-        let mut native = Self::default();
-        if let Some(population_size) = population_size {
-            native = native.with_population_size(population_size)?;
+        if self.particles != 0 {
+            config = config.with_particles(self.particles)?;
         }
-        let native = apply_python_bounds(native, bounds);
-        Ok(apply_python_parameter_names(native, parameter_names))
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for CMAESInit {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(&obj, "CMAESInit", &["x0", "sigma"])?;
-        let x0 = extract_vector(&extract_required_field::<Bound<'py, PyAny>>(&obj, "x0")?)?;
-        let sigma: Float = extract_required_field(&obj, "sigma")?;
-        Self::new(&x0, sigma).map_err(Into::into)
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for SimulatedAnnealingConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "SimulatedAnnealingConfig",
-            &["initial_temperature", "cooling_rate"],
-        )?;
-        let initial_temperature: Option<Float> =
-            extract_optional_field(&obj, "initial_temperature")?;
-        let cooling_rate: Option<Float> = extract_optional_field(&obj, "cooling_rate")?;
-
-        Self::new(
-            initial_temperature.unwrap_or(1.0),
-            cooling_rate.unwrap_or(0.999),
-        )
-        .map_err(Into::into)
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for AdamConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "AdamConfig",
-            &["parameter_names", "alpha", "beta_1", "beta_2", "epsilon"],
-        )?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let alpha: Option<Float> = extract_optional_field(&obj, "alpha")?;
-        let beta_1: Option<Float> = extract_optional_field(&obj, "beta_1")?;
-        let beta_2: Option<Float> = extract_optional_field(&obj, "beta_2")?;
-        let epsilon: Option<Float> = extract_optional_field(&obj, "epsilon")?;
-
-        let mut native = Self::default();
-        if let Some(alpha) = alpha {
-            native = native.with_alpha(alpha)?;
-        }
-        if let Some(beta_1) = beta_1 {
-            native = native.with_beta_1(beta_1)?;
-        }
-        if let Some(beta_2) = beta_2 {
-            native = native.with_beta_2(beta_2)?;
-        }
-        if let Some(epsilon) = epsilon {
-            native = native.with_epsilon(epsilon)?;
-        }
-        Ok(apply_python_parameter_names(native, parameter_names))
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for ConjugateGradientConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "ConjugateGradientConfig",
-            &["parameter_names", "line_search", "update"],
-        )?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let line_search: Option<Bound<'py, PyAny>> = extract_optional_field(&obj, "line_search")?;
-        let update: Option<String> = extract_optional_field(&obj, "update")?;
-
-        let mut native = Self::default();
-        if let Some(line_search) = line_search {
-            native = native.with_line_search(parse_line_search(&line_search)?);
-        }
-        if let Some(update) = update {
-            native = native.with_update(parse_cg_update(&update)?);
-        }
-        Ok(apply_python_parameter_names(native, parameter_names))
-    }
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for TrustRegionConfig {
-    type Error = pyo3::PyErr;
-
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let obj = obj.to_owned();
-        require_structural_fields(
-            &obj,
-            "TrustRegionConfig",
-            &[
-                "parameter_names",
-                "subproblem",
-                "initial_radius",
-                "max_radius",
-                "eta",
-            ],
-        )?;
-        let parameter_names: Option<Vec<String>> = extract_optional_field(&obj, "parameter_names")?;
-        let subproblem: Option<String> = extract_optional_field(&obj, "subproblem")?;
-        let initial_radius: Option<Float> = extract_optional_field(&obj, "initial_radius")?;
-        let max_radius: Option<Float> = extract_optional_field(&obj, "max_radius")?;
-        let eta: Option<Float> = extract_optional_field(&obj, "eta")?;
-
-        let mut native = Self::default();
-        if let Some(subproblem) = subproblem {
-            native = native.with_subproblem(parse_trust_region_subproblem(&subproblem)?);
-        }
-        if let Some(initial_radius) = initial_radius {
-            native = native.with_initial_radius(initial_radius)?;
-        }
-        if let Some(max_radius) = max_radius {
-            native = native.with_max_radius(max_radius)?;
-        }
-        if let Some(eta) = eta {
-            native = native.with_eta(eta)?;
-        }
-        Ok(apply_python_parameter_names(native, parameter_names))
+        Ok(apply_common!(config, self.parameter_names, self.transform))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use pyo3::types::{PyDict, PyModule};
-
     use super::*;
-    use crate::{
-        algorithms::{
-            gradient::LBFGSB,
-            gradient_free::{DifferentialEvolution, DifferentialEvolutionInit},
-            mcmc::{aies::AIESInit, ess::ESSInit, AIES, ESS},
-        },
-        core::{Callbacks, MaxSteps},
-        traits::{Algorithm, CostFunction, Gradient, LogDensity},
-        DVector,
-    };
-    use std::{convert::Infallible, ffi::CString};
 
-    struct Quadratic;
-    struct GaussianLogDensity;
+    #[test]
+    fn line_search_specs_validate_and_convert() {
+        PyMoreThuenteLineSearch::new(1e-4, 0.8, 25, 20).unwrap();
+        assert!(PyMoreThuenteLineSearch::new(0.9, 0.1, 25, 20).is_err());
+        PyHagerZhangLineSearch::new(0.1, 0.9, 1e-6, 0.5, 0.66, 100, 50).unwrap();
+    }
 
-    impl CostFunction for Quadratic {
-        fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-            Ok(x.dot(x))
+    #[test]
+    fn lbfgsb_config_accepts_transforms_with_native_bounds() {
+        PyLBFGSBConfig {
+            history_size: 10,
+            max_step: 1e8,
+            error_mode: "exact_hessian".into(),
+            line_search: None,
+            bounds: Some(vec![(0.0, 2.0), (-1.0, 1.0)]),
+            parameter_names: None,
+            transform: Some(TransformSpec::Scale(vec![2.0, 4.0])),
         }
-    }
-
-    impl Gradient for Quadratic {
-        fn gradient(&self, x: &DVector<Float>, _args: &()) -> Result<DVector<Float>, Infallible> {
-            Ok(x * 2.0)
-        }
-    }
-
-    impl LogDensity<(), Infallible> for GaussianLogDensity {
-        fn log_density(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-            Ok(-0.5 * x.dot(x))
-        }
+        .to_rust()
+        .unwrap();
     }
 
     #[test]
-    fn structural_lbfgsb_like_without_dunder_extracts_and_runs() {
-        crate::python::attach_for_tests(|py| {
-            let code = CString::new(
-                "\
-class StructuralMoreThuenteLineSearch:
-    def __init__(self):
-        self.kind = 'more_thuente'
-        self.max_iterations = 100
-        self.max_zoom = 100
-        self.c1 = 1e-4
-        self.c2 = 0.9
-
-class StructuralLBFGSB:
-    def __init__(self):
-        self.memory_limit = 5
-        self.bounds = [(-5.0, 5.0), (-5.0, 5.0)]
-        self.parameter_names = ['x', 'y']
-        self.bounds_handling = None
-        self.line_search = StructuralMoreThuenteLineSearch()
-        self.error_mode = None
-",
-            )
+    fn typed_mcmc_components_build_rust_configs() {
+        let moves = vec![
+            PyAIESMove::stretch(2.5, 0.8).unwrap(),
+            PyAIESMove::walk(0.2).unwrap(),
+        ];
+        let storage = PyChainStorage::sampled(10, Some(500)).unwrap();
+        PyAIESConfig::new(2.0, Some(moves), Some(storage), None, None)
+            .unwrap()
+            .to_rust()
             .unwrap();
-            let filename = CString::new("structural_lbfgsb.py").unwrap();
-            let module_name = CString::new("structural_lbfgsb").unwrap();
-            let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
-            let config_like = module.getattr("StructuralLBFGSB").unwrap().call0().unwrap();
 
-            let config: LBFGSBConfig = config_like.extract().unwrap();
-            let summary = LBFGSB::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    DVector::from_row_slice(&[2.0, -1.0]),
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(2)),
-                )
-                .unwrap();
-            assert_eq!(summary.parameter_names.as_ref().unwrap(), &vec!["x", "y"]);
-        });
-    }
-
-    #[test]
-    fn differential_evolution_accepts_dictionary_fallback() {
-        crate::python::attach_for_tests(|py| {
-            let init_dict = PyDict::new(py);
-            init_dict.set_item("x0", vec![1.0, -1.0]).unwrap();
-            init_dict.set_item("initial_scale", 0.5).unwrap();
-
-            let config_dict = PyDict::new(py);
-            config_dict.set_item("population_size", 8).unwrap();
-            config_dict
-                .set_item("differential_weight", py.None())
-                .unwrap();
-            config_dict
-                .set_item("crossover_probability", py.None())
-                .unwrap();
-            config_dict.set_item("bounds", py.None()).unwrap();
-            config_dict.set_item("parameter_names", py.None()).unwrap();
-
-            let init: DifferentialEvolutionInit = init_dict.as_any().extract().unwrap();
-            let config: DifferentialEvolutionConfig = config_dict.as_any().extract().unwrap();
-            let _summary = DifferentialEvolution::default()
-                .process(
-                    &Quadratic,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-        });
-    }
-
-    #[test]
-    fn structural_aies_init_and_config_without_dunder_extract() {
-        crate::python::attach_for_tests(|py| {
-            let code = CString::new(
-                "\
-class StructuralAIESStretchMove:
-    def __init__(self):
-        self.kind = 'stretch'
-        self.weight = 1.0
-        self.a = 2.5
-
-class StructuralAIESInit:
-    def __init__(self):
-        self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
-
-class StructuralAIESConfig:
-    def __init__(self):
-        self.parameter_names = ['a', 'b']
-        self.moves = [StructuralAIESStretchMove()]
-        self.chain_storage = None
-",
-            )
+        let moves = vec![
+            PyESSMove::differential(0.5).unwrap(),
+            PyESSMove::global(1.0, 0.001, 5, 0.5).unwrap(),
+        ];
+        PyESSConfig::new(1.0, 1000, 0, 1.0, Some(moves), None, None, None)
+            .unwrap()
+            .to_rust()
             .unwrap();
-            let filename = CString::new("structural_aies.py").unwrap();
-            let module_name = CString::new("structural_aies").unwrap();
-            let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
-            let init_like = module
-                .getattr("StructuralAIESInit")
-                .unwrap()
-                .call0()
-                .unwrap();
-            let config_like = module
-                .getattr("StructuralAIESConfig")
-                .unwrap()
-                .call0()
-                .unwrap();
-
-            let init: AIESInit = init_like.extract().unwrap();
-            let config: AIESConfig = config_like.extract().unwrap();
-            let summary = AIES::default()
-                .process(
-                    &GaussianLogDensity,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-            assert_eq!(
-                summary.parameter_names.as_ref().unwrap(),
-                &vec!["a".to_string(), "b".to_string()]
-            );
-        });
     }
 
     #[test]
-    fn structural_ess_config_extracts_without_dunder() {
-        crate::python::attach_for_tests(|py| {
-            let code = CString::new(
-                "\
-class StructuralESS:
-    def __init__(self):
-        self.parameter_names = ['a', 'b']
-        self.n_adaptive = 2
-        self.max_steps = 20
-        self.mu = 1.5
-        self.moves = None
-        self.chain_storage = None
-        self.walkers = [[0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1]]
-",
-            )
-            .unwrap();
-            let filename = CString::new("structural_ess.py").unwrap();
-            let module_name = CString::new("structural_ess").unwrap();
-            let module = PyModule::from_code(py, &code, &filename, &module_name).unwrap();
-            let obj = module.getattr("StructuralESS").unwrap().call0().unwrap();
-            let init: ESSInit = obj.extract().unwrap();
-            let config: ESSConfig = obj.extract().unwrap();
-            let _summary = ESS::default()
-                .process(
-                    &GaussianLogDensity,
-                    &(),
-                    init,
-                    config,
-                    Callbacks::empty().with_terminator(MaxSteps(1)),
-                )
-                .unwrap();
-        });
+    fn invalid_component_settings_fail_eagerly() {
+        assert!(PyAIESMove::stretch(1.0, 1.0).is_err());
+        assert!(PyESSMove::global(1.0, 0.001, 1, 1.0).is_err());
+        assert!(PyChainStorage::rolling(0).is_err());
     }
 }

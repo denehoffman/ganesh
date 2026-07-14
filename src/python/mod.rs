@@ -1,66 +1,82 @@
-//! Feature-gated Python integration helpers for downstream `pyo3` crates and the optional mixed
-//! Python package build.
+//! Reusable `pyo3` types for downstream Python extension modules.
 //!
-//! Configs and run options are meant to be shared as pure Python objects and parsed here via
-//! duck-typed extraction. Summaries remain native Rust `#[pyclass]` wrappers so downstream
-//! bindings can return rich result objects with minimal glue.
+//! Enable the `python` feature, then re-export the `ganesh` submodule from an inline downstream
+//! `#[pymodule]`. This crate intentionally does not define a top-level extension module.
+//!
+//! ```
+//! #[pyo3::pymodule]
+//! mod my_extension {
+//!     #[pymodule_export]
+//!     use ganesh::python::ganesh;
+//! }
+//! ```
 
-/// Wrapper-facing Python config extraction scaffolding.
-pub mod config;
+mod callbacks;
+mod config;
+mod numeric;
+mod output;
 
-pub(crate) mod extract;
+pub use callbacks::*;
+pub use config::*;
+pub use numeric::*;
+pub use output::*;
 
-/// Wrapper-facing Python error integration scaffolding.
-pub mod errors;
+use pyo3::{create_exception, exceptions::PyException, PyErr};
 
-/// Shared numeric conversion helpers for Python-facing wrappers.
-pub mod numeric;
+#[allow(missing_docs)]
+mod exceptions {
+    use super::*;
+    create_exception!(ganesh, GaneshError, PyException);
+    create_exception!(ganesh, GaneshConfigError, GaneshError);
+    create_exception!(ganesh, GaneshNumericalError, GaneshError);
+    create_exception!(ganesh, GaneshCallbackError, GaneshError);
+}
+pub use exceptions::*;
 
-#[cfg(feature = "python-module")]
-mod module;
+pub(crate) fn ganesh_error(error: crate::error::GaneshError) -> PyErr {
+    match error {
+        crate::error::GaneshError::ConfigError(message) => GaneshConfigError::new_err(message),
+        crate::error::GaneshError::NumericalError(message) => {
+            GaneshNumericalError::new_err(message)
+        }
+    }
+}
 
-/// Python-facing run-options extraction support for built-in callbacks.
-pub mod run_options;
-
-/// Machine-readable schema helpers for the pure Python config contract.
-pub mod schema;
-
-/// Wrapper-facing Python status export scaffolding.
-pub mod status;
-
-/// Wrapper-facing Python summary export scaffolding.
-pub mod summary;
-
-pub use errors::{register_exceptions, GaneshConfigError, GaneshNumericalError, GaneshPyError};
-pub use run_options::{
-    PyAIESOptions, PyAdamEMATerminator, PyAdamOptions, PyAutocorrelationTerminator,
-    PyCMAESConditionCovTerminator, PyCMAESEqualFunValuesTerminator, PyCMAESNoEffectAxisTerminator,
-    PyCMAESNoEffectCoordTerminator, PyCMAESOptions, PyCMAESSigmaTerminator,
-    PyCMAESStagnationTerminator, PyCMAESTolFunTerminator, PyCMAESTolXTerminator,
-    PyCMAESTolXUpTerminator, PyConjugateGradientGTerminator, PyConjugateGradientOptions,
-    PyDifferentialEvolutionOptions, PyESSOptions, PyLBFGSBFTerminator, PyLBFGSBGTerminator,
-    PyLBFGSBInfNormGTerminator, PyLBFGSBOptions, PyNelderMeadFTerminator, PyNelderMeadOptions,
-    PyNelderMeadXTerminator, PyPSOOptions, PySimulatedAnnealingOptions,
-    PySimulatedAnnealingTemperatureTerminator, PyTrustRegionGTerminator, PyTrustRegionOptions,
-};
-pub use schema::{ConfigFieldKind, ConfigFieldSchema, ConfigSchema, HasPyConfigSchema};
-pub use status::{
-    register_status_types, PyEnsembleStatus, PyGradientFreeStatus, PyGradientStatus,
-    PySimulatedAnnealingStatus, PyStatusMessage, PySwarmStatus,
-};
-pub use summary::{
-    register_summary_types, IntoPySummary, PyMCMCSummary, PyMinimizationSummary,
-    PyMultiStartSummary, PySimulatedAnnealingSummary,
-};
-
-#[cfg(test)]
-pub(crate) fn attach_for_tests<F, R>(f: F) -> R
-where
-    F: for<'py> FnOnce(pyo3::Python<'py>) -> R,
-{
-    use std::sync::Mutex;
-
-    static LOCK: Mutex<()> = Mutex::new(());
-    let _guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    pyo3::Python::attach(f)
+/// Declarative submodule for downstream `pyo3` modules.
+#[pyo3::pymodule(submodule)]
+pub mod ganesh {
+    #[pymodule_export]
+    use super::{
+        GaneshCallbackError, GaneshConfigError, GaneshError, GaneshNumericalError,
+        PyAIESConfig as AIESConfig, PyAIESInit as AIESInit, PyAIESMove as AIESMove,
+        PyAdamConfig as AdamConfig, PyAdamEMATerminator as AdamEMATerminator,
+        PyAutocorrelationTerminator as AutocorrelationTerminator, PyBounds as Bounds,
+        PyCMAESConditionCovTerminator as CMAESConditionCovTerminator, PyCMAESConfig as CMAESConfig,
+        PyCMAESEqualFunValuesTerminator as CMAESEqualFunValuesTerminator,
+        PyCMAESNoEffectAxisTerminator as CMAESNoEffectAxisTerminator,
+        PyCMAESNoEffectCoordTerminator as CMAESNoEffectCoordTerminator,
+        PyCMAESSigmaTerminator as CMAESSigmaTerminator,
+        PyCMAESStagnationTerminator as CMAESStagnationTerminator,
+        PyCMAESTolFunTerminator as CMAESTolFunTerminator,
+        PyCMAESTolXTerminator as CMAESTolXTerminator,
+        PyCMAESTolXUpTerminator as CMAESTolXUpTerminator, PyChainStorage as ChainStorage,
+        PyConjugateGradientConfig as ConjugateGradientConfig,
+        PyConjugateGradientGTerminator as ConjugateGradientGTerminator,
+        PyDebugObserver as DebugObserver,
+        PyDifferentialEvolutionConfig as DifferentialEvolutionConfig, PyESSConfig as ESSConfig,
+        PyESSInit as ESSInit, PyESSMove as ESSMove, PyEvalCounts as EvalCounts,
+        PyHagerZhangLineSearch as HagerZhangLineSearch, PyLBFGSBConfig as LBFGSBConfig,
+        PyLBFGSBFTerminator as LBFGSBFTerminator, PyLBFGSBGTerminator as LBFGSBGTerminator,
+        PyLBFGSBInfNormGTerminator as LBFGSBInfNormGTerminator, PyMCMCSummary as MCMCSummary,
+        PyMaxSteps as MaxSteps, PyMinimizationSummary as MinimizationSummary,
+        PyMoreThuenteLineSearch as MoreThuenteLineSearch, PyMultiStartSummary as MultiStartSummary,
+        PyNelderMeadConfig as NelderMeadConfig, PyNelderMeadFTerminator as NelderMeadFTerminator,
+        PyNelderMeadXTerminator as NelderMeadXTerminator, PyPSOConfig as PSOConfig,
+        PyPeriodicTransform as PeriodicTransform, PyProgressObserver as ProgressObserver,
+        PyScaleTransform as ScaleTransform, PySimulatedAnnealingConfig as SimulatedAnnealingConfig,
+        PySimulatedAnnealingTerminator as SimulatedAnnealingTerminator,
+        PyStatusMessage as StatusMessage, PyStatusSnapshot as StatusSnapshot,
+        PyTransformChain as TransformChain, PyTrustRegionConfig as TrustRegionConfig,
+        PyTrustRegionGTerminator as TrustRegionGTerminator, PyVectorInit as VectorInit,
+    };
 }

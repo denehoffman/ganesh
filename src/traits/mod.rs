@@ -2,9 +2,9 @@
 pub mod abort_signal;
 pub use abort_signal::AbortSignal;
 
-/// Module containing the [`Algorithm`], [`SupportsBounds`], and [`SupportsTransform`] traits.
+/// Module containing the [`Algorithm`] and configuration helper traits.
 pub mod algorithm;
-pub use algorithm::{Algorithm, SupportsBounds, SupportsParameterNames, SupportsTransform};
+pub use algorithm::{Algorithm, SupportsParameterNames};
 
 /// Module containing the [`Observer`] and [`Terminator`] traits.
 pub mod callback;
@@ -14,22 +14,24 @@ pub use callback::{Observer, Terminator};
 pub mod checkpoint;
 pub use checkpoint::CheckpointableAlgorithm;
 
-/// Module containing the [`CostFunction`] trait.
-pub mod cost_function;
-pub use cost_function::{CostFunction, GenericCostFunction, GenericGradient, Gradient, LogDensity};
+/// Scalar- and linear-algebra-generic numerical problem traits.
+pub mod numeric_problem;
+pub use numeric_problem::{
+    GradientHessian, ScalarCostFunction as CostFunction, ScalarGradient as Gradient,
+    ScalarLogDensity as LogDensity, ValueGradientHessian,
+};
 
 /// Module containing various line-search methods.
 pub mod linesearch;
-pub use linesearch::LineSearch;
+pub use linesearch::{LineSearch, LineSearchOutput, LineSearchResult};
 
 /// Module containing the [`Status`] trait.
 pub mod status;
 pub use status::{ProgressStatus, Status, StatusMessage, StatusType};
 
-/// Module containing the [`BoundLike`] trait and the [`Bound`] enum.
-pub mod boundlike;
-pub use boundlike::{Bound, BoundLike};
-
-/// Module containing the [`Transform`] trait.
+/// Scalar- and linear-algebra-generic coordinate transforms.
 pub mod transform;
-pub use transform::{Transform, TransformExt, TransformedProblem};
+pub use transform::{
+    Bounds, IdentityTransform, PeriodicTransform, ScalarBound, ScaleTransform, Transform,
+    TransformChain, TransformedProblem,
+};

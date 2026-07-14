@@ -1,223 +1,188 @@
+//! Fit and sample a bivariate Gaussian with a smooth positive-definite transform.
+
 use fastrand::Rng;
 use ganesh::{
     algorithms::{
-        gradient::{LBFGSBConfig, LBFGSB},
-        gradient_free::{
-            nelder_mead::{NelderMeadConfig, NelderMeadInit},
-            NelderMead,
-        },
-        mcmc::{ess::ESSInit, AutocorrelationTerminator, ESSConfig, ESS},
+        gradient::{ConjugateGradient, ConjugateGradientConfig},
+        gradient_free::{NelderMead, NelderMeadConfig},
+        mcmc::{ESSConfig, ESSInit, ESSMove, ESS},
     },
-    core::{summary::HasParameterNames, utils::SampleFloat, Bounds},
-    traits::{
-        Algorithm, CostFunction, Gradient, LogDensity, SupportsTransform, Transform, TransformExt,
-    },
-    PI,
+    core::{Callbacks, MaxSteps},
+    traits::{Algorithm, CostFunction, Gradient, LogDensity, SupportsParameterNames, Transform},
+    Matrix, NalgebraProvider, Vector,
 };
-use nalgebra::{dmatrix, dvector, DMatrix, DVector, Matrix2, Vector2};
-use parking_lot::Mutex;
-use std::{borrow::Cow, convert::Infallible, error::Error, fs::File, io::BufWriter, sync::Arc};
+use serde_json::json;
+use std::{convert::Infallible, error::Error, fs::File, path::PathBuf};
 
-fn generate_data(
-    n: usize,
-    mu: &DVector<f64>,
-    cov: &DMatrix<f64>,
-    rng: &mut Rng,
-) -> Vec<DVector<f64>> {
-    (0..n).map(|_| rng.mv_normal(mu, cov)).collect()
-}
+const NAMES: [&str; 5] = ["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"];
 
-fn write_fit_result(
-    truths: &[f64],
-    data: &DVector<f64>,
-    stderr: &DVector<f64>,
-    path: &str,
-) -> Result<(), Box<dyn Error>> {
-    let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    serde_pickle::to_writer(
-        &mut writer,
-        &(truths, data.data.as_vec(), stderr.data.as_vec()),
-        Default::default(),
-    )?;
-    Ok(())
-}
+struct GaussianFit;
 
-fn write_data(data: &[DVector<f64>], path: &str) -> Result<(), Box<dyn Error>> {
-    let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    let data: Vec<Vec<f64>> = data.iter().map(|x| x.data.as_vec()).cloned().collect();
-    serde_pickle::to_writer(&mut writer, &data, Default::default())?;
-    Ok(())
-}
-
-fn write_data_chain(
-    data: &[Vec<DVector<f64>>],
-    burn: usize,
-    path: &str,
-) -> Result<(), Box<dyn Error>> {
-    let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    let data: Vec<Vec<Vec<f64>>> = data
-        .iter()
-        .map(|w| w.iter().map(|x| x.data.as_vec()).cloned().collect())
-        .collect();
-    serde_pickle::to_writer(&mut writer, &(data, burn), Default::default())?;
-    Ok(())
-}
-
-struct Problem;
-impl CostFunction<Vec<DVector<f64>>> for Problem {
-    fn evaluate(&self, x: &DVector<f64>, args: &Vec<DVector<f64>>) -> Result<f64, Infallible> {
-        let mu = Vector2::new(x[0], x[1]);
-        let sigma = Matrix2::new(x[2], x[3], x[3], x[4]);
-
-        // Assume positive-definite, so this always works
-        let chol = sigma.cholesky().unwrap();
-        let l = chol.l();
-
-        let ln_det = 2.0 * l.diagonal().iter().map(|v| v.ln()).sum::<f64>();
-
-        let n = args.len() as f64;
-        let quad_sum = args
-            .iter()
-            .map(|datum| {
-                let d = datum - mu;
-                d.dot(&chol.solve(&d))
-            })
-            .sum::<f64>();
-
-        Ok((n * (2.0 * (2.0 * PI).ln() + ln_det)) + quad_sum)
-    }
-}
-impl Gradient<Vec<DVector<f64>>> for Problem {}
-
-impl LogDensity<Vec<DVector<f64>>> for Problem {
-    fn log_density(&self, x: &DVector<f64>, args: &Vec<DVector<f64>>) -> Result<f64, Infallible> {
-        Ok(-self.evaluate(x, args)?)
-    }
-}
-
-#[derive(Clone)]
-struct SPDTransform {
-    i_00: usize,
-    i_01: usize,
-    i_11: usize,
-}
-impl Transform for SPDTransform {
-    fn to_external<'a>(&'a self, z: &'a DVector<f64>) -> Cow<'a, DVector<f64>> {
-        let (l00, l01, l11) = (z[self.i_00], z[self.i_01], z[self.i_11]);
-        let (s00, s01, s11) = (l00 * l00, l00 * l01, l01 * l01 + l11 * l11);
-        let mut x = z.clone();
-        x[self.i_00] = s00;
-        x[self.i_01] = s01;
-        x[self.i_11] = s11;
-        Cow::Owned(x)
-    }
-
-    fn to_internal<'a>(&'a self, x: &'a DVector<f64>) -> Cow<'a, DVector<f64>> {
-        let (s00, s01, s11) = (x[self.i_00], x[self.i_01], x[self.i_11]);
-        let l00 = s00.sqrt();
-        let l01 = s01 / l00;
-        let l11 = (s11 - l01 * l01).sqrt();
-        let mut z = x.clone();
-        z[self.i_00] = l00;
-        z[self.i_01] = l01;
-        z[self.i_11] = l11;
-        Cow::Owned(z)
-    }
-
-    fn to_external_jacobian(&self, z: &DVector<f64>) -> DMatrix<f64> {
-        let n = z.len();
-        let (l00, l01, l11) = (z[self.i_00], z[self.i_01], z[self.i_11]);
-        let mut j = DMatrix::identity(n, n);
-        j[(self.i_00, self.i_00)] = 2.0 * l00;
-        j[(self.i_01, self.i_00)] = l01;
-        j[(self.i_01, self.i_01)] = l00;
-        j[(self.i_11, self.i_01)] = 2.0 * l01;
-        j[(self.i_11, self.i_11)] = 2.0 * l11;
-        j
-    }
-
-    fn to_external_component_hessian(&self, a: usize, z: &DVector<f64>) -> DMatrix<f64> {
-        let n = z.len();
-        let mut h = DMatrix::zeros(n, n);
-        if a == self.i_00 {
-            h[(self.i_00, self.i_00)] = 2.0;
-        } else if a == self.i_01 {
-            h[(self.i_00, self.i_01)] = 1.0;
-            h[(self.i_01, self.i_00)] = 1.0;
-        } else if a == self.i_11 {
-            h[(self.i_01, self.i_01)] = 2.0;
-            h[(self.i_11, self.i_11)] = 2.0;
+impl CostFunction<f64, NalgebraProvider, Vec<Vector>> for GaussianFit {
+    fn evaluate(&self, x: &Vector, data: &Vec<Vector>) -> Result<f64, Infallible> {
+        let (s00, s01, s11) = (x.get(2), x.get(3), x.get(4));
+        let determinant = s00.mul_add(s11, -s01 * s01);
+        if determinant <= f64::EPSILON {
+            return Ok(f64::INFINITY);
         }
-        h
+        let quadratic = data.iter().fold(0.0, |sum, datum| {
+            let dx = datum.get(0) - x.get(0);
+            let dy = datum.get(1) - x.get(1);
+            sum + (s11 * dx * dx - 2.0 * s01 * dx * dy + s00 * dy * dy) / determinant
+        });
+        Ok((data.len() as f64).mul_add(determinant.ln(), quadratic))
     }
+}
+
+impl Gradient<f64, NalgebraProvider, Vec<Vector>> for GaussianFit {}
+
+impl LogDensity<f64, NalgebraProvider, Vec<Vector>> for GaussianFit {
+    fn log_density(&self, x: &Vector, data: &Vec<Vector>) -> Result<f64, Infallible> {
+        Ok(-0.5 * self.evaluate(x, data)?)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PositiveDefinite;
+
+impl Transform<f64, NalgebraProvider> for PositiveDefinite {
+    fn to_external(&self, internal: &Vector) -> Vector {
+        let mut external = internal.clone();
+        let (l00, l10, l11) = (internal.get(2), internal.get(3), internal.get(4));
+        external.set(2, l00 * l00);
+        external.set(3, l00 * l10);
+        external.set(4, l10.mul_add(l10, l11 * l11));
+        external
+    }
+
+    fn to_internal(&self, external: &Vector) -> Vector {
+        let mut internal = external.clone();
+        let l00 = external.get(2).sqrt();
+        let l10 = external.get(3) / l00;
+        let l11 = (external.get(4) - l10 * l10).max(f64::EPSILON).sqrt();
+        internal.set(2, l00);
+        internal.set(3, l10);
+        internal.set(4, l11);
+        internal
+    }
+
+    fn to_external_jacobian(&self, z: &Vector) -> Matrix {
+        let mut jacobian = Matrix::identity(5);
+        let (l00, l10, l11) = (z.get(2), z.get(3), z.get(4));
+        jacobian.set(2, 2, 2.0 * l00);
+        jacobian.set(3, 2, l10);
+        jacobian.set(3, 3, l00);
+        jacobian.set(4, 3, 2.0 * l10);
+        jacobian.set(4, 4, 2.0 * l11);
+        jacobian
+    }
+
+    fn to_external_component_hessian(&self, component: usize, _: &Vector) -> Matrix {
+        let mut hessian = Matrix::zeros(5, 5);
+        match component {
+            2 => hessian.set(2, 2, 2.0),
+            3 => {
+                hessian.set(2, 3, 1.0);
+                hessian.set(3, 2, 1.0);
+            }
+            4 => {
+                hessian.set(3, 3, 2.0);
+                hessian.set(4, 4, 2.0);
+            }
+            _ => {}
+        }
+        hessian
+    }
+}
+
+fn normal(rng: &mut Rng) -> f64 {
+    let radius = (-2.0 * rng.f64().max(f64::MIN_POSITIVE).ln()).sqrt();
+    radius * (std::f64::consts::TAU * rng.f64()).cos()
+}
+
+fn output_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/multivariate_normal_fit/data.json")
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut rng = Rng::with_seed(0);
-    let truths = [1.2, 2.3, 0.6, 0.5, 0.7];
-    let mu_truth = dvector![truths[0], truths[1]];
-    let sigma_truth = dmatrix![truths[2], truths[3]; truths[3], truths[4]];
-    let data = generate_data(10_000, &mu_truth, &sigma_truth, &mut rng);
-    write_data(&data, "data.pkl")?;
-    let spd_transform = SPDTransform {
-        i_00: 2,
-        i_01: 3,
-        i_11: 4,
-    };
-    let internal_bounds = Bounds::from([
-        (None, None),
-        (None, None),
-        (Some(0.0), None),
-        (None, None),
-        (Some(0.0), None),
-    ]);
-    let transform = internal_bounds.compose(spd_transform);
+    let truth: [f64; 5] = [1.2, 2.3, 0.6, 0.25, 0.7];
+    let l00 = truth[2].sqrt();
+    let l10 = truth[3] / l00;
+    let l11 = (truth[4] - l10 * l10).sqrt();
+    let mut rng = Rng::with_seed(23);
+    let data: Vec<Vector> = (0..600)
+        .map(|_| {
+            let (z0, z1) = (normal(&mut rng), normal(&mut rng));
+            [truth[0] + l00 * z0, truth[1] + l10 * z0 + l11 * z1].into()
+        })
+        .collect();
 
-    println!("Running fit (Nelder-Mead)...");
-    let nm_init = NelderMeadInit::new([0.5, 1.0, 0.7, 0.1, 0.7]);
-    let nm_config = NelderMeadConfig::default().with_transform(&transform);
-    let res = NelderMead::default()
-        .process_with_default_callbacks(&Problem, &data, nm_init, nm_config)?
-        .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
-    println!("{}", res);
-
-    println!("Running fit (L-BFGS-B)...");
-    let lbfgsb_init = DVector::from_row_slice(&[0.5, 1.0, 0.7, 0.1, 0.7]);
-    let lbfgsb_config = LBFGSBConfig::default().with_transform(&transform);
-    let res = LBFGSB::default()
-        .process_with_default_callbacks(&Problem, &data, lbfgsb_init, lbfgsb_config)?
-        .with_parameter_names(["μ₀", "μ₁", "Σ₀₀", "Σ₀₁", "Σ₁₁"]);
-    println!("{}", res);
-    write_fit_result(&truths, &res.x, &res.std, "fit.pkl")?;
-
-    let mut rng = Rng::with_seed(0);
-    let aco = Arc::new(Mutex::new(AutocorrelationTerminator::default()));
-    let x_min_int = transform.to_internal(&res.x);
-    let n_walkers = 100;
-    let walkers = Vec::from_iter((0..n_walkers).map(|_| {
-        transform.to_owned_external(&DVector::from_fn(5, |i, _| rng.normal(x_min_int[i], 0.2)))
-    }));
-    println!("Running MCMC (ESS)...");
-    let ess_init = ESSInit::new(walkers)?;
-    let ess_config = ESSConfig::default().with_transform(&transform);
-    let sample = ESS::default().process(
-        &Problem,
+    let nm_config: NelderMeadConfig = NelderMeadConfig::default()
+        .with_parameter_names(NAMES)
+        .with_transform(PositiveDefinite);
+    let nm = NelderMead::default().process_with_default_callbacks(
+        &GaussianFit,
         &data,
-        ess_init,
-        ess_config,
-        ESS::default_callbacks().with_terminator(aco.clone()),
+        [0.5, 1.0, 0.8, 0.1, 0.8],
+        nm_config,
     )?;
+    println!("Nelder–Mead\n{nm}\n");
 
-    let burn = (aco.lock().taus.last().unwrap() * 10.0) as usize;
+    let cg_config: ConjugateGradientConfig = ConjugateGradientConfig::default()
+        .with_parameter_names(NAMES)
+        .with_transform(PositiveDefinite);
+    let fit = ConjugateGradient::<f64>::default().process(
+        &GaussianFit,
+        &data,
+        nm.x.clone(),
+        cg_config,
+        ConjugateGradient::<f64>::default_callbacks().with_terminator(MaxSteps(40)),
+    )?;
+    println!("Conjugate gradient\n{fit}\n");
 
-    let chain: Vec<Vec<DVector<f64>>> = sample.get_chain(None, None);
-    write_data_chain(&chain, burn, "chain.pkl")?;
+    let center = PositiveDefinite.to_internal(&fit.x);
+    let walkers: Vec<Vector> = (0..32)
+        .map(|_| {
+            let proposal: Vector = (0..5)
+                .map(|index| center.get(index) + 0.08 * normal(&mut rng))
+                .collect::<Vec<_>>()
+                .into();
+            PositiveDefinite.to_external(&proposal)
+        })
+        .collect();
+    let ess_config: ESSConfig = ESSConfig::default()
+        .with_parameter_names(NAMES)
+        .with_moves([ESSMove::gaussian(0.3), ESSMove::differential(0.7)])?
+        .with_transform(PositiveDefinite);
+    let posterior = ESS::new(Some(23)).process(
+        &GaussianFit,
+        &data,
+        ESSInit::new(walkers)?,
+        ess_config,
+        Callbacks::empty().with_terminator(MaxSteps(300)),
+    )?;
+    let chains: Vec<Vec<Vec<f64>>> = posterior
+        .chain
+        .iter()
+        .map(|chain| chain.iter().map(Vector::to_vec).collect())
+        .collect();
+    let observations: Vec<Vec<f64>> = data.iter().map(Vector::to_vec).collect();
 
-    let flat_chain: Vec<DVector<f64>> = sample.get_flat_chain(Some(burn), None);
-    write_data(&flat_chain, "flat_chain.pkl")?;
-
+    serde_json::to_writer_pretty(
+        File::create(output_path())?,
+        &json!({
+            "title": "Bivariate Gaussian fit and posterior",
+            "parameter_names": NAMES,
+            "truth": truth,
+            "observations": observations,
+            "nelder_mead": nm.x.to_vec(),
+            "fit": fit.x.to_vec(),
+            "standard_errors": fit.std.to_vec(),
+            "chains": chains,
+            "burn": 75,
+        }),
+    )?;
+    println!("{posterior}");
+    println!("wrote {}", output_path().display());
     Ok(())
 }

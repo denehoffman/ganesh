@@ -1,24 +1,27 @@
-/// Implementation of the L-BFGS-B algorithm.
+/// L-BFGS-B minimization.
 pub mod lbfgsb;
-pub use lbfgsb::{LBFGSBConfig, LBFGSB};
+pub use lbfgsb::{
+    LBFGSBCheckpoint, LBFGSBConfig, LBFGSBErrorMode, LBFGSBFTerminator, LBFGSBGTerminator,
+    LBFGSBInfNormGTerminator, LBFGSB,
+};
 
-/// Implementation of the Adam algorithm.
+/// Adam minimization.
 pub mod adam;
-pub use adam::{Adam, AdamConfig};
+pub use adam::{Adam, AdamConfig, AdamEMATerminator};
 
-/// Implementation of the nonlinear Conjugate Gradient algorithm.
+/// Nonlinear conjugate-gradient minimization.
 pub mod conjugate_gradient;
 pub use conjugate_gradient::{
     ConjugateGradient, ConjugateGradientConfig, ConjugateGradientGTerminator,
     ConjugateGradientUpdate,
 };
 
-/// Implementation of the trust-region algorithm.
+/// Trust-region minimization.
 pub mod trust_region;
 pub use trust_region::{
     TrustRegion, TrustRegionConfig, TrustRegionGTerminator, TrustRegionSubproblem,
 };
 
-/// [`GradientStatus`] type for gradient-based minimizers.
+/// Status used by gradient-based minimizers.
 pub mod gradient_status;
 pub use gradient_status::GradientStatus;

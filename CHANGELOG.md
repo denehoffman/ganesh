@@ -148,6 +148,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠ BREAKING CHANGES
+
+- Add the required `RealScalar::rem_euclid` operation for cyclic parameter transforms.
+
+### Added
+
+- Add composable `TransformChain` and component-wise `PeriodicTransform` coordinate transforms.
+- Add periodic mixed-domain fitting and deterministic multistart showcase examples.
+
 ## [0.25.1](https://github.com/denehoffman/ganesh/compare/v0.25.0...v0.25.1) - 2025-10-02
 
 ### Fixed

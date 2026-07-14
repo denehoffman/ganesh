@@ -1,647 +1,800 @@
-use crate::{
-    algorithms::{gradient::GradientStatus, line_search::StrongWolfeLineSearch},
-    core::{Bounds, Callbacks, MinimizationSummary},
-    error::{GaneshError, GaneshResult},
-    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
-    traits::{
-        linesearch::LineSearchOutput, Algorithm, Bound, CheckpointableAlgorithm, Gradient,
-        LineSearch, Status, SupportsBounds, SupportsParameterNames, SupportsTransform, Terminator,
-        Transform, TransformedProblem,
-    },
-    DMatrix, DVector, Float,
+//! Scalar- and linear-algebra-generic limited-memory BFGS with native box projection.
+
+use crate::algorithms::gradient::GradientStatus;
+use crate::algorithms::line_search::StrongWolfeLineSearch;
+use crate::core::{
+    Callbacks, LinearAlgebra, LinearSolve, Matrix, MinimizationSummary, NalgebraProvider,
+    PseudoInverse, RealScalar, Vector,
 };
-use nalgebra::{Dyn, LU};
-use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::ops::ControlFlow;
+use crate::error::{GaneshError, GaneshResult};
+use crate::traits::{
+    Algorithm, CheckpointableAlgorithm, Gradient, LineSearch, LineSearchOutput, ScalarBound,
+    Status, SupportsParameterNames, Terminator, Transform, TransformedProblem,
+};
+use std::{marker::PhantomData, ops::ControlFlow};
 
-/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
-///
-/// This causes termination when the change in the function evaluation becomes smaller
-/// than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// will be set as converged with the message "GRADIENT CONVERGED".
-#[derive(Clone)]
-pub struct LBFGSBFTerminator {
-    /// The absolute f-convergence tolerance (default = `MACH_EPS^(1/2)`).
-    eps_abs: Float,
-}
-impl Default for LBFGSBFTerminator {
-    fn default() -> Self {
-        Self {
-            eps_abs: Float::sqrt(Float::EPSILON),
+macro_rules! lbfgsb_terminator {
+    ($name:ident, $default:expr, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Clone)]
+        pub struct $name<T: RealScalar = f64> {
+            eps_abs: T,
         }
-    }
-}
-impl LBFGSBFTerminator {
-    /// Generate a new [`LBFGSBFTerminator`] with a given absolute tolerance.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `eps_abs` is not strictly positive.
-    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
-        if eps_abs <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "eps_abs must be greater than 0".to_string(),
-            ));
+
+        impl<T: RealScalar> Default for $name<T> {
+            fn default() -> Self {
+                Self { eps_abs: $default }
+            }
         }
-        Ok(Self { eps_abs })
-    }
-}
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBFTerminator
-where
-    P: Gradient<U, E>,
-{
-    fn check_for_termination(
-        &mut self,
-        _current_step: usize,
-        algorithm: &mut LBFGSB,
-        _problem: &P,
-        status: &mut GradientStatus,
-        _args: &U,
-        _config: &LBFGSBConfig,
-    ) -> ControlFlow<()> {
-        if (algorithm.f_previous - algorithm.f).abs() < self.eps_abs {
-            status
-                .set_message()
-                .succeed_with_message("F_EVAL CONVERGED");
-            return ControlFlow::Break(());
+
+        impl<T: RealScalar> $name<T> {
+            /// Construct the terminator with a validated absolute tolerance.
+            pub fn new(eps_abs: T) -> GaneshResult<Self> {
+                if eps_abs <= T::zero() {
+                    return Err(GaneshError::ConfigError(
+                        "eps_abs must be greater than 0".to_string(),
+                    ));
+                }
+                Ok(Self { eps_abs })
+            }
         }
-        algorithm.f_previous = algorithm.f;
-        ControlFlow::Continue(())
-    }
+    };
 }
 
-/// A [`Terminator`] for the [`LBFGSB`] [`Algorithm`]
-///
-/// This causes termination when the magnitude of the
-/// gradient vector becomes smaller than the given absolute tolerance. In such a case, the [`Status`](crate::traits::Status)
-/// will be set as converged with the message "GRADIENT CONVERGED".
-#[derive(Clone)]
-pub struct LBFGSBGTerminator {
-    /// The absolute g-convergence tolerance (default = `MACH_EPS^(1/3)`).
-    eps_abs: Float,
-}
-impl Default for LBFGSBGTerminator {
-    fn default() -> Self {
-        Self {
-            eps_abs: Float::cbrt(Float::EPSILON),
-        }
-    }
-}
-
-impl LBFGSBGTerminator {
-    /// Generate a new [`LBFGSBGTerminator`] with a given absolute tolerance.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `eps_abs` is not strictly positive.
-    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
-        if eps_abs <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "eps_abs must be greater than 0".to_string(),
-            ));
-        }
-        Ok(Self { eps_abs })
-    }
-}
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBGTerminator
-where
-    P: Gradient<U, E>,
-{
-    fn check_for_termination(
-        &mut self,
-        _current_step: usize,
-        algorithm: &mut LBFGSB,
-        _problem: &P,
-        status: &mut GradientStatus,
-        _args: &U,
-        _config: &LBFGSBConfig,
-    ) -> ControlFlow<()> {
-        if algorithm.g.dot(&algorithm.g).sqrt() < self.eps_abs {
-            status
-                .set_message()
-                .succeed_with_message("GRADIENT CONVERGED");
-            return ControlFlow::Break(());
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-/// A [`Terminator`] which will stop the [`LBFGSB`] algorithm if $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$.
-#[derive(Copy, Clone)]
-pub struct LBFGSBInfNormGTerminator {
-    /// The value $`\varepsilon_g`$ for which $`||g_\text{proj}||_{\inf} < \varepsilon_g`$ will successfully terminate the algorithm (default = `1e-5`).
-    pub eps_abs: Float,
-}
-impl Default for LBFGSBInfNormGTerminator {
-    fn default() -> Self {
-        Self {
-            eps_abs: Float::cbrt(Float::EPSILON),
-        }
-    }
-}
-impl LBFGSBInfNormGTerminator {
-    /// Generate a new [`LBFGSBInfNormGTerminator`] with a given absolute tolerance.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `eps_abs` is not strictly positive.
-    pub fn new(eps_abs: Float) -> GaneshResult<Self> {
-        if eps_abs <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "eps_abs must be greater than 0".to_string(),
-            ));
-        }
-        Ok(Self { eps_abs })
-    }
-}
-impl<P, U, E> Terminator<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig> for LBFGSBInfNormGTerminator
-where
-    P: Gradient<U, E>,
-{
-    fn check_for_termination(
-        &mut self,
-        _current_step: usize,
-        algorithm: &mut LBFGSB,
-        _problem: &P,
-        status: &mut GradientStatus,
-        _args: &U,
-        _config: &LBFGSBConfig,
-    ) -> ControlFlow<()> {
-        if algorithm.get_inf_norm_projected_gradient() < self.eps_abs {
-            status
-                .set_message()
-                .succeed_with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
-            return ControlFlow::Break(());
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-/// Error modes for [`LBFGSB`] [`Algorithm`].
-#[derive(Default, Clone)]
-pub enum LBFGSBErrorMode {
-    /// Computes the exact Hessian matrix via finite differences.
-    #[default]
-    ExactHessian,
-    /// Skip Hessian computation (use this when error evaluation is not important).
-    Skip,
-}
-
-/// The internal configuration struct for the [`LBFGSB`] algorithm.
-#[derive(Clone)]
-pub struct LBFGSBConfig {
-    bounds: Option<Bounds>,
-    bounds_handling: BoundsHandlingMode,
-    parameter_names: Option<Vec<String>>,
-    transform: Option<Box<dyn Transform>>,
-    line_search: StrongWolfeLineSearch,
-    m: usize,
-    max_step: Float,
-    error_mode: LBFGSBErrorMode,
-}
-impl SupportsBounds for LBFGSBConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
-    }
-}
-impl SupportsTransform for LBFGSBConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
-        &mut self.transform
-    }
-}
-impl SupportsParameterNames for LBFGSBConfig {
+impl<T: RealScalar, L, B: LinearAlgebra<T>> SupportsParameterNames for LBFGSBConfig<T, L, B> {
     fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
         &mut self.parameter_names
     }
 }
-impl LBFGSBConfig {
-    /// Create a default configuration for the algorithm.
-    pub fn new() -> Self {
+
+lbfgsb_terminator!(
+    LBFGSBFTerminator,
+    T::epsilon().sqrt(),
+    "Terminates [`LBFGSB`] when the objective change is sufficiently small."
+);
+lbfgsb_terminator!(
+    LBFGSBGTerminator,
+    T::epsilon().cbrt(),
+    "Terminates [`LBFGSB`] when the gradient norm is sufficiently small."
+);
+lbfgsb_terminator!(
+    LBFGSBInfNormGTerminator,
+    T::epsilon().cbrt(),
+    "Terminates [`LBFGSB`] when the projected-gradient infinity norm is sufficiently small."
+);
+
+/// Controls final Hessian/error estimation for linear-algebra-generic L-BFGS-B.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LBFGSBErrorMode {
+    /// Evaluate the problem Hessian after optimization.
+    #[default]
+    ExactHessian,
+    /// Skip final Hessian and covariance estimation.
+    Skip,
+}
+
+/// Configuration for linear-algebra-generic L-BFGS-B.
+pub struct LBFGSBConfig<
+    T: RealScalar = f64,
+    L = StrongWolfeLineSearch<T, NalgebraProvider>,
+    B: LinearAlgebra<T> = NalgebraProvider,
+> {
+    /// Number of correction pairs retained by the inverse-Hessian approximation.
+    history_size: usize,
+    /// Maximum line-search step before bounds are considered.
+    max_step: T,
+    /// Final Hessian/error-estimation policy.
+    error_mode: LBFGSBErrorMode,
+    /// Optional native parameter bounds.
+    bounds: Option<Vec<ScalarBound<T>>>,
+    /// Native bounds mapped into optimizer coordinates.
+    internal_bounds: Option<Vec<ScalarBound<T>>>,
+    /// Optional user-facing parameter names copied into summaries.
+    parameter_names: Option<Vec<String>>,
+    /// Optional coordinate transform.
+    transform: Option<Box<dyn Transform<T, B>>>,
+    /// Strong-Wolfe line search.
+    line_search: L,
+}
+
+impl<T, L, B> Default for LBFGSBConfig<T, L, B>
+where
+    T: RealScalar,
+    L: Default,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            history_size: 10,
+            max_step: T::literal(1e8),
+            error_mode: LBFGSBErrorMode::default(),
+            bounds: None,
+            internal_bounds: None,
+            parameter_names: None,
+            transform: None,
+            line_search: L::default(),
+        }
+    }
+}
+
+impl<T, L, B> LBFGSBConfig<T, L, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Create a default configuration.
+    pub fn new() -> Self
+    where
+        L: Default,
+    {
         Self::default()
     }
-    /// Set the number of stored L-BFGS-B updator steps. A larger value might improve performance
-    /// while sacrificing memory usage (default = `10`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `limit < 1`.
+
+    /// Set the number of retained L-BFGS correction pairs.
     pub fn with_memory_limit(mut self, limit: usize) -> GaneshResult<Self> {
         if limit < 1 {
             return Err(GaneshError::ConfigError(
                 "Memory limit must be at least 1".to_string(),
             ));
         }
-        self.m = limit;
+        self.history_size = limit;
         Ok(self)
     }
-    /// Set the line search algorithm to use (default = [`StrongWolfeLineSearch::default`]).
-    pub const fn with_line_search(mut self, line_search: StrongWolfeLineSearch) -> Self {
-        self.line_search = line_search;
-        self
+
+    /// Set the maximum line-search step before bounds are considered.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless the step is finite and positive.
+    pub fn with_max_step(mut self, max_step: T) -> GaneshResult<Self> {
+        if !max_step.is_finite() || max_step <= T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Maximum step must be finite and greater than 0".to_string(),
+            ));
+        }
+        self.max_step = max_step;
+        Ok(self)
     }
-    /// Set the mode for caluclating parameter errors at the end of the fit. Defaults to
-    /// recalculating an exact finite-difference Hessian.
+
+    /// Replace the line-search implementation, changing the configuration's line-search type.
+    pub fn with_line_search<N>(self, line_search: N) -> LBFGSBConfig<T, N, B> {
+        LBFGSBConfig {
+            history_size: self.history_size,
+            max_step: self.max_step,
+            error_mode: self.error_mode,
+            bounds: self.bounds,
+            internal_bounds: self.internal_bounds,
+            parameter_names: self.parameter_names,
+            transform: self.transform,
+            line_search,
+        }
+    }
+
+    /// Configure native lower/upper bounds.
+    ///
+    /// # Errors
+    /// Returns a configuration error for invalid endpoints.
+    pub fn with_bounds<I>(mut self, bounds: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (T, T)>,
+    {
+        let bounds = bounds
+            .into_iter()
+            .map(|(lower, upper)| ScalarBound::new(lower, upper))
+            .collect::<GaneshResult<Vec<_>>>()?;
+        self.internal_bounds = Self::transformed_bounds(Some(&bounds), self.transform.as_deref())?;
+        self.bounds = Some(bounds);
+        Ok(self)
+    }
+
+    /// Apply a differentiable coordinate transform around the native L-BFGS-B parameter space.
+    ///
+    /// Configured native bounds remain user-facing and are mapped through the transform into the
+    /// optimizer's internal coordinates. Combining native bounds with a transform therefore
+    /// requires a coordinate-wise monotonic transform to retain an exact box constraint.
+    ///
+    /// # Errors
+    /// Returns a configuration error when existing bounds cannot be represented as an internal
+    /// box after applying the transform.
+    pub fn with_transform<X>(mut self, transform: X) -> GaneshResult<Self>
+    where
+        X: Transform<T, B> + 'static,
+    {
+        let transform: Box<dyn Transform<T, B>> = Box::new(transform);
+        self.internal_bounds =
+            Self::transformed_bounds(self.bounds.as_deref(), Some(transform.as_ref()))?;
+        self.transform = Some(transform);
+        Ok(self)
+    }
+
+    /// Select final Hessian/error estimation.
     pub const fn with_error_mode(mut self, error_mode: LBFGSBErrorMode) -> Self {
         self.error_mode = error_mode;
         self
     }
-    /// Set the policy used to handle configured bounds when a transform is also present.
-    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
-        self.bounds_handling = bounds_handling;
-        self
+
+    fn transformed_bounds(
+        bounds: Option<&[ScalarBound<T>]>,
+        transform: Option<&dyn Transform<T, B>>,
+    ) -> GaneshResult<Option<Vec<ScalarBound<T>>>> {
+        let Some(bounds) = bounds else {
+            return Ok(None);
+        };
+        let Some(transform) = transform else {
+            return Ok(Some(bounds.to_vec()));
+        };
+        let bound_limits = |bound| match bound {
+            ScalarBound::Unbounded => (-T::infinity(), T::infinity()),
+            ScalarBound::Lower(lower) => (lower, T::infinity()),
+            ScalarBound::Upper(upper) => (-T::infinity(), upper),
+            ScalarBound::Both(lower, upper) => (lower, upper),
+        };
+        let (lower, upper): (Vec<_>, Vec<_>) = bounds.iter().copied().map(bound_limits).unzip();
+        let lower = transform.to_internal(&Vector::from_vec(lower));
+        let upper = transform.to_internal(&Vector::from_vec(upper));
+        (0..bounds.len())
+            .map(|index| {
+                let a = lower.get(index);
+                let b = upper.get(index);
+                let (lower, upper) = if a < b { (a, b) } else { (b, a) };
+                ScalarBound::new(lower, upper).map_err(|_| {
+                    GaneshError::ConfigError(
+                        "transform does not map native bounds to a valid internal box".into(),
+                    )
+                })
+            })
+            .collect::<GaneshResult<Vec<_>>>()
+            .map(Some)
     }
 }
 
-impl Default for LBFGSBConfig {
-    fn default() -> Self {
-        Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            line_search: StrongWolfeLineSearch::default(),
-            m: 10,
-            max_step: 1e8,
-            error_mode: Default::default(),
-        }
-    }
-}
-
-/// The L-BFGS-B (Limited memory, bounded Broyden-Fletcher-Goldfarb-Shanno) algorithm.
-///
-/// This minimization [`Algorithm`] is a quasi-Newton minimizer which approximates the inverse of
-/// the Hessian matrix using the L-BFGS update step with a modification to ensure boundary constraints
-/// are satisfied. The L-BFGS-B algorithm is described in detail in [^1].
-///
-/// [^1]: [R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A Limited Memory Algorithm for Bound Constrained Optimization,” SIAM J. Sci. Comput., vol. 16, no. 5, pp. 1190–1208, Sep. 1995, doi: 10.1137/0916069.](https://doi.org/10.1137/0916069)
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Clone)]
-pub struct LBFGSB {
-    x: DVector<Float>,
-    g: DVector<Float>,
-    l: DVector<Float>,
-    u: DVector<Float>,
-    resolved_transform: Option<Box<dyn Transform>>,
-    m_mat: Option<LU<Float, Dyn, Dyn>>,
-    w_mat: DMatrix<Float>,
-    theta: Float,
-    f: Float,
-    f_previous: Float,
-    y_store: VecDeque<DVector<Float>>,
-    s_store: VecDeque<DVector<Float>>,
-    line_search: StrongWolfeLineSearch,
-}
-
-/// A step-boundary checkpoint for the [`LBFGSB`] algorithm.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct LBFGSBCheckpoint {
-    /// The saved internal parameter vector.
-    pub x: DVector<Float>,
-    /// The saved internal gradient.
-    pub g: DVector<Float>,
-    /// The internal lower bounds.
-    pub l: DVector<Float>,
-    /// The internal upper bounds.
-    pub u: DVector<Float>,
-    /// The current L-BFGS scaling parameter.
-    pub theta: Float,
-    /// The current function value.
-    pub f: Float,
-    /// The previous function value.
-    pub f_previous: Float,
-    /// Stored `y_k` correction vectors.
-    pub y_store: VecDeque<DVector<Float>>,
-    /// Stored `s_k` correction vectors.
-    pub s_store: VecDeque<DVector<Float>>,
-    /// The saved gradient status.
-    pub status: GradientStatus,
-    /// The next step index to execute when resuming.
+/// Step-boundary checkpoint for linear-algebra-generic L-BFGS-B.
+#[derive(Clone, Debug)]
+pub struct LBFGSBCheckpoint<T: RealScalar, B: LinearAlgebra<T>> {
+    /// Saved parameter vector.
+    pub x: Vector<T, B>,
+    /// Saved objective value.
+    pub fx: T,
+    /// Previous objective value used by the objective-change terminator.
+    pub f_previous: T,
+    /// Saved gradient.
+    pub gradient: Vector<T, B>,
+    /// Saved displacement history.
+    pub s_history: Vec<Vector<T, B>>,
+    /// Saved gradient-difference history.
+    pub y_history: Vec<Vector<T, B>>,
+    /// Saved compact-Hessian scaling.
+    pub theta: T,
+    /// Saved status and evaluation counts.
+    pub status: GradientStatus<T, B>,
+    /// Step index at which processing resumes.
     pub next_step: usize,
 }
 
-impl Default for LBFGSB {
+/// Scalar- and linear-algebra-generic limited-memory BFGS optimizer with native box projection.
+#[derive(Clone, Debug)]
+pub struct LBFGSB<
+    T: RealScalar = f64,
+    B: LinearAlgebra<T> = NalgebraProvider,
+    L = StrongWolfeLineSearch<T, B>,
+> {
+    x: Vector<T, B>,
+    fx: T,
+    f_previous: T,
+    gradient: Vector<T, B>,
+    s_history: Vec<Vector<T, B>>,
+    y_history: Vec<Vector<T, B>>,
+    theta: T,
+    w_matrix: Matrix<T, B>,
+    m_system: Option<Matrix<T, B>>,
+    line_search: L,
+    _provider: PhantomData<B>,
+}
+
+impl<T, B, L> Default for LBFGSB<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    L: Default,
+{
     fn default() -> Self {
         Self {
-            x: Default::default(),
-            g: Default::default(),
-            l: Default::default(),
-            u: Default::default(),
-            resolved_transform: Default::default(),
-            m_mat: Default::default(),
-            w_mat: Default::default(),
-            theta: 1.0,
-            f: Float::INFINITY,
-            f_previous: Float::INFINITY,
-            y_store: VecDeque::default(),
-            s_store: VecDeque::default(),
-            line_search: StrongWolfeLineSearch::default(),
+            x: Vector::zeros(0),
+            fx: T::infinity(),
+            f_previous: T::infinity(),
+            gradient: Vector::zeros(0),
+            s_history: Vec::new(),
+            y_history: Vec::new(),
+            theta: T::one(),
+            w_matrix: Matrix::zeros(0, 0),
+            m_system: None,
+            line_search: L::default(),
+            _provider: PhantomData,
         }
     }
 }
 
-impl LBFGSB {
-    #[inline]
-    #[allow(clippy::expect_used)]
-    fn m_dot_vec(&self, b: &DVector<Float>) -> DVector<Float> {
-        self.m_mat.as_ref().map_or_else(
-            || DVector::zeros(b.len()),
-            |lu| lu.solve(b).expect("Inverse failed!"),
-        )
-    }
-    #[inline]
-    #[allow(clippy::expect_used)]
-    fn m_dot_mat(&self, b: &DMatrix<Float>) -> DMatrix<Float> {
-        self.m_mat.as_ref().map_or_else(
-            || DMatrix::zeros(b.nrows(), b.ncols()),
-            |lu| lu.solve(b).expect("Inverse failed!"),
-        )
-    }
-    #[inline]
-    fn vec_dot_m_dot_vec(&self, v: &DVector<Float>) -> Float {
-        if v.is_empty() {
-            return 0.0;
-        }
-        match &self.m_mat {
-            Some(_) => v.dot(&self.m_dot_vec(v)),
-            None => 0.0,
-        }
-    }
-    #[inline]
-    fn ensure_dims_mat(mut m: DMatrix<Float>, rows: usize, cols: usize) -> DMatrix<Float> {
-        m.resize_mut(rows, cols, 0.0);
-        m.fill(0.0);
-        m
-    }
-    /// For Equation 6.1
-    fn get_inf_norm_projected_gradient(&self) -> Float {
-        let x_minus_g = &self.x - &self.g;
-        x_minus_g
-            .iter()
-            .enumerate()
-            .map(|(i, &x_minus_g_i)| {
-                if x_minus_g_i < self.l[i] {
-                    Float::abs(self.l[i] - self.x[i])
-                } else if x_minus_g_i > self.u[i] {
-                    Float::abs(self.u[i] - self.x[i])
-                } else {
-                    Float::abs(self.g[i])
-                }
-            })
-            .max_by(|a, b| a.total_cmp(b))
-            .unwrap_or(0.0)
-    }
-    /// Equations 3.3, 3.4, 3.5, 3.6
-    #[allow(clippy::expect_used)]
-    fn update_w_mat_m_mat(&mut self) {
-        let m = self.s_store.len();
-        let n = self.x.len();
-        let s_mat = DMatrix::from_fn(n, m, |i, j| self.s_store[j][i]);
-        let y_mat = DMatrix::from_fn(n, m, |i, j| self.y_store[j][i]);
-
-        // W = [Y, θS]
-        self.w_mat = Self::ensure_dims_mat(std::mem::take(&mut self.w_mat), n, 2 * m);
-        {
-            let mut y_view = self.w_mat.view_mut((0, 0), (n, m));
-            y_view += &y_mat;
-            let mut theta_s_view = self.w_mat.view_mut((0, m), (n, m));
-            theta_s_view += s_mat.scale(self.theta);
-        }
-
-        // M
-        let theta_s_tr_s = (s_mat.transpose() * &s_mat).scale(self.theta);
-        let s_tr_y = s_mat.transpose() * &y_mat;
-        let d_vec = s_tr_y.diagonal();
-        let mut l_mat = s_tr_y.lower_triangle();
-        l_mat.set_diagonal(&DVector::from_element(m, 0.0));
-        let mut m_mat_inv = DMatrix::zeros(2 * m, 2 * m);
-        let mut d_view = m_mat_inv.view_mut((0, 0), (m, m));
-        d_view.set_diagonal(&(-&d_vec));
-        let mut l_view = m_mat_inv.view_mut((m, 0), (m, m));
-        l_view += &l_mat;
-        let mut l_tr_view = m_mat_inv.view_mut((0, m), (m, m));
-        l_tr_view += l_mat.transpose();
-        let mut theta_s_tr_s_view = m_mat_inv.view_mut((m, m), (m, m));
-        theta_s_tr_s_view += theta_s_tr_s;
-        self.m_mat = Some(LU::new(m_mat_inv));
-    }
-    fn get_xcp_c_free_indices(&self) -> (DVector<Float>, DVector<Float>, Vec<usize>) {
-        // Equations 4.1 and 4.2
-        let (t, mut d): (DVector<Float>, DVector<Float>) = (0..self.g.len())
-            .map(|i| {
-                let ti = if self.g[i] < 0.0 {
-                    (self.x[i] - self.u[i]) / self.g[i]
-                } else if self.g[i] > 0.0 {
-                    (self.x[i] - self.l[i]) / self.g[i]
-                } else {
-                    Float::INFINITY
-                };
-                let di = if ti < Float::EPSILON { 0.0 } else { -self.g[i] };
-                (ti, di)
-            })
-            .unzip();
-        let mut x_cp = self.x.clone();
-        let mut free_indices: Vec<usize> = (0..t.len()).filter(|&i| t[i] > 0.0).collect();
-
-        let mut p = self.w_mat.transpose() * &d;
-        let mut c = DVector::zeros(p.len());
-
-        if free_indices.is_empty() {
-            return (x_cp, c, free_indices);
-        }
-
-        free_indices.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
-        let free_indices = VecDeque::from(free_indices);
-        let mut t_old = 0.0;
-        let mut i_free = 0;
-        let mut b = free_indices[0];
-        let mut t_b = t[b];
-        let mut dt_b = t_b - t_old;
-
-        let mut df = -d.dot(&d);
-        let mut ddf = (-self.theta).mul_add(df, -p.dot(&self.m_dot_vec(&p)));
-        let mut dt_min = -df / ddf;
-
-        while dt_min >= dt_b && i_free < free_indices.len() {
-            // b is the index of the smallest positive nonzero element of t, so d_b is never zero!
-            x_cp[b] = if d[b] > 0.0 { self.u[b] } else { self.l[b] };
-            let z_b = x_cp[b] - self.x[b];
-            c += p.scale(dt_b);
-            let g_b = self.g[b];
-            let w_b_tr = self.w_mat.row(b);
-            df += dt_b.mul_add(
-                ddf,
-                g_b * (self.theta.mul_add(z_b, g_b) - w_b_tr.transpose().dot(&self.m_dot_vec(&c))),
-            );
-            ddf = g_b.mul_add(
-                -self.theta.mul_add(
-                    g_b,
-                    (-2.0 as Float).mul_add(
-                        w_b_tr.transpose().dot(&self.m_dot_vec(&p)),
-                        -(g_b * self.vec_dot_m_dot_vec(&w_b_tr.transpose())),
-                    ),
-                ),
-                ddf,
-            );
-            // min here
-            p += w_b_tr.transpose().scale(g_b);
-            d[b] = 0.0;
-            dt_min = -df / ddf;
-            t_old = t_b;
-            i_free += 1;
-            if i_free < free_indices.len() {
-                b = free_indices[i_free];
-                t_b = t[b];
-                dt_b = t_b - t_old;
-            } else {
-                t_b = Float::INFINITY;
-            }
-        }
-        dt_min = Float::max(dt_min, 0.0);
-        t_old += dt_min;
-        for i in 0..self.x.len() {
-            if t[i] >= t_b {
-                x_cp[i] += t_old * d[i];
-            }
-        }
-        let free_indices = (0..self.x.len())
-            .filter(|&i| x_cp[i] < self.u[i] && x_cp[i] > self.l[i])
-            .collect();
-        c += p.scale(dt_min);
-        (x_cp, c, free_indices)
-    }
-    // Direct primal method (page 1199, equations 5.4), returns x_bar such that the search
-    // direction is d = x_bar - x
-    #[allow(clippy::expect_used)]
-    fn direct_primal_min(
-        &self,
-        x_cp: &DVector<Float>,
-        c: &DVector<Float>,
-        free_indices: &[usize],
-    ) -> DVector<Float> {
-        let k = free_indices.len();
-        let two_m = self.w_mat.ncols();
-
-        let r_full = &self.g + (x_cp - &self.x).scale(self.theta) - &self.w_mat * self.m_dot_vec(c);
-        let mut r_hat_c = DVector::zeros(k);
-        for (j, &idx) in free_indices.iter().enumerate() {
-            r_hat_c[j] = r_full[idx];
-        }
-        let mut w_tr_z_mat = DMatrix::zeros(two_m, k);
-        for (j, &idx) in free_indices.iter().enumerate() {
-            let w_row = self.w_mat.row(idx);
-            for i in 0..two_m {
-                w_tr_z_mat[(i, j)] = w_row[i];
-            }
-        }
-        let i_2m = DMatrix::identity(two_m, two_m);
-        let wz_wz_tr = &w_tr_z_mat * w_tr_z_mat.transpose();
-        let n_mat = &i_2m - self.m_dot_mat(&wz_wz_tr).unscale(self.theta);
-        let v = n_mat
-            .lu()
-            .solve(&self.m_dot_vec(&(&w_tr_z_mat * &r_hat_c)))
-            .expect(
-                "Error: Something has gone horribly wrong, solving MW^TZr^c = Nv for N failed!",
-            );
-        let d_hat_u =
-            -(r_hat_c + (w_tr_z_mat.transpose() * v).unscale(self.theta)).unscale(self.theta);
-        // The minus sign here is missing in equation 5.11, this is a typo!
-        let mut alpha_star = 1.0;
-        for i in 0..k {
-            let i_free = free_indices[i];
-            alpha_star = if d_hat_u[i] > 0.0 {
-                Float::min(alpha_star, (self.u[i_free] - x_cp[i_free]) / d_hat_u[i])
-            } else if d_hat_u[i] < 0.0 {
-                Float::min(alpha_star, (self.l[i_free] - x_cp[i_free]) / d_hat_u[i])
-            } else {
-                alpha_star
-            }
-        }
-        let mut x_bar = x_cp.clone();
-        for i in 0..k {
-            let idx = free_indices[i];
-            x_bar[idx] += alpha_star * d_hat_u[i];
-        }
-        x_bar
-    }
-    fn compute_step_direction(&self) -> DVector<Float> {
-        let (xcp, c, free_indices) = self.get_xcp_c_free_indices();
-        let x_bar = if free_indices.is_empty() {
-            xcp
-        } else {
-            self.direct_primal_min(&xcp, &c, &free_indices)
-        };
-        x_bar - &self.x
-    }
-    fn compute_max_step(&self, d: &DVector<Float>, max_step: Float) -> Float {
-        let mut max_step = max_step;
-        for i in 0..self.x.len() {
-            max_step = if d[i] > 0.0 {
-                Float::min(max_step, (self.u[i] - self.x[i]) / d[i])
-            } else if d[i] < 0.0 {
-                Float::min(max_step, (self.l[i] - self.x[i]) / d[i])
-            } else {
-                max_step
-            }
-        }
-        max_step
-    }
-}
-
-impl<P, U, E> Algorithm<P, GradientStatus, U, E> for LBFGSB
+impl<T, B, L> LBFGSB<T, B, L>
 where
-    P: Gradient<U, E>,
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T>,
 {
-    type Summary = MinimizationSummary;
-    type Config = LBFGSBConfig;
-    type Init = DVector<Float>;
+    fn bound_limits(bound: ScalarBound<T>) -> (T, T) {
+        match bound {
+            ScalarBound::Unbounded => (-T::infinity(), T::infinity()),
+            ScalarBound::Lower(lower) => (lower, T::infinity()),
+            ScalarBound::Upper(upper) => (-T::infinity(), upper),
+            ScalarBound::Both(lower, upper) => (lower, upper),
+        }
+    }
+
+    fn m_dot_vec(&self, value: &Vector<T, B>) -> Vector<T, B> {
+        self.m_system
+            .as_ref()
+            .and_then(|matrix| matrix.lu_solve(value))
+            .unwrap_or_else(|| Vector::zeros(value.len()))
+    }
+
+    fn m_dot_mat(&self, value: &Matrix<T, B>) -> Matrix<T, B> {
+        self.m_system
+            .as_ref()
+            .and_then(|matrix| matrix.lu_solve_matrix(value))
+            .unwrap_or_else(|| Matrix::zeros(value.rows(), value.cols()))
+    }
+
+    fn update_compact_matrices(&mut self) {
+        let m = self.s_history.len();
+        let n = self.x.len();
+        self.w_matrix = Matrix::zeros(n, 2 * m);
+        let mut s: Matrix<T, B> = Matrix::zeros(n, m);
+        let mut y: Matrix<T, B> = Matrix::zeros(n, m);
+        for column in 0..m {
+            for row in 0..n {
+                s.set(row, column, self.s_history[column].get(row));
+                y.set(row, column, self.y_history[column].get(row));
+                self.w_matrix
+                    .set(row, column, self.y_history[column].get(row));
+                self.w_matrix.set(
+                    row,
+                    m + column,
+                    self.theta * self.s_history[column].get(row),
+                );
+            }
+        }
+        let sty = s.transpose().mul_mat(&y);
+        let sts = s.transpose().mul_mat(&s).scale(self.theta);
+        let mut system = Matrix::zeros(2 * m, 2 * m);
+        for row in 0..m {
+            system.set(row, row, -sty.get(row, row));
+            for column in 0..m {
+                if row > column {
+                    system.set(m + row, column, sty.get(row, column));
+                    system.set(column, m + row, sty.get(row, column));
+                }
+                system.set(m + row, m + column, sts.get(row, column));
+            }
+        }
+        self.m_system = Some(system);
+    }
+
+    fn generalized_cauchy_point(
+        &self,
+        bounds: Option<&[ScalarBound<T>]>,
+    ) -> (Vector<T, B>, Vector<T, B>, Vec<usize>) {
+        let n = self.x.len();
+        let mut breakpoints = vec![T::infinity(); n];
+        let mut direction = self.gradient.neg();
+        for index in 0..n {
+            let (lower, upper) = bounds
+                .map(|values| Self::bound_limits(values[index]))
+                .unwrap_or_else(|| (-T::infinity(), T::infinity()));
+            let gradient = self.gradient.get(index);
+            breakpoints[index] = if gradient < T::zero() {
+                (self.x.get(index) - upper) / gradient
+            } else if gradient > T::zero() {
+                (self.x.get(index) - lower) / gradient
+            } else {
+                T::infinity()
+            };
+            if breakpoints[index] < T::epsilon() {
+                direction.set(index, T::zero());
+            }
+        }
+        let mut xcp = self.x.clone();
+        let mut order = (0..n)
+            .filter(|&index| breakpoints[index] > T::zero())
+            .collect::<Vec<_>>();
+        order.sort_by(|&a, &b| {
+            breakpoints[a]
+                .partial_cmp(&breakpoints[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut p = self.w_matrix.transpose().mul_vec(&direction);
+        let mut c = Vector::zeros(p.len());
+        if order.is_empty() {
+            return (xcp, c, order);
+        }
+        let mut t_old = T::zero();
+        let mut cursor = 0;
+        let mut breakpoint = order[cursor];
+        let mut t_break = breakpoints[breakpoint];
+        let mut delta_break = t_break;
+        let mut df = -direction.dot(&direction);
+        let mut ddf = -self.theta * df - p.dot(&self.m_dot_vec(&p));
+        let mut delta_min = -df / ddf;
+        while delta_min >= delta_break && cursor < order.len() {
+            let (lower, upper) = bounds
+                .map(|values| Self::bound_limits(values[breakpoint]))
+                .unwrap_or_else(|| (-T::infinity(), T::infinity()));
+            xcp.set(
+                breakpoint,
+                if direction.get(breakpoint) > T::zero() {
+                    upper
+                } else {
+                    lower
+                },
+            );
+            let z = xcp.get(breakpoint) - self.x.get(breakpoint);
+            c = c.add_scaled(&p, delta_break);
+            let g = self.gradient.get(breakpoint);
+            let w_row = Vector::from_vec(
+                (0..self.w_matrix.cols())
+                    .map(|column| self.w_matrix.get(breakpoint, column))
+                    .collect(),
+            );
+            df = df + delta_break * ddf + g * (self.theta * z + g - w_row.dot(&self.m_dot_vec(&c)));
+            ddf = ddf
+                + -g * (self.theta * g + T::literal(-2.0) * w_row.dot(&self.m_dot_vec(&p))
+                    - g * w_row.dot(&self.m_dot_vec(&w_row)));
+            p = p.add_scaled(&w_row, g);
+            direction.set(breakpoint, T::zero());
+            delta_min = -df / ddf;
+            t_old = t_break;
+            cursor += 1;
+            if cursor < order.len() {
+                breakpoint = order[cursor];
+                t_break = breakpoints[breakpoint];
+                delta_break = t_break - t_old;
+            } else {
+                t_break = T::infinity();
+            }
+        }
+        if delta_min < T::zero() {
+            delta_min = T::zero();
+        }
+        t_old = t_old + delta_min;
+        for (index, &breakpoint_value) in breakpoints.iter().enumerate() {
+            if breakpoint_value >= t_break {
+                xcp.set(index, xcp.get(index) + t_old * direction.get(index));
+            }
+        }
+        c = c.add_scaled(&p, delta_min);
+        let free = (0..n)
+            .filter(|&index| {
+                let (lower, upper) = bounds
+                    .map(|values| Self::bound_limits(values[index]))
+                    .unwrap_or_else(|| (-T::infinity(), T::infinity()));
+                xcp.get(index) > lower && xcp.get(index) < upper
+            })
+            .collect();
+        (xcp, c, free)
+    }
+
+    fn subspace_minimum(
+        &self,
+        xcp: &Vector<T, B>,
+        c: &Vector<T, B>,
+        free: &[usize],
+        bounds: Option<&[ScalarBound<T>]>,
+    ) -> Vector<T, B> {
+        if free.is_empty() {
+            return xcp.clone();
+        }
+        let k = free.len();
+        let two_m = self.w_matrix.cols();
+        let r_full = self
+            .gradient
+            .add_scaled(&xcp.sub(&self.x), self.theta)
+            .sub(&self.w_matrix.mul_vec(&self.m_dot_vec(c)));
+        let r = Vector::from_vec(free.iter().map(|&index| r_full.get(index)).collect());
+        let unconstrained = if two_m == 0 {
+            r.scale(-T::one() / self.theta)
+        } else {
+            let mut wt_z = Matrix::zeros(two_m, k);
+            for (column, &index) in free.iter().enumerate() {
+                for row in 0..two_m {
+                    wt_z.set(row, column, self.w_matrix.get(index, row));
+                }
+            }
+            let correction = self
+                .m_dot_mat(&wt_z.mul_mat(&wt_z.transpose()))
+                .scale(T::one() / self.theta);
+            let n_matrix = &Matrix::identity(two_m) - &correction;
+            let rhs = self.m_dot_vec(&wt_z.mul_vec(&r));
+            let v = n_matrix
+                .lu_solve(&rhs)
+                .unwrap_or_else(|| Vector::zeros(two_m));
+            r.add(&wt_z.transpose().mul_vec(&v).scale(T::one() / self.theta))
+                .scale(-T::one() / self.theta)
+        };
+        let mut alpha = T::one();
+        for (position, &index) in free.iter().enumerate() {
+            let (lower, upper) = bounds
+                .map(|values| Self::bound_limits(values[index]))
+                .unwrap_or_else(|| (-T::infinity(), T::infinity()));
+            let d = unconstrained.get(position);
+            let candidate = if d > T::zero() {
+                (upper - xcp.get(index)) / d
+            } else if d < T::zero() {
+                (lower - xcp.get(index)) / d
+            } else {
+                T::one()
+            };
+            if candidate < alpha {
+                alpha = candidate;
+            }
+        }
+        let mut result = xcp.clone();
+        for (position, &index) in free.iter().enumerate() {
+            result.set(
+                index,
+                result.get(index) + alpha * unconstrained.get(position),
+            );
+        }
+        result
+    }
+
+    fn bound_constrained_direction(&self, bounds: Option<&[ScalarBound<T>]>) -> Vector<T, B> {
+        let (xcp, c, free) = self.generalized_cauchy_point(bounds);
+        self.subspace_minimum(&xcp, &c, &free, bounds).sub(&self.x)
+    }
+    fn clip(mut x: Vector<T, B>, bounds: Option<&[ScalarBound<T>]>) -> Vector<T, B> {
+        if let Some(bounds) = bounds {
+            for (index, bound) in bounds.iter().copied().enumerate() {
+                let value = match bound {
+                    ScalarBound::Unbounded => x.get(index),
+                    ScalarBound::Lower(lower) => {
+                        if x.get(index) < lower {
+                            lower
+                        } else {
+                            x.get(index)
+                        }
+                    }
+                    ScalarBound::Upper(upper) => {
+                        if x.get(index) > upper {
+                            upper
+                        } else {
+                            x.get(index)
+                        }
+                    }
+                    ScalarBound::Both(lower, upper) => {
+                        if x.get(index) < lower {
+                            lower
+                        } else if x.get(index) > upper {
+                            upper
+                        } else {
+                            x.get(index)
+                        }
+                    }
+                };
+                x.set(index, value);
+            }
+        }
+        x
+    }
+
+    fn projected_gradient(&self, bounds: Option<&[ScalarBound<T>]>) -> Vector<T, B> {
+        let mut projected = self.gradient.clone();
+        if let Some(bounds) = bounds {
+            for (index, bound) in bounds.iter().copied().enumerate() {
+                let at_lower = match bound {
+                    ScalarBound::Lower(lower) | ScalarBound::Both(lower, _) => {
+                        self.x.get(index) <= lower + T::epsilon().sqrt()
+                    }
+                    _ => false,
+                };
+                let at_upper = match bound {
+                    ScalarBound::Upper(upper) | ScalarBound::Both(_, upper) => {
+                        self.x.get(index) >= upper - T::epsilon().sqrt()
+                    }
+                    _ => false,
+                };
+                if (at_lower && projected.get(index) > T::zero())
+                    || (at_upper && projected.get(index) < T::zero())
+                {
+                    projected.set(index, T::zero());
+                }
+            }
+        }
+        projected
+    }
+
+    fn maximum_step(
+        &self,
+        direction: &Vector<T, B>,
+        bounds: Option<&[ScalarBound<T>]>,
+    ) -> Option<T> {
+        let bounds = bounds?;
+        let mut maximum = T::infinity();
+        for (index, bound) in bounds.iter().copied().enumerate() {
+            let direction_i = direction.get(index);
+            let candidate = match bound {
+                ScalarBound::Lower(lower) if direction_i < T::zero() => {
+                    Some((lower - self.x.get(index)) / direction_i)
+                }
+                ScalarBound::Upper(upper) if direction_i > T::zero() => {
+                    Some((upper - self.x.get(index)) / direction_i)
+                }
+                ScalarBound::Both(lower, _) if direction_i < T::zero() => {
+                    Some((lower - self.x.get(index)) / direction_i)
+                }
+                ScalarBound::Both(_, upper) if direction_i > T::zero() => {
+                    Some((upper - self.x.get(index)) / direction_i)
+                }
+                _ => None,
+            };
+            if let Some(candidate) = candidate {
+                if candidate < maximum {
+                    maximum = candidate;
+                }
+            }
+        }
+        if maximum.is_finite() {
+            Some(maximum)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T, B, L, P, U, E>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
+    for LBFGSBFTerminator<T>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<T, B, L>,
+        _problem: &P,
+        status: &mut GradientStatus<T, B>,
+        _args: &U,
+        _config: &LBFGSBConfig<T, L, B>,
+    ) -> ControlFlow<()> {
+        if (algorithm.f_previous - algorithm.fx).abs() < self.eps_abs {
+            status
+                .set_message()
+                .succeed_with_message("F_EVAL CONVERGED");
+            ControlFlow::Break(())
+        } else {
+            algorithm.f_previous = algorithm.fx;
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+impl<T, B, L, P, U, E>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
+    for LBFGSBGTerminator<T>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<T, B, L>,
+        _problem: &P,
+        status: &mut GradientStatus<T, B>,
+        _args: &U,
+        _config: &LBFGSBConfig<T, L, B>,
+    ) -> ControlFlow<()> {
+        if algorithm.gradient.norm() < self.eps_abs {
+            status
+                .set_message()
+                .succeed_with_message("GRADIENT CONVERGED");
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+impl<T, B, L, P, U, E>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
+    for LBFGSBInfNormGTerminator<T>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut LBFGSB<T, B, L>,
+        _problem: &P,
+        status: &mut GradientStatus<T, B>,
+        _args: &U,
+        config: &LBFGSBConfig<T, L, B>,
+    ) -> ControlFlow<()> {
+        let projected = algorithm.projected_gradient(config.internal_bounds.as_deref());
+        let mut norm = T::zero();
+        for index in 0..projected.len() {
+            let value = projected.get(index).abs();
+            if value > norm {
+                norm = value;
+            }
+        }
+        if norm < self.eps_abs {
+            status
+                .set_message()
+                .succeed_with_message("PROJECTED GRADIENT WITHIN TOLERANCE");
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+impl<T, B, L, P, U, E> Algorithm<P, GradientStatus<T, B>, U, E> for LBFGSB<T, B, L>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
+{
+    type Summary = MinimizationSummary<T, B>;
+    type Config = LBFGSBConfig<T, L, B>;
+    type Init = Vector<T, B>;
+
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut GradientStatus<T, B>,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let internal_bounds = bounds.map(|b| b.apply(&transform));
-        self.resolved_transform = transform;
-        self.f_previous = Float::INFINITY;
-        self.theta = 1.0;
-        self.line_search = config.line_search.clone();
-        let x0 = self.resolved_transform.to_internal(init);
-        self.l = DVector::from_element(x0.len(), Float::NEG_INFINITY);
-        self.u = DVector::from_element(x0.len(), Float::INFINITY);
-        if let Some(bounds_vec) = &internal_bounds {
-            for (i, bound) in bounds_vec.iter().enumerate() {
-                match bound.0 {
-                    Bound::NoBound => {}
-                    Bound::LowerBound(lb) => self.l[i] = lb,
-                    Bound::UpperBound(ub) => self.u[i] = ub,
-                    Bound::LowerAndUpperBound(lb, ub) => {
-                        self.l[i] = lb;
-                        self.u[i] = ub;
-                    }
-                }
-            }
+        if let Some(bounds) = &config.bounds {
+            debug_assert_eq!(bounds.len(), init.len());
         }
-        self.x = DVector::from_fn(x0.len(), |i, _| {
-            if x0[i] < self.l[i] {
-                self.l[i]
-            } else if x0[i] > self.u[i] {
-                self.u[i]
-            } else {
-                x0[i]
-            }
-        });
-        let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
-        (self.f, self.g) = t_problem.evaluate_with_gradient(&self.x, args)?;
-        status.inc_n_f_evals();
-        status.inc_n_g_evals();
-        status.initialize_silent((self.resolved_transform.to_owned_external(&self.x), self.f));
-        self.w_mat = DMatrix::zeros(self.x.len(), 1);
-        self.m_mat = None;
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        self.x = Self::clip(
+            transformed.to_internal(init),
+            config.internal_bounds.as_deref(),
+        );
+        (self.fx, self.gradient) = transformed.evaluate_with_gradient(&self.x, args)?;
+        self.f_previous = T::infinity();
+        self.s_history.clear();
+        self.y_history.clear();
+        self.theta = T::one();
+        self.w_matrix = Matrix::zeros(self.x.len(), 0);
+        self.m_system = None;
+        self.line_search = config.line_search.clone();
+        status.evals.record_fg();
+        status.initialize(init.clone(), self.fx);
         Ok(())
     }
 
@@ -649,47 +802,61 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut GradientStatus<T, B>,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
-        let d = self.compute_step_direction();
-        let max_step = self.compute_max_step(&d, config.max_step);
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let direction = self.bound_constrained_direction(config.internal_bounds.as_deref());
+        let maximum_step = self
+            .maximum_step(&direction, config.internal_bounds.as_deref())
+            .map_or(config.max_step, |bounded| {
+                if bounded < config.max_step {
+                    bounded
+                } else {
+                    config.max_step
+                }
+            });
         if let Ok(LineSearchOutput {
             alpha,
-            fx: f_kp1,
-            g: g_kp1,
-        }) =
-            self.line_search
-                .search(&self.x, &d, Some(max_step), &t_problem, None, args, status)?
-        {
-            let dx = d.scale(alpha);
-            let grad_kp1_vec = g_kp1;
-            let dg = &grad_kp1_vec - &self.g;
-            let sy = dx.dot(&dg);
-            let yy = dg.dot(&dg);
-            self.x += &dx;
-            if sy > Float::EPSILON * yy {
-                self.s_store.push_back(dx);
-                self.y_store.push_back(dg);
-                self.theta = yy / sy;
-                if self.s_store.len() > config.m {
-                    self.s_store.pop_front();
-                    self.y_store.pop_front();
+            fx,
+            gradient,
+        }) = self.line_search.search(
+            &self.x,
+            &direction,
+            Some(maximum_step),
+            &transformed,
+            args,
+            &mut status.evals,
+        )? {
+            let next_x = Self::clip(
+                self.x.add_scaled(&direction, alpha),
+                config.internal_bounds.as_deref(),
+            );
+            let s = next_x.sub(&self.x);
+            let y = gradient.sub(&self.gradient);
+            let sy = s.dot(&y);
+            let yy = y.dot(&y);
+            if sy > T::epsilon() * yy {
+                if self.s_history.len() == config.history_size.max(1) {
+                    self.s_history.remove(0);
+                    self.y_history.remove(0);
                 }
-                self.update_w_mat_m_mat();
+                self.s_history.push(s);
+                self.y_history.push(y);
+                self.theta = yy / sy;
+                self.update_compact_matrices();
             }
-            self.g = grad_kp1_vec;
-            self.f = f_kp1;
-            status.set_position_silent((self.resolved_transform.to_owned_external(&self.x), f_kp1));
+            self.x = next_x;
+            self.fx = fx;
+            self.gradient = gradient;
+            status.set_position(transformed.to_external(&self.x), self.fx);
         } else {
-            // reboot
-            self.s_store.clear();
-            self.y_store.clear();
-            self.w_mat = DMatrix::zeros(self.x.len(), 1);
-            self.m_mat = None;
-            self.theta = 1.0;
+            self.s_history.clear();
+            self.y_history.clear();
+            self.theta = T::one();
+            self.w_matrix = Matrix::zeros(self.x.len(), 0);
+            self.m_system = None;
         }
         Ok(())
     }
@@ -697,20 +864,15 @@ where
     fn postprocessing(
         &mut self,
         problem: &P,
-        status: &mut GradientStatus,
+        status: &mut GradientStatus<T, B>,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        match config.error_mode {
-            LBFGSBErrorMode::ExactHessian => {
-                let t_problem = TransformedProblem::new(problem, &self.resolved_transform);
-                let (g_int, h_int) = t_problem.gradient_with_hessian(&self.x, args)?;
-                status.inc_n_g_evals();
-                status.inc_n_h_evals();
-                let hessian = t_problem.pushforward_hessian(&self.x, &g_int, &h_int); // TODO: check this is right
-                status.set_hess(&hessian);
-            }
-            LBFGSBErrorMode::Skip => {}
+        if config.error_mode == LBFGSBErrorMode::ExactHessian {
+            let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+            let hessian = transformed.hessian(&self.x, args)?;
+            status.evals.record_h();
+            status.set_hess(hessian);
         }
         Ok(())
     }
@@ -719,50 +881,36 @@ where
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &GradientStatus,
+        status: &GradientStatus<T, B>,
         _args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
+        let dimension = status.x.len();
         Ok(MinimizationSummary {
+            bounds: config.bounds.clone(),
+            parameter_names: config.parameter_names.clone(),
+            message: status.message.clone(),
             x0: init.clone(),
             x: status.x.clone(),
-            fx: status.fx,
-            bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: status.n_h_evals,
-            message: status.message.clone(),
-            parameter_names: config.parameter_names.clone(),
             std: status
                 .err
                 .clone()
-                .unwrap_or_else(|| DVector::from_element(status.x.len(), 0.0)),
+                .unwrap_or_else(|| crate::core::summary::unknown_uncertainties(dimension)),
+            fx: status.fx,
+            evals: status.evals,
             covariance: status
                 .cov
                 .clone()
-                .unwrap_or_else(|| DMatrix::identity(status.x.len(), status.x.len())),
+                .unwrap_or_else(|| Matrix::identity(dimension)),
         })
     }
+
     fn reset(&mut self) {
-        self.x = Default::default();
-        self.g = Default::default();
-        self.l = Default::default();
-        self.u = Default::default();
-        self.resolved_transform = Default::default();
-        self.m_mat = Default::default();
-        self.w_mat = Default::default();
-        self.theta = 1.0;
-        self.f = Float::INFINITY;
-        self.f_previous = Float::INFINITY;
-        self.y_store = VecDeque::default();
-        self.s_store = VecDeque::default();
+        *self = Self::default();
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, GradientStatus, U, E, Self::Config>
-    where
-        Self: Sized,
-    {
+    fn default_callbacks() -> Callbacks<Self, P, GradientStatus<T, B>, U, E, Self::Config> {
         Callbacks::empty()
             .with_terminator(LBFGSBFTerminator::default())
             .with_terminator(LBFGSBGTerminator::default())
@@ -770,23 +918,28 @@ where
     }
 }
 
-impl<P, U, E> CheckpointableAlgorithm<P, GradientStatus, U, E> for LBFGSB
+impl<T, B, L, P, U, E> CheckpointableAlgorithm<P, GradientStatus<T, B>, U, E> for LBFGSB<T, B, L>
 where
-    P: Gradient<U, E>,
+    T: RealScalar,
+    B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
+    P: Gradient<T, B, U, E>,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
-    type Checkpoint = LBFGSBCheckpoint;
+    type Checkpoint = LBFGSBCheckpoint<T, B>;
 
-    fn checkpoint(&self, status: &GradientStatus, next_step: usize) -> Self::Checkpoint {
+    fn checkpoint(&self, status: &GradientStatus<T, B>, next_step: usize) -> Self::Checkpoint {
         LBFGSBCheckpoint {
             x: self.x.clone(),
-            g: self.g.clone(),
-            l: self.l.clone(),
-            u: self.u.clone(),
-            theta: self.theta,
-            f: self.f,
+            fx: self.fx,
             f_previous: self.f_previous,
-            y_store: self.y_store.clone(),
-            s_store: self.s_store.clone(),
+            gradient: self.gradient.clone(),
+            s_history: self.s_history.clone(),
+            y_history: self.y_history.clone(),
+            theta: self.theta,
             status: status.clone(),
             next_step,
         }
@@ -796,26 +949,21 @@ where
         &mut self,
         checkpoint: &Self::Checkpoint,
         config: &Self::Config,
-    ) -> (GradientStatus, usize) {
+    ) -> (GradientStatus<T, B>, usize) {
         self.x = checkpoint.x.clone();
-        self.g = checkpoint.g.clone();
-        self.l = checkpoint.l.clone();
-        self.u = checkpoint.u.clone();
-        self.theta = checkpoint.theta;
-        self.f = checkpoint.f;
+        self.fx = checkpoint.fx;
         self.f_previous = checkpoint.f_previous;
-        self.y_store = checkpoint.y_store.clone();
-        self.s_store = checkpoint.s_store.clone();
-        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        self.resolved_transform = transform;
-        self.line_search = config.line_search.clone();
-        if self.s_store.is_empty() {
-            self.w_mat = DMatrix::zeros(self.x.len(), 1);
-            self.m_mat = None;
+        self.gradient = checkpoint.gradient.clone();
+        self.s_history = checkpoint.s_history.clone();
+        self.y_history = checkpoint.y_history.clone();
+        self.theta = checkpoint.theta;
+        if self.s_history.is_empty() {
+            self.w_matrix = Matrix::zeros(self.x.len(), 0);
+            self.m_system = None;
         } else {
-            self.update_w_mat_m_mat();
+            self.update_compact_matrices();
         }
+        self.line_search = config.line_search.clone();
         (checkpoint.status.clone(), checkpoint.next_step)
     }
 }
@@ -823,249 +971,136 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        algorithms::line_search::HagerZhangLineSearch,
-        core::{AtomicCheckpointSignal, CheckpointOnSignal, CheckpointStore, MaxSteps},
-        test_functions::Rosenbrock,
-        traits::{AbortSignal, CheckpointableAlgorithm, Observer},
-    };
-    use approx::assert_relative_eq;
+    use crate::traits::CostFunction;
+    use crate::ScaleTransform;
+    use std::convert::Infallible;
 
-    #[derive(Clone)]
-    struct TriggerAbortAtStep<Sig> {
-        target_step: usize,
-        signal: Sig,
-    }
+    struct ShiftedQuadratic;
 
-    impl<Sig> TriggerAbortAtStep<Sig> {
-        fn new(target_step: usize, signal: Sig) -> Self {
-            Self {
-                target_step,
-                signal,
-            }
-        }
-    }
-
-    impl<P, U, E, Sig> Observer<LBFGSB, P, GradientStatus, U, E, LBFGSBConfig>
-        for TriggerAbortAtStep<Sig>
+    impl<T, B> CostFunction<T, B> for ShiftedQuadratic
     where
-        P: Gradient<U, E>,
-        Sig: AbortSignal + Clone,
+        T: RealScalar,
+        B: LinearAlgebra<T>,
     {
-        fn observe(
-            &mut self,
-            current_step: usize,
-            _algorithm: &LBFGSB,
-            _problem: &P,
-            _status: &GradientStatus,
-            _args: &U,
-            _config: &LBFGSBConfig,
-        ) {
-            if current_step == self.target_step {
-                self.signal.abort();
-            }
+        fn evaluate(&self, x: &Vector<T, B>, _: &()) -> Result<T, Infallible> {
+            Ok((x.get(0) - T::literal(3.0)).powi(2) + x.get(1).powi(2))
+        }
+    }
+
+    impl<T, B> Gradient<T, B> for ShiftedQuadratic
+    where
+        T: RealScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn gradient(&self, x: &Vector<T, B>, _: &()) -> Result<Vector<T, B>, Infallible> {
+            Ok(Vector::from_vec(vec![
+                T::literal(2.0) * (x.get(0) - T::literal(3.0)),
+                T::literal(2.0) * x.get(1),
+            ]))
+        }
+
+        fn hessian(&self, _x: &Vector<T, B>, _: &()) -> Result<Matrix<T, B>, Infallible> {
+            Ok(Matrix::identity(2).scale(T::literal(2.0)))
         }
     }
 
     #[test]
-    fn test_lbfgsb() {
-        let mut solver = LBFGSB::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    DVector::from_row_slice(&starting_value),
-                    LBFGSBConfig::default(),
-                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        }
-    }
-
-    #[test]
-    fn lbfgsb_checkpoint_signal_resume_matches_uninterrupted_run() {
-        let problem = Rosenbrock { n: 2 };
-        let init = DVector::from_row_slice(&[2.0, 2.0]);
-        let config = LBFGSBConfig::default();
-        let uninterrupted = LBFGSB::default()
-            .process(
-                &problem,
-                &(),
-                init.clone(),
-                config.clone(),
-                LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
-            )
+    fn lbfgsb_respects_native_f32_bounds() {
+        let config = LBFGSBConfig::<f32>::default()
+            .with_bounds([(0.0_f32, 2.0), (-1.0, 1.0)])
             .unwrap();
-
-        let signal = AtomicCheckpointSignal::new();
-        let store = CheckpointStore::new();
-        let store_sink = store.clone();
-        let checkpointed = LBFGSB::default()
+        let mut algorithm = LBFGSB::<f32>::default();
+        let result = algorithm
             .process(
-                &problem,
+                &ShiftedQuadratic,
                 &(),
-                init.clone(),
-                config.clone(),
-                LBFGSB::default_callbacks()
-                    .with_terminator(MaxSteps(50))
-                    .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
-                    .with_terminator(CheckpointOnSignal::new(signal, move |checkpoint| {
-                        store_sink.save(checkpoint);
-                    })),
-            )
-            .unwrap();
-        assert!(checkpointed.message.text.contains("Checkpoint requested"));
-
-        let checkpoint = store.load().unwrap();
-        let resumed = LBFGSB::default()
-            .process_from_checkpoint(
-                &problem,
-                &(),
-                init,
+                Vector::from_vec(vec![0.5, 0.5]),
                 config,
-                &checkpoint,
-                LBFGSB::default_callbacks().with_terminator(MaxSteps(50)),
+                LBFGSB::<f32>::default_callbacks(),
             )
             .unwrap();
-
-        assert_relative_eq!(resumed.fx, uninterrupted.fx);
-        assert_relative_eq!(resumed.x[0], uninterrupted.x[0]);
-        assert_relative_eq!(resumed.x[1], uninterrupted.x[1]);
-        assert_eq!(resumed.n_f_evals, uninterrupted.n_f_evals);
-        assert_eq!(resumed.n_g_evals, uninterrupted.n_g_evals);
-    }
-    #[test]
-    fn test_lbfgsb_hager_zhang() {
-        let mut solver = LBFGSB::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    DVector::from_row_slice(&starting_value),
-                    LBFGSBConfig::default().with_line_search(StrongWolfeLineSearch::HagerZhang(
-                        HagerZhangLineSearch::default(),
-                    )),
-                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        }
-    }
-
-    #[test]
-    fn test_bounded_lbfgsb() {
-        let mut solver = LBFGSB::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    DVector::from_row_slice(&starting_value),
-                    LBFGSBConfig::default().with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                    LBFGSB::default_callbacks().with_terminator(MaxSteps::default()),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.sqrt());
-        }
-    }
-
-    #[test]
-    fn generalized_cauchy_point_tracks_actual_free_indices() {
-        let solver = LBFGSB {
-            x: DVector::from_row_slice(&[0.9, 0.5]),
-            g: DVector::from_row_slice(&[-1.0, 0.1]),
-            l: DVector::from_row_slice(&[0.0, 0.0]),
-            u: DVector::from_row_slice(&[1.0, 1.0]),
-            w_mat: DMatrix::zeros(2, 0),
-            ..Default::default()
-        };
-
-        let (xcp, _c, free_indices) = solver.get_xcp_c_free_indices();
-
-        assert_relative_eq!(xcp[0], 1.0);
-        assert!((xcp[1] - 0.4).abs() < 1e-12);
-        assert_eq!(free_indices, vec![1]);
-    }
-
-    #[test]
-    fn summary_reports_nonzero_eval_counters_and_message() {
-        let mut solver = LBFGSB::default();
-        let result = solver
-            .process(
-                &Rosenbrock { n: 2 },
-                &(),
-                DVector::from_row_slice(&[-1.0, 1.0]),
-                LBFGSBConfig::default(),
-                LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
-            )
-            .unwrap();
-
-        assert!(result.n_f_evals > 0);
-        assert!(result.n_g_evals > 0);
-        assert!(!result.message.to_string().is_empty());
-    }
-
-    #[test]
-    fn transform_bounds_mode_disables_native_lbfgsb_bounds() {
-        let config = LBFGSBConfig::default()
-            .with_bounds([(0.0, 1.0)])
-            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
-
-        assert!(matches!(
-            config.bounds_handling,
-            BoundsHandlingMode::TransformBounds
-        ));
-    }
-
-    #[test]
-    fn summary_uses_parameter_names_from_config() {
-        let mut solver = LBFGSB::default();
-        let result = solver
-            .process(
-                &Rosenbrock { n: 2 },
-                &(),
-                DVector::from_row_slice(&[-1.0, 1.0]),
-                LBFGSBConfig::default().with_parameter_names(["alpha", "beta"]),
-                LBFGSB::default_callbacks().with_terminator(MaxSteps(2)),
-            )
-            .unwrap();
-
-        assert_eq!(
-            result.parameter_names,
-            Some(vec!["alpha".to_string(), "beta".to_string()])
+        assert!((result.x.get(0) - 2.0).abs() < 1e-4);
+        assert_eq!(result.bounds.as_ref().map(Vec::len), Some(2));
+        assert!(result.to_string().contains("Bounds"));
+        assert!(
+            result.x.get(1).abs() < 5e-4,
+            "x={:?}, fx={}",
+            result.x,
+            result.fx
         );
+    }
+
+    #[test]
+    fn lbfgsb_combines_native_bounds_with_transform() {
+        let transform =
+            ScaleTransform::<f64, NalgebraProvider>::from_parameter_scales([2.0, 4.0]).unwrap();
+        let config = LBFGSBConfig::<f64>::default()
+            .with_bounds([(0.0, 2.0), (-1.0, 1.0)])
+            .unwrap()
+            .with_transform(transform)
+            .unwrap();
+        let result = LBFGSB::<f64>::default()
+            .process(
+                &ShiftedQuadratic,
+                &(),
+                Vector::from_vec(vec![0.5, 0.5]),
+                config,
+                LBFGSB::<f64>::default_callbacks(),
+            )
+            .unwrap();
+
+        assert!((result.x.get(0) - 2.0).abs() < 1e-8);
+        assert!(result.x.get(1).abs() < 1e-8);
+        assert_eq!(result.x0.to_vec(), vec![0.5, 0.5]);
+        assert_eq!(result.bounds.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn lbfgsb_skip_error_mode_avoids_hessian_evaluation() {
+        let config = LBFGSBConfig::<f64>::default().with_error_mode(LBFGSBErrorMode::Skip);
+        let result = LBFGSB::<f64>::default()
+            .process(
+                &ShiftedQuadratic,
+                &(),
+                Vector::from_vec(vec![0.5, 0.5]),
+                config,
+                LBFGSB::<f64>::default_callbacks(),
+            )
+            .unwrap();
+        assert_eq!(result.evals.h(), 0);
+        assert!(result.std.to_vec().iter().all(|value| value.is_nan()));
+    }
+
+    #[test]
+    fn lbfgsb_checkpoint_restores_generic_state() {
+        let config = LBFGSBConfig::<f64>::default();
+        let init = Vector::from_vec(vec![0.5, 0.5]);
+        let mut algorithm = LBFGSB::<f64>::default();
+        let mut status = GradientStatus::default();
+        algorithm
+            .initialize(&ShiftedQuadratic, &mut status, &(), &init, &config)
+            .unwrap();
+        algorithm
+            .step(0, &ShiftedQuadratic, &mut status, &(), &config)
+            .unwrap();
+        type Checkpointable = LBFGSB<f64>;
+        let checkpoint = <Checkpointable as CheckpointableAlgorithm<
+            ShiftedQuadratic,
+            GradientStatus<f64>,
+            (),
+            Infallible,
+        >>::checkpoint(&algorithm, &status, 1);
+
+        let mut restored = LBFGSB::<f64>::default();
+        let (restored_status, next_step) = <Checkpointable as CheckpointableAlgorithm<
+            ShiftedQuadratic,
+            GradientStatus<f64>,
+            (),
+            Infallible,
+        >>::restore(&mut restored, &checkpoint, &config);
+        assert_eq!(next_step, 1);
+        assert_eq!(restored.x.to_vec(), algorithm.x.to_vec());
+        assert_eq!(restored.gradient.to_vec(), algorithm.gradient.to_vec());
+        assert_eq!(restored_status.evals, status.evals);
     }
 }

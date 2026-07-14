@@ -1,3 +1,10 @@
-default:
-  cargo r -r --example pso
-  uv run --script visualize.py
+default: show
+
+run:
+    cargo run --release --manifest-path ../../Cargo.toml --example pso
+
+show: run
+    uv run visualize.py
+
+clean:
+    rm -f data.json

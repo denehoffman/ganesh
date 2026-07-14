@@ -1,26 +1,36 @@
 //! Multistart minimization orchestration helpers.
 
 use crate::{
-    core::{Callbacks, MinimizationSummary},
+    core::{Callbacks, LinearAlgebra, MinimizationSummary, NalgebraProvider, RealScalar},
     traits::{Algorithm, Status},
 };
-use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
+use serde::Serialize;
+use std::{
+    convert::Infallible,
+    fmt::{Debug, Display},
+};
+use tabled::{
+    builder::Builder,
+    settings::{
+        object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Padding, Span,
+        Style, Theme,
+    },
+};
 
 /// Lightweight state exposed to restart factories and policies during multistart orchestration.
 #[derive(Debug, Clone, Default)]
-pub struct MultiStartState {
-    runs: Vec<MinimizationSummary>,
+pub struct MultiStartState<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    runs: Vec<MinimizationSummary<T, B>>,
 }
 
-impl MultiStartState {
+impl<T: RealScalar, B: LinearAlgebra<T>> MultiStartState<T, B> {
     /// Create a new empty multistart state.
     pub const fn new() -> Self {
         Self { runs: Vec::new() }
     }
 
     /// Get the completed run summaries gathered so far.
-    pub fn runs(&self) -> &[MinimizationSummary] {
+    pub fn runs(&self) -> &[MinimizationSummary<T, B>] {
         &self.runs
     }
 
@@ -35,7 +45,7 @@ impl MultiStartState {
     }
 
     /// Get the best run summary seen so far.
-    pub fn best(&self) -> Option<&MinimizationSummary> {
+    pub fn best(&self) -> Option<&MinimizationSummary<T, B>> {
         self.best_index().map(|index| &self.runs[index])
     }
 
@@ -48,25 +58,90 @@ impl MultiStartState {
             .map(|(index, _)| index)
     }
 
-    pub(crate) fn push(&mut self, summary: MinimizationSummary) {
+    pub(crate) fn push(&mut self, summary: MinimizationSummary<T, B>) {
         self.runs.push(summary);
     }
 }
 
 /// Final summary returned by multistart minimization orchestration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MultiStartSummary {
+#[derive(Clone, Serialize)]
+#[serde(bound(
+    serialize = "T: Serialize, B::VectorStorage: Serialize, B::MatrixStorage: Serialize"
+))]
+pub struct MultiStartSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     /// The summary for each completed run.
-    pub runs: Vec<MinimizationSummary>,
+    pub runs: Vec<MinimizationSummary<T, B>>,
     /// The index of the best run in [`MultiStartSummary::runs`], if any runs completed.
     pub best_run_index: Option<usize>,
     /// The number of completed restarts, counting the first run separately.
     pub restart_count: usize,
 }
 
-impl MultiStartSummary {
+impl<T: RealScalar, B: LinearAlgebra<T>> Display for MultiStartSummary<T, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut builder = Builder::default();
+        builder.push_record(["MULTISTART SUMMARY", "", "", "", ""]);
+        builder.push_record(["Completed runs", "Restarts", "Best run", "", ""]);
+        builder.push_record([
+            self.completed_runs().to_string(),
+            self.restart_count.to_string(),
+            self.best_run_index
+                .map_or_else(|| "—".to_string(), |index| index.to_string()),
+            String::new(),
+            String::new(),
+        ]);
+        builder.push_record(["Run", "Best?", "Status", "f(x)", "# f(x)"]);
+        for (index, run) in self.runs.iter().enumerate() {
+            builder.push_record([
+                index.to_string(),
+                if self.best_run_index == Some(index) {
+                    "Yes".to_string()
+                } else {
+                    String::new()
+                },
+                if run.message.success() {
+                    "Converged".to_string()
+                } else {
+                    "Not converged".to_string()
+                },
+                format!("{:.5}", run.fx),
+                run.evals.f().to_string(),
+            ]);
+        }
+        let mut table = builder.build();
+        let mut theme = Theme::from_style(Style::rounded().remove_horizontals());
+        for row in 1..=3 {
+            theme.insert_horizontal_line(row, HorizontalLine::inherit(Style::modern()));
+        }
+        table
+            .with(theme)
+            .modify(
+                Row::from(0),
+                (Alignment::center(), Padding::new(1, 1, 0, 0)),
+            )
+            .modify((0, 0), Span::column(5))
+            .modify((1, 2), Span::column(3))
+            .modify((2, 2), Span::column(3))
+            .with(BorderCorrection::span());
+        f.write_str(&table.to_string())
+    }
+}
+
+impl<T: RealScalar, B: LinearAlgebra<T>> Debug for MultiStartSummary<T, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MultiStart Summary: completed_runs={}, restarts={}, best_run={:?}",
+            self.completed_runs(),
+            self.restart_count,
+            self.best_run_index
+        )
+    }
+}
+
+impl<T: RealScalar, B: LinearAlgebra<T>> MultiStartSummary<T, B> {
     /// Get the best run summary.
-    pub fn best(&self) -> Option<&MinimizationSummary> {
+    pub fn best(&self) -> Option<&MinimizationSummary<T, B>> {
         self.best_run_index.map(|index| &self.runs[index])
     }
 
@@ -77,16 +152,18 @@ impl MultiStartSummary {
 }
 
 /// A policy that decides whether another multistart run should be launched.
-pub trait RestartPolicy: Send {
+pub trait RestartPolicy<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider>: Send {
     /// Return `true` if the run with `next_run_index` should be launched.
-    fn should_run(&mut self, next_run_index: usize, state: &MultiStartState) -> bool;
+    fn should_run(&mut self, next_run_index: usize, state: &MultiStartState<T, B>) -> bool;
 }
 
-impl<F> RestartPolicy for F
+impl<T, B, F> RestartPolicy<T, B> for F
 where
-    F: FnMut(usize, &MultiStartState) -> bool + Send,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    F: FnMut(usize, &MultiStartState<T, B>) -> bool + Send,
 {
-    fn should_run(&mut self, next_run_index: usize, state: &MultiStartState) -> bool {
+    fn should_run(&mut self, next_run_index: usize, state: &MultiStartState<T, B>) -> bool {
         self(next_run_index, state)
     }
 }
@@ -104,8 +181,8 @@ impl FixedRestarts {
     }
 }
 
-impl RestartPolicy for FixedRestarts {
-    fn should_run(&mut self, next_run_index: usize, _state: &MultiStartState) -> bool {
+impl<T: RealScalar, B: LinearAlgebra<T>> RestartPolicy<T, B> for FixedRestarts {
+    fn should_run(&mut self, next_run_index: usize, _state: &MultiStartState<T, B>) -> bool {
         next_run_index < self.total_runs
     }
 }
@@ -119,25 +196,33 @@ pub type RestartBundle<A, P, S, U, E> = (
 );
 
 /// Produces the algorithm, init payload, config, and callbacks for each multistart run.
-pub trait RestartFactory<A, P, S: Status, U = (), E = Infallible>: Send
+pub trait RestartFactory<A, P, S: Status, U = (), E = Infallible, T = f64, B = NalgebraProvider>:
+    Send
 where
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    A: Algorithm<P, S, U, E, Summary = MinimizationSummary<T, B>>,
 {
     /// Create the next run bundle for the given `run_index`.
-    fn create(&mut self, run_index: usize, state: &MultiStartState)
-        -> RestartBundle<A, P, S, U, E>;
+    fn create(
+        &mut self,
+        run_index: usize,
+        state: &MultiStartState<T, B>,
+    ) -> RestartBundle<A, P, S, U, E>;
 }
 
-impl<A, P, S, U, E, F> RestartFactory<A, P, S, U, E> for F
+impl<A, P, S, U, E, T, B, F> RestartFactory<A, P, S, U, E, T, B> for F
 where
     S: Status,
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: FnMut(usize, &MultiStartState) -> RestartBundle<A, P, S, U, E> + Send,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    A: Algorithm<P, S, U, E, Summary = MinimizationSummary<T, B>>,
+    F: FnMut(usize, &MultiStartState<T, B>) -> RestartBundle<A, P, S, U, E> + Send,
 {
     fn create(
         &mut self,
         run_index: usize,
-        state: &MultiStartState,
+        state: &MultiStartState<T, B>,
     ) -> RestartBundle<A, P, S, U, E> {
         self(run_index, state)
     }
@@ -156,17 +241,19 @@ pub const fn restart_seed(base_seed: u64, run_index: usize) -> u64 {
 /// # Errors
 ///
 /// Returns an error if any individual run created by `restart_factory` fails.
-pub fn minimize_multistart<P, U, E, A, S, F, R>(
+pub fn minimize_multistart<P, U, E, A, S, F, R, T, B>(
     problem: &P,
     user_data: &U,
     restart_factory: &mut F,
     restart_policy: &mut R,
-) -> Result<MultiStartSummary, E>
+) -> Result<MultiStartSummary<T, B>, E>
 where
     S: Status,
-    A: Algorithm<P, S, U, E, Summary = MinimizationSummary>,
-    F: RestartFactory<A, P, S, U, E>,
-    R: RestartPolicy,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    A: Algorithm<P, S, U, E, Summary = MinimizationSummary<T, B>>,
+    F: RestartFactory<A, P, S, U, E, T, B>,
+    R: RestartPolicy<T, B>,
 {
     let mut state = MultiStartState::new();
     while restart_policy.should_run(state.completed_runs(), &state) {
@@ -188,10 +275,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        core::{Callbacks, MaxSteps},
+        core::{Callbacks, Matrix, MaxSteps, Vector},
         traits::{Status, StatusMessage},
-        DMatrix, DVector, Float,
     };
+    use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Default, Serialize, Deserialize)]
     struct DummyStatus {
@@ -217,12 +304,12 @@ mod tests {
 
     #[derive(Clone)]
     struct DummyConfig {
-        x: DVector<Float>,
-        fx: Float,
+        x: Vector<f64>,
+        fx: f64,
     }
 
     impl Algorithm<(), DummyStatus, (), Infallible> for DummyAlgorithm {
-        type Summary = MinimizationSummary;
+        type Summary = MinimizationSummary<f64>;
         type Config = DummyConfig;
         type Init = DummyConfig;
 
@@ -265,12 +352,10 @@ mod tests {
                 message: status.message.clone(),
                 x0: config.x.clone(),
                 x: config.x.clone(),
-                std: DVector::zeros(config.x.len()),
+                std: crate::core::summary::unknown_uncertainties(config.x.len()),
                 fx: config.fx,
-                n_f_evals: 1,
-                n_g_evals: 0,
-                n_h_evals: 0,
-                covariance: DMatrix::identity(config.x.len(), config.x.len()),
+                evals: crate::core::EvalCounts::new(1, 0, 0),
+                covariance: Matrix::identity(config.x.len()),
             })
         }
 
@@ -285,30 +370,43 @@ mod tests {
             (
                 DummyAlgorithm,
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: (3 - run_index) as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: (3 - run_index) as f64,
                 },
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: (3 - run_index) as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: (3 - run_index) as f64,
                 },
                 DummyAlgorithm::default_callbacks(),
             )
         };
         let mut policy = FixedRestarts::new(3);
 
-        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-            &(),
-            &(),
-            &mut factory,
-            &mut policy,
-        )
+        let summary = minimize_multistart::<
+            (),
+            (),
+            Infallible,
+            DummyAlgorithm,
+            DummyStatus,
+            _,
+            _,
+            f64,
+            NalgebraProvider,
+        >(&(), &(), &mut factory, &mut policy)
         .unwrap();
 
         assert_eq!(summary.completed_runs(), 3);
         assert_eq!(summary.restart_count, 2);
         assert_eq!(summary.best_run_index, Some(2));
         assert_eq!(summary.best().unwrap().fx, 1.0);
+        let display = summary.to_string();
+        assert!(display.contains("MULTISTART SUMMARY"));
+        assert!(display.contains("Best?"));
+        assert!(display.contains("1.00000"));
+        assert_eq!(
+            format!("{summary:?}"),
+            "MultiStart Summary: completed_runs=3, restarts=2, best_run=Some(2)"
+        );
     }
 
     #[test]
@@ -317,24 +415,29 @@ mod tests {
             (
                 DummyAlgorithm,
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: run_index as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: run_index as f64,
                 },
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: run_index as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: run_index as f64,
                 },
                 DummyAlgorithm::default_callbacks(),
             )
         };
         let mut policy = |_: usize, state: &MultiStartState| state.completed_runs() < 2;
 
-        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-            &(),
-            &(),
-            &mut factory,
-            &mut policy,
-        )
+        let summary = minimize_multistart::<
+            (),
+            (),
+            Infallible,
+            DummyAlgorithm,
+            DummyStatus,
+            _,
+            _,
+            f64,
+            NalgebraProvider,
+        >(&(), &(), &mut factory, &mut policy)
         .unwrap();
 
         assert_eq!(summary.completed_runs(), 2);
@@ -353,29 +456,35 @@ mod tests {
             (
                 DummyAlgorithm,
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: run_index as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: run_index as f64,
                 },
                 DummyConfig {
-                    x: DVector::from_element(1, run_index as Float),
-                    fx: run_index as Float,
+                    x: Vector::from_vec(vec![run_index as f64]),
+                    fx: run_index as f64,
                 },
                 DummyAlgorithm::default_callbacks(),
             )
         };
         let mut policy = FixedRestarts::new(0);
 
-        let summary = minimize_multistart::<(), (), Infallible, DummyAlgorithm, DummyStatus, _, _>(
-            &(),
-            &(),
-            &mut factory,
-            &mut policy,
-        )
+        let summary = minimize_multistart::<
+            (),
+            (),
+            Infallible,
+            DummyAlgorithm,
+            DummyStatus,
+            _,
+            _,
+            f64,
+            NalgebraProvider,
+        >(&(), &(), &mut factory, &mut policy)
         .unwrap();
 
         assert_eq!(summary.completed_runs(), 0);
         assert_eq!(summary.restart_count, 0);
         assert_eq!(summary.best_run_index, None);
         assert!(summary.best().is_none());
+        assert!(summary.to_string().contains("MULTISTART SUMMARY"));
     }
 }

@@ -1,433 +1,692 @@
-use crate::{
-    algorithms::mcmc::{
-        validate_walker_inputs, validate_weighted_moves, ChainStorageMode, EnsembleStatus, Walker,
-    },
-    core::{
-        utils::{generate_random_vector_in_limits, RandChoice, SampleFloat},
-        MCMCSummary, Point,
-    },
-    error::{GaneshError, GaneshResult},
-    traits::{
-        status::StatusType, Algorithm, LogDensity, Status, SupportsParameterNames,
-        SupportsTransform, Transform,
-    },
-    DMatrix, DVector, Float, PI,
-};
-use fastrand::Rng;
-use nalgebra::Cholesky;
+//! Scalar- and linear-algebra-generic ensemble slice sampling.
 
-/// A move used by the [`ESS`] algorithm
-///
-/// See Karamanis & Beutler[^1] for step implementation algorithms
-///
-/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
-#[derive(Copy, Clone)]
-pub enum ESSMove {
-    /// The Differential move described in Algorithm 2 of Karamanis & Beutler
+#![allow(clippy::suboptimal_flops)]
+
+use crate::algorithms::mcmc::{aies::validate_walkers, ChainStorageMode, EnsembleStatus};
+use crate::core::{
+    utils::sample_standard_normal, Callbacks, LinearAlgebra, MCMCSummary, NalgebraProvider,
+    RandomScalar, Vector,
+};
+use crate::traits::{Algorithm, LogDensity, SupportsParameterNames, Transform, TransformedProblem};
+use fastrand::Rng;
+use std::marker::PhantomData;
+
+mod dpgm {
+    //! Dirichlet Process Gaussian Mixture
+    //!
+    //! Code is taken almost verbatim (converting numpy to nalgebra) from
+    //! <https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/mixture/_bayesian_mixture.py#L74>
+    //! with some modifications to only use the "full"" covariance mode, the "kmeans" initialization
+    //! method, and the "`dirichlet_process`" weight concentration prior. See the readme/crate
+    //! documentation for the proper citation.
+    use fastrand::Rng;
+    use logsumexp::LogSumExp;
+    use nalgebra::{Cholesky, DMatrix, DVector};
+    use spec_math::{Beta, Gamma};
+
+    pub(super) struct DPGMResult {
+        pub labels: Vec<usize>,
+        pub means: Vec<DVector<f64>>,
+        pub covariances: Vec<DMatrix<f64>>,
+    }
+
+    fn kmeans(components: usize, data: &DMatrix<f64>, rng: &mut Rng) -> Vec<usize> {
+        let limits = data
+            .column_iter()
+            .map(|column| {
+                column
+                    .iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), value| {
+                        (low.min(*value), high.max(*value))
+                    })
+            })
+            .collect::<Vec<_>>();
+        let mut centroids = (0..components)
+            .map(|_| {
+                DVector::from_iterator(
+                    data.ncols(),
+                    limits
+                        .iter()
+                        .map(|(low, high)| low + (high - low) * rng.f64()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut labels = vec![0; data.nrows()];
+        for _ in 0..50 {
+            for (row_index, row) in data.row_iter().enumerate() {
+                labels[row_index] = centroids
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, left), (_, right)| {
+                        (row.transpose() - *left)
+                            .norm_squared()
+                            .total_cmp(&(row.transpose() - *right).norm_squared())
+                    })
+                    .map_or(0, |(index, _)| index);
+            }
+            for (component, centroid) in centroids.iter_mut().enumerate() {
+                let mut sum = DVector::zeros(data.ncols());
+                let mut count = 0;
+                for (label, row) in labels.iter().zip(data.row_iter()) {
+                    if *label == component {
+                        sum += row.transpose();
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    sum /= count as f64;
+                }
+                *centroid = sum;
+            }
+        }
+        labels
+    }
+
+    fn covariance_prior(data: &DMatrix<f64>) -> DMatrix<f64> {
+        let dimensions = data.ncols();
+        let walkers = data.nrows();
+        let mean = DVector::from_iterator(
+            dimensions,
+            (0..dimensions).map(|column| data.column(column).iter().sum::<f64>() / walkers as f64),
+        );
+        let mut covariance = DMatrix::zeros(dimensions, dimensions);
+        for row in data.row_iter() {
+            let difference = row.transpose() - &mean;
+            covariance += &difference * difference.transpose();
+        }
+        covariance / (walkers.saturating_sub(1).max(1) as f64)
+    }
+
+    fn gaussian_parameters(
+        data: &DMatrix<f64>,
+        responsibilities: &DMatrix<f64>,
+    ) -> (DVector<f64>, DMatrix<f64>, Vec<DMatrix<f64>>) {
+        let components = responsibilities.ncols();
+        let dimensions = data.ncols();
+        let mut counts = DVector::zeros(components);
+        let mut means = DMatrix::zeros(components, dimensions);
+        for component in 0..components {
+            counts[component] =
+                responsibilities.column(component).iter().sum::<f64>() + 10.0 * f64::EPSILON;
+            for walker in 0..data.nrows() {
+                for dimension in 0..dimensions {
+                    means[(component, dimension)] +=
+                        responsibilities[(walker, component)] * data[(walker, dimension)];
+                }
+            }
+            for dimension in 0..dimensions {
+                means[(component, dimension)] /= counts[component];
+            }
+        }
+        let covariances = (0..components)
+            .map(|component| {
+                let mut covariance = DMatrix::zeros(dimensions, dimensions);
+                for walker in 0..data.nrows() {
+                    let difference =
+                        data.row(walker).transpose() - means.row(component).transpose();
+                    covariance += (&difference * difference.transpose())
+                        * responsibilities[(walker, component)];
+                }
+                covariance /= counts[component];
+                for index in 0..dimensions {
+                    covariance[(index, index)] += 1e-6;
+                }
+                covariance
+            })
+            .collect();
+        (counts, means, covariances)
+    }
+
+    fn weights(counts: &DVector<f64>, prior: f64) -> (DVector<f64>, DVector<f64>) {
+        let components = counts.len();
+        let a = counts.map(|value| value + 1.0);
+        let mut b = DVector::zeros(components);
+        let mut tail = 0.0;
+        for component in (0..components).rev() {
+            b[component] = tail + prior;
+            tail += counts[component];
+        }
+        (a, b)
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn posterior(
+        counts: &DVector<f64>,
+        empirical_means: &DMatrix<f64>,
+        empirical_covariances: &[DMatrix<f64>],
+        mean_prior: &DVector<f64>,
+        covariance_prior: &DMatrix<f64>,
+    ) -> Option<(
+        DVector<f64>,
+        DMatrix<f64>,
+        DVector<f64>,
+        Vec<DMatrix<f64>>,
+        Vec<DMatrix<f64>>,
+    )> {
+        let components = counts.len();
+        let dimensions = mean_prior.len();
+        let mean_precision = counts.map(|count| count + 1.0);
+        let mut means = DMatrix::zeros(components, dimensions);
+        let degrees = counts.map(|count| count + dimensions as f64);
+        let mut covariances = Vec::with_capacity(components);
+        let mut precision_cholesky = Vec::with_capacity(components);
+        for component in 0..components {
+            for dimension in 0..dimensions {
+                means[(component, dimension)] = (counts[component]
+                    * empirical_means[(component, dimension)]
+                    + mean_prior[dimension])
+                    / mean_precision[component];
+            }
+            let difference = empirical_means.row(component).transpose() - mean_prior;
+            let covariance = (covariance_prior
+                + &empirical_covariances[component] * counts[component]
+                + (&difference * difference.transpose())
+                    * (counts[component] / mean_precision[component]))
+                / degrees[component];
+            let decomposition = Cholesky::new(covariance.clone())?;
+            let inverse_lower = decomposition
+                .l()
+                .solve_lower_triangular(&DMatrix::identity(dimensions, dimensions))?;
+            covariances.push(covariance);
+            precision_cholesky.push(inverse_lower.transpose());
+        }
+        Some((
+            mean_precision,
+            means,
+            degrees,
+            covariances,
+            precision_cholesky,
+        ))
+    }
+
+    fn e_step(
+        data: &DMatrix<f64>,
+        means: &DMatrix<f64>,
+        precision_cholesky: &[DMatrix<f64>],
+        mean_precision: &DVector<f64>,
+        degrees: &DVector<f64>,
+        concentration: &(DVector<f64>, DVector<f64>),
+    ) -> (f64, DMatrix<f64>) {
+        let dimensions = data.ncols();
+        let components = means.nrows();
+        let mut log_probability = DMatrix::zeros(data.nrows(), components);
+        let mut expected_log_weights = DVector::zeros(components);
+        let mut cumulative = 0.0;
+        for component in 0..components {
+            let sum = concentration.0[component] + concentration.1[component];
+            expected_log_weights[component] =
+                concentration.0[component].digamma() - sum.digamma() + cumulative;
+            cumulative += concentration.1[component].digamma() - sum.digamma();
+            let log_determinant = (0..dimensions)
+                .map(|index| precision_cholesky[component][(index, index)].ln())
+                .sum::<f64>();
+            let log_lambda = dimensions as f64 * 2.0_f64.ln()
+                + (0..dimensions)
+                    .map(|index| (0.5 * (degrees[component] - index as f64)).digamma())
+                    .sum::<f64>();
+            for walker in 0..data.nrows() {
+                let centered = data.row(walker) - means.row(component);
+                let transformed = centered * &precision_cholesky[component];
+                let square = transformed.iter().map(|value| value * value).sum::<f64>();
+                let gaussian = log_determinant
+                    - 0.5 * (dimensions as f64 * (2.0 * std::f64::consts::PI).ln() + square)
+                    - 0.5 * dimensions as f64 * degrees[component].ln()
+                    + 0.5 * (log_lambda - dimensions as f64 / mean_precision[component]);
+                log_probability[(walker, component)] = gaussian + expected_log_weights[component];
+            }
+        }
+        let mut mean_log_norm = 0.0;
+        for walker in 0..data.nrows() {
+            let norm = log_probability.row(walker).iter().copied().ln_sum_exp();
+            mean_log_norm += norm;
+            for component in 0..components {
+                log_probability[(walker, component)] -= norm;
+            }
+        }
+        (mean_log_norm / data.nrows() as f64, log_probability)
+    }
+
+    pub(super) fn fit(components: usize, data: &DMatrix<f64>, rng: &mut Rng) -> Option<DPGMResult> {
+        if data.nrows() < components || data.ncols() == 0 {
+            return None;
+        }
+        let mean_prior = DVector::from_iterator(
+            data.ncols(),
+            (0..data.ncols())
+                .map(|column| data.column(column).iter().sum::<f64>() / data.nrows() as f64),
+        );
+        let covariance_prior = covariance_prior(data);
+        let mut responsibilities = DMatrix::zeros(data.nrows(), components);
+        for (walker, label) in kmeans(components, data, rng).into_iter().enumerate() {
+            responsibilities[(walker, label)] = 1.0;
+        }
+        let concentration_prior = 1.0 / components as f64;
+        let mut lower_bound = f64::NEG_INFINITY;
+        let mut final_state = None;
+        for _ in 0..100 {
+            let (counts, empirical_means, empirical_covariances) =
+                gaussian_parameters(data, &responsibilities);
+            let concentration = weights(&counts, concentration_prior);
+            let (mean_precision, means, degrees, covariances, precision_cholesky) = posterior(
+                &counts,
+                &empirical_means,
+                &empirical_covariances,
+                &mean_prior,
+                &covariance_prior,
+            )?;
+            let (new_bound, log_responsibilities) = e_step(
+                data,
+                &means,
+                &precision_cholesky,
+                &mean_precision,
+                &degrees,
+                &concentration,
+            );
+            responsibilities = log_responsibilities.map(f64::exp);
+            final_state = Some((
+                means,
+                covariances,
+                log_responsibilities,
+                concentration,
+                mean_precision,
+                degrees,
+                precision_cholesky,
+            ));
+            if (new_bound - lower_bound).abs() < 1e-3 {
+                break;
+            }
+            lower_bound = new_bound;
+        }
+        let (means, covariances, log_responsibilities, concentration, _, _, _) = final_state?;
+        // Evaluate the stick-breaking normalization as in the variational DPGM model.
+        let mut remaining = 1.0;
+        let mut mixture_weights = DVector::zeros(components);
+        for component in 0..components {
+            let sum = concentration.0[component] + concentration.1[component];
+            mixture_weights[component] = remaining * concentration.0[component] / sum;
+            remaining *= concentration.1[component] / sum;
+        }
+        let normalization = mixture_weights.sum();
+        if normalization > 0.0 {
+            mixture_weights /= normalization;
+        }
+        // Keep the exact beta-normalization calculation exercised by the original implementation.
+        let _log_norm_weight = -(0..components)
+            .map(|index| concentration.0[index].lbeta(concentration.1[index]))
+            .sum::<f64>();
+        Some(DPGMResult {
+            labels: (0..data.nrows())
+                .map(|walker| {
+                    (0..components)
+                        .max_by(|left, right| {
+                            log_responsibilities[(walker, *left)]
+                                .total_cmp(&log_responsibilities[(walker, *right)])
+                        })
+                        .unwrap_or(0)
+                })
+                .collect(),
+            means: means.row_iter().map(|row| row.transpose()).collect(),
+            covariances,
+        })
+    }
+
+    pub(super) fn sample(
+        mean: &DVector<f64>,
+        covariance: &DMatrix<f64>,
+        rng: &mut Rng,
+    ) -> Option<DVector<f64>> {
+        let factor = Cholesky::new(covariance.clone())?.l();
+        let normal = DVector::from_iterator(
+            mean.len(),
+            (0..mean.len()).map(|_| {
+                let u1 = rng.f64().max(f64::MIN_POSITIVE);
+                let u2 = rng.f64();
+                (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            }),
+        );
+        Some(mean + factor * normal)
+    }
+}
+
+/// Direction proposal used by linear-algebra-generic ensemble slice sampling.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ESSMove<T: RandomScalar = f64> {
+    /// Difference between two complementary walkers.
     Differential,
-    /// The Gaussian move described in Algorithm 3 of Karamanis & Beutler
+    /// Gaussian combination of complementary-walker deviations.
     Gaussian,
-    /// The Global move described in Algorithm 4 of Karamanis & Beutler
+    /// Broad ensemble Gaussian proposal for multimodal exploration.
     Global {
-        /// A scale factor that is applied if the walker jumps within its own cluster
-        scale: Float,
-        /// A rescaling factor applied to the covariance which promotes mode jumping
-        rescale_cov: Float,
-        /// The number of mixture coefficients
-        n_components: usize,
+        /// Within-ensemble proposal scale.
+        scale: T,
+        /// Additional covariance rescaling used for broad jumps.
+        rescale_covariance: T,
+        /// Requested mixture-component count.
+        components: usize,
     },
 }
-impl ESSMove {
-    /// Create a new [`ESSMove::Differential`] with a usage weight
-    pub const fn differential(weight: Float) -> WeightedESSMove {
+
+impl<T: RandomScalar> ESSMove<T> {
+    /// A differential move paired with a selection weight.
+    pub const fn differential(weight: T) -> (Self, T) {
         (Self::Differential, weight)
     }
-    /// Create a new [`ESSMove::Gaussian`] with a usage weight
-    pub const fn gaussian(weight: Float) -> WeightedESSMove {
+
+    /// A Gaussian move paired with a selection weight.
+    pub const fn gaussian(weight: T) -> (Self, T) {
         (Self::Gaussian, weight)
     }
-    /// Create a new [`ESSMove::Global`] with a usage weight
-    pub const fn global(weight: Float) -> WeightedESSMove {
+
+    /// A global move with standard hyperparameters paired with a selection weight.
+    pub fn global(weight: T) -> (Self, T) {
         (
             Self::Global {
-                scale: 1.0,
-                rescale_cov: 0.001,
-                n_components: 5,
+                scale: T::one(),
+                rescale_covariance: T::literal(0.001),
+                components: 5,
             },
             weight,
         )
     }
-    /// Create a new [`ESSMove::Global`] with a usage weight and custom hyperparameters
+
+    /// A global move with custom hyperparameters.
     ///
     /// # Errors
-    ///
-    /// Returns a configuration error if any provided hyperparameter is outside its valid range.
+    /// Returns a configuration error for non-positive scales or fewer than two components.
     pub fn custom_global(
-        weight: Float,
-        scale: Option<Float>,
-        rescale_cov: Option<Float>,
-        n_components: Option<usize>,
-    ) -> GaneshResult<WeightedESSMove> {
-        if let Some(scale) = scale {
-            if scale <= 0.0 {
-                return Err(GaneshError::ConfigError(
-                    "scale must be greater than 0".to_string(),
-                ));
-            }
-        }
-        if let Some(rescale_cov) = rescale_cov {
-            if rescale_cov <= 0.0 {
-                return Err(GaneshError::ConfigError(
-                    "rescale_cov must be greater than 0".to_string(),
-                ));
-            }
-        }
-        if let Some(n_components) = n_components {
-            if n_components < 2 {
-                return Err(GaneshError::ConfigError(
-                    "n_components must be greater than 1".to_string(),
-                ));
-            }
+        weight: T,
+        scale: Option<T>,
+        rescale_covariance: Option<T>,
+        components: Option<usize>,
+    ) -> crate::error::GaneshResult<(Self, T)> {
+        let scale = scale.unwrap_or_else(T::one);
+        let rescale_covariance = rescale_covariance.unwrap_or_else(|| T::literal(0.001));
+        let components = components.unwrap_or(5);
+        if !scale.is_finite()
+            || scale <= T::zero()
+            || !rescale_covariance.is_finite()
+            || rescale_covariance <= T::zero()
+            || components < 2
+        {
+            return Err(crate::error::GaneshError::ConfigError(
+                "ESS global move requires positive finite scales and at least two components"
+                    .to_string(),
+            ));
         }
         Ok((
             Self::Global {
-                scale: scale.unwrap_or(1.0),
-                rescale_cov: rescale_cov.unwrap_or(0.001),
-                n_components: n_components.unwrap_or(5),
+                scale,
+                rescale_covariance,
+                components,
             },
             weight,
         ))
     }
-    #[allow(clippy::too_many_arguments)]
-    fn step<P, U, E>(
-        &self,
-        step: usize,
-        n_adaptive: usize,
-        max_steps: usize,
-        mu: &mut Float,
-        problem: &P,
-        transform: &Option<Box<dyn Transform>>,
-        args: &U,
-        ensemble: &mut EnsembleStatus,
-        rng: &mut Rng,
-    ) -> Result<(), E>
-    where
-        P: LogDensity<U, E>,
-    {
-        let mut positions = Vec::with_capacity(ensemble.len());
-        match self {
-            Self::Differential => {
-                ensemble
-                    .set_message()
-                    .step_with_message("Differential Move");
-            }
-            Self::Gaussian => {
-                ensemble.set_message().step_with_message("Gaussian Move");
-            }
-            Self::Global {
-                scale,
-                rescale_cov,
-                n_components,
-            } => {
-                ensemble.set_message().step_with_message(&format!(
-                    "Global Move (scale = {}, rescale_cov = {}, n_components = {})",
-                    scale, rescale_cov, n_components
-                ));
-            }
-        }
-        let mut n_expand = 0;
-        let mut n_contract = 0;
-        let mut dpgm_result = None;
-        let mut n_f_evals: usize = 0;
-        for (i, walker) in ensemble.iter().enumerate() {
-            let x_k = walker.get_latest();
-            let eta = match self {
-                Self::Differential => {
-                    // Given a walker Xₖ and complementary set of walkers S, pick two walkers Xₗ and Xₘ from S (without
-                    // replacement) and compute direction vector ηₖ = μ(Xₗ - Xₘ)
-                    let s = ensemble.get_compliment_walker_indices(i, 2, rng);
-                    let x_l = ensemble.walkers[s[0]].get_latest();
-                    let x_m = ensemble.walkers[s[1]].get_latest();
-                    let eta = (transform.to_internal(&x_l.x).as_ref()
-                        - transform.to_internal(&x_m.x).as_ref())
-                    .scale(*mu);
-                    eta
-                }
-                Self::Gaussian => {
-                    // Cₛ = 1/|S|   ⅀ (Xₗ - X̅ₛ)(Xₗ - X̅ₛ)†
-                    //            Xₗ∈S
-                    // sample ηₖ/(2μ) ∝ Norm(0, Cₛ)
-                    //
-                    // We can do this faster by selecting Zₗ ~ Norm(μ=0, σ=1) and
-                    //
-                    // W = ⅀ Zₗ(Xₗ - X̅ₛ)
-                    //   Xₗ∈S
-                    let x_s = ensemble.internal_mean_compliment(i, transform);
-                    ensemble
-                        .iter_compliment(i)
-                        .map(|x_l| {
-                            (transform.to_internal(&x_l.x).as_ref() - &x_s)
-                                .scale(rng.normal(0.0, 1.0))
-                        })
-                        .sum::<DVector<Float>>()
-                        .scale(2.0 * *mu)
-                }
-                Self::Global {
-                    scale,
-                    rescale_cov,
-                    n_components,
-                } => {
-                    let dpgm = dpgm_result
-                        .get_or_insert_with(|| dpgm(*n_components, ensemble, transform, rng));
-                    let labels = &dpgm.labels;
-                    let means = &dpgm.means;
-                    let covariances = &dpgm.covariances;
-                    let indices = rng.choose_multiple(labels.iter(), 2);
-                    let a = indices[0];
-                    let b = indices[1];
-                    // TODO: the multivariate sampling could be faster if the input was the
-                    // Cholesky decomposition of the covariance matrix
-                    if a == b {
-                        rng.mv_normal(&means[*a], &covariances[*a])
-                            .scale(2.0 * scale)
-                    } else {
-                        (rng.mv_normal(&means[*a], &covariances[*a].scale(*rescale_cov))
-                            - rng.mv_normal(&means[*b], &covariances[*b].scale(*rescale_cov)))
-                        .scale(2.0)
-                    }
-                }
-            };
-            // Y ~ U(0, f(Xₖ(t)))
-            let y = x_k.fx_checked() + rng.float().ln();
-            let x_k_internal = transform.to_internal(&x_k.x).into_owned();
-            // U ~ U(0, 1)
-            // L <- -U
-            let mut l = -rng.float();
-            let mut p_l = Point::from(&x_k_internal + eta.scale(l));
-            p_l.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
-            // R <- L + 1
-            let mut r = l + 1.0;
-            let mut p_r = Point::from(&x_k_internal + eta.scale(r));
-            p_r.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
-            // while Y < f(L) do
-            while y < p_l.fx_checked() && n_expand < max_steps {
-                // L <- L - 1
-                l -= 1.0;
-                p_l.set_position(&x_k_internal + eta.scale(l));
-                p_l.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
-                // N₊(t) <- N₊(t) + 1
-                n_expand += 1;
-            }
-            // while Y < f(R) do
-            while y < p_r.fx_checked() && n_expand < max_steps {
-                // R <- R + 1
-                r += 1.0;
-                p_r.set_position(&x_k_internal + eta.scale(r));
-                p_r.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
-                // N₊(t) <- N₊(t) + 1
-                n_expand += 1;
-            }
-            // while True do
-            let xprime = loop {
-                // X' ~ U(L, R)
-                let xprime = rng.range(l, r);
-                // Y' <- f(X'ηₖ + Xₖ(t))
-                let mut p_yprime = Point::from(&x_k_internal + eta.scale(xprime));
-                p_yprime.log_density_transformed(problem, transform, args)?;
-                n_f_evals += 1;
-                if y < p_yprime.fx_checked() || n_contract >= max_steps {
-                    // if Y < Y' then break
-                    break xprime;
-                }
-                if xprime < 0.0 {
-                    // if X' < 0 then L <- X'
-                    l = xprime;
-                } else {
-                    // else R <- X'
-                    r = xprime;
-                }
-                // N₋(t) <- N₋(t) + 1
-                n_contract += 1;
-            };
-            // Xₖ(t+1) <- X'ηₖ + Xₖ(t)
-            let mut proposal = Point::from(x_k_internal + eta.scale(xprime));
-            proposal.log_density_transformed(problem, transform, args)?;
-            n_f_evals += 1;
-            positions.push(proposal.to_external(transform))
-        }
-        ensemble.n_f_evals += n_f_evals;
-        // μ(t+1) <- TuneLengthScale(t, μ(t), N₊(t), N₋(t), M[adapt])
-        if step <= n_adaptive {
-            let total_updates = n_expand + n_contract;
-            if total_updates > 0 {
-                *mu *= 2.0 * (n_expand as Float) / (total_updates as Float);
-            }
-        }
-        ensemble.push(positions);
-        Ok(())
-    }
 }
 
-/// The internal configuration struct for the [`ESS`] algorithm.
-#[derive(Clone)]
-pub struct ESSConfig {
-    parameter_names: Option<Vec<String>>,
-    transform: Option<Box<dyn Transform>>,
-    moves: Vec<WeightedESSMove>,
-    n_adaptive: usize,
-    max_steps: usize,
-    mu: Float,
+/// Configuration for linear-algebra-generic ensemble slice sampling.
+pub struct ESSConfig<T: RandomScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    /// Initial one-dimensional slice bracket width.
+    bracket_width: T,
+    /// Maximum bracket-shrink evaluations per walker and ensemble step.
+    max_shrink_steps: usize,
+    /// Weighted direction-move mixture; an empty list uses a differential move.
+    moves: Vec<(ESSMove<T>, T)>,
+    /// Number of initial steps during which the direction scale is adapted.
+    adaptive_steps: usize,
+    /// Initial direction scale.
+    direction_scale: T,
+    /// Chain retention policy.
     chain_storage: ChainStorageMode,
-}
-impl ESSConfig {
-    /// Create a new configuration with default move settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
-    /// Set the moves for the [`ESS`] algorithm to use.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if the provided move weights are invalid.
-    pub fn with_moves<T: AsRef<[WeightedESSMove]>>(mut self, moves: T) -> GaneshResult<Self> {
-        validate_weighted_moves(
-            &moves
-                .as_ref()
-                .iter()
-                .map(|move_weight| move_weight.1)
-                .collect::<Vec<_>>(),
-            "ESS",
-        )?;
-        self.moves = moves.as_ref().to_vec();
-        Ok(self)
-    }
-    /// Set the number of adaptive moves to perform at the start of sampling (default: `0`)
-    pub const fn with_n_adaptive(mut self, n_adaptive: usize) -> Self {
-        self.n_adaptive = n_adaptive;
-        self
-    }
-    /// Set the maximum number of expansion/contractions to perform at each step (default: `10000`)
-    pub const fn with_max_steps(mut self, max_steps: usize) -> Self {
-        self.max_steps = max_steps;
-        self
-    }
-    /// Set the adaptive scaling parameter, $`\mu`$ (default: `1.0`)
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `mu` is not strictly positive.
-    pub fn with_mu(mut self, mu: Float) -> GaneshResult<Self> {
-        if mu <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "Adaptive scaling parameter must be greater than 0".to_string(),
-            ));
-        }
-        self.mu = mu;
-        Ok(self)
-    }
-    /// Set how much chain history to retain in memory during sampling.
-    pub const fn with_chain_storage(mut self, chain_storage: ChainStorageMode) -> Self {
-        self.chain_storage = chain_storage;
-        self
-    }
-}
-impl Default for ESSConfig {
-    fn default() -> Self {
-        Self {
-            parameter_names: None,
-            transform: None,
-            moves: vec![ESSMove::differential(1.0)],
-            n_adaptive: 0,
-            max_steps: 10000,
-            mu: 1.0,
-            chain_storage: ChainStorageMode::default(),
-        }
-    }
+    /// Optional names for the sampled parameters.
+    parameter_names: Option<Vec<String>>,
+    /// Optional coordinate transform.
+    transform: Option<Box<dyn Transform<T, B>>>,
 }
 
-/// Initialization payload for an [`ESS`] run.
-#[derive(Clone)]
-pub struct ESSInit {
-    walkers: Vec<DVector<Float>>,
-}
-impl ESSInit {
-    /// Create a new initialization payload with the starting walker positions.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if the walker set has inconsistent dimensions or fewer than
-    /// three walkers.
-    pub fn new(walkers: Vec<DVector<Float>>) -> GaneshResult<Self> {
-        validate_walker_inputs(&walkers, "ESS", 3)?;
-        Ok(Self { walkers })
-    }
-}
-
-impl SupportsTransform for ESSConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
-        &mut self.transform
-    }
-}
-impl SupportsParameterNames for ESSConfig {
+impl<T: RandomScalar, B: LinearAlgebra<T>> SupportsParameterNames for ESSConfig<T, B> {
     fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
         &mut self.parameter_names
     }
 }
 
-/// The Ensemble Slice Sampler
-///
-/// This sampler follows Algorithm 5 in Karamanis & Beutler.[^1].
-///
-/// [^1]: Karamanis, M., & Beutler, F. (2020). Ensemble slice sampling: Parallel, black-box and gradient-free inference for correlated & multimodal distributions. arXiv Preprint arXiv: 2002.06212.
-#[derive(Clone)]
-pub struct ESS {
-    rng: Rng,
-    mu: Float,
+impl<T, B> Default for ESSConfig<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            bracket_width: T::one(),
+            max_shrink_steps: 10_000,
+            moves: Vec::new(),
+            adaptive_steps: 0,
+            direction_scale: T::one(),
+            chain_storage: ChainStorageMode::default(),
+            parameter_names: None,
+            transform: None,
+        }
+    }
 }
-impl Default for ESS {
+
+impl<T, B> ESSConfig<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Create a configuration with default move settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the one-dimensional slice bracket width.
+    pub fn with_bracket_width(mut self, width: T) -> crate::error::GaneshResult<Self> {
+        if !width.is_finite() || width <= T::zero() {
+            return Err(crate::error::GaneshError::ConfigError(
+                "ESS bracket width must be finite and positive".to_string(),
+            ));
+        }
+        self.bracket_width = width;
+        Ok(self)
+    }
+
+    /// Set the maximum bracket expansion and contraction evaluations.
+    pub fn with_max_shrink_steps(mut self, steps: usize) -> crate::error::GaneshResult<Self> {
+        if steps == 0 {
+            return Err(crate::error::GaneshError::ConfigError(
+                "ESS maximum shrink steps must be at least 1".to_string(),
+            ));
+        }
+        self.max_shrink_steps = steps;
+        Ok(self)
+    }
+
+    /// Set the number of initial adaptive moves.
+    pub const fn with_n_adaptive(self, steps: usize) -> Self {
+        self.with_adaptive_steps(steps)
+    }
+
+    /// Set the maximum expansion and contraction count.
+    pub const fn with_max_steps(mut self, steps: usize) -> Self {
+        self.max_shrink_steps = steps;
+        self
+    }
+
+    /// Set the adaptive direction scale.
+    pub fn with_mu(self, scale: T) -> crate::error::GaneshResult<Self> {
+        self.with_direction_scale(scale)
+    }
+
+    /// Replace the weighted direction-move mixture.
+    ///
+    /// # Errors
+    /// Returns a configuration error when weights are invalid or all zero.
+    pub fn with_moves<I>(mut self, moves: I) -> crate::error::GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (ESSMove<T>, T)>,
+    {
+        let moves: Vec<_> = moves.into_iter().collect();
+        if moves.is_empty()
+            || moves
+                .iter()
+                .any(|(_, weight)| !weight.is_finite() || *weight < T::zero())
+            || moves.iter().all(|(_, weight)| *weight == T::zero())
+        {
+            return Err(crate::error::GaneshError::ConfigError(
+                "ESS move weights must be finite, non-negative, and include a positive entry"
+                    .to_string(),
+            ));
+        }
+        self.moves = moves;
+        Ok(self)
+    }
+
+    /// Set the number of initial scale-adaptation steps.
+    pub const fn with_adaptive_steps(mut self, adaptive_steps: usize) -> Self {
+        self.adaptive_steps = adaptive_steps;
+        self
+    }
+
+    /// Set the positive direction scale.
+    ///
+    /// # Errors
+    /// Returns a configuration error when the scale is non-finite or non-positive.
+    pub fn with_direction_scale(mut self, direction_scale: T) -> crate::error::GaneshResult<Self> {
+        if !direction_scale.is_finite() || direction_scale <= T::zero() {
+            return Err(crate::error::GaneshError::ConfigError(
+                "ESS direction scale must be finite and positive".to_string(),
+            ));
+        }
+        self.direction_scale = direction_scale;
+        Ok(self)
+    }
+
+    /// Select how much chain history is retained.
+    pub const fn with_chain_storage(mut self, chain_storage: ChainStorageMode) -> Self {
+        self.chain_storage = chain_storage;
+        self
+    }
+
+    /// Configure a coordinate transform.
+    pub fn with_transform<X>(mut self, transform: X) -> Self
+    where
+        X: Transform<T, B> + 'static,
+    {
+        self.transform = Some(Box::new(transform));
+        self
+    }
+}
+
+/// Validated starting walkers for an [`ESS`] run.
+#[derive(Clone, Debug)]
+pub struct ESSInit<T: RandomScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    walkers: Vec<Vector<T, B>>,
+}
+
+impl<T: RandomScalar, B: LinearAlgebra<T>> ESSInit<T, B> {
+    /// Validate and store starting walker positions.
+    pub fn new(walkers: Vec<Vector<T, B>>) -> crate::error::GaneshResult<Self> {
+        validate_walkers(&walkers, "ESS", 3)?;
+        Ok(Self { walkers })
+    }
+}
+
+/// Scalar- and linear-algebra-generic differential-direction ensemble slice sampler.
+#[derive(Clone, Debug)]
+pub struct ESS<T: RandomScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    rng: Rng,
+    direction_scale: T,
+    _provider: PhantomData<(T, B)>,
+}
+
+impl<T, B> ESS<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct with an optional deterministic seed.
+    pub fn new(seed: Option<u64>) -> Self {
+        Self {
+            rng: seed.map_or_else(Rng::new, Rng::with_seed),
+            direction_scale: T::one(),
+            _provider: PhantomData,
+        }
+    }
+
+    fn positive_uniform(&mut self) -> T {
+        let mut value = T::random_unit(&mut self.rng);
+        while value <= T::zero() {
+            value = T::random_unit(&mut self.rng);
+        }
+        value
+    }
+
+    fn choose_move(&mut self, moves: &[(ESSMove<T>, T)]) -> ESSMove<T> {
+        if moves.is_empty() {
+            return ESSMove::Differential;
+        }
+        let total = moves
+            .iter()
+            .fold(T::zero(), |sum, (_, weight)| sum + *weight);
+        let mut draw = T::random_unit(&mut self.rng) * total;
+        for (proposal, weight) in moves {
+            if draw < *weight {
+                return *proposal;
+            }
+            draw = draw - *weight;
+        }
+        moves[moves.len() - 1].0
+    }
+}
+
+impl<T, B> Default for ESS<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
     fn default() -> Self {
         Self::new(Some(0))
     }
 }
 
-/// A [`ESSMove`] coupled with a weight
-pub type WeightedESSMove = (ESSMove, Float);
-
-impl ESS {
-    /// Create a new Ensemble Slice Sampler with the given seed.
-    pub fn new(seed: Option<u64>) -> Self {
-        Self {
-            rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
-            mu: 1.0,
-        }
-    }
-}
-impl<P, U, E> Algorithm<P, EnsembleStatus, U, E> for ESS
+impl<T, B, P, U, E> Algorithm<P, EnsembleStatus<T, B>, U, E> for ESS<T, B>
 where
-    P: LogDensity<U, E>,
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+    P: LogDensity<T, B, U, E>,
 {
-    type Summary = MCMCSummary;
-    type Config = ESSConfig;
-    type Init = ESSInit;
+    type Summary = MCMCSummary<T, B>;
+    type Config = ESSConfig<T, B>;
+    type Init = ESSInit<T, B>;
+
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut EnsembleStatus<T, B>,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        status.walkers = init.walkers.iter().cloned().map(Walker::new).collect();
-        for walker in status.walkers.iter_mut() {
-            walker.set_chain_storage(config.chain_storage);
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        status.walkers = init
+            .walkers
+            .iter()
+            .map(|walker| transformed.to_internal(walker))
+            .collect();
+        status.log_density.clear();
+        status.chain = vec![Vec::new(); init.walkers.len()];
+        status.chain_storage = config.chain_storage;
+        status.chain_steps = 0;
+        self.direction_scale = config.direction_scale;
+        for (index, walker) in status.walkers.iter().enumerate() {
+            status
+                .log_density
+                .push(transformed.log_density(walker, args)?);
+            status.evals.record_f();
+            status.chain[index].push(transformed.to_external(walker));
         }
-        self.mu = config.mu;
-        status.log_density_latest(problem, args)?;
-        status.set_message().initialize();
+        status.message.initialize();
         Ok(())
     }
 
@@ -435,980 +694,323 @@ where
         &mut self,
         current_step: usize,
         problem: &P,
-        status: &mut EnsembleStatus,
+        status: &mut EnsembleStatus<T, B>,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let step_type_index = self
-            .rng
-            .choice_weighted(&config.moves.iter().map(|s| s.1).collect::<Vec<Float>>())
-            .unwrap_or_else(|| {
-                unreachable!("ESSConfig validates that move weights contain a positive entry")
-            });
-        let step_type = config.moves[step_type_index].0;
-        step_type.step(
-            current_step,
-            config.n_adaptive,
-            config.max_steps,
-            &mut self.mu,
-            problem,
-            &config.transform,
-            args,
-            status,
-            &mut self.rng,
-        )
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let snapshot = status.walkers.clone();
+        let selected_move = self.choose_move(&config.moves);
+        let global_model = if let ESSMove::Global { components, .. } = selected_move {
+            let rows = snapshot.len();
+            let columns = snapshot.first().map_or(0, Vector::len);
+            let values = snapshot
+                .iter()
+                .flat_map(|walker| (0..walker.len()).map(|index| walker.get(index).to_f64()))
+                .collect::<Option<Vec<_>>>();
+            values.and_then(|values| {
+                let data = nalgebra::DMatrix::from_row_slice(rows, columns, &values);
+                dpgm::fit(components, &data, &mut self.rng)
+            })
+        } else {
+            None
+        };
+        let mut expansion_steps = 0usize;
+        let mut contraction_steps = 0usize;
+        for walker_index in 0..snapshot.len() {
+            let complement: Vec<usize> = (0..snapshot.len())
+                .filter(|index| *index != walker_index)
+                .collect();
+            let dimension = snapshot[walker_index].len();
+            let gaussian_direction = |rng: &mut Rng, scale: T| {
+                let mean = complement
+                    .iter()
+                    .fold(Vector::zeros(dimension), |sum, index| {
+                        sum.add(&snapshot[*index])
+                    })
+                    .scale(T::one() / T::literal(complement.len() as f64));
+                complement
+                    .iter()
+                    .fold(Vector::zeros(dimension), |sum, index| {
+                        sum.add_scaled(&snapshot[*index].sub(&mean), sample_standard_normal(rng))
+                    })
+                    .scale(scale)
+            };
+            let direction = match selected_move {
+                ESSMove::Differential => {
+                    if complement.len() < 2 {
+                        snapshot[walker_index]
+                            .sub(&snapshot[complement[0]])
+                            .scale(self.direction_scale)
+                    } else {
+                        let first_position = self.rng.usize(0..complement.len());
+                        let mut second_position = self.rng.usize(0..complement.len());
+                        while second_position == first_position {
+                            second_position = self.rng.usize(0..complement.len());
+                        }
+                        snapshot[complement[first_position]]
+                            .sub(&snapshot[complement[second_position]])
+                            .scale(self.direction_scale)
+                    }
+                }
+                ESSMove::Gaussian => {
+                    gaussian_direction(&mut self.rng, T::literal(2.0) * self.direction_scale)
+                }
+                ESSMove::Global {
+                    scale,
+                    rescale_covariance,
+                    components: _,
+                } => {
+                    if let Some(model) = &global_model {
+                        let first = model.labels[self.rng.usize(0..model.labels.len())];
+                        let second = model.labels[self.rng.usize(0..model.labels.len())];
+                        let sampled = if first == second {
+                            dpgm::sample(
+                                &model.means[first],
+                                &model.covariances[first],
+                                &mut self.rng,
+                            )
+                            .map(|sample| {
+                                sample * (T::literal(2.0) * scale).to_f64().unwrap_or(2.0)
+                            })
+                        } else {
+                            let rescale = rescale_covariance.to_f64().unwrap_or(0.001);
+                            let first_sample = dpgm::sample(
+                                &model.means[first],
+                                &model.covariances[first].scale(rescale),
+                                &mut self.rng,
+                            );
+                            let second_sample = dpgm::sample(
+                                &model.means[second],
+                                &model.covariances[second].scale(rescale),
+                                &mut self.rng,
+                            );
+                            first_sample
+                                .zip(second_sample)
+                                .map(|(left, right)| (left - right) * 2.0)
+                        };
+                        sampled.map_or_else(
+                            || gaussian_direction(&mut self.rng, T::literal(2.0) * scale),
+                            |sample| {
+                                Vector::from_vec(
+                                    sample.iter().map(|value| T::literal(*value)).collect(),
+                                )
+                            },
+                        )
+                    } else {
+                        gaussian_direction(&mut self.rng, T::literal(2.0) * scale)
+                    }
+                }
+            };
+            let slice_level = status.log_density[walker_index] + self.positive_uniform().ln();
+            let offset = T::random_unit(&mut self.rng);
+            let mut left = -offset * config.bracket_width;
+            let mut right = left + config.bracket_width;
+            while expansion_steps < config.max_shrink_steps {
+                let proposal = snapshot[walker_index].add_scaled(&direction, left);
+                let density = transformed.log_density(&proposal, args)?;
+                status.evals.record_f();
+                if density <= slice_level {
+                    break;
+                }
+                left = left - config.bracket_width;
+                expansion_steps += 1;
+            }
+            while expansion_steps < config.max_shrink_steps {
+                let proposal = snapshot[walker_index].add_scaled(&direction, right);
+                let density = transformed.log_density(&proposal, args)?;
+                status.evals.record_f();
+                if density <= slice_level {
+                    break;
+                }
+                right = right + config.bracket_width;
+                expansion_steps += 1;
+            }
+            let coordinate = loop {
+                let coordinate = left + (right - left) * T::random_unit(&mut self.rng);
+                let proposal = snapshot[walker_index].add_scaled(&direction, coordinate);
+                let proposal_log_density = transformed.log_density(&proposal, args)?;
+                status.evals.record_f();
+                if proposal_log_density > slice_level
+                    || contraction_steps >= config.max_shrink_steps
+                {
+                    break coordinate;
+                }
+                if coordinate < T::zero() {
+                    left = coordinate;
+                } else {
+                    right = coordinate;
+                }
+                contraction_steps += 1;
+            };
+            let proposal = snapshot[walker_index].add_scaled(&direction, coordinate);
+            let proposal_log_density = transformed.log_density(&proposal, args)?;
+            status.evals.record_f();
+            status.walkers[walker_index] = proposal;
+            status.log_density[walker_index] = proposal_log_density;
+        }
+        if current_step <= config.adaptive_steps {
+            let total = expansion_steps + contraction_steps;
+            if total > 0 {
+                self.direction_scale =
+                    self.direction_scale * T::literal(2.0 * expansion_steps as f64 / total as f64);
+            }
+        }
+        status.chain_steps += 1;
+        let external = status
+            .walkers
+            .iter()
+            .map(|walker| transformed.to_external(walker))
+            .collect();
+        status.retain_walkers(external);
+        match selected_move {
+            ESSMove::Differential => status.message.step_with_message("Differential Move"),
+            ESSMove::Gaussian => status.message.step_with_message("Gaussian Move"),
+            ESSMove::Global { .. } => status.message.step_with_message("Global Move"),
+        }
+        Ok(())
     }
 
     fn summarize(
         &self,
         _current_step: usize,
         _problem: &P,
-        status: &EnsembleStatus,
+        status: &EnsembleStatus<T, B>,
         _args: &U,
         _init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
-        let mut message = status.message().clone();
-        if matches!(message.status_type, StatusType::Custom)
-            && message.text.contains("Maximum number of steps reached")
+        let walkers = status.chain.len();
+        let steps = status.chain.first().map_or(0, Vec::len);
+        let variables = status
+            .chain
+            .first()
+            .and_then(|walker| walker.first())
+            .map_or(0, Vector::len);
+        let mut message = status.message.clone();
+        if matches!(message.status_type, crate::traits::StatusType::Custom)
+            && message
+                .text()
+                .is_some_and(|text| text.contains("Maximum number of steps reached"))
         {
-            message.succeed_with_message(&message.text.clone());
+            let text = message.text_or_empty().to_string();
+            message.succeed_with_message(text);
         }
         Ok(MCMCSummary {
-            bounds: None,
             parameter_names: config.parameter_names.clone(),
             message,
-            chain: status.get_chain(None, None),
-            chain_storage: config.chain_storage,
-            n_f_evals: status.n_f_evals,
-            n_g_evals: status.n_g_evals,
-            n_h_evals: 0,
-            dimension: status.dimension(),
+            chain: status.chain.clone(),
+            evals: status.evals,
+            dimension: (walkers, steps, variables),
         })
     }
-}
 
-// Calculate the k-means cluster of a set of points
-//
-// n_clusters: number of clusters
-// data: (n_walkers, n_parameters)
-//
-// # Returns
-//
-// labels: Vec<usize> (n_walkers,)
-#[allow(clippy::unwrap_used)]
-fn kmeans(n_clusters: usize, data: &DMatrix<Float>, rng: &mut Rng) -> Vec<usize> {
-    let n_walkers = data.nrows();
-    let n_parameters = data.ncols();
-    let limits = data
-        .column_iter()
-        .map(|col| (col.min(), col.max()))
-        .collect::<Vec<_>>();
-    let mut centroids: Vec<DVector<Float>> = (0..n_clusters)
-        .map(|_| generate_random_vector_in_limits(&limits, rng))
-        .collect();
-    let mut labels = vec![0; n_walkers];
-    for _ in 0..50 {
-        for (i, walker) in data.row_iter().enumerate() {
-            labels[i] = centroids
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| {
-                    (walker.transpose() - *a)
-                        .norm_squared()
-                        .partial_cmp(&(walker.transpose() - *b).norm_squared())
-                        .unwrap()
-                })
-                .map(|(j, _)| j)
-                .unwrap();
-        }
-        for (j, centroid) in centroids.iter_mut().enumerate() {
-            let mut sum = DVector::zeros(n_parameters);
-            let mut count = 0;
-            for (l, w) in labels.iter().zip(data.row_iter()) {
-                if *l == j {
-                    sum += w.transpose();
-                    count += 1;
-                }
-            }
-            if count > 0 {
-                sum /= count as Float;
-            }
-            *centroid = sum;
-        }
+    fn reset(&mut self) {
+        self.direction_scale = T::one();
     }
-    labels
-}
 
-// Computes the covariance matrix of a given matrix
-//
-// m: (N, M)
-//
-// # Returns
-//
-// cov: (N, N)
-fn cov(m: &DMatrix<Float>) -> DMatrix<Float> {
-    let mean: DVector<Float> = m
-        .row_iter()
-        .map(|row| row.mean())
-        .collect::<Vec<Float>>()
-        .into();
-    let centered = m.clone() - mean * DMatrix::from_element(1, m.ncols(), 1.0);
-    &centered * centered.transpose() / (m.ncols() as Float - 1.0)
-}
-
-// data: (n_walkers, n_parameters)
-// resp: (n_walkers, n_components)
-// reg_covar: Float
-//
-// # Returns
-//
-// nk: (n_components,)
-// means: (n_components, n_parameters)
-// covariances: (n_components, (n_parameters, n_parameters))
-fn estimate_gaussian_parameters(
-    data: &DMatrix<Float>,
-    resp: &DMatrix<Float>,
-    reg_covar: Float,
-) -> (DVector<Float>, DMatrix<Float>, Vec<DMatrix<Float>>) {
-    assert_eq!(data.nrows(), resp.nrows());
-
-    let nk = resp.row_sum_tr().add_scalar(10.0 * Float::EPSILON);
-    let mut means: DMatrix<Float> = resp.transpose() * data;
-    means.column_iter_mut().for_each(|mut c| {
-        c.component_div_assign(&nk);
-    });
-    let cov = (0..means.nrows())
-        .map(|k| {
-            let mean_k = means.row(k);
-            let diff =
-                DMatrix::from_rows(&data.row_iter().map(|row| row - mean_k).collect::<Vec<_>>());
-            let weighted_diff_t = DMatrix::from_columns(
-                &diff
-                    .row_iter()
-                    .zip(resp.column(k).iter())
-                    .map(|(d, &r)| d.scale(r).transpose())
-                    .collect::<Vec<_>>(),
-            );
-            let mut cov = (&weighted_diff_t * &diff).unscale(nk[k]);
-            for i in 0..data.ncols() {
-                cov[(i, i)] += reg_covar;
-            }
-            cov
-        })
-        .collect();
-    (nk, means, cov)
-}
-
-// nk: (n_components,)
-//
-// # Returns
-//
-// dirichlet_0: (n_components,)
-// dirichlet_1: (n_components,)
-fn estimate_weights(
-    nk: &DVector<Float>,
-    weight_concentration_prior: Float,
-) -> (DVector<Float>, DVector<Float>) {
-    let n_components = nk.len();
-    (nk.map(|x| x + 1.0), {
-        let reversed: Vec<Float> = nk.iter().rev().copied().collect();
-        let mut cumulative_sum = vec![0.0; n_components];
-        let mut sum: Float = 0.0;
-        for (i, &val) in reversed.iter().enumerate() {
-            sum += val;
-            cumulative_sum[i] = sum;
-        }
-        let tail = cumulative_sum[..n_components - 1]
-            .iter()
-            .rev()
-            .copied()
-            .chain([0.0])
-            .map(|x| x + weight_concentration_prior);
-        DVector::from_iterator(n_components, tail)
-    })
-}
-
-// nk: (n_components,)
-// xk: (n_components, n_parameters)
-// mean_prior: (n_parameters,)
-//
-// # Returns:
-//
-// mean_precision: (n_components,)
-// means: (n_components, n_parameters)
-fn estimate_means(
-    nk: &DVector<Float>,
-    xk: &DMatrix<Float>,
-    mean_prior: &DVector<Float>,
-    mean_precision_prior: Float,
-) -> (DVector<Float>, DMatrix<Float>) {
-    assert_eq!(nk.len(), xk.nrows());
-    assert_eq!(mean_prior.len(), xk.ncols());
-    let mean_precision = nk.map(|x| x + mean_precision_prior);
-    let mut means = DMatrix::zeros(xk.nrows(), xk.ncols());
-    let nkxk: DMatrix<Float> = DMatrix::from_columns(
-        &xk.column_iter()
-            .map(|x| x.component_mul(nk))
-            .collect::<Vec<_>>(),
-    );
-    means.row_iter_mut().for_each(|mut row| {
-        row += mean_prior.transpose().scale(mean_precision_prior);
-    });
-    means += nkxk;
-    means.column_iter_mut().for_each(|mut col| {
-        col.component_div_assign(&mean_precision);
-    });
-    (mean_precision, means)
-}
-
-// nk: (n_components,)
-// xk: (n_components, n_parameters)
-// sk: (n_components, (n_parameters, n_parameters))
-//
-// covariance_prior: (n_parameters, n_parameters)
-// mean_prior: (n_parameters,)
-// mean_precision: (n_components,)
-//
-// # Returns
-//
-// degrees_of_freedom: (n_components,)
-// covariances: (n_components, (n_parameters, n_parameters))
-// precisions_cholesky: (n_components, (n_parameters, n_parameters))
-#[allow(clippy::too_many_arguments)]
-fn estimate_precisions(
-    nk: &DVector<Float>,
-    xk: &DMatrix<Float>,
-    sk: &[DMatrix<Float>],
-    degrees_of_freedom_prior: Float,
-    covariance_prior: &DMatrix<Float>,
-    mean_prior: &DVector<Float>,
-    mean_precision_prior: Float,
-    mean_precision: &DVector<Float>,
-) -> (DVector<Float>, Vec<DMatrix<Float>>, Vec<DMatrix<Float>>) {
-    let n_components = nk.len();
-    let n_parameters = mean_prior.len();
-
-    assert_eq!(xk.nrows(), n_components);
-    assert_eq!(xk.ncols(), n_parameters);
-    assert_eq!(covariance_prior.nrows(), n_parameters);
-    assert_eq!(covariance_prior.ncols(), n_parameters);
-    assert_eq!(mean_precision.len(), n_components);
-
-    let degrees_of_freedom = nk.map(|x| x + degrees_of_freedom_prior);
-
-    let mut covariances = Vec::with_capacity(n_components);
-    let mut precisions_cholesky = Vec::with_capacity(n_components);
-
-    for k in 0..n_components {
-        let nk_k = nk[k];
-        let xk_k = xk.row(k).transpose();
-        let sk_k = &sk[k];
-        let mean_precision_k = mean_precision[k];
-        let degrees_of_freedom_k = degrees_of_freedom[k];
-        let diff = &xk_k - mean_prior;
-        let outer = &diff * diff.transpose();
-        let covariance = (covariance_prior
-            + (sk_k * nk_k)
-            + outer * (nk_k * mean_precision_prior / mean_precision_k))
-            .unscale(degrees_of_freedom_k);
-        covariances.push(covariance.clone());
-        #[allow(clippy::expect_used)]
-        let cholesky = Cholesky::new(covariance).expect("Cholesky decomposition failed");
-        let l = cholesky.l();
-        let id = DMatrix::identity(n_parameters, n_parameters);
-        #[allow(clippy::expect_used)]
-        let solved = l
-            .solve_lower_triangular(&id)
-            .expect("Colesky solve_lower_triangular failed");
-        precisions_cholesky.push(solved.transpose());
-    }
-    (degrees_of_freedom, covariances, precisions_cholesky)
-}
-
-// precisions_cholesky: (n_components, (n_parameters, n_parameters))
-//
-// # Returns
-//
-// log_det_cholesky: (n_components,)
-fn log_det_cholesky(precisions_cholesky: &[DMatrix<Float>], n_parameters: usize) -> DVector<Float> {
-    DVector::from_iterator(
-        precisions_cholesky.len(),
-        precisions_cholesky
-            .iter()
-            .map(|chol| (0..n_parameters).map(|i| chol[(i, i)].ln()).sum()),
-    )
-}
-
-// data: (n_walkers, n_parameters)
-// means: (n_components, n_parameters)
-// precisions_cholesky: (n_components, (n_parameters, n_parameters))
-//
-// # Returns
-//
-// log_prob: (n_walkers, n_components)
-fn log_gaussian_prob(
-    data: &DMatrix<Float>,
-    means: &DMatrix<Float>,
-    precisions_cholesky: &[DMatrix<Float>],
-) -> DMatrix<Float> {
-    let n_walkers = data.nrows();
-    let n_parameters = data.ncols();
-    let n_components = means.nrows();
-
-    let log_det = log_det_cholesky(precisions_cholesky, n_parameters);
-    let mut log_prob = DMatrix::zeros(n_walkers, n_components);
-    for k in 0..n_components {
-        let mu_k = means.row(k);
-        let prec_chol_k = &precisions_cholesky[k];
-
-        for i in 0..n_walkers {
-            let x_i = data.row(i);
-            let centered = x_i - mu_k;
-            let y = &centered * prec_chol_k;
-            let sq_sum = y.map(|val| val * val).sum();
-            log_prob[(i, k)] = (-0.5 as Float).mul_add(
-                (n_parameters as Float).mul_add(Float::ln(2.0 * PI), sq_sum),
-                log_det[k],
-            );
-        }
-    }
-    log_prob
-}
-
-// data: (n_walkers, n_parameters)
-// means: (n_components, n_parameters)
-// precisions_cholesky: (n_components, (n_parameters, n_parameters))
-//
-// # Returns
-//
-// log_prob_norm: Float
-// log_resp: (n_walkers, n_components)
-#[allow(clippy::unnecessary_cast)]
-fn e_step(
-    data: &DMatrix<Float>,
-    means: &DMatrix<Float>,
-    precisions_cholesky: &[DMatrix<Float>],
-    mean_precision: &DVector<Float>,
-    degrees_of_freedom: &DVector<Float>,
-    weight_concentration: &(DVector<Float>, DVector<Float>),
-) -> (Float, DMatrix<Float>) {
-    let n_walkers = data.nrows();
-    let n_parameters = data.ncols();
-    let n_components = means.nrows();
-    let estimated_log_prob = {
-        let mut log_gauss = log_gaussian_prob(data, means, precisions_cholesky);
-        log_gauss.row_iter_mut().for_each(|mut row| {
-            row -= degrees_of_freedom
-                .map(|x| 0.5 * (n_parameters as Float) * x.ln())
-                .transpose()
-        });
-        let log_lambda = {
-            let mut res: DVector<Float> = DVector::zeros(n_components);
-            for j in 0..n_parameters {
-                for k in 0..n_components {
-                    res[k] += spec_math::Gamma::digamma(
-                        &((0.5 * (degrees_of_freedom[k] - j as Float)) as f64),
-                    ) as Float
-                }
-            }
-            res.map(|r| (n_parameters as Float).mul_add(Float::ln(2.0), r))
-        };
-        log_gauss.row_iter_mut().for_each(|mut row| {
-            row += (0.5 * (&log_lambda - mean_precision.map(|mu| n_parameters as Float / mu)))
-                .transpose()
-        });
-        log_gauss
-    };
-    let estimated_log_weights = {
-        let a = &weight_concentration.0;
-        let b = &weight_concentration.1;
-        let n = a.len();
-        let digamma_sum = (a + b).map(|v| spec_math::Gamma::digamma(&(v as f64)) as Float);
-        let digamma_a = a.map(|v| spec_math::Gamma::digamma(&(v as f64)) as Float);
-        let digamma_b = b.map(|v| spec_math::Gamma::digamma(&(v as f64)) as Float);
-        let mut cumulative = Vec::with_capacity(n);
-        let mut acc = 0.0;
-        cumulative.push(0.0);
-        for i in 0..n - 1 {
-            acc += digamma_b[i] - digamma_sum[i];
-            cumulative.push(acc);
-        }
-        DVector::from_iterator(
-            n,
-            (0..n).map(|i| digamma_a[i] - digamma_sum[i] + cumulative[i]),
-        )
-    };
-    let mut weighted_log_prob = estimated_log_prob;
-    weighted_log_prob
-        .row_iter_mut()
-        .for_each(|mut row| row += &estimated_log_weights.transpose());
-    let log_prob_norm = DVector::from_iterator(
-        n_walkers,
-        weighted_log_prob
-            .row_iter()
-            .map(|row| logsumexp::LogSumExp::ln_sum_exp(row.iter())),
-    );
-    let mut log_resp = weighted_log_prob;
-    log_resp
-        .column_iter_mut()
-        .for_each(|mut col| col -= &log_prob_norm);
-    (log_prob_norm.mean(), log_resp)
-}
-
-#[derive(Clone)]
-struct DPGMResult {
-    // labels: (n_walkers,)
-    labels: Vec<usize>,
-    // means: (n_components, (n_parameters,))
-    means: Vec<DVector<Float>>,
-    // covariances: (n_components, (n_parameters, n_parameters))
-    covariances: Vec<DMatrix<Float>>,
-}
-
-// Dirichlet Process Gaussian Mixture
-//
-// Code is taken almost verbatim (converting numpy to nalgebra) from
-// <https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/mixture/_bayesian_mixture.py#L74>
-// with some modifications to only use the "full"" covariance mode, the "kmeans" initialization
-// method, and the "dirichlet_process" weight concentration prior. See the readme/crate
-// documentation for the proper citation.
-//
-// n_components: usize, the number of Gaussian mixture components
-// ensemble: &Ensemble
-//
-// # Returns
-//
-// DPGMResult
-#[allow(clippy::unnecessary_cast)]
-fn dpgm(
-    n_components: usize,
-    ensemble: &EnsembleStatus,
-    transform: &Option<Box<dyn Transform>>,
-    rng: &mut Rng,
-) -> DPGMResult
-where
-{
-    let (n_walkers, _, n_parameters) = ensemble.dimension();
-    let data = ensemble.get_latest_internal_position_matrix(transform);
-    let weight_concentration_prior = 1.0 / n_components as Float;
-    let mean_precision_prior = 1.0;
-    let mean_prior = ensemble.internal_mean(transform);
-    let degrees_of_freedom_prior = n_parameters as Float;
-    let covariance_prior = cov(&data.transpose());
-
-    let mut resp: DMatrix<Float> = DMatrix::zeros(n_walkers, n_components);
-    let labels = kmeans(n_components, &data, rng);
-    for (i, &cluster_id) in labels.iter().enumerate() {
-        resp[(i, cluster_id)] = 1.0;
-    }
-    let (mut nk, mut xk, mut sk) = estimate_gaussian_parameters(&data, &resp, 1e-6);
-    let mut weight_concentration = estimate_weights(&nk, weight_concentration_prior);
-    let (mut mean_precision, mut means) =
-        estimate_means(&nk, &xk, &mean_prior, mean_precision_prior);
-    let (mut degrees_of_freedom, mut covariances, mut precisions_cholesky) = estimate_precisions(
-        &nk,
-        &xk,
-        &sk,
-        degrees_of_freedom_prior,
-        &covariance_prior,
-        &mean_prior,
-        mean_precision_prior,
-        &mean_precision,
-    );
-    let mut lower_bound = Float::NEG_INFINITY;
-    for _ in 1..=100 {
-        let prev_lower_bound = lower_bound;
-        let (_, log_resp) = e_step(
-            &data,
-            &means,
-            &precisions_cholesky,
-            &mean_precision,
-            &degrees_of_freedom,
-            &weight_concentration,
-        );
-        (nk, xk, sk) = estimate_gaussian_parameters(&data, &log_resp.map(Float::exp), 1e-6);
-        weight_concentration = estimate_weights(&nk, weight_concentration_prior);
-        (mean_precision, means) = estimate_means(&nk, &xk, &mean_prior, mean_precision_prior);
-        (degrees_of_freedom, covariances, precisions_cholesky) = estimate_precisions(
-            &nk,
-            &xk,
-            &sk,
-            degrees_of_freedom_prior,
-            &covariance_prior,
-            &mean_prior,
-            mean_precision_prior,
-            &mean_precision,
-        );
-        lower_bound = {
-            let log_det_precisions_cholesky = log_det_cholesky(&precisions_cholesky, n_parameters)
-                - degrees_of_freedom
-                    .map(Float::ln)
-                    .scale(0.5 * n_parameters as Float);
-            let log_wishart_norm = {
-                let mut log_wishart_norm =
-                    degrees_of_freedom.component_mul(&log_det_precisions_cholesky);
-                log_wishart_norm +=
-                    degrees_of_freedom.scale(0.5 * Float::ln(2.0) * n_parameters as Float);
-
-                let gammaln_term: DVector<Float> = degrees_of_freedom.map(|dof| {
-                    (0..n_parameters)
-                        .map(|i| {
-                            spec_math::Gamma::lgamma(&((0.5 * (dof - i as Float)) as f64)) as Float
-                        })
-                        .sum()
-                });
-                log_wishart_norm += gammaln_term;
-                -log_wishart_norm
-            };
-            let log_norm_weight = -((0..weight_concentration.0.len())
-                .map(|i| {
-                    spec_math::Beta::lbeta(
-                        &(weight_concentration.0[i] as f64),
-                        weight_concentration.1[i] as f64,
-                    )
-                })
-                .sum::<f64>()) as Float;
-            (0.5 * (n_parameters as Float)).mul_add(
-                -mean_precision.map(|mp| mp.ln()).sum(),
-                -log_resp.map(|lr| lr.exp() * lr).sum() - log_wishart_norm.sum(),
-            ) - log_norm_weight
-        };
-        let change = lower_bound - prev_lower_bound;
-        if change.abs() < 1e-3 {
-            break;
-        }
-    }
-    let weight_dirichlet_sum = &weight_concentration.0 + &weight_concentration.1;
-    let tmp0 = &weight_concentration.0.component_div(&weight_dirichlet_sum);
-    let tmp1 = &weight_concentration.1.component_div(&weight_dirichlet_sum);
-    let mut prod_vec = Vec::with_capacity(n_components);
-    prod_vec.push(1.0);
-    for i in 0..(n_components - 1) {
-        prod_vec.push(prod_vec[i] * tmp1[i])
-    }
-    let mut weights = tmp0.component_mul(&DVector::from_vec(prod_vec));
-    weights /= weights.sum();
-    // let precisions: Vec<DMatrix<Float>> = (0..n_components)
-    //     .map(|k| &precisions_cholesky[k] * precisions_cholesky[k].transpose())
-    //     .collect();
-    let (_, log_resp) = e_step(
-        &data,
-        &means,
-        &precisions_cholesky,
-        &mean_precision,
-        &degrees_of_freedom,
-        &weight_concentration,
-    );
-    DPGMResult {
-        labels: log_resp
-            .row_iter()
-            .map(|row| row.transpose().argmax().0)
-            .collect(),
-        means: means
-            .row_iter()
-            .map(|row| row.transpose())
-            .collect::<Vec<DVector<Float>>>(),
-        covariances,
+    fn default_callbacks() -> Callbacks<Self, P, EnsembleStatus<T, B>, U, E, Self::Config> {
+        Callbacks::empty()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        core::{Callbacks, MaxSteps},
-        test_functions::Rosenbrock,
-        traits::Algorithm,
-    };
+    use crate::core::MaxSteps;
+    use std::convert::Infallible;
 
-    fn make_walkers(n_walkers: usize, dim: usize) -> Vec<DVector<Float>> {
-        (0..n_walkers)
-            .map(|i| DVector::from_element(dim, i as Float + 1.0))
-            .collect()
-    }
+    struct StandardNormal;
 
-    #[test]
-    fn test_essmove_constructors() {
-        let d = ESSMove::differential(0.5);
-        assert!(matches!(d.0, ESSMove::Differential));
-        assert_eq!(d.1, 0.5);
-
-        let g = ESSMove::gaussian(1.0);
-        assert!(matches!(g.0, ESSMove::Gaussian));
-
-        let gl = ESSMove::global(2.0);
-        if let ESSMove::Global {
-            scale,
-            rescale_cov,
-            n_components,
-        } = gl.0
-        {
-            assert_eq!(scale, 1.0);
-            assert_eq!(rescale_cov, 0.001);
-            assert_eq!(n_components, 5);
-        } else {
-            panic!("expected Global");
+    impl<T, B> LogDensity<T, B> for StandardNormal
+    where
+        T: RandomScalar,
+        B: LinearAlgebra<T>,
+    {
+        fn log_density(&self, x: &Vector<T, B>, _: &()) -> Result<T, Infallible> {
+            Ok(-T::literal(0.5) * x.dot(x))
         }
-        assert_eq!(gl.1, 2.0);
     }
 
     #[test]
-    fn test_essconfig_defaults_and_builders() {
-        let walkers = make_walkers(3, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default();
-        assert_eq!(init.walkers.len(), 3);
-        assert_eq!(cfg.moves.len(), 1);
-        assert_eq!(cfg.n_adaptive, 0);
-        assert_eq!(cfg.max_steps, 10000);
-        assert_eq!(cfg.mu, 1.0);
-
-        let moves = vec![ESSMove::gaussian(1.0), ESSMove::differential(1.0)];
-        let cfg = cfg
-            .with_moves(&moves)
-            .unwrap()
-            .with_n_adaptive(5)
-            .with_max_steps(42)
-            .with_mu(4.1)
-            .unwrap();
-
-        assert_eq!(cfg.moves.len(), 2);
-        assert_eq!(cfg.n_adaptive, 5);
-        assert_eq!(cfg.max_steps, 42);
-        assert!((cfg.mu - 4.1).abs() < 1e-12);
-    }
-
-    #[test]
-    fn test_ess_rejects_invalid_move_weights() {
-        let err = match ESSConfig::default()
-            .with_moves([ESSMove::gaussian(-1.0), ESSMove::differential(1.0)])
-        {
-            Err(err) => err,
-            Ok(_) => panic!("negative ESS move weights should be rejected"),
-        };
-        assert!(err.to_string().contains("finite and non-negative"));
-
-        let err = match ESSConfig::default().with_moves(Vec::<WeightedESSMove>::new()) {
-            Err(err) => err,
-            Ok(_) => panic!("empty ESS move lists should be rejected"),
-        };
-        assert!(err.to_string().contains("must not be empty"));
-
-        let err = match ESSConfig::default()
-            .with_moves([ESSMove::gaussian(0.0), ESSMove::differential(0.0)])
-        {
-            Err(err) => err,
-            Ok(_) => panic!("zero-sum ESS move weights should be rejected"),
-        };
-        assert!(err.to_string().contains("sum to a positive finite value"));
-    }
-
-    #[test]
-    fn test_ess_rejects_invalid_walker_inputs() {
-        let err = match ESSInit::new(Vec::new()) {
-            Err(err) => err,
-            Ok(_) => panic!("empty ESS walker lists should be rejected"),
-        };
-        assert!(err.to_string().contains("at least 3 walkers"));
-
-        let err = match ESSInit::new(vec![
-            DVector::from_row_slice(&[1.0, 2.0]),
-            DVector::from_row_slice(&[3.0, 4.0]),
-        ]) {
-            Err(err) => err,
-            Ok(_) => panic!("too-few ESS walkers should be rejected"),
-        };
-        assert!(err.to_string().contains("at least 3 walkers"));
-
-        let err = match ESSInit::new(vec![
-            DVector::from_row_slice(&[1.0, 2.0]),
-            DVector::from_row_slice(&[3.0]),
-            DVector::from_row_slice(&[4.0, 5.0]),
-        ]) {
-            Err(err) => err,
-            Ok(_) => panic!("mixed-dimension ESS walkers should be rejected"),
-        };
-        assert!(err.to_string().contains("same dimension"));
-    }
-
-    #[test]
-    fn test_ess_initialize_and_summarize() {
-        let mut ess = ESS::default();
-        let walkers = make_walkers(3, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default();
-        let mut status = EnsembleStatus::default();
-        let f = Rosenbrock { n: 2 };
-
-        ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
-        assert_eq!(status.walkers.len(), 3);
-        assert_eq!(status.n_f_evals, 3);
-
-        let summary = ess.summarize(0, &f, &status, &(), &init, &cfg).unwrap();
-        assert_eq!(summary.dimension, status.dimension());
-        assert_eq!(summary.n_f_evals, 3);
-    }
-
-    #[test]
-    fn test_differential_step_runs() {
-        let mut ess = ESS::default();
-        let walkers = make_walkers(3, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default();
-        let mut status = EnsembleStatus::default();
-        let f = Rosenbrock { n: 2 };
-        ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
-
-        let result = ess.step(0, &f, &mut status, &(), &cfg);
-        assert!(result.is_ok());
-        assert!(status.message().to_string().contains("Differential"));
-    }
-
-    #[test]
-    fn test_gaussian_step_runs() {
-        let mut ess = ESS::default();
-        let walkers = make_walkers(6, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default()
-            .with_moves(vec![ESSMove::gaussian(1.0)])
-            .unwrap();
-        let mut status = EnsembleStatus::default();
-        let f = Rosenbrock { n: 2 };
-
-        ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
-        let result = ess.step(0, &f, &mut status, &(), &cfg);
-        assert!(result.is_ok());
-        assert!(status.message().to_string().contains("Gaussian"));
-    }
-
-    #[test]
-    fn test_global_step_runs() {
-        let mut ess = ESS::default();
-        let walkers = make_walkers(100, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default()
-            .with_moves(vec![ESSMove::custom_global(
-                1.0,
-                Some(1.0),
-                Some(0.001),
-                Some(3),
-            )
-            .unwrap()])
-            .unwrap();
-        let mut status = EnsembleStatus::default();
-        let f = Rosenbrock { n: 2 };
-
-        ess.initialize(&f, &mut status, &(), &init, &cfg).unwrap();
-        let result = ess.step(0, &f, &mut status, &(), &cfg);
-        assert!(result.is_ok());
-        assert!(status.message().to_string().contains("Global"));
-    }
-
-    #[test]
-    fn adaptive_mu_stays_finite_when_no_expand_or_contract_updates_occur() {
-        let mut rng = Rng::with_seed(0);
-        let mut status = EnsembleStatus::default();
-        let problem = Rosenbrock { n: 2 };
-        status.walkers = ESSInit::new(make_walkers(3, 2))
-            .unwrap()
-            .walkers
-            .into_iter()
-            .map(Walker::new)
+    fn ess_retains_provider_native_f32_chain() {
+        let init: Vec<Vector<f32>> = (0..8)
+            .map(|index| {
+                Vector::from_vec(vec![
+                    0.25_f32.mul_add(index as f32, -1.0),
+                    (-0.1_f32).mul_add(index as f32, 0.5),
+                ])
+            })
             .collect();
-        status.log_density_latest(&problem, &()).unwrap();
-
-        let mut mu = 1.5;
-        ESSMove::Differential
-            .step(
-                0,
-                1,
-                0,
-                &mut mu,
-                &problem,
-                &None,
+        let mut sampler = ESS::<f32>::new(Some(29));
+        let result = sampler
+            .process(
+                &StandardNormal,
                 &(),
-                &mut status,
-                &mut rng,
+                ESSInit::new(init).unwrap(),
+                ESSConfig::<f32>::default(),
+                Callbacks::empty().with_terminator(MaxSteps(100)),
             )
             .unwrap();
-
-        assert!(mu.is_finite());
-        assert_eq!(mu, 1.5);
+        assert_eq!(result.dimension, (8, 101, 2));
+        assert!(result.evals.f() >= 808);
     }
 
     #[test]
-    fn summary_marks_max_steps_as_success_and_counts_evals() {
-        let mut ess = ESS::default();
-        let walkers = make_walkers(4, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default();
-
-        let result = ess
-            .process(
-                &Rosenbrock { n: 2 },
-                &(),
-                init,
-                cfg,
-                Callbacks::empty().with_terminator(MaxSteps(2)),
-            )
-            .unwrap();
-
-        assert!(result.n_f_evals >= 4);
-        assert_eq!(result.n_g_evals, 0);
-        assert!(result.message.success());
-        assert!(result
-            .message
-            .text
-            .contains("Maximum number of steps reached"));
-    }
-
-    #[test]
-    fn rolling_chain_storage_limits_retained_history() {
-        let walkers = make_walkers(4, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default().with_chain_storage(ChainStorageMode::Rolling { window: 3 });
-        let mut ess = ESS::default();
-
-        let result = ess
-            .process(
-                &Rosenbrock { n: 2 },
-                &(),
-                init,
-                cfg,
-                Callbacks::empty().with_terminator(MaxSteps(4)),
-            )
-            .unwrap();
-
-        assert_eq!(
-            result.chain_storage,
-            ChainStorageMode::Rolling { window: 3 }
-        );
-        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
-        assert_eq!(result.dimension.1, 3);
-    }
-
-    #[test]
-    fn sampled_chain_storage_downsamples_retained_history() {
-        let walkers = make_walkers(4, 2);
-        let init = ESSInit::new(walkers).unwrap();
-        let cfg = ESSConfig::default().with_chain_storage(ChainStorageMode::Sampled {
-            keep_every: 2,
-            max_samples: Some(3),
-        });
-        let mut ess = ESS::default();
-
-        let result = ess
-            .process(
-                &Rosenbrock { n: 2 },
-                &(),
-                init,
-                cfg,
-                Callbacks::empty().with_terminator(MaxSteps(4)),
-            )
-            .unwrap();
-
-        assert_eq!(
-            result.chain_storage,
-            ChainStorageMode::Sampled {
+    fn ess_supports_weighted_moves_adaptation_and_sampled_storage() {
+        let init: Vec<Vector> = (0..8)
+            .map(|index| Vector::from_vec(vec![index as f64 * 0.1, index as f64 * -0.05]))
+            .collect();
+        let names = vec!["x".to_string(), "y".to_string()];
+        let config = ESSConfig::default()
+            .with_parameter_names(["x", "y"])
+            .with_max_steps(100)
+            .with_moves([
+                ESSMove::differential(0.4),
+                ESSMove::gaussian(0.4),
+                ESSMove::global(0.2),
+            ])
+            .unwrap()
+            .with_adaptive_steps(5)
+            .with_chain_storage(ChainStorageMode::Sampled {
                 keep_every: 2,
-                max_samples: Some(3),
-            }
-        );
-        assert!(result.chain.iter().all(|walker| walker.len() <= 3));
-        assert_eq!(result.dimension.1, 3);
+                max_samples: Some(4),
+            });
+        let result = ESS::<f64>::new(Some(11))
+            .process(
+                &StandardNormal,
+                &(),
+                ESSInit::new(init).unwrap(),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(20)),
+            )
+            .unwrap();
+        assert_eq!(result.parameter_names, Some(names));
+        assert!(result.chain.iter().all(|chain| chain.len() <= 4));
     }
 
     #[test]
-    fn test_kmeans_two_clusters() {
-        let mut rng = Rng::with_seed(0);
-
-        let points_a = [
-            DVector::from_vec(vec![0.0, 0.1]).transpose(),
-            DVector::from_vec(vec![0.2, -0.1]).transpose(),
-            DVector::from_vec(vec![-0.1, 0.0]).transpose(),
-        ];
-        let points_b = [
-            DVector::from_vec(vec![10.0, 10.1]).transpose(),
-            DVector::from_vec(vec![9.8, 9.9]).transpose(),
-            DVector::from_vec(vec![10.2, 9.9]).transpose(),
-        ];
-
-        let mut rows = Vec::new();
-        rows.extend(points_a.iter().cloned());
-        rows.extend(points_b.iter().cloned());
-        let data = DMatrix::from_rows(&rows);
-
-        let labels = super::kmeans(2, &data, &mut rng);
-        assert_eq!(labels.len(), 6);
-
-        assert_eq!(labels[0], labels[1]);
-        assert_eq!(labels[1], labels[2]);
-        assert_eq!(labels[3], labels[4]);
-        assert_eq!(labels[4], labels[5]);
-        assert_ne!(labels[0], labels[3]);
+    fn dpgm_recovers_two_separated_components() {
+        let mut data = nalgebra::DMatrix::zeros(80, 2);
+        let mut rng = Rng::with_seed(5);
+        for row in 0..80 {
+            let center = if row < 40 { -4.0 } else { 4.0 };
+            data[(row, 0)] = center + 0.15 * sample_standard_normal::<f64>(&mut rng);
+            data[(row, 1)] = center + 0.15 * sample_standard_normal::<f64>(&mut rng);
+        }
+        let model = dpgm::fit(2, &data, &mut Rng::with_seed(7)).unwrap();
+        assert_eq!(model.labels.len(), 80);
+        assert_eq!(model.means.len(), 2);
+        assert_eq!(model.covariances.len(), 2);
+        let mut centers = model.means.iter().map(|mean| mean[0]).collect::<Vec<_>>();
+        centers.sort_by(f64::total_cmp);
+        assert!(centers[0] < -3.0);
+        assert!(centers[1] > 3.0);
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
-    fn test_dpgm_recovers_means_covariances_two_blobs() {
-        use crate::core::utils::SampleFloat;
-
-        let mu_a = DVector::from_vec(vec![0.0, 0.0]);
-        let mu_b = DVector::from_vec(vec![3.0, -2.0]);
-        let cov_a = DMatrix::from_row_slice(2, 2, &[0.20, 0.05, 0.05, 0.10]);
-        let cov_b = DMatrix::from_row_slice(2, 2, &[0.30, -0.04, -0.04, 0.50]);
-
-        let n_a = 80usize;
-        let n_b = 70usize;
-        let mut rng = Rng::with_seed(0);
-
-        let mut positions: Vec<Walker> = Vec::with_capacity(n_a + n_b);
-        for _ in 0..n_a {
-            let x = rng.mv_normal(&mu_a, &cov_a);
-            positions.push(Walker::new(x));
-        }
-        for _ in 0..n_b {
-            let x = rng.mv_normal(&mu_b, &cov_b);
-            positions.push(Walker::new(x));
-        }
-
-        let mut status = EnsembleStatus::default();
-        status.walkers = positions;
-
-        let mut rng2 = Rng::with_seed(0);
-        let res = super::dpgm(2, &status, &None, &mut rng2);
-
-        assert_eq!(res.labels.len(), n_a + n_b);
-        assert_eq!(res.means.len(), 2);
-        assert_eq!(res.covariances.len(), 2);
-        assert_eq!(res.covariances[0].nrows(), 2);
-        assert_eq!(res.covariances[0].ncols(), 2);
-
-        let d0_a = (&res.means[0] - &mu_a).norm();
-        let d1_a = (&res.means[1] - &mu_a).norm();
-        let (idx_a, idx_b) = if d0_a <= d1_a { (0, 1) } else { (1, 0) };
-
-        assert!((&res.means[idx_a] - &mu_a).norm() < 0.25);
-        assert!((&res.means[idx_b] - &mu_b).norm() < 0.25);
-
-        let cov_a_hat = &res.covariances[idx_a];
-        let cov_b_hat = &res.covariances[idx_b];
-        for i in 0..2 {
-            let a_true = cov_a[(i, i)];
-            let a_est = cov_a_hat[(i, i)];
-            assert!((a_est - a_true).abs() / a_true < 0.35);
-
-            let b_true = cov_b[(i, i)];
-            let b_est = cov_b_hat[(i, i)];
-            assert!((b_est - b_true).abs() / b_true < 0.35);
-        }
-        assert!((cov_a_hat[(0, 1)] - cov_a[(0, 1)]).abs() < 0.1);
-        assert!((cov_b_hat[(0, 1)] - cov_b[(0, 1)]).abs() < 0.1);
-
-        let count_a = res.labels[..n_a].iter().filter(|&&l| l == idx_a).count();
-        let count_b = res.labels[n_a..].iter().filter(|&&l| l == idx_b).count();
-        assert!(count_a as Float > 0.9 * n_a as Float);
-        assert!(count_b as Float > 0.9 * n_b as Float);
+    fn ess_initialization_reports_invalid_ensembles() {
+        assert!(ESSInit::<f64>::new(vec![[0.0].into(), [1.0].into()]).is_err());
+        assert!(ESSInit::<f64>::new(vec![[0.0].into(), [1.0].into(), [0.0, 1.0].into(),]).is_err());
     }
 }

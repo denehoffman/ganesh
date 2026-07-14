@@ -1,109 +1,132 @@
-//! Shared numeric conversion helpers for Python-facing wrapper types.
-#![allow(clippy::doc_markdown, clippy::missing_errors_doc)]
+use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyAnyMethods};
 
-use pyo3::{types::PyAnyMethods, Bound, PyAny, PyResult, Python};
-
-use crate::Float;
-
-use numpy::{
-    ndarray::{Array2, Array3},
-    PyArray1, PyArray2, PyArray3, PyArrayMethods,
+use crate::{
+    algorithms::mcmc::{AIESInit, ESSInit},
+    error::GaneshResult,
+    NalgebraProvider, Vector,
 };
-use pyo3::exceptions::PyTypeError;
 
-fn is_numpy_ndarray(obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let ty = obj.get_type();
-    let module = ty.getattr("__module__")?.extract::<String>()?;
-    let name = ty.getattr("__name__")?.extract::<String>()?;
-    Ok(module == "numpy" && name == "ndarray")
-}
-
-/// Extract a numeric vector from a Python value.
-pub fn extract_vector(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Float>> {
-    if is_numpy_ndarray(obj)? {
-        let array = obj.cast::<PyArray1<Float>>()?;
-        return Ok(array.readonly().as_slice()?.to_vec());
+fn extract_vector(value: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    if let Ok(array) = value.extract::<PyReadonlyArray1<'_, f64>>() {
+        return Ok(array.as_array().iter().copied().collect());
     }
-    obj.extract::<Vec<Float>>()
+    value
+        .extract::<Vec<f64>>()
+        .map_err(|_| PyValueError::new_err("expected a one-dimensional float64 array or sequence"))
 }
 
-/// Extract a numeric matrix from a Python value.
-pub fn extract_matrix(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<Float>>> {
-    if is_numpy_ndarray(obj)? {
-        let array = obj.cast::<PyArray2<Float>>()?;
-        let readonly = array.readonly();
-        let view = readonly.as_array();
-        return Ok(view.outer_iter().map(|row| row.to_vec()).collect());
-    }
-    obj.extract::<Vec<Vec<Float>>>()
-}
-
-/// Extract a rank-3 numeric tensor from a Python value.
-pub fn extract_tensor3(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<Vec<Float>>>> {
-    if is_numpy_ndarray(obj)? {
-        let array = obj.cast::<PyArray3<Float>>()?;
-        let readonly = array.readonly();
-        let view = readonly.as_array();
-        return Ok(view
-            .outer_iter()
-            .map(|matrix| matrix.outer_iter().map(|row| row.to_vec()).collect())
+fn extract_matrix(value: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
+    if let Ok(array) = value.extract::<PyReadonlyArray2<'_, f64>>() {
+        return Ok(array
+            .as_array()
+            .rows()
+            .into_iter()
+            .map(|row| row.iter().copied().collect())
             .collect());
     }
-    obj.extract::<Vec<Vec<Vec<Float>>>>()
-}
-
-/// Convert a numeric vector into a NumPy array.
-pub fn vector_to_python<'py>(py: Python<'py>, values: &[Float]) -> PyResult<Bound<'py, PyAny>> {
-    Ok(PyArray1::from_slice(py, values).into_any())
-}
-
-/// Convert a numeric matrix into a NumPy array.
-pub fn matrix_to_python<'py>(
-    py: Python<'py>,
-    values: &[Vec<Float>],
-) -> PyResult<Bound<'py, PyAny>> {
-    let rows = values.len();
-    let cols = values.first().map_or(0, Vec::len);
-    if values.iter().any(|row| row.len() != cols) {
-        return Err(PyTypeError::new_err(
-            "expected a rectangular matrix for NumPy conversion",
+    let rows = value.extract::<Vec<Vec<f64>>>().map_err(|_| {
+        PyValueError::new_err("expected a two-dimensional float64 array or nested sequence")
+    })?;
+    if rows.is_empty() || rows[0].is_empty() || rows.iter().any(|row| row.len() != rows[0].len()) {
+        return Err(PyValueError::new_err(
+            "matrix inputs must be non-empty and rectangular",
         ));
     }
-    let flat = values
-        .iter()
-        .flat_map(|row| row.iter().copied())
-        .collect::<Vec<_>>();
-    let array = Array2::from_shape_vec((rows, cols), flat)
-        .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-    Ok(PyArray2::from_owned_array(py, array).into_any())
+    Ok(rows)
 }
 
-/// Convert a three-dimensional numeric tensor into a NumPy array.
-pub fn tensor3_to_python<'py>(
-    py: Python<'py>,
-    values: &[Vec<Vec<Float>>],
-) -> PyResult<Bound<'py, PyAny>> {
-    let dim0 = values.len();
-    let dim1 = values.first().map_or(0, Vec::len);
-    let dim2 = values
-        .first()
-        .and_then(|rows| rows.first())
-        .map_or(0, Vec::len);
-    if values.iter().any(|rows| rows.len() != dim1)
-        || values
-            .iter()
-            .flat_map(|rows| rows.iter())
-            .any(|row| row.len() != dim2)
-    {
-        return Err(PyTypeError::new_err(
-            "expected a rectangular rank-3 tensor for NumPy conversion",
-        ));
-    }
-    let flat = values
-        .iter()
-        .flat_map(|rows| rows.iter().flat_map(|row| row.iter().copied()))
-        .collect::<Vec<_>>();
-    let array = Array3::from_shape_vec((dim0, dim1, dim2), flat)
-        .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-    Ok(PyArray3::from_owned_array(py, array).into_any())
+pub(super) fn vector_to_py(py: Python<'_>, values: Vec<f64>) -> Py<PyArray1<f64>> {
+    PyArray1::from_vec(py, values).unbind()
 }
+
+pub(super) fn matrix_to_py(
+    py: Python<'_>,
+    rows: usize,
+    cols: usize,
+    values: Vec<f64>,
+) -> PyResult<Py<PyArray2<f64>>> {
+    let array = numpy::ndarray::Array2::from_shape_vec((rows, cols), values)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok(PyArray2::from_owned_array(py, array).unbind())
+}
+
+/// A validated starting vector shared by minimizers and particle methods.
+#[pyclass(name = "VectorInit", frozen, from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyVectorInit {
+    values: Vec<f64>,
+}
+
+#[pymethods]
+impl PyVectorInit {
+    #[new]
+    fn new(values: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let values = extract_vector(values)?;
+        if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+            return Err(PyValueError::new_err(
+                "initial values must be non-empty and finite",
+            ));
+        }
+        Ok(Self { values })
+    }
+
+    #[getter]
+    fn values(&self, py: Python<'_>) -> Py<PyArray1<f64>> {
+        vector_to_py(py, self.values.clone())
+    }
+}
+
+impl PyVectorInit {
+    /// Convert to Ganesh's default vector type.
+    #[must_use]
+    pub fn to_rust(&self) -> Vector<f64, NalgebraProvider> {
+        Vector::from_vec(self.values.clone())
+    }
+}
+
+macro_rules! ensemble_init {
+    ($name:ident, $python:literal, $rust:ty) => {
+        #[doc = concat!("Python-facing validated `", $python, "` initialization.")]
+        #[pyclass(name = $python, frozen, from_py_object)]
+        #[derive(Clone, Debug)]
+        pub struct $name {
+            walkers: Vec<Vec<f64>>,
+        }
+
+        #[pymethods]
+        impl $name {
+            #[new]
+            fn new(walkers: &Bound<'_, PyAny>) -> PyResult<Self> {
+                let walkers = extract_matrix(walkers)?;
+                let vectors = walkers
+                    .iter()
+                    .cloned()
+                    .map(Vector::from_vec)
+                    .collect::<Vec<Vector<f64, NalgebraProvider>>>();
+                <$rust>::new(vectors).map_err(super::ganesh_error)?;
+                Ok(Self { walkers })
+            }
+
+            #[getter]
+            fn walkers(&self, py: Python<'_>) -> PyResult<Py<PyArray2<f64>>> {
+                matrix_to_py(
+                    py,
+                    self.walkers.len(),
+                    self.walkers[0].len(),
+                    self.walkers.iter().flatten().copied().collect(),
+                )
+            }
+        }
+
+        impl $name {
+            #[doc = concat!("Convert to Ganesh's `", $python, "`.")]
+            pub fn to_rust(&self) -> GaneshResult<$rust> {
+                <$rust>::new(self.walkers.iter().cloned().map(Vector::from_vec).collect())
+            }
+        }
+    };
+}
+
+ensemble_init!(PyAIESInit, "AIESInit", AIESInit<f64, NalgebraProvider>);
+ensemble_init!(PyESSInit, "ESSInit", ESSInit<f64, NalgebraProvider>);

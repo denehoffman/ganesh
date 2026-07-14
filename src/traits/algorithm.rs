@@ -1,7 +1,4 @@
-use crate::{
-    core::{Bounds, Callbacks},
-    traits::{Bound, Status, Transform, TransformExt},
-};
+use crate::{core::Callbacks, traits::Status};
 use std::convert::Infallible;
 
 /// A trait representing an [`Algorithm`] which can be used to solve a problem `P`.
@@ -83,7 +80,7 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     /// Process the given problem using this [`Algorithm`].
     ///
     /// This method first runs [`Algorithm::initialize`], then runs [`Algorithm::step`] in a loop,
-    /// terminating if any supplied [`Terminator`]s return
+    /// terminating if any supplied [`Terminator`](crate::traits::Terminator)s return
     /// [`ControlFlow::Break`](`std::ops::ControlFlow::Break`). Finally, regardless of convergence,
     /// [`Algorithm::postprocessing`] is called. [`Algorithm::summarize`] is called to create a
     /// summary of the [`Algorithm`]'s state.
@@ -91,18 +88,20 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     /// # Errors
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
-    fn process<C>(
+    fn process<I, C>(
         &mut self,
         problem: &P,
         args: &U,
-        init: Self::Init,
+        init: I,
         config: Self::Config,
         callbacks: C,
     ) -> Result<Self::Summary, E>
     where
+        I: Into<Self::Init>,
         C: Into<Callbacks<Self, P, S, U, E, Self::Config>>,
         Self: Sized,
     {
+        let init = init.into();
         let mut status = S::default();
         let mut cbs: Callbacks<Self, P, S, U, E, Self::Config> = callbacks.into();
         self.initialize(problem, &mut status, args, &init, &config)?;
@@ -141,14 +140,15 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     /// # Errors
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
-    fn process_with_default_callbacks(
+    fn process_with_default_callbacks<I>(
         &mut self,
         problem: &P,
         user_data: &U,
-        init: Self::Init,
+        init: I,
         config: Self::Config,
     ) -> Result<Self::Summary, E>
     where
+        I: Into<Self::Init>,
         Self: Sized,
     {
         self.process(problem, user_data, init, config, Self::default_callbacks())
@@ -163,13 +163,14 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
     /// # Errors
     ///
     /// Returns an `Err(E)` if any internal evaluation of the problem `P` fails.
-    fn process_default(
+    fn process_default<I>(
         &mut self,
         problem: &P,
         user_data: &U,
-        init: Self::Init,
+        init: I,
     ) -> Result<Self::Summary, E>
     where
+        I: Into<Self::Init>,
         Self: Sized,
         Self::Config: Default,
     {
@@ -188,88 +189,6 @@ pub trait Algorithm<P, S: Status, U = (), E = Infallible>: Send + Sync {
         Self: Sized,
     {
         Callbacks::empty()
-    }
-}
-
-/// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter bounds.
-pub trait SupportsBounds
-where
-    Self: Sized,
-{
-    /// A helper method to get the mutable internal [`Bounds`] object.
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds>;
-    /// Sets all [`Bound`]s used by the [`Algorithm`]. This can be [`None`] for an unbounded problem, or
-    /// [`Some`] [`Vec<(T, T)>`] with length equal to the number of free parameters. Individual
-    /// upper or lower bounds can be unbounded by setting them equal to `T::infinity()` or
-    /// `T::neg_infinity()` (e.g. `f64::INFINITY` and `f64::NEG_INFINITY`).
-    fn with_bounds<I: IntoIterator<Item = B>, B: Into<Bound>>(mut self, bounds: I) -> Self {
-        let bounds = bounds
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<_>>()
-            .into();
-        *self.get_bounds_mut() = Some(bounds);
-        self
-    }
-}
-
-/// Explicit policy for how an algorithm should apply configured bounds.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BoundsHandlingMode {
-    /// Use the algorithm's default behavior.
-    ///
-    /// For algorithms with native bound support, this keeps bounds native. For algorithms without
-    /// native bound support, callers should provide an explicit bounds transform instead.
-    #[default]
-    Auto,
-    /// Keep bounds separate from any configured transform and use the algorithm's native
-    /// bounded-space machinery.
-    NativeBounds,
-    /// Convert configured bounds into an explicit transform and run the algorithm without native
-    /// bounds.
-    ///
-    /// If both a transform and bounds are configured, the transform is applied first and the
-    /// bounds transform is applied second.
-    TransformBounds,
-}
-
-pub(crate) fn resolve_bounds_and_transform(
-    bounds: &Option<Bounds>,
-    transform: &Option<Box<dyn Transform>>,
-    mode: BoundsHandlingMode,
-) -> (Option<Bounds>, Option<Box<dyn Transform>>) {
-    match mode {
-        BoundsHandlingMode::Auto | BoundsHandlingMode::NativeBounds => (
-            bounds.clone(),
-            transform
-                .as_ref()
-                .map(|transform| dyn_clone::clone_box(transform.as_ref())),
-        ),
-        BoundsHandlingMode::TransformBounds => {
-            let resolved_transform = match (bounds, transform) {
-                (Some(bounds), Some(transform)) => Some(Box::new(
-                    dyn_clone::clone_box(transform.as_ref()).compose(bounds.clone()),
-                ) as Box<dyn Transform>),
-                (Some(bounds), None) => Some(Box::new(bounds.clone()) as Box<dyn Transform>),
-                (None, Some(transform)) => Some(dyn_clone::clone_box(transform.as_ref())),
-                (None, None) => None,
-            };
-            (None, resolved_transform)
-        }
-    }
-}
-
-/// A trait which can be implemented on the configuration structs of [`Algorithm`](`crate::traits::Algorithm`)s to imply that the algorithm can be run with parameter transformations.
-pub trait SupportsTransform
-where
-    Self: Sized,
-{
-    /// A helper method to get the mutable internal [`Bounds`] object.
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>>;
-    /// Set the transformation to apply to the parameter space.
-    fn with_transform<T: Transform + 'static>(mut self, transform: &T) -> Self {
-        *self.get_transform_mut() = Some(dyn_clone::clone_box(transform));
-        self
     }
 }
 
@@ -299,61 +218,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        traits::{StatusMessage, StatusType},
-        DMatrix, DVector, Float,
-    };
+    use crate::traits::{StatusMessage, StatusType};
     use serde::{Deserialize, Serialize};
-    use std::{borrow::Cow, convert::Infallible, ops::ControlFlow};
-
-    #[derive(Clone)]
-    struct Scale(Float);
-
-    impl Transform for Scale {
-        fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(z.scale(self.0))
-        }
-
-        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(x.unscale(self.0))
-        }
-
-        fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-            DMatrix::identity(z.len(), z.len()).scale(self.0)
-        }
-
-        fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-            DMatrix::zeros(z.len(), z.len())
-        }
-    }
-
-    #[test]
-    fn transform_bounds_mode_moves_bounds_into_transform() {
-        let bounds = Some(Bounds::from([(0.0, 1.0)]));
-        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
-
-        let (resolved_bounds, resolved_transform) =
-            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::TransformBounds);
-
-        assert!(resolved_bounds.is_none());
-        let Some(resolved_transform) = resolved_transform else {
-            panic!("transform should be composed");
-        };
-        let x = resolved_transform.to_owned_external(&DVector::from_row_slice(&[10.0]));
-        assert!(x[0] >= 0.0 && x[0] <= 1.0);
-    }
-
-    #[test]
-    fn native_bounds_mode_preserves_bounds_and_transform() {
-        let bounds = Some(Bounds::from([(0.0, 1.0)]));
-        let transform: Option<Box<dyn Transform>> = Some(Box::new(Scale(2.0)));
-
-        let (resolved_bounds, resolved_transform) =
-            resolve_bounds_and_transform(&bounds, &transform, BoundsHandlingMode::NativeBounds);
-
-        assert!(resolved_bounds.is_some());
-        assert!(resolved_transform.is_some());
-    }
+    use std::{convert::Infallible, ops::ControlFlow};
 
     #[derive(Clone, Default, Serialize, Deserialize)]
     struct InvariantStatus {
@@ -454,7 +321,7 @@ mod tests {
 
         assert_eq!(steps, 0);
         assert!(matches!(message.status_type, StatusType::Failed));
-        assert_eq!(message.text, "invariant failed");
+        assert_eq!(message.text(), Some("invariant failed"));
     }
 
     #[test]
@@ -471,6 +338,6 @@ mod tests {
 
         assert_eq!(steps, 1);
         assert!(matches!(message.status_type, StatusType::Failed));
-        assert_eq!(message.text, "invariant failed");
+        assert_eq!(message.text(), Some("invariant failed"));
     }
 }

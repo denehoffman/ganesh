@@ -1,11 +1,11 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](crate::traits::cost_function::CostFunction) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](crate::traits::cost_function::Gradient) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides minimization and sampling algorithms through scalar- and linear-algebra-generic Rust interfaces. Most users implement [`CostFunction`](crate::traits::CostFunction), optionally implement [`Gradient`](crate::traits::Gradient), and run an [`Algorithm`](crate::traits::Algorithm). Default finite differences keep analytic derivatives optional.
 //!
 //! # Table of Contents
 //! - [Key Features](#key-features)
 //! - [Quick Start](#quick-start)
 //! - [Algorithms](#algorithms)
 //! - [Examples](#examples)
-//! - [Bounds](#bounds)
+//! - [Parameter Transforms](#parameter-transforms)
 //! - [Future Plans](#future-plans)
 //! - [Citations](#citations)
 //!
@@ -13,50 +13,54 @@
 //! * Algorithms that are simple to use with sensible defaults.
 //! * Traits which make developing future algorithms simple and consistent.
 //! * A simple interface that lets new users get started quickly.
-//! * The first (and possibly only) pure Rust implementation of the [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB) algorithm.
+//! * A pure Rust implementation of [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB).
+//! * `f64`/nalgebra defaults with native `f32`, optional ndarray, and downstream-extensible scalar
+//!   and linear algebra traits.
+//! * Composable scaling, bounds, and periodic transforms with derivative propagation.
+//!
+//! Rust precision is selected through type parameters, so `f32` and `f64` can coexist without
+//! feature switching. The optional `python` feature provides reusable `pyo3` configuration and
+//! result types for downstream extension modules without turning this crate into a Python package.
+//!
+//! The `backend-ndarray` feature deliberately does not choose an `ndarray-linalg` LAPACK source.
+//! Applications using it should depend on `ndarray-linalg` directly and enable exactly one of its
+//! source features before linking an executable that uses those operations.
 //!
 //! ## Quick Start
 //!
-//! This crate provides some common test functions in the [`test_functions`](crate::test_functions) module. Consider the following implementation of the Rosenbrock function:
+//! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the Rosenbrock function:
 //!
 //! ```rust
 //! use ganesh::traits::*;
-//! use ganesh::{Float, DVector};
+//! use ganesh::{LinearAlgebra, RealScalar, Vector};
 //! use std::convert::Infallible;
 //!
 //! pub struct Rosenbrock {
 //!     pub n: usize,
 //! }
-//! impl CostFunction for Rosenbrock {
-//!     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-//!         Ok((0..(self.n - 1))
-//!             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
-//!             .sum())
+//! impl<T, B> CostFunction<T, B> for Rosenbrock
+//! where
+//!     T: RealScalar,
+//!     B: LinearAlgebra<T>,
+//! {
+//!     fn evaluate(&self, x: &Vector<T, B>, _args: &()) -> Result<T, Infallible> {
+//!         Ok((0..(self.n - 1)).fold(T::zero(), |sum, i| {
+//!             sum + T::literal(100.0) * (x.get(i + 1) - x.get(i).powi(2)).powi(2)
+//!                 + (T::one() - x.get(i)).powi(2)
+//!         }))
 //!     }
 //! }
 //! ```
 //! To minimize this function, we could consider using the Nelder-Mead algorithm:
 //! ```rust
-//! use ganesh::algorithms::gradient_free::{nelder_mead::NelderMeadInit, NelderMead, NelderMeadConfig};
+//! use ganesh::algorithms::gradient_free::NelderMead;
 //! use ganesh::traits::*;
-//! use ganesh::{Float, DVector};
+//! use ganesh::test_functions::Rosenbrock;
 //! use std::convert::Infallible;
-//!
-//! # pub struct Rosenbrock {
-//! #     pub n: usize,
-//! # }
-//! # impl CostFunction for Rosenbrock {
-//! #     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-//! #         Ok((0..(self.n - 1))
-//! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
-//! #             .sum())
-//! #     }
-//! # }
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
-//!     let mut nm = NelderMead::default();
-//!     let init = NelderMeadInit::new([2.0, 2.0]);
-//!     let result = nm.process_default(&problem, &(), init)?;
+//!     let mut nm: NelderMead = Default::default();
+//!     let result = nm.process_default(&problem, &(), [2.0, 2.0])?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }
@@ -66,28 +70,16 @@
 //! ```rust
 //! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
-//! use ganesh::{Float, DVector};
+//! use ganesh::test_functions::Rosenbrock;
 //! use std::convert::Infallible;
-//!
-//! # pub struct Rosenbrock {
-//! #     pub n: usize,
-//! # }
-//! # impl CostFunction for Rosenbrock {
-//! #     fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-//! #         Ok((0..(self.n - 1))
-//! #             .map(|i| 100.0 * (x[i + 1] - x[i].powi(2)).powi(2) + (1.0 - x[i]).powi(2))
-//! #             .sum())
-//! #     }
-//! # }
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
-//!     let mut nm = NelderMead::default();
-//!     let init = ganesh::algorithms::gradient_free::nelder_mead::NelderMeadInit::new([2.0, 2.0]);
+//!     let mut nm: NelderMead = Default::default();
 //!     let config = NelderMeadConfig::default();
 //!     let result = nm.process(
 //!         &problem,
 //!         &(),
-//!         init,
+//!         vec![2.0, 2.0],
 //!         config,
 //!         NelderMead::default_callbacks(),
 //!     )?;
@@ -96,28 +88,23 @@
 //! }
 //! ```
 //!
-//! This should output
+//! The same program is available as `cargo run --example readme`. It outputs
 //! ```shell
-//! ╭──────────────────────────────────────────────────────────────────╮
-//! │                                                                  │
-//! │                           FIT RESULTS                            │
-//! │                                                                  │
-//! ├───────────┬───────────────────┬────────────────┬─────────────────┤
-//! │ Status    │ f(x)              │ #f(x)          │ #∇f(x)          │
-//! ├───────────┼───────────────────┼────────────────┼─────────────────┤
-//! │ Converged │ 0.00023           │ 76             │ 0               │
-//! ├───────────┼───────────────────┴────────────────┴─────────────────┤
-//! │           │                                                      │
-//! │ Message   │ term_f = STDDEV                                      │
-//! │           │                                                      │
-//! ├───────────┴─────────────────────────────┬────────────┬───────────┤
-//! │ Parameter                               │ Bound      │ At Limit? │
-//! ├───────────┬─────────┬─────────┬─────────┼──────┬─────┼───────────┤
-//! │           │ =       │ σ       │ 0       │ -    │ +   │           │
-//! ├───────────┼─────────┼─────────┼─────────┼──────┼─────┼───────────┤
-//! │ x_0       │ 1.00081 │ 0.84615 │ 2.00000 │ -inf │ inf │ No        │
-//! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
-//! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
+//! ╭─────────────────────────────────────────────────────────────╮
+//! │                    MINIMIZATION SUMMARY                     │
+//! ├───────────┬─────────┬─────────────┬─────────┬───────────────┤
+//! │ Status    │ f(x)    │ # f(x)      │ # ∇f(x) │ # H(x)        │
+//! ├───────────┼─────────┼─────────────┼─────────┼───────────────┤
+//! │ Converged │ 0.00009 │ 80          │ 0       │ 0             │
+//! ├───────────┼─────────┴─────────────┴─────────┴───────────────┤
+//! │ Message   │ Success: term_f = STDDEV                        │
+//! ├───────────┴─────────────────────────────────┬───────────────┤
+//! │ Parameters                                  │ Bounds        │
+//! ├───────────┬─────────┬─────────────┬─────────┼───────┬───────┤
+//! │ Name      │ Value   │ Uncertainty │ Initial │ Lower │ Upper │
+//! │ x_0       │ 1.00410 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+//! │ x_1       │ 1.00909 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+//! ╰───────────┴─────────┴─────────────┴─────────┴───────┴───────╯
 //! ```
 //!
 //! The `ganesh` crate uses algorithm methods such as [`Algorithm::process`](`crate::traits::algorithm::Algorithm::process`),
@@ -129,32 +116,40 @@
 //!
 //! At the moment, `ganesh` contains the following [`Algorithm`](crate::traits::algorithm::Algorithm)s:
 //! - Gradient descent/quasi-Newton:
-//!   - [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB)
-//!   - [`Adam`](crate::algorithms::gradient::adam::Adam) (for stochastic [`CostFunction`](crate::traits::cost_function::CostFunction)s)
+//!   - [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB)
+//!   - [`Adam`](crate::algorithms::gradient::Adam) (for stochastic [`CostFunction`](crate::traits::CostFunction)s)
+//!   - [`ConjugateGradient`](crate::algorithms::gradient::ConjugateGradient)
+//!   - [`TrustRegion`](crate::algorithms::gradient::TrustRegion)
 //! - Gradient-free:
-//!   - [`Nelder-Mead`](crate::algorithms::gradient_free::nelder_mead::NelderMead)
-//!   - [`Simulated Annealing`](crate::algorithms::gradient_free::simulated_annealing::SimulatedAnnealing)
+//!   - [`Nelder-Mead`](crate::algorithms::gradient_free::NelderMead)
+//!   - [`Simulated Annealing`](crate::algorithms::gradient_free::SimulatedAnnealing)
+//!   - [`CMAES`](crate::algorithms::gradient_free::CMAES)
+//!   - [`DifferentialEvolution`](crate::algorithms::gradient_free::DifferentialEvolution)
 //! - Markov Chain Monte Carlo (MCMC):
-//!   - [`AIES`](crate::algorithms::mcmc::aies::AIES)
-//!   - [`ESS`](crate::algorithms::mcmc::ess::ESS)
+//!   - [`AIES`](crate::algorithms::mcmc::AIES)
+//!   - [`ESS`](crate::algorithms::mcmc::ESS)
 //! - Swarms:
-//!   - [`PSO`](crate::algorithms::particles::pso::PSO) (a basic form of particle swarm optimization)
+//!   - [`PSO`](crate::algorithms::particles::PSO)
 //!
-//! All algorithms are written in pure Rust, including [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB), which is typically a binding to
+//! All algorithms are written in pure Rust, including [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB), which is typically a binding to
 //! `FORTRAN` code in other crates.
 //!
 //! ## Examples
 //!
-//! More examples can be found in the `examples` directory of this project. They all contain a
-//! `.justfile` which allows the whole example to be run with the command, [`just`](https://github.com/casey/just).
-//! To just run the Rust-side code and skip the Python visualization, any of the examples can be run with
+//! The `examples` directory contains a compact generic numeric example and polished showcases for
+//! optimization, fitting, multistart minimization, swarms, and ensemble sampling. `periodic_fit`
+//! demonstrates mixed scaling, positivity, and cyclic phase coordinates; `multistart` demonstrates
+//! deterministic basin discovery. Run any Rust example directly:
 //!
 //! ```shell
-//! cargo r -r --example <example_name>
+//! cargo run --release --example pso
 //! ```
+//! Each showcase directory also contains a `.justfile`. For example,
+//! `just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization
+//! with a standalone `uv` script whose Python dependencies are pinned inline.
 //!
-//! ## Bounds
-//! All [`Algorithm`](crate::traits::algorithm::Algorithm)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](crate::algorithms::gradient::lbfgsb::LBFGSB), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
+//! ## Parameter Transforms
+//! Generic algorithms accept [`Bounds`] as a smooth transform; [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB) instead keeps native projected bounds. While users provide external parameters, transformed algorithms operate on internal coordinates and evaluate problems after converting back to external coordinates:
 //!
 //! Upper and lower bounds:
 //! ```math
@@ -184,6 +179,16 @@
 //! While `MINUIT` and `LMFIT` recommend caution in interpreting covariance matrices obtained from
 //! fits with bounds transforms, `ganesh` does not, since it implements higher-order derivatives on
 //! these bounds while these other libraries use linear approximations.
+//!
+//! Transforms compose in application order with [`Transform::then`].
+//! [`PeriodicTransform`](crate::traits::PeriodicTransform) canonicalizes cyclic coordinates into a
+//! half-open interval while leaving the optimizer's internal coordinate unbounded:
+//! ```math
+//! x_\text{ext} = a + (x_\text{int} - a) \mathbin{\operatorname{rem\_euclid}} (b-a)
+//! ```
+//! Away from the seam its Jacobian is the identity and its component Hessians are zero. Objective
+//! values and derivatives must agree across the seam. The repeated lift is suitable for
+//! minimization, but not for MCMC because it creates an improper internal target.
 //!
 //! ## Future Plans
 //!
@@ -244,7 +249,6 @@
     clippy::doc_link_with_quotes,
     clippy::missing_safety_doc,
     clippy::missing_panics_doc,
-    clippy::missing_errors_doc,
     clippy::perf,
     clippy::style,
     missing_docs
@@ -265,28 +269,29 @@ pub mod test_functions;
 /// Module containing `ganesh`-wide error types
 pub mod error;
 
-/// Feature-gated Python / `pyo3` wrapper support.
-///
-/// This module is intended for downstream Rust crates with Python bindings.
+/// Reusable Python binding helpers for downstream `pyo3` extension modules.
 #[cfg(feature = "python")]
 pub mod python;
 
-/// A floating-point number type (defaults to [`f64`], see `f32` feature).
-#[cfg(not(feature = "f32"))]
+/// Default floating-point type used by convenience APIs and reporting utilities.
+///
+/// Generic algorithms select their scalar through type parameters.
 pub type Float = f64;
-
-/// A floating-point number type (defaults to [`f64`], see `f32` feature).
-#[cfg(feature = "f32")]
-pub type Float = f32;
 
 /// Re-export some useful `nalgebra` types for convenience.
 pub use nalgebra;
 pub use nalgebra::{DMatrix, DVector};
 
-/// The mathematical constant $`\pi`$.
-#[cfg(not(feature = "f32"))]
-pub const PI: Float = std::f64::consts::PI;
+#[cfg(feature = "backend-ndarray")]
+pub use core::NdArrayProvider;
+/// Re-export crate-owned scalar and linear algebra traits for generic optimizer APIs.
+pub use core::{
+    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, RandomScalar,
+    RealScalar, Scalar, SymmetricEigen, Vector,
+};
+pub use traits::{
+    Bounds, IdentityTransform, ScalarBound, ScaleTransform, Transform, TransformedProblem,
+};
 
 /// The mathematical constant $`\pi`$.
-#[cfg(feature = "f32")]
-pub const PI: Float = std::f32::consts::PI;
+pub const PI: Float = std::f64::consts::PI;

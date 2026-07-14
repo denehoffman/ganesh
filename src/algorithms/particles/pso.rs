@@ -1,288 +1,426 @@
-use crate::{
-    algorithms::particles::{Swarm, SwarmStatus, SwarmTopology, SwarmUpdateMethod},
-    core::{utils::generate_random_vector, Bounds, MinimizationSummary},
-    error::{GaneshError, GaneshResult},
-    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
-    traits::{
-        Algorithm, CostFunction, Status, SupportsBounds, SupportsParameterNames, SupportsTransform,
-        Transform,
-    },
-    DMatrix, DVector, Float,
+//! Scalar- and linear-algebra-generic particle swarm optimization.
+
+use crate::algorithms::gradient_free::GradientFreeStatus;
+use crate::core::{
+    Callbacks, LinearAlgebra, Matrix, MinimizationSummary, NalgebraProvider, RandomScalar, Vector,
+};
+use crate::error::{GaneshError, GaneshResult};
+use crate::traits::{
+    Algorithm, CostFunction, SupportsParameterNames, Transform, TransformedProblem,
 };
 use fastrand::Rng;
-use std::cmp::Ordering;
+use std::marker::PhantomData;
 
-/// The internal configuration struct for the [`PSO`] algorithm.
-#[derive(Clone)]
-pub struct PSOConfig {
-    bounds: Option<Bounds>,
-    bounds_handling: BoundsHandlingMode,
+/// Snapshot of one linear-algebra-generic particle and its personal best.
+#[derive(Clone, Debug)]
+pub struct SwarmParticle<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Current internal-coordinate position.
+    pub x: Vector<T, B>,
+    /// Current velocity.
+    pub velocity: Vector<T, B>,
+    /// Best internal-coordinate position visited by this particle.
+    pub best_x: Vector<T, B>,
+    /// Objective value at `best_x`.
+    pub best_fx: T,
+}
+
+/// Neighborhood used for the social component of particle motion.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwarmTopology {
+    /// Every particle follows the best point found by the full swarm.
+    #[default]
+    Global,
+    /// Each particle follows the best personal best within a circular neighborhood.
+    Ring {
+        /// Number of neighbors on each side of the particle.
+        radius: usize,
+    },
+}
+
+/// Whether particles observe a fixed or incrementally updated swarm state during a step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwarmUpdateMethod {
+    /// All particles use the personal/global bests from the start of the iteration.
+    #[default]
+    Synchronous,
+    /// Personal and global bests are updated after each particle move.
+    Asynchronous,
+}
+
+/// Initial velocity distribution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwarmVelocityInitializer<T: RandomScalar = f64> {
+    /// Start every particle at rest.
+    #[default]
+    Zero,
+    /// Draw each component uniformly from `[-scale, scale]`.
+    Uniform {
+        /// Half-width of the velocity distribution.
+        scale: T,
+    },
+}
+
+/// Initial particle-position distribution.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum SwarmPositionInitializer<T: RandomScalar = f64> {
+    /// Place one particle at the supplied initial point and draw the rest from a centered cloud.
+    #[default]
+    Centered,
+    /// Draw every particle uniformly from the supplied external-coordinate bounds.
+    Uniform {
+        /// Inclusive lower and exclusive upper sampling endpoints for each parameter.
+        bounds: Vec<(T, T)>,
+    },
+}
+
+impl<T> SwarmPositionInitializer<T>
+where
+    T: RandomScalar,
+{
+    /// Construct a validated uniform external-coordinate initializer.
+    ///
+    /// # Errors
+    /// Returns a configuration error for empty, non-finite, or unordered bounds.
+    pub fn uniform<I>(bounds: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (T, T)>,
+    {
+        let bounds = bounds.into_iter().collect::<Vec<_>>();
+        if bounds.is_empty()
+            || bounds
+                .iter()
+                .any(|(lower, upper)| !lower.is_finite() || !upper.is_finite() || lower >= upper)
+        {
+            return Err(GaneshError::ConfigError(
+                "uniform swarm initialization requires finite, ordered bounds".to_string(),
+            ));
+        }
+        Ok(Self::Uniform { bounds })
+    }
+}
+
+/// Configuration for linear-algebra-generic particle swarm optimization.
+pub struct PSOConfig<T: RandomScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    /// Number of particles; zero selects `max(20, 10 * dimension)`.
+    particles: usize,
+    /// Velocity inertia coefficient.
+    inertia: T,
+    /// Cognitive attraction coefficient.
+    cognitive: T,
+    /// Social attraction coefficient.
+    social: T,
+    /// Half-width of the initial cloud in internal coordinates.
+    initial_scale: T,
+    /// Initial particle-position distribution.
+    position_initializer: SwarmPositionInitializer<T>,
+    /// Social neighborhood topology.
+    topology: SwarmTopology,
+    /// Synchronous or asynchronous particle updates.
+    update_method: SwarmUpdateMethod,
+    /// Initial particle velocity distribution.
+    velocity_initializer: SwarmVelocityInitializer<T>,
+    /// Optional names for the optimized parameters.
     parameter_names: Option<Vec<String>>,
-    transform: Option<Box<dyn Transform>>,
-    omega: Float,
-    c1: Float,
-    c2: Float,
-}
-impl PSOConfig {
-    /// Create a new configuration with default hyperparameters.
-    pub fn new() -> Self {
-        Self::default()
-    }
-    /// Sets the inertial weight $`\omega`$ (default = `0.8`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is negative.
-    pub fn with_omega(mut self, value: Float) -> GaneshResult<Self> {
-        if value < 0.0 {
-            return Err(GaneshError::ConfigError(
-                "Inertial weight must be greater than 0".to_string(),
-            ));
-        }
-        self.omega = value;
-        Ok(self)
-    }
-    /// Sets the cognitive weight $`c_1`$ which controls the particle's tendency
-    /// to move towards its personal best (default = `0.1`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is negative.
-    pub fn with_c1(mut self, value: Float) -> GaneshResult<Self> {
-        if value < 0.0 {
-            return Err(GaneshError::ConfigError(
-                "Cognitive weight must be greater than 0".to_string(),
-            ));
-        }
-        self.c1 = value;
-        Ok(self)
-    }
-    /// Sets the social weight $`c_2`$ which controls the particle's tendency
-    /// to move towards the global (or neighborhood) best depending on the swarm [`SwarmTopology`]
-    /// (default = `0.1`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is negative.
-    pub fn with_c2(mut self, value: Float) -> GaneshResult<Self> {
-        if value < 0.0 {
-            return Err(GaneshError::ConfigError(
-                "Social weight must be greater than 0".to_string(),
-            ));
-        }
-        self.c2 = value;
-        Ok(self)
-    }
-    /// Set the policy used to handle configured bounds when a transform is also present.
-    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
-        self.bounds_handling = bounds_handling;
-        self
-    }
-}
-impl Default for PSOConfig {
-    fn default() -> Self {
-        Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::Auto,
-            parameter_names: None,
-            transform: None,
-            omega: 0.8,
-            c1: 0.1,
-            c2: 0.1,
-        }
-    }
+    /// Optional transform or smooth bounds.
+    transform: Option<Box<dyn Transform<T, B>>>,
 }
 
-impl SupportsBounds for PSOConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
-    }
-}
-impl SupportsTransform for PSOConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
-        &mut self.transform
-    }
-}
-impl SupportsParameterNames for PSOConfig {
+impl<T: RandomScalar, B: LinearAlgebra<T>> SupportsParameterNames for PSOConfig<T, B> {
     fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
         &mut self.parameter_names
     }
 }
 
-/// Particle Swarm Optimizer
-///
-/// The PSO algorithm involves an ensemble of particles which are aware of the position of all or
-/// nearby particles in the swarm. The general algorithm involves updating each particle's velocity
-/// as follows:
-///
-/// ```math
-/// v_i^{t+1} = \omega v_i^t + c_1 r_{1,i}^{t+1}(p^t_i - x^t_i) + c_2 r_{2,i}^{t+1}(g^t - x^t_i)
-/// ```
-/// where $`r_1`$ and $`r_2`$ are uniformly distributed random vectors in $`[-1,1]`$, $`\omega`$ is
-/// an inertial weight parameter, $`c_1`$ and $`c_2`$ are cognitive and social weights
-/// respectively, $`p_i^t`$ is the particle's personal best position, and $`g_i^t`$ is the swarm's best
-/// position (or possibly the best position of a subset of particles depending on the swarm
-/// topology). See [^1] for more information.
-///
-/// For bounds handling, see [^2]. The only method not given there is the
-/// [`SwarmBoundaryMethod::Transform`](crate::algorithms::particles::SwarmBoundaryMethod) option, which uses the typical nonlinear bounds transformation
-/// supplied by this crate.
-///
-///
-/// [^1]: [Houssein, E. H., Gad, A. G., Hussain, K., & Suganthan, P. N. (2021). Major Advances in Particle Swarm Optimization: Theory, Analysis, and Application. In Swarm and Evolutionary Computation (Vol. 63, p. 100868). Elsevier BV.](https://doi.org/10.1016/j.swevo.2021.100868)
-/// [^2]: [Chu, W., Gao, X., & Sorooshian, S. (2011). Handling boundary constraints for particle swarm optimization in high-dimensional search space. In Information Sciences (Vol. 181, Issue 20, pp. 4569–4581). Elsevier BV.](https://doi.org/10.1016/j.ins.2010.11.030)
-#[derive(Clone)]
-pub struct PSO {
-    rng: Rng,
+impl<T, B> Default for PSOConfig<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            particles: 0,
+            inertia: T::literal(0.8),
+            cognitive: T::literal(0.1),
+            social: T::literal(0.1),
+            initial_scale: T::one(),
+            position_initializer: SwarmPositionInitializer::default(),
+            topology: SwarmTopology::default(),
+            update_method: SwarmUpdateMethod::default(),
+            velocity_initializer: SwarmVelocityInitializer::default(),
+            parameter_names: None,
+            transform: None,
+        }
+    }
 }
-impl Default for PSO {
+
+impl<T, B> PSOConfig<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Create a configuration with the default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the inertial weight.
+    pub fn with_omega(mut self, value: T) -> GaneshResult<Self> {
+        if value < T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Inertial weight must be greater than 0".to_string(),
+            ));
+        }
+        self.inertia = value;
+        Ok(self)
+    }
+
+    /// Set the cognitive attraction weight.
+    pub fn with_c1(mut self, value: T) -> GaneshResult<Self> {
+        if value < T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Cognitive weight must be greater than 0".to_string(),
+            ));
+        }
+        self.cognitive = value;
+        Ok(self)
+    }
+
+    /// Set the social attraction weight.
+    pub fn with_c2(mut self, value: T) -> GaneshResult<Self> {
+        if value < T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Social weight must be greater than 0".to_string(),
+            ));
+        }
+        self.social = value;
+        Ok(self)
+    }
+
+    /// Set the particle count.
+    pub fn with_particles(mut self, particles: usize) -> GaneshResult<Self> {
+        if particles < 2 {
+            return Err(GaneshError::ConfigError(
+                "Particle count must be at least 2".to_string(),
+            ));
+        }
+        self.particles = particles;
+        Ok(self)
+    }
+
+    /// Set the half-width of centered initialization.
+    pub fn with_initial_scale(mut self, scale: T) -> GaneshResult<Self> {
+        if !scale.is_finite() || scale <= T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Initial scale must be finite and greater than 0".to_string(),
+            ));
+        }
+        self.initial_scale = scale;
+        Ok(self)
+    }
+
+    /// Select the social-neighborhood topology.
+    pub const fn with_topology(mut self, topology: SwarmTopology) -> Self {
+        self.topology = topology;
+        self
+    }
+
+    /// Select synchronous or asynchronous updates.
+    pub const fn with_update_method(mut self, update_method: SwarmUpdateMethod) -> Self {
+        self.update_method = update_method;
+        self
+    }
+
+    /// Select the initial velocity distribution.
+    pub const fn with_velocity_initializer(
+        mut self,
+        velocity_initializer: SwarmVelocityInitializer<T>,
+    ) -> Self {
+        self.velocity_initializer = velocity_initializer;
+        self
+    }
+
+    /// Convert an internal-coordinate value to external coordinates.
+    pub fn to_external(&self, value: &Vector<T, B>) -> Vector<T, B> {
+        self.transform
+            .as_deref()
+            .map_or_else(|| value.clone(), |transform| transform.to_external(value))
+    }
+
+    /// Configure a coordinate transform.
+    pub fn with_transform<X>(mut self, transform: X) -> Self
+    where
+        X: Transform<T, B> + 'static,
+    {
+        self.transform = Some(Box::new(transform));
+        self
+    }
+
+    /// Draw every initial particle uniformly from external-coordinate bounds.
+    ///
+    /// # Errors
+    /// Returns a configuration error for empty, non-finite, or unordered bounds.
+    pub fn with_uniform_initialization<I>(mut self, bounds: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (T, T)>,
+    {
+        self.position_initializer = SwarmPositionInitializer::uniform(bounds)?;
+        Ok(self)
+    }
+}
+
+/// Scalar- and linear-algebra-generic particle swarm optimizer.
+#[derive(Clone, Debug)]
+pub struct PSO<T: RandomScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    rng: Rng,
+    swarm: Vec<SwarmParticle<T, B>>,
+    global_best_x: Vector<T, B>,
+    global_best_fx: T,
+    _provider: PhantomData<B>,
+}
+
+impl<T, B> PSO<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct with an optional deterministic seed.
+    pub fn new(seed: Option<u64>) -> Self {
+        Self {
+            rng: seed.map_or_else(Rng::new, Rng::with_seed),
+            swarm: Vec::new(),
+            global_best_x: Vector::zeros(0),
+            global_best_fx: T::infinity(),
+            _provider: PhantomData,
+        }
+    }
+
+    /// Current swarm state, suitable for tracking from an observer.
+    pub fn particles(&self) -> &[SwarmParticle<T, B>] {
+        &self.swarm
+    }
+
+    fn social_best(&self, particle_index: usize, topology: SwarmTopology) -> Vector<T, B> {
+        match topology {
+            SwarmTopology::Global => self.global_best_x.clone(),
+            SwarmTopology::Ring { radius } => {
+                let count = self.swarm.len();
+                let mut best_index = particle_index;
+                for offset in 1..=radius.min(count.saturating_sub(1)) {
+                    for candidate in [
+                        (particle_index + offset) % count,
+                        (particle_index + count - offset % count) % count,
+                    ] {
+                        if self.swarm[candidate].best_fx < self.swarm[best_index].best_fx {
+                            best_index = candidate;
+                        }
+                    }
+                }
+                self.swarm[best_index].best_x.clone()
+            }
+        }
+    }
+}
+
+impl<T, B> Default for PSO<T, B>
+where
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+{
     fn default() -> Self {
         Self::new(Some(0))
     }
 }
-impl PSO {
-    /// Create a new Particle Swarm Optimizer with the given seed.
-    pub fn new(seed: Option<u64>) -> Self {
-        Self {
-            rng: seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed),
-        }
-    }
-    fn nbest(&self, i: usize, status: &SwarmStatus) -> DVector<Float> {
-        let swarm = &status.swarm;
-        match swarm.topology {
-            SwarmTopology::Global => status.gbest.x.clone(),
-            SwarmTopology::Ring => {
-                let ind = swarm.index_of_min_in_circular_window(i, 2);
-                swarm.particles[ind].best.x.clone()
-            }
-        }
-    }
-    fn update<U, E>(
-        &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
-        args: &U,
-        config: &PSOConfig,
-    ) -> Result<(), E> {
-        let swarm = &status.swarm;
-        match swarm.update_method {
-            SwarmUpdateMethod::Synchronous => self.update_sync(status, func, args, config),
-            SwarmUpdateMethod::Asynchronous => self.update_async(status, func, args, config),
-        }
-    }
-    fn update_sync<U, E>(
-        &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
-        args: &U,
-        config: &PSOConfig,
-    ) -> Result<(), E> {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        for particle in &mut status.swarm.particles {
-            if particle.position.total_cmp(&particle.best) == Ordering::Less {
-                particle.best = particle.position.clone();
-            }
-            if particle.best.total_cmp(&status.gbest) == Ordering::Less {
-                status.gbest = particle.best.clone();
-            }
-        }
-        let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
-            .map(|i| self.nbest(i, status))
-            .collect();
 
-        for (i, particle) in &mut status.swarm.particles.iter_mut().enumerate() {
-            let dim = particle.position.x.len();
-            let rv1 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
-            let rv2 = generate_random_vector(dim, 0.0, 1.0, &mut self.rng);
-            particle.velocity = particle.velocity.scale(config.omega)
-                + rv1
-                    .component_mul(&(&particle.best.x - &particle.position.x))
-                    .scale(config.c1)
-                + rv2
-                    .component_mul(&(&nbests[i] - &particle.position.x))
-                    .scale(config.c2);
-            status.n_f_evals += particle.update_position(
-                func,
-                args,
-                bounds.as_ref(),
-                &transform,
-                status.swarm.boundary_method,
-            )?;
-        }
-        Ok(())
-    }
-    fn update_async<U, E>(
-        &mut self,
-        status: &mut SwarmStatus,
-        func: &dyn CostFunction<U, E>,
-        args: &U,
-        config: &PSOConfig,
-    ) -> Result<(), E> {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let nbests: Vec<DVector<Float>> = (0..status.swarm.particles.len())
-            .map(|i| self.nbest(i, status))
-            .collect();
-
-        for (i, particle) in status.swarm.particles.iter_mut().enumerate() {
-            let rv1 = generate_random_vector(particle.position.x.len(), 0.0, 0.1, &mut self.rng);
-            let rv2 = generate_random_vector(particle.position.x.len(), 0.0, 0.1, &mut self.rng);
-            particle.velocity = particle.velocity.scale(config.omega)
-                + rv1
-                    .component_mul(&(&particle.best.x - &particle.position.x))
-                    .scale(config.c1)
-                + rv2
-                    .component_mul(&(&nbests[i] - &particle.position.x))
-                    .scale(config.c2);
-            status.n_f_evals += particle.update_position(
-                func,
-                args,
-                bounds.as_ref(),
-                &transform,
-                status.swarm.boundary_method,
-            )?;
-            if particle.position.total_cmp(&particle.best) == Ordering::Less {
-                particle.best = particle.position.clone();
-            }
-            if particle.best.total_cmp(&status.gbest) == Ordering::Less {
-                status.gbest = particle.best.clone();
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<P, U, E> Algorithm<P, SwarmStatus, U, E> for PSO
+impl<T, B, P, U, E> Algorithm<P, GradientFreeStatus<T, B>, U, E> for PSO<T, B>
 where
-    P: CostFunction<U, E>,
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
 {
-    type Summary = MinimizationSummary;
-    type Config = PSOConfig;
-    type Init = Swarm;
+    type Summary = MinimizationSummary<T, B>;
+    type Config = PSOConfig<T, B>;
+    type Init = Vector<T, B>;
+
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut SwarmStatus,
+        status: &mut GradientFreeStatus<T, B>,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let (_bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        status.swarm = init.clone();
-        status
-            .swarm
-            .initialize(&mut self.rng, &transform, problem, args)?;
-        status.n_f_evals += status.swarm.particles.len();
-        status.gbest = status.swarm.particles[0].best.clone();
-        for particle in &mut status.swarm.particles {
-            if particle.best.total_cmp(&status.gbest) == Ordering::Less {
-                status.gbest = particle.best.clone();
-            }
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let center = transformed.to_internal(init);
+        let dimension = center.len();
+        let count = if config.particles == 0 {
+            (10 * dimension).max(20)
+        } else {
+            config.particles.max(2)
+        };
+        if let SwarmPositionInitializer::Uniform { bounds } = &config.position_initializer {
+            assert_eq!(
+                bounds.len(),
+                dimension,
+                "uniform swarm bounds must match the initial point dimension"
+            );
         }
-        status.initial_gbest = status.gbest.clone();
-        status.set_message().initialize();
+        self.swarm.clear();
+        self.global_best_fx = T::infinity();
+        for particle_index in 0..count {
+            let x = match &config.position_initializer {
+                SwarmPositionInitializer::Centered if particle_index == 0 => center.clone(),
+                SwarmPositionInitializer::Centered => Vector::from_vec(
+                    (0..center.len())
+                        .map(|index| {
+                            center.get(index)
+                                + (T::literal(2.0) * T::random_unit(&mut self.rng) - T::one())
+                                    * config.initial_scale
+                        })
+                        .collect(),
+                ),
+                SwarmPositionInitializer::Uniform { bounds } => {
+                    let external = Vector::from_vec(
+                        bounds
+                            .iter()
+                            .map(|(lower, upper)| {
+                                *lower + (*upper - *lower) * T::random_unit(&mut self.rng)
+                            })
+                            .collect(),
+                    );
+                    transformed.to_internal(&external)
+                }
+            };
+            let fx = transformed.evaluate(&x, args)?;
+            status.evals.record_f();
+            if fx < self.global_best_fx {
+                self.global_best_fx = fx;
+                self.global_best_x = x.clone();
+            }
+            let velocity = match config.velocity_initializer {
+                SwarmVelocityInitializer::Zero => Vector::zeros(dimension),
+                SwarmVelocityInitializer::Uniform { scale } => Vector::from_vec(
+                    (0..dimension)
+                        .map(|_| {
+                            (T::literal(2.0) * T::random_unit(&mut self.rng) - T::one()) * scale
+                        })
+                        .collect(),
+                ),
+            };
+            self.swarm.push(SwarmParticle {
+                velocity,
+                best_x: x.clone(),
+                best_fx: fx,
+                x,
+            });
+        }
+        status.initialize(
+            transformed.to_external(&self.global_best_x),
+            self.global_best_fx,
+        );
         Ok(())
     }
 
@@ -290,162 +428,209 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut SwarmStatus,
+        status: &mut GradientFreeStatus<T, B>,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        self.update(status, problem, args, config)
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let social_bests: Vec<Vector<T, B>> = (0..self.swarm.len())
+            .map(|index| self.social_best(index, config.topology))
+            .collect();
+        #[allow(clippy::needless_range_loop)]
+        for particle_index in 0..self.swarm.len() {
+            let social_best = &social_bests[particle_index];
+            let random_scale = match config.update_method {
+                SwarmUpdateMethod::Synchronous => T::one(),
+                SwarmUpdateMethod::Asynchronous => T::literal(0.1),
+            };
+            let particle = &mut self.swarm[particle_index];
+            let velocity = Vector::from_vec(
+                (0..particle.x.len())
+                    .map(|index| {
+                        config.inertia * particle.velocity.get(index)
+                            + config.cognitive
+                                * T::random_unit(&mut self.rng)
+                                * random_scale
+                                * (particle.best_x.get(index) - particle.x.get(index))
+                            + config.social
+                                * T::random_unit(&mut self.rng)
+                                * random_scale
+                                * (social_best.get(index) - particle.x.get(index))
+                    })
+                    .collect(),
+            );
+            particle.x = particle.x.add(&velocity);
+            particle.velocity = velocity;
+            let fx = transformed.evaluate(&particle.x, args)?;
+            status.evals.record_f();
+            if fx < particle.best_fx {
+                particle.best_fx = fx;
+                particle.best_x = particle.x.clone();
+            }
+            if fx < self.global_best_fx {
+                self.global_best_fx = fx;
+                self.global_best_x = particle.x.clone();
+            }
+        }
+        status.set_position(
+            transformed.to_external(&self.global_best_x),
+            self.global_best_fx,
+        );
+        Ok(())
     }
 
     fn summarize(
         &self,
         _current_step: usize,
-        _func: &P,
-        status: &SwarmStatus,
+        _problem: &P,
+        status: &GradientFreeStatus<T, B>,
         _args: &U,
-        _init: &Self::Init,
+        init: &Self::Init,
         config: &Self::Config,
     ) -> Result<Self::Summary, E> {
+        let dimension = status.x.len();
         Ok(MinimizationSummary {
-            x0: status.initial_gbest.x.clone(),
-            x: status.gbest.x.clone(),
-            fx: status.gbest.fx_checked(),
-            bounds: config.bounds.clone(),
-            n_f_evals: status.n_f_evals,
-            n_g_evals: 0,
-            n_h_evals: 0,
-            message: status.message.clone(),
+            bounds: config
+                .transform
+                .as_deref()
+                .and_then(|transform| transform.parameter_bounds())
+                .map(Vec::from),
             parameter_names: config.parameter_names.clone(),
-            std: DVector::from_element(status.gbest.x.len(), 0.0),
-            covariance: DMatrix::identity(status.gbest.x.len(), status.gbest.x.len()),
+            message: status.message.clone(),
+            x0: init.clone(),
+            x: status.x.clone(),
+            std: crate::core::summary::unknown_uncertainties(dimension),
+            fx: status.fx,
+            evals: status.evals,
+            covariance: Matrix::identity(dimension),
         })
+    }
+
+    fn reset(&mut self) {
+        self.swarm.clear();
+        self.global_best_x = Vector::zeros(0);
+        self.global_best_fx = T::infinity();
+    }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus<T, B>, U, E, Self::Config> {
+        Callbacks::empty()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        algorithms::particles::{SwarmPositionInitializer, TrackingSwarmObserver},
-        core::{utils::generate_random_vector, Callbacks, MaxSteps, Point},
-        test_functions::Rastrigin,
-    };
-    use approx::assert_relative_eq;
-    use std::convert::Infallible;
+    use crate::core::MaxSteps;
+    use crate::test_functions::Rosenbrock;
+    use crate::traits::Bounds;
 
-    struct Quadratic;
-    impl CostFunction<(), Infallible> for Quadratic {
-        fn evaluate(&self, x: &DVector<Float>, _: &()) -> Result<Float, Infallible> {
-            Ok(x.dot(x))
+    #[test]
+    fn pso_runs_f32_with_provider_bounds() {
+        let bounds = Bounds::new([(-3.0_f32, 3.0), (-3.0, 3.0)]).unwrap();
+        let config = PSOConfig {
+            particles: 40,
+            initial_scale: 1.5,
+            ..PSOConfig::<f32>::default()
         }
+        .with_transform(bounds);
+        let mut algorithm = PSO::<f32>::new(Some(19));
+        let result = algorithm
+            .process(
+                &Rosenbrock { n: 2 },
+                &(),
+                Vector::from_vec(vec![-1.2, 1.0]),
+                config,
+                Callbacks::empty().with_terminator(MaxSteps(2_000)),
+            )
+            .unwrap();
+        assert!(result.fx < 1e-3);
     }
 
     #[test]
-    fn test_pso() {
-        let problem = Rastrigin { n: 2 };
-        // Create and seed a random number generator
-        let mut rng = Rng::new();
-        rng.seed(0);
-
-        let tracker = TrackingSwarmObserver::new();
-        let callbacks = Callbacks::empty()
-            .with_terminator(MaxSteps(200))
-            .with_observer(tracker);
-
-        // Create a new Sampler
-        let mut solver = PSO::default();
-        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
-            bounds: vec![(-20.0, 20.0), (-20.0, 20.0)],
-            n_particles: 50,
-        });
-        let config = PSOConfig::default()
-            .with_c1(0.1)
-            .unwrap()
-            .with_c2(0.1)
-            .unwrap()
-            .with_omega(0.8)
-            .unwrap();
-
-        // Run the particle swarm optimizer
-        let result = solver
-            .process(&problem, &(), init, config, callbacks)
-            .unwrap();
-
-        println!("{}", result);
-    }
-
-    #[test]
-    fn synchronous_update_uses_unit_random_coefficients() {
-        let mut solver = PSO::new(Some(0));
-        let particle = crate::algorithms::particles::SwarmParticle {
-            position: Point {
-                x: DVector::from_row_slice(&[1.0]),
-                fx: Some(1.0),
-            },
-            velocity: DVector::from_row_slice(&[0.0]),
-            best: Point {
-                x: DVector::from_row_slice(&[2.0]),
-                fx: Some(0.0),
-            },
+    fn pso_supports_ring_async_updates_and_tracking_snapshots() {
+        let config = PSOConfig {
+            particles: 16,
+            topology: SwarmTopology::Ring { radius: 2 },
+            update_method: SwarmUpdateMethod::Asynchronous,
+            velocity_initializer: SwarmVelocityInitializer::Uniform { scale: 0.2 },
+            parameter_names: Some(vec!["x".to_string(), "y".to_string()]),
+            ..PSOConfig::<f64>::default()
         };
-        let mut status = SwarmStatus {
-            gbest: particle.best.clone(),
-            swarm: Swarm::new(SwarmPositionInitializer::Custom(Vec::new())),
-            ..Default::default()
-        };
-        status.swarm.particles = vec![particle];
-
-        let config = PSOConfig::default()
-            .with_omega(0.0)
-            .unwrap()
-            .with_c1(1.0)
-            .unwrap()
-            .with_c2(0.0)
+        let mut algorithm = PSO::<f64>::new(Some(3));
+        let mut status = GradientFreeStatus::default();
+        let init = Vector::from_vec(vec![-1.2, 1.0]);
+        algorithm
+            .initialize(&Rosenbrock { n: 2 }, &mut status, &(), &init, &config)
             .unwrap();
-
-        let mut rng = Rng::with_seed(0);
-        let expected = generate_random_vector(1, 0.0, 1.0, &mut rng);
-
-        solver
-            .update_sync(&mut status, &Quadratic, &(), &config)
+        assert_eq!(algorithm.particles().len(), 16);
+        assert!(algorithm
+            .particles()
+            .iter()
+            .any(|particle| particle.velocity.norm() > 0.0));
+        algorithm
+            .step(0, &Rosenbrock { n: 2 }, &mut status, &(), &config)
             .unwrap();
-
-        assert_relative_eq!(status.swarm.particles[0].velocity[0], expected[0]);
-        assert_relative_eq!(status.swarm.particles[0].position.x[0], 1.0 + expected[0]);
     }
 
     #[test]
-    fn transform_bounds_mode_is_selectable_for_pso() {
-        let config = PSOConfig::default()
-            .with_bounds([(0.0, 1.0)])
-            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
+    fn uniform_initialization_has_a_stable_seeded_trajectory() {
+        let config = PSOConfig {
+            particles: 50,
+            inertia: 0.8,
+            cognitive: 0.1,
+            social: 0.1,
+            ..PSOConfig::default()
+        }
+        .with_uniform_initialization([(-20.0, 20.0), (-20.0, 20.0)])
+        .unwrap();
+        let mut algorithm = PSO::new(Some(0));
+        let mut status = GradientFreeStatus::default();
+        let init: Vector = [0.0, 0.0].into();
+        algorithm
+            .initialize(
+                &crate::test_functions::Rastrigin { n: 2 },
+                &mut status,
+                &(),
+                &init,
+                &config,
+            )
+            .unwrap();
 
-        assert!(matches!(
-            config.bounds_handling,
-            BoundsHandlingMode::TransformBounds
-        ));
+        algorithm
+            .step(
+                0,
+                &crate::test_functions::Rastrigin { n: 2 },
+                &mut status,
+                &(),
+                &config,
+            )
+            .unwrap();
+        let first = &algorithm.particles()[0].x;
+        assert!((first.get(0) - 3.671_882_090_729_494_2).abs() < 1e-12);
+        assert!((first.get(1) + 17.716_181_580_514_643).abs() < 1e-12);
+        assert!((status.x.get(0) + 2.903_712_090_627_188).abs() < 1e-12);
+        assert!((status.x.get(1) - 4.481_572_884_539_613).abs() < 1e-12);
+
+        algorithm
+            .step(
+                1,
+                &crate::test_functions::Rastrigin { n: 2 },
+                &mut status,
+                &(),
+                &config,
+            )
+            .unwrap();
+        let first = &algorithm.particles()[0].x;
+        assert!((first.get(0) - 2.721_346_020_556_052).abs() < 1e-12);
+        assert!((first.get(1) + 14.314_951_044_754_629).abs() < 1e-12);
+        assert!((status.x.get(0) - 3.290_704_952_357_777).abs() < 1e-12);
+        assert!((status.x.get(1) + 3.801_592_895_954_696_5).abs() < 1e-12);
     }
 
     #[test]
-    fn summary_reports_initial_eval_count_and_terminal_message() {
-        let problem = Rastrigin { n: 2 };
-        let callbacks = Callbacks::empty().with_terminator(MaxSteps(2));
-        let mut solver = PSO::default();
-        let init = Swarm::new(SwarmPositionInitializer::RandomInLimits {
-            bounds: vec![(-5.0, 5.0), (-5.0, 5.0)],
-            n_particles: 8,
-        });
-        let config = PSOConfig::default();
-
-        let result = solver
-            .process(&problem, &(), init, config, callbacks)
-            .unwrap();
-
-        assert!(result.n_f_evals >= 8);
-        assert_eq!(result.n_g_evals, 0);
-        assert!(result
-            .message
-            .to_string()
-            .contains("Maximum number of steps reached"));
+    fn uniform_initialization_rejects_invalid_bounds() {
+        assert!(SwarmPositionInitializer::<f64>::uniform([]).is_err());
+        assert!(SwarmPositionInitializer::uniform([(1.0, 1.0)]).is_err());
+        assert!(SwarmPositionInitializer::uniform([(f64::NEG_INFINITY, 1.0)]).is_err());
     }
 }

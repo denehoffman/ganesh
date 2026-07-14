@@ -293,7 +293,7 @@ mod tests {
         algorithms::gradient::{LBFGSBConfig, LBFGSB},
         core::{summary::HasParameterNames, MaxSteps},
         test_functions::Rosenbrock,
-        DVector,
+        Vector,
     };
 
     #[derive(Default, Clone)]
@@ -343,13 +343,13 @@ mod tests {
         let arc_refcel = Arc::new(RefCell::new(Trivial::default()));
         let arc_rwlock = Arc::new(RwLock::new(Trivial::default()));
         let arc_mutex = Arc::new(Mutex::new(Trivial::default()));
-        let res = LBFGSB::default()
+        let res = LBFGSB::<f64>::default()
             .process(
                 &Rosenbrock { n: 2 },
                 &(),
-                DVector::from_row_slice(&[2.0, 3.0]),
-                LBFGSBConfig::default(),
-                LBFGSB::default_callbacks()
+                Vector::<f64>::from_vec(vec![2.0, 3.0]),
+                LBFGSBConfig::<f64>::default(),
+                LBFGSB::<f64>::default_callbacks()
                     .with_terminator(rc_refcel.clone())
                     .with_terminator(rc_rwlock.clone())
                     .with_terminator(rc_mutex.clone())
@@ -373,7 +373,10 @@ mod tests {
         assert_eq!(arc_refcel.borrow().0, 10);
         assert_eq!(arc_rwlock.read().0, 10);
         assert_eq!(arc_mutex.lock().0, 10);
-        assert_eq!(res.message.text, "Maximum number of steps reached (5)");
+        assert_eq!(
+            res.message.text(),
+            Some("Maximum number of steps reached (5)")
+        );
         assert_eq!(
             res.parameter_names,
             Some(vec!["a".to_string(), "b".to_string()])

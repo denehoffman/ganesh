@@ -1,6 +1,6 @@
 use crate::{
     traits::{CostFunction, Gradient},
-    DVector, Float, PI,
+    LinearAlgebra, RealScalar, Vector,
 };
 use std::convert::Infallible;
 
@@ -13,13 +13,24 @@ pub struct Rastrigin {
     /// The number of dimensions of the function (must be >= 2).
     pub n: usize,
 }
-impl CostFunction for Rastrigin {
-    fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-        #[allow(clippy::suboptimal_flops)]
-        Ok(10.0 * self.n as Float
+impl<T, B> CostFunction<T, B> for Rastrigin
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn evaluate(&self, x: &Vector<T, B>, _args: &()) -> Result<T, Infallible> {
+        let ten = T::literal(10.0);
+        let two_pi = T::literal(2.0 * std::f64::consts::PI);
+        Ok(ten * T::literal(self.n as f64)
             + (0..self.n)
-                .map(|i| x[i].powi(2) - 10.0 * Float::cos(2.0 * PI * x[i]))
-                .sum::<Float>())
+                .map(|i| x.get(i).powi(2) - ten * (two_pi * x.get(i)).cos())
+                .fold(T::zero(), |sum, value| sum + value))
     }
 }
-impl Gradient for Rastrigin {}
+
+impl<T, B> Gradient<T, B> for Rastrigin
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+}

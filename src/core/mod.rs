@@ -2,10 +2,6 @@
 pub mod abort_signals;
 pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
 
-/// [`Bounds`] and other implementations of [`Transform`](`crate::traits::Transform`)
-pub mod transforms;
-pub use transforms::{Bounds, ScaleTransform};
-
 /// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;
 pub use callbacks::{Callbacks, DebugObserver, MaxSteps, ProgressObserver};
@@ -21,22 +17,38 @@ pub use checkpoints::{
 pub mod mcmc_diagnostics;
 pub use mcmc_diagnostics::MCMCDiagnostics;
 
+/// Shared evaluation-count bookkeeping.
+pub mod eval_counts;
+pub use eval_counts::EvalCounts;
+
+/// Scalar support shared by current and future generic optimizer APIs.
+pub mod scalar;
+pub use scalar::{RandomScalar, RealScalar};
+
+/// Linear algebra provider traits and implementations.
+pub mod linalg;
+#[cfg(feature = "backend-ndarray")]
+pub use linalg::NdArrayProvider;
+pub use linalg::{
+    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, Scalar,
+    SymmetricEigen, Vector,
+};
+
 /// [`Point`] type for defining a point in the parameter space.
 pub mod point;
-pub use point::Point;
+pub use point::{EvaluatedPoint, Point};
 
 /// Summary types for the result of the minimization.
 pub mod summary;
 pub use summary::{
-    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary,
-    SimulatedAnnealingSummary, SummaryExport,
+    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary, SummaryExport,
 };
 
 /// Multistart minimization orchestration helpers.
 pub mod multistart;
 pub use multistart::{
     minimize_multistart, restart_seed, FixedRestarts, MultiStartState, MultiStartSummary,
-    RestartFactory, RestartPolicy,
+    RestartBundle, RestartFactory, RestartPolicy,
 };
 
 /// Utility functions.
