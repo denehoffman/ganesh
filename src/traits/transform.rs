@@ -12,6 +12,15 @@ where
     T: RealScalar,
     B: LinearAlgebra<T>,
 {
+    /// Apply this transform first and `outer` second.
+    fn then<X>(self, outer: X) -> TransformChain<Self, X>
+    where
+        Self: Sized,
+        X: Transform<T, B>,
+    {
+        TransformChain::new(self, outer)
+    }
+
     /// Return user-facing parameter bounds when this transform represents bounds.
     fn parameter_bounds(&self) -> Option<&[ScalarBound<T>]> {
         None
@@ -66,6 +75,83 @@ where
     }
 }
 
+/// Composition of two same-dimensional coordinate transforms.
+#[derive(Clone, Debug)]
+pub struct TransformChain<Inner, Outer> {
+    inner: Inner,
+    outer: Outer,
+}
+
+impl<Inner, Outer> TransformChain<Inner, Outer> {
+    /// Construct a chain that applies `inner` first and `outer` second.
+    pub const fn new(inner: Inner, outer: Outer) -> Self {
+        Self { inner, outer }
+    }
+
+    /// Return the transform applied first.
+    pub const fn inner(&self) -> &Inner {
+        &self.inner
+    }
+
+    /// Return the transform applied second.
+    pub const fn outer(&self) -> &Outer {
+        &self.outer
+    }
+}
+
+impl<T, B, Inner, Outer> Transform<T, B> for TransformChain<Inner, Outer>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    Inner: Transform<T, B>,
+    Outer: Transform<T, B>,
+{
+    fn parameter_bounds(&self) -> Option<&[ScalarBound<T>]> {
+        self.outer.parameter_bounds()
+    }
+
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        self.outer.to_external(&self.inner.to_external(internal))
+    }
+
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        self.inner.to_internal(&self.outer.to_internal(external))
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        let intermediate = self.inner.to_external(internal);
+        self.outer
+            .to_external_jacobian(&intermediate)
+            .mul_mat(&self.inner.to_external_jacobian(internal))
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        let intermediate = self.inner.to_external(internal);
+        let inner_jacobian = self.inner.to_external_jacobian(internal);
+        let outer_jacobian = self.outer.to_external_jacobian(&intermediate);
+        let mut hessian = inner_jacobian
+            .transpose()
+            .mul_mat(
+                &self
+                    .outer
+                    .to_external_component_hessian(component, &intermediate),
+            )
+            .mul_mat(&inner_jacobian);
+        for intermediate_component in 0..internal.len() {
+            hessian = &hessian
+                + &self
+                    .inner
+                    .to_external_component_hessian(intermediate_component, internal)
+                    .scale(outer_jacobian.get(component, intermediate_component));
+        }
+        hessian
+    }
+}
+
 /// Identity coordinate transform.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IdentityTransform;
@@ -92,6 +178,126 @@ where
         _component: usize,
         internal: &Vector<T, B>,
     ) -> Matrix<T, B> {
+        Matrix::zeros(internal.len(), internal.len())
+    }
+}
+
+/// Component-wise periodic coordinate transform for optimization.
+///
+/// Periodic coordinates are represented internally on the real line and canonically wrapped into
+/// half-open external intervals. This repeated lift is not a proper target for MCMC sampling.
+#[derive(Clone, Debug)]
+pub struct PeriodicTransform<T = f64, B = NalgebraProvider>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    intervals: Vec<Option<(T, T)>>,
+    _provider: PhantomData<B>,
+}
+
+impl<T, B> PeriodicTransform<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct from one optional periodic interval per coordinate.
+    ///
+    /// `None` leaves a coordinate unchanged. Periodic intervals are canonicalized to
+    /// `[lower, upper)`.
+    ///
+    /// # Errors
+    /// Returns a configuration error for an empty list, no periodic coordinates, non-finite
+    /// endpoints, or intervals whose endpoints are not ordered.
+    pub fn new<I>(intervals: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = Option<(T, T)>>,
+    {
+        let intervals = intervals.into_iter().collect::<Vec<_>>();
+        if intervals.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "periodic intervals must contain at least one parameter".to_string(),
+            ));
+        }
+        if intervals.iter().all(Option::is_none) {
+            return Err(GaneshError::ConfigError(
+                "periodic intervals must contain at least one periodic parameter".to_string(),
+            ));
+        }
+        if intervals
+            .iter()
+            .flatten()
+            .any(|(lower, upper)| !lower.is_finite() || !upper.is_finite() || lower >= upper)
+        {
+            return Err(GaneshError::ConfigError(
+                "periodic interval endpoints must be finite and ordered".to_string(),
+            ));
+        }
+        Ok(Self {
+            intervals,
+            _provider: PhantomData,
+        })
+    }
+
+    /// Return the optional periodic interval for each coordinate.
+    pub fn intervals(&self) -> &[Option<(T, T)>] {
+        &self.intervals
+    }
+
+    fn canonicalize(&self, values: &Vector<T, B>) -> Vector<T, B> {
+        assert_eq!(
+            values.len(),
+            self.intervals.len(),
+            "periodic transform dimension mismatch"
+        );
+        Vector::from_vec(
+            self.intervals
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, interval)| {
+                    let value = values.get(index);
+                    interval.map_or(value, |(lower, upper)| {
+                        lower + (value - lower).rem_euclid(upper - lower)
+                    })
+                })
+                .collect(),
+        )
+    }
+}
+
+impl<T, B> Transform<T, B> for PeriodicTransform<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        self.canonicalize(internal)
+    }
+
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        self.canonicalize(external)
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        assert_eq!(
+            internal.len(),
+            self.intervals.len(),
+            "periodic transform dimension mismatch"
+        );
+        Matrix::identity(internal.len())
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        _component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        assert_eq!(
+            internal.len(),
+            self.intervals.len(),
+            "periodic transform dimension mismatch"
+        );
         Matrix::zeros(internal.len(), internal.len())
     }
 }
@@ -517,6 +723,26 @@ mod tests {
         }
     }
 
+    struct CircularObjective {
+        target: f64,
+    }
+
+    impl CostFunction for CircularObjective {
+        fn evaluate(&self, x: &Vector<f64>, _: &()) -> Result<f64, Infallible> {
+            Ok(1.0 - (x.get(0) - self.target).cos())
+        }
+    }
+
+    impl Gradient for CircularObjective {
+        fn gradient(&self, x: &Vector<f64>, _: &()) -> Result<Vector<f64>, Infallible> {
+            Ok(Vector::from_vec(vec![(x.get(0) - self.target).sin()]))
+        }
+
+        fn hessian(&self, x: &Vector<f64>, _: &()) -> Result<Matrix<f64>, Infallible> {
+            Ok(Matrix::from_vec(1, 1, vec![(x.get(0) - self.target).cos()]))
+        }
+    }
+
     #[test]
     fn identity_transform_preserves_derivatives() {
         let transform = IdentityTransform;
@@ -552,6 +778,147 @@ mod tests {
         let roundtrip = bounds.to_external(&internal);
         for index in 0..external.len() {
             assert!((roundtrip.get(index) - external.get(index)).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn periodic_transform_wraps_mixed_coordinates() {
+        let transform = PeriodicTransform::<f64>::new([
+            Some((-std::f64::consts::PI, std::f64::consts::PI)),
+            None,
+            Some((0.0, 360.0)),
+        ])
+        .unwrap();
+        let values = Vector::from_vec(vec![3.0 * std::f64::consts::PI, -4.5, -1080.0 + 15.0]);
+        let wrapped = transform.to_external(&values);
+        assert!((wrapped.get(0) + std::f64::consts::PI).abs() < 1e-12);
+        assert_eq!(wrapped.get(1), -4.5);
+        assert_eq!(wrapped.get(2), 15.0);
+        assert_eq!(transform.to_internal(&wrapped), wrapped);
+        assert_eq!(transform.to_external_jacobian(&values), Matrix::identity(3));
+        assert_eq!(
+            transform.to_external_component_hessian(0, &values),
+            Matrix::zeros(3, 3)
+        );
+    }
+
+    #[test]
+    fn periodic_transform_uses_half_open_intervals_for_f32() {
+        let transform = PeriodicTransform::<f32>::new([Some((-2.0, 3.0))]).unwrap();
+        let lower = Vector::from_vec(vec![-2.0]);
+        let upper = Vector::from_vec(vec![3.0]);
+        assert_eq!(transform.to_external(&lower).get(0), -2.0);
+        assert_eq!(transform.to_external(&upper).get(0), -2.0);
+        assert_eq!(
+            transform
+                .to_external(&Vector::from_vec(vec![5_000_001.0]))
+                .get(0),
+            1.0
+        );
+    }
+
+    #[test]
+    fn periodic_transform_rejects_invalid_configurations() {
+        assert!(PeriodicTransform::<f64>::new([]).is_err());
+        assert!(PeriodicTransform::<f64>::new([None]).is_err());
+        assert!(PeriodicTransform::<f64>::new([Some((0.0, 0.0))]).is_err());
+        assert!(PeriodicTransform::<f64>::new([Some((1.0, -1.0))]).is_err());
+        assert!(PeriodicTransform::<f64>::new([Some((0.0, f64::INFINITY))]).is_err());
+    }
+
+    #[test]
+    fn periodic_objective_preserves_gradient_and_hessian_across_seam() {
+        let transform =
+            PeriodicTransform::<f64>::new([Some((-std::f64::consts::PI, std::f64::consts::PI))])
+                .unwrap();
+        let objective = CircularObjective {
+            target: -std::f64::consts::PI + 0.2,
+        };
+        let transformed =
+            TransformedProblem::<_, f64, NalgebraProvider>::new(&objective, Some(&transform));
+        let seam = Vector::from_vec(vec![std::f64::consts::PI]);
+        let epsilon = 1e-4;
+        let plus = Vector::from_vec(vec![std::f64::consts::PI + epsilon]);
+        let minus = Vector::from_vec(vec![std::f64::consts::PI - epsilon]);
+        let center_value = transformed.evaluate(&seam, &()).unwrap();
+        let plus_value = transformed.evaluate(&plus, &()).unwrap();
+        let minus_value = transformed.evaluate(&minus, &()).unwrap();
+        let numerical_gradient = (plus_value - minus_value) / (2.0 * epsilon);
+        let numerical_hessian =
+            (2.0f64.mul_add(-center_value, plus_value) + minus_value) / (epsilon * epsilon);
+        assert!(
+            (transformed.gradient(&seam, &()).unwrap().get(0) - numerical_gradient).abs() < 1e-8
+        );
+        assert!(
+            (transformed.hessian(&seam, &()).unwrap().get(0, 0) - numerical_hessian).abs() < 1e-7
+        );
+    }
+
+    #[test]
+    fn transform_chain_matches_numerical_derivatives() {
+        let inner = ScaleTransform::<f64>::from_parameter_scales([2.0, 0.5]).unwrap();
+        let outer = Bounds::<f64>::new([(-1.0, 3.0), (f64::NEG_INFINITY, f64::INFINITY)]).unwrap();
+        let chain = inner.then(outer);
+        let x = Vector::from_vec(vec![0.35, -0.8]);
+        let external = chain.to_external(&x);
+        let roundtrip = chain.to_internal(&external);
+        for index in 0..x.len() {
+            assert!((roundtrip.get(index) - x.get(index)).abs() < 1e-12);
+        }
+        assert_eq!(chain.parameter_bounds(), chain.outer().parameter_bounds());
+
+        let epsilon = 1e-5;
+        let jacobian = chain.to_external_jacobian(&x);
+        for row in 0..2 {
+            for col in 0..2 {
+                let mut plus = x.clone();
+                let mut minus = x.clone();
+                plus.set(col, plus.get(col) + epsilon);
+                minus.set(col, minus.get(col) - epsilon);
+                let numerical = (chain.to_external(&plus).get(row)
+                    - chain.to_external(&minus).get(row))
+                    / (2.0 * epsilon);
+                assert!((jacobian.get(row, col) - numerical).abs() < 1e-7);
+            }
+        }
+
+        for component in 0..2 {
+            let hessian = chain.to_external_component_hessian(component, &x);
+            for row in 0..2 {
+                for col in 0..2 {
+                    let mut plus = x.clone();
+                    let mut minus = x.clone();
+                    plus.set(col, plus.get(col) + epsilon);
+                    minus.set(col, minus.get(col) - epsilon);
+                    let numerical = (chain.to_external_jacobian(&plus).get(component, row)
+                        - chain.to_external_jacobian(&minus).get(component, row))
+                        / (2.0 * epsilon);
+                    assert!((hessian.get(row, col) - numerical).abs() < 1e-6);
+                }
+            }
+        }
+
+        let transformed =
+            TransformedProblem::<_, f64, NalgebraProvider>::new(&Quadratic, Some(&chain));
+        let gradient = transformed.gradient(&x, &()).unwrap();
+        let hessian = transformed.hessian(&x, &()).unwrap();
+        for row in 0..2 {
+            let mut plus = x.clone();
+            let mut minus = x.clone();
+            plus.set(row, plus.get(row) + epsilon);
+            minus.set(row, minus.get(row) - epsilon);
+            let numerical_gradient = (transformed.evaluate(&plus, &()).unwrap()
+                - transformed.evaluate(&minus, &()).unwrap())
+                / (2.0 * epsilon);
+            assert!((gradient.get(row) - numerical_gradient).abs() < 1e-7);
+
+            let plus_gradient = transformed.gradient(&plus, &()).unwrap();
+            let minus_gradient = transformed.gradient(&minus, &()).unwrap();
+            for col in 0..2 {
+                let numerical_hessian =
+                    (plus_gradient.get(col) - minus_gradient.get(col)) / (2.0 * epsilon);
+                assert!((hessian.get(col, row) - numerical_hessian).abs() < 1e-6);
+            }
         }
     }
 }

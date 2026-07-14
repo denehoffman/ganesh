@@ -50,6 +50,8 @@ pub trait RealScalar:
     fn ln(self) -> Self;
     /// Cosine.
     fn cos(self) -> Self;
+    /// Euclidean remainder, with a nonnegative result for a positive divisor.
+    fn rem_euclid(self, rhs: Self) -> Self;
     /// Fused multiply-add when supported by the representation.
     fn mul_add(self, multiplier: Self, addend: Self) -> Self;
     /// Whether this value is finite.
@@ -120,6 +122,10 @@ macro_rules! impl_native_scalar {
             #[inline]
             fn cos(self) -> Self {
                 self.cos()
+            }
+            #[inline]
+            fn rem_euclid(self, rhs: Self) -> Self {
+                self.rem_euclid(rhs)
             }
             #[inline]
             fn mul_add(self, multiplier: Self, addend: Self) -> Self {

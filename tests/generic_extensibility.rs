@@ -75,6 +75,9 @@ impl RealScalar for Wrapped {
     fn cos(self) -> Self {
         Self(self.0.cos())
     }
+    fn rem_euclid(self, rhs: Self) -> Self {
+        Self(self.0.rem_euclid(rhs.0))
+    }
     fn mul_add(self, multiplier: Self, addend: Self) -> Self {
         Self(self.0.mul_add(multiplier.0, addend.0))
     }

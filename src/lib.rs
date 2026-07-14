@@ -5,7 +5,7 @@
 //! - [Quick Start](#quick-start)
 //! - [Algorithms](#algorithms)
 //! - [Examples](#examples)
-//! - [Bounds](#bounds)
+//! - [Parameter Transforms](#parameter-transforms)
 //! - [Future Plans](#future-plans)
 //! - [Citations](#citations)
 //!
@@ -16,6 +16,7 @@
 //! * A pure Rust implementation of [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB).
 //! * `f64`/nalgebra defaults with native `f32`, optional ndarray, and downstream-extensible scalar
 //!   and linear algebra traits.
+//! * Composable scaling, bounds, and periodic transforms with derivative propagation.
 //!
 //! Rust precision is selected through type parameters, so `f32` and `f64` can coexist without
 //! feature switching. The crate is entirely Python-agnostic; downstream bindings own their Python
@@ -135,8 +136,10 @@
 //!
 //! ## Examples
 //!
-//! The `examples` directory contains a compact generic numeric example and four polished showcase
-//! examples for optimization, fitting, and ensemble sampling. Run any Rust example directly:
+//! The `examples` directory contains a compact generic numeric example and polished showcases for
+//! optimization, fitting, multistart minimization, swarms, and ensemble sampling. `periodic_fit`
+//! demonstrates mixed scaling, positivity, and cyclic phase coordinates; `multistart` demonstrates
+//! deterministic basin discovery. Run any Rust example directly:
 //!
 //! ```shell
 //! cargo run --release --example pso
@@ -145,7 +148,7 @@
 //! `just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization
 //! with a standalone `uv` script whose Python dependencies are pinned inline.
 //!
-//! ## Bounds
+//! ## Parameter Transforms
 //! Generic algorithms accept [`Bounds`] as a smooth transform; [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB) instead keeps native projected bounds. While users provide external parameters, transformed algorithms operate on internal coordinates and evaluate problems after converting back to external coordinates:
 //!
 //! Upper and lower bounds:
@@ -176,6 +179,16 @@
 //! While `MINUIT` and `LMFIT` recommend caution in interpreting covariance matrices obtained from
 //! fits with bounds transforms, `ganesh` does not, since it implements higher-order derivatives on
 //! these bounds while these other libraries use linear approximations.
+//!
+//! Transforms compose in application order with [`Transform::then`].
+//! [`PeriodicTransform`](crate::traits::PeriodicTransform) canonicalizes cyclic coordinates into a
+//! half-open interval while leaving the optimizer's internal coordinate unbounded:
+//! ```math
+//! x_\text{ext} = a + (x_\text{int} - a) \mathbin{\operatorname{rem\_euclid}} (b-a)
+//! ```
+//! Away from the seam its Jacobian is the identity and its component Hessians are zero. Objective
+//! values and derivatives must agree across the seam. The repeated lift is suitable for
+//! minimization, but not for MCMC because it creates an improper internal target.
 //!
 //! ## Future Plans
 //!

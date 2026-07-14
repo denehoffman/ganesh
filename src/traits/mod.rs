@@ -32,5 +32,6 @@ pub use status::{ProgressStatus, Status, StatusMessage, StatusType};
 /// Scalar- and linear-algebra-generic coordinate transforms.
 pub mod transform;
 pub use transform::{
-    Bounds, IdentityTransform, ScalarBound, ScaleTransform, Transform, TransformedProblem,
+    Bounds, IdentityTransform, PeriodicTransform, ScalarBound, ScaleTransform, Transform,
+    TransformChain, TransformedProblem,
 };

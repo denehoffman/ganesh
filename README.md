@@ -33,7 +33,7 @@
 - [Quick Start](#quick-start)
 - [Algorithms](#algorithms)
 - [Examples](#examples)
-- [Bounds](#bounds)
+- [Parameter Transforms](#parameter-transforms)
 - [Future Plans](#future-plans)
 - [Citations](#citations)
 
@@ -44,6 +44,8 @@
 * A pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
 * Scalar- and linear-algebra-generic Rust APIs with `f64`/nalgebra defaults, native `f32`, and optional
   ndarray support.
+* Composable scaling, bounds, and periodic parameter transforms with first- and second-order
+  derivative propagation.
 
 Rust precision is selected through type parameters, so `f32` and `f64` can coexist without feature
 switching. The crate is entirely Python-agnostic; downstream bindings own their Python types and
@@ -165,8 +167,10 @@ All algorithms are written in pure Rust, including [`L-BFGS-B`](https://docs.rs/
 
 ## Examples
 
-The `examples` directory contains a compact generic numeric example and four polished showcase
-examples for optimization, fitting, and ensemble sampling. Run any Rust example directly:
+The `examples` directory contains a compact generic numeric example and polished showcase examples
+for optimization, fitting, multistart minimization, swarms, and ensemble sampling. In particular,
+`periodic_fit` combines scaling, positivity, and cyclic phase coordinates, while `multistart`
+searches the local basins of the Rastrigin function. Run any Rust example directly:
 
 ```shell
 cargo run --release --example pso
@@ -176,7 +180,7 @@ Each showcase directory also contains a `.justfile`. For example,
 `just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization with
 a standalone `uv` script whose Python dependencies are pinned inline.
 
-## Bounds
+## Parameter Transforms
 All [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
 
 Upper and lower bounds:
@@ -207,6 +211,23 @@ x_\text{ext} = x_\text{min} + (\sqrt{x_\text{int}^2 + 1} + x_\text{int})
 While `MINUIT` and `LMFIT` recommend caution in interpreting covariance matrices obtained from
 fits with bounds transforms, `ganesh` does not, since it implements higher-order derivatives on
 these bounds while these other libraries use linear approximations.
+
+Transforms can be composed in application order with [`Transform::then`](https://docs.rs/ganesh/latest/ganesh/traits/trait.Transform.html#method.then). For example, a scaling transform can be followed by periodic canonicalization and then a bounds transform.
+
+### Periodic parameters
+
+[`PeriodicTransform`](https://docs.rs/ganesh/latest/ganesh/traits/struct.PeriodicTransform.html)
+represents cyclic coordinates on a canonical half-open interval `[a, b)` while leaving the
+optimizer's internal coordinate unbounded:
+
+```math
+x_\text{ext} = a + (x_\text{int} - a) \mathbin{\operatorname{rem\_euclid}} (b-a)
+```
+
+Away from the displayed seam, the transform has an identity Jacobian and zero component Hessians.
+The objective must be genuinely periodic: its value and derivatives must agree across the seam.
+This repeated unbounded lift is intended for minimization, not MCMC; using it as a sampling
+transform repeats the target density infinitely and therefore produces an improper internal target.
 
 ## Future Plans
 

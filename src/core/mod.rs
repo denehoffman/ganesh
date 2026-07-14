@@ -48,7 +48,7 @@ pub use summary::{
 pub mod multistart;
 pub use multistart::{
     minimize_multistart, restart_seed, FixedRestarts, MultiStartState, MultiStartSummary,
-    RestartFactory, RestartPolicy,
+    RestartBundle, RestartFactory, RestartPolicy,
 };
 
 /// Utility functions.
