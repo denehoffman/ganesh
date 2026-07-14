@@ -33,6 +33,7 @@
 - [Quick Start](#quick-start)
 - [Algorithms](#algorithms)
 - [Examples](#examples)
+- [Python Bindings for Downstream Crates](#python-bindings-for-downstream-crates)
 - [Parameter Transforms](#parameter-transforms)
 - [Future Plans](#future-plans)
 - [Citations](#citations)
@@ -48,8 +49,9 @@
   derivative propagation.
 
 Rust precision is selected through type parameters, so `f32` and `f64` can coexist without feature
-switching. The crate is entirely Python-agnostic; downstream bindings own their Python types and
-translate them to ordinary ganesh Rust values.
+switching. The default build remains Python-free. Downstream extension crates can enable the
+optional `python` feature to reuse typed PyO3 configuration, initialization, callback, transform,
+and result objects without Ganesh publishing a Python package of its own.
 
 The `backend-ndarray` feature deliberately does not choose an `ndarray-linalg` LAPACK source.
 Applications using it should depend on `ndarray-linalg` directly and enable exactly one of its
@@ -179,6 +181,62 @@ cargo run --release --example pso
 Each showcase directory also contains a `.justfile`. For example,
 `just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization with
 a standalone `uv` script whose Python dependencies are pinned inline.
+
+## Python Bindings for Downstream Crates
+
+Enable Ganesh's helper feature alongside PyO3 in the downstream extension crate:
+
+```toml
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ganesh = { version = "0.27", features = ["python"] }
+pyo3 = { version = "0.29", features = ["extension-module"] }
+```
+
+Re-export the declarative submodule from the downstream module. This preserves PyO3's
+introspection metadata, so `maturin generate-stubs` can generate type hints for both the Ganesh
+objects and the downstream API:
+
+```rust
+#[pyo3::pymodule]
+mod my_extension {
+    #[pymodule_export]
+    use ganesh::python::ganesh;
+}
+```
+
+Python users can then construct fully validated settings without the downstream crate duplicating
+Ganesh's option surface:
+
+```python
+from my_extension.ganesh import (
+    AIESConfig,
+    AIESMove,
+    ChainStorage,
+    MaxSteps,
+    MoreThuenteLineSearch,
+    ConjugateGradientConfig,
+)
+
+cg = ConjugateGradientConfig(
+    update="hager_zhang",
+    line_search=MoreThuenteLineSearch(c1=1e-4, c2=0.8),
+)
+aies = AIESConfig(
+    moves=[AIESMove.stretch(scale=2.5, weight=0.8), AIESMove.walk(weight=0.2)],
+    chain_storage=ChainStorage.sampled(keep_every=10, max_samples=5000),
+)
+limit = MaxSteps(20_000)
+```
+
+Each Rust wrapper exposes `to_rust` (or an `Into`/`TryInto` conversion) for downstream bindings.
+`PythonCallbackBundle` starts from an algorithm's normal Rust callbacks, accepts any downstream
+Rust `Observer` or `Terminator`, and can also append Python callables with `(step, status)`
+signatures. Use `process_with_python_callbacks` to run the algorithm and propagate Python callback
+exceptions correctly. The helper layer currently targets Ganesh's default `f64`/nalgebra backend;
+downstream crates remain free to expose additional numeric specializations and custom status data.
 
 ## Parameter Transforms
 All [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:

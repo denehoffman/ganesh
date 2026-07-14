@@ -69,12 +69,31 @@ where
         self
     }
 
+    /// Return the callbacks with a [`Terminator`] inserted before existing callbacks.
+    pub fn with_terminator_first<T>(mut self, terminator: T) -> Self
+    where
+        T: Terminator<A, P, S, U, E, C> + 'static,
+    {
+        self.0
+            .insert(0, CallbackLike::Terminator(Box::new(terminator)));
+        self
+    }
+
     /// Return the set of [`Callbacks`] with an additional [`Observer`] added.
     pub fn with_observer<O>(mut self, observer: O) -> Self
     where
         O: Observer<A, P, S, U, E, C> + 'static,
     {
         self.0.push(CallbackLike::Observer(Box::new(observer)));
+        self
+    }
+
+    /// Return the callbacks with an [`Observer`] inserted before existing callbacks.
+    pub fn with_observer_first<O>(mut self, observer: O) -> Self
+    where
+        O: Observer<A, P, S, U, E, C> + 'static,
+    {
+        self.0.insert(0, CallbackLike::Observer(Box::new(observer)));
         self
     }
     /// Runs all of the contained [`Terminator`]s and [`Observer`]s and returns [`ControlFlow::Break`] if any of the terminators return [`ControlFlow::Break`].

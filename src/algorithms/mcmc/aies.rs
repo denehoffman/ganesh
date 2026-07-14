@@ -208,6 +208,20 @@ where
         Self::default()
     }
 
+    /// Set the fallback stretch-move scale used when no explicit move mixture is supplied.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless the scale is finite and greater than one.
+    pub fn with_stretch_scale(mut self, stretch_scale: T) -> crate::error::GaneshResult<Self> {
+        if !stretch_scale.is_finite() || stretch_scale <= T::one() {
+            return Err(crate::error::GaneshError::ConfigError(
+                "AIES stretch scale must be finite and greater than one".to_string(),
+            ));
+        }
+        self.stretch_scale = stretch_scale;
+        Ok(self)
+    }
+
     /// Replace the weighted proposal-move mixture.
     ///
     /// # Errors

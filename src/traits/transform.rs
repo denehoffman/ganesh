@@ -75,6 +75,36 @@ where
     }
 }
 
+impl<T, B> Transform<T, B> for Box<dyn Transform<T, B>>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn parameter_bounds(&self) -> Option<&[ScalarBound<T>]> {
+        (**self).parameter_bounds()
+    }
+
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        (**self).to_external(internal)
+    }
+
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        (**self).to_internal(external)
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        (**self).to_external_jacobian(internal)
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        (**self).to_external_component_hessian(component, internal)
+    }
+}
+
 /// Composition of two same-dimensional coordinate transforms.
 #[derive(Clone, Debug)]
 pub struct TransformChain<Inner, Outer> {

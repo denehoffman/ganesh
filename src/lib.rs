@@ -19,8 +19,8 @@
 //! * Composable scaling, bounds, and periodic transforms with derivative propagation.
 //!
 //! Rust precision is selected through type parameters, so `f32` and `f64` can coexist without
-//! feature switching. The crate is entirely Python-agnostic; downstream bindings own their Python
-//! types and translate them to ordinary `ganesh` Rust values.
+//! feature switching. The optional `python` feature provides reusable `pyo3` configuration and
+//! result types for downstream extension modules without turning this crate into a Python package.
 //!
 //! The `backend-ndarray` feature deliberately does not choose an `ndarray-linalg` LAPACK source.
 //! Applications using it should depend on `ndarray-linalg` directly and enable exactly one of its
@@ -268,6 +268,10 @@ pub mod test_functions;
 
 /// Module containing `ganesh`-wide error types
 pub mod error;
+
+/// Reusable Python binding helpers for downstream `pyo3` extension modules.
+#[cfg(feature = "python")]
+pub mod python;
 
 /// Default floating-point type used by convenience APIs and reporting utilities.
 ///

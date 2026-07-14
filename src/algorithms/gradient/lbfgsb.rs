@@ -9,7 +9,7 @@ use crate::core::{
 use crate::error::{GaneshError, GaneshResult};
 use crate::traits::{
     Algorithm, CheckpointableAlgorithm, Gradient, LineSearch, LineSearchOutput, ScalarBound,
-    Status, SupportsParameterNames, Terminator,
+    Status, SupportsParameterNames, Terminator, Transform, TransformedProblem,
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 
@@ -41,7 +41,7 @@ macro_rules! lbfgsb_terminator {
     };
 }
 
-impl<T: RealScalar, L> SupportsParameterNames for LBFGSBConfig<T, L> {
+impl<T: RealScalar, L, B: LinearAlgebra<T>> SupportsParameterNames for LBFGSBConfig<T, L, B> {
     fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
         &mut self.parameter_names
     }
@@ -74,7 +74,11 @@ pub enum LBFGSBErrorMode {
 }
 
 /// Configuration for linear-algebra-generic L-BFGS-B.
-pub struct LBFGSBConfig<T: RealScalar = f64, L = StrongWolfeLineSearch<T, NalgebraProvider>> {
+pub struct LBFGSBConfig<
+    T: RealScalar = f64,
+    L = StrongWolfeLineSearch<T, NalgebraProvider>,
+    B: LinearAlgebra<T> = NalgebraProvider,
+> {
     /// Number of correction pairs retained by the inverse-Hessian approximation.
     history_size: usize,
     /// Maximum line-search step before bounds are considered.
@@ -83,16 +87,21 @@ pub struct LBFGSBConfig<T: RealScalar = f64, L = StrongWolfeLineSearch<T, Nalgeb
     error_mode: LBFGSBErrorMode,
     /// Optional native parameter bounds.
     bounds: Option<Vec<ScalarBound<T>>>,
+    /// Native bounds mapped into optimizer coordinates.
+    internal_bounds: Option<Vec<ScalarBound<T>>>,
     /// Optional user-facing parameter names copied into summaries.
     parameter_names: Option<Vec<String>>,
+    /// Optional coordinate transform.
+    transform: Option<Box<dyn Transform<T, B>>>,
     /// Strong-Wolfe line search.
     line_search: L,
 }
 
-impl<T, L> Default for LBFGSBConfig<T, L>
+impl<T, L, B> Default for LBFGSBConfig<T, L, B>
 where
     T: RealScalar,
     L: Default,
+    B: LinearAlgebra<T>,
 {
     fn default() -> Self {
         Self {
@@ -100,15 +109,18 @@ where
             max_step: T::literal(1e8),
             error_mode: LBFGSBErrorMode::default(),
             bounds: None,
+            internal_bounds: None,
             parameter_names: None,
+            transform: None,
             line_search: L::default(),
         }
     }
 }
 
-impl<T, L> LBFGSBConfig<T, L>
+impl<T, L, B> LBFGSBConfig<T, L, B>
 where
     T: RealScalar,
+    B: LinearAlgebra<T>,
 {
     /// Create a default configuration.
     pub fn new() -> Self
@@ -129,14 +141,30 @@ where
         Ok(self)
     }
 
+    /// Set the maximum line-search step before bounds are considered.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless the step is finite and positive.
+    pub fn with_max_step(mut self, max_step: T) -> GaneshResult<Self> {
+        if !max_step.is_finite() || max_step <= T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Maximum step must be finite and greater than 0".to_string(),
+            ));
+        }
+        self.max_step = max_step;
+        Ok(self)
+    }
+
     /// Replace the line-search implementation, changing the configuration's line-search type.
-    pub fn with_line_search<N>(self, line_search: N) -> LBFGSBConfig<T, N> {
+    pub fn with_line_search<N>(self, line_search: N) -> LBFGSBConfig<T, N, B> {
         LBFGSBConfig {
             history_size: self.history_size,
             max_step: self.max_step,
             error_mode: self.error_mode,
             bounds: self.bounds,
+            internal_bounds: self.internal_bounds,
             parameter_names: self.parameter_names,
+            transform: self.transform,
             line_search,
         }
     }
@@ -149,12 +177,32 @@ where
     where
         I: IntoIterator<Item = (T, T)>,
     {
-        self.bounds = Some(
-            bounds
-                .into_iter()
-                .map(|(lower, upper)| ScalarBound::new(lower, upper))
-                .collect::<GaneshResult<Vec<_>>>()?,
-        );
+        let bounds = bounds
+            .into_iter()
+            .map(|(lower, upper)| ScalarBound::new(lower, upper))
+            .collect::<GaneshResult<Vec<_>>>()?;
+        self.internal_bounds = Self::transformed_bounds(Some(&bounds), self.transform.as_deref())?;
+        self.bounds = Some(bounds);
+        Ok(self)
+    }
+
+    /// Apply a differentiable coordinate transform around the native L-BFGS-B parameter space.
+    ///
+    /// Configured native bounds remain user-facing and are mapped through the transform into the
+    /// optimizer's internal coordinates. Combining native bounds with a transform therefore
+    /// requires a coordinate-wise monotonic transform to retain an exact box constraint.
+    ///
+    /// # Errors
+    /// Returns a configuration error when existing bounds cannot be represented as an internal
+    /// box after applying the transform.
+    pub fn with_transform<X>(mut self, transform: X) -> GaneshResult<Self>
+    where
+        X: Transform<T, B> + 'static,
+    {
+        let transform: Box<dyn Transform<T, B>> = Box::new(transform);
+        self.internal_bounds =
+            Self::transformed_bounds(self.bounds.as_deref(), Some(transform.as_ref()))?;
+        self.transform = Some(transform);
         Ok(self)
     }
 
@@ -162,6 +210,40 @@ where
     pub const fn with_error_mode(mut self, error_mode: LBFGSBErrorMode) -> Self {
         self.error_mode = error_mode;
         self
+    }
+
+    fn transformed_bounds(
+        bounds: Option<&[ScalarBound<T>]>,
+        transform: Option<&dyn Transform<T, B>>,
+    ) -> GaneshResult<Option<Vec<ScalarBound<T>>>> {
+        let Some(bounds) = bounds else {
+            return Ok(None);
+        };
+        let Some(transform) = transform else {
+            return Ok(Some(bounds.to_vec()));
+        };
+        let bound_limits = |bound| match bound {
+            ScalarBound::Unbounded => (-T::infinity(), T::infinity()),
+            ScalarBound::Lower(lower) => (lower, T::infinity()),
+            ScalarBound::Upper(upper) => (-T::infinity(), upper),
+            ScalarBound::Both(lower, upper) => (lower, upper),
+        };
+        let (lower, upper): (Vec<_>, Vec<_>) = bounds.iter().copied().map(bound_limits).unzip();
+        let lower = transform.to_internal(&Vector::from_vec(lower));
+        let upper = transform.to_internal(&Vector::from_vec(upper));
+        (0..bounds.len())
+            .map(|index| {
+                let a = lower.get(index);
+                let b = upper.get(index);
+                let (lower, upper) = if a < b { (a, b) } else { (b, a) };
+                ScalarBound::new(lower, upper).map_err(|_| {
+                    GaneshError::ConfigError(
+                        "transform does not map native bounds to a valid internal box".into(),
+                    )
+                })
+            })
+            .collect::<GaneshResult<Vec<_>>>()
+            .map(Some)
     }
 }
 
@@ -565,13 +647,17 @@ where
 }
 
 impl<T, B, L, P, U, E>
-    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L>>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
     for LBFGSBFTerminator<T>
 where
     T: RealScalar,
     B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
     P: Gradient<T, B, U, E>,
-    L: LineSearch<T, B, P, U, E> + Clone + Default + Send + Sync,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
     fn check_for_termination(
         &mut self,
@@ -580,7 +666,7 @@ where
         _problem: &P,
         status: &mut GradientStatus<T, B>,
         _args: &U,
-        _config: &LBFGSBConfig<T, L>,
+        _config: &LBFGSBConfig<T, L, B>,
     ) -> ControlFlow<()> {
         if (algorithm.f_previous - algorithm.fx).abs() < self.eps_abs {
             status
@@ -595,13 +681,17 @@ where
 }
 
 impl<T, B, L, P, U, E>
-    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L>>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
     for LBFGSBGTerminator<T>
 where
     T: RealScalar,
     B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
     P: Gradient<T, B, U, E>,
-    L: LineSearch<T, B, P, U, E> + Clone + Default + Send + Sync,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
     fn check_for_termination(
         &mut self,
@@ -610,7 +700,7 @@ where
         _problem: &P,
         status: &mut GradientStatus<T, B>,
         _args: &U,
-        _config: &LBFGSBConfig<T, L>,
+        _config: &LBFGSBConfig<T, L, B>,
     ) -> ControlFlow<()> {
         if algorithm.gradient.norm() < self.eps_abs {
             status
@@ -624,13 +714,17 @@ where
 }
 
 impl<T, B, L, P, U, E>
-    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L>>
+    Terminator<LBFGSB<T, B, L>, P, GradientStatus<T, B>, U, E, LBFGSBConfig<T, L, B>>
     for LBFGSBInfNormGTerminator<T>
 where
     T: RealScalar,
     B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
     P: Gradient<T, B, U, E>,
-    L: LineSearch<T, B, P, U, E> + Clone + Default + Send + Sync,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
     fn check_for_termination(
         &mut self,
@@ -639,9 +733,9 @@ where
         _problem: &P,
         status: &mut GradientStatus<T, B>,
         _args: &U,
-        config: &LBFGSBConfig<T, L>,
+        config: &LBFGSBConfig<T, L, B>,
     ) -> ControlFlow<()> {
-        let projected = algorithm.projected_gradient(config.bounds.as_deref());
+        let projected = algorithm.projected_gradient(config.internal_bounds.as_deref());
         let mut norm = T::zero();
         for index in 0..projected.len() {
             let value = projected.get(index).abs();
@@ -665,10 +759,14 @@ where
     T: RealScalar,
     B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
     P: Gradient<T, B, U, E>,
-    L: LineSearch<T, B, P, U, E> + Clone + Default + Send + Sync,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
     type Summary = MinimizationSummary<T, B>;
-    type Config = LBFGSBConfig<T, L>;
+    type Config = LBFGSBConfig<T, L, B>;
     type Init = Vector<T, B>;
 
     fn initialize(
@@ -682,8 +780,12 @@ where
         if let Some(bounds) = &config.bounds {
             debug_assert_eq!(bounds.len(), init.len());
         }
-        self.x = Self::clip(init.clone(), config.bounds.as_deref());
-        (self.fx, self.gradient) = problem.evaluate_with_gradient(&self.x, args)?;
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        self.x = Self::clip(
+            transformed.to_internal(init),
+            config.internal_bounds.as_deref(),
+        );
+        (self.fx, self.gradient) = transformed.evaluate_with_gradient(&self.x, args)?;
         self.f_previous = T::infinity();
         self.s_history.clear();
         self.y_history.clear();
@@ -692,7 +794,7 @@ where
         self.m_system = None;
         self.line_search = config.line_search.clone();
         status.evals.record_fg();
-        status.initialize(self.x.clone(), self.fx);
+        status.initialize(init.clone(), self.fx);
         Ok(())
     }
 
@@ -704,9 +806,10 @@ where
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let direction = self.bound_constrained_direction(config.bounds.as_deref());
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let direction = self.bound_constrained_direction(config.internal_bounds.as_deref());
         let maximum_step = self
-            .maximum_step(&direction, config.bounds.as_deref())
+            .maximum_step(&direction, config.internal_bounds.as_deref())
             .map_or(config.max_step, |bounded| {
                 if bounded < config.max_step {
                     bounded
@@ -722,13 +825,13 @@ where
             &self.x,
             &direction,
             Some(maximum_step),
-            problem,
+            &transformed,
             args,
             &mut status.evals,
         )? {
             let next_x = Self::clip(
                 self.x.add_scaled(&direction, alpha),
-                config.bounds.as_deref(),
+                config.internal_bounds.as_deref(),
             );
             let s = next_x.sub(&self.x);
             let y = gradient.sub(&self.gradient);
@@ -747,7 +850,7 @@ where
             self.x = next_x;
             self.fx = fx;
             self.gradient = gradient;
-            status.set_position(self.x.clone(), self.fx);
+            status.set_position(transformed.to_external(&self.x), self.fx);
         } else {
             self.s_history.clear();
             self.y_history.clear();
@@ -766,7 +869,8 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         if config.error_mode == LBFGSBErrorMode::ExactHessian {
-            let hessian = problem.hessian(&self.x, args)?;
+            let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+            let hessian = transformed.hessian(&self.x, args)?;
             status.evals.record_h();
             status.set_hess(hessian);
         }
@@ -819,7 +923,11 @@ where
     T: RealScalar,
     B: LinearAlgebra<T> + LinearSolve<T> + PseudoInverse<T>,
     P: Gradient<T, B, U, E>,
-    L: LineSearch<T, B, P, U, E> + Clone + Default + Send + Sync,
+    L: for<'a> LineSearch<T, B, TransformedProblem<'a, P, T, B>, U, E>
+        + Clone
+        + Default
+        + Send
+        + Sync,
 {
     type Checkpoint = LBFGSBCheckpoint<T, B>;
 
@@ -864,6 +972,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::CostFunction;
+    use crate::ScaleTransform;
     use std::convert::Infallible;
 
     struct ShiftedQuadratic;
@@ -919,6 +1028,31 @@ mod tests {
             result.x,
             result.fx
         );
+    }
+
+    #[test]
+    fn lbfgsb_combines_native_bounds_with_transform() {
+        let transform =
+            ScaleTransform::<f64, NalgebraProvider>::from_parameter_scales([2.0, 4.0]).unwrap();
+        let config = LBFGSBConfig::<f64>::default()
+            .with_bounds([(0.0, 2.0), (-1.0, 1.0)])
+            .unwrap()
+            .with_transform(transform)
+            .unwrap();
+        let result = LBFGSB::<f64>::default()
+            .process(
+                &ShiftedQuadratic,
+                &(),
+                Vector::from_vec(vec![0.5, 0.5]),
+                config,
+                LBFGSB::<f64>::default_callbacks(),
+            )
+            .unwrap();
+
+        assert!((result.x.get(0) - 2.0).abs() < 1e-8);
+        assert!(result.x.get(1).abs() < 1e-8);
+        assert_eq!(result.x0.to_vec(), vec![0.5, 0.5]);
+        assert_eq!(result.bounds.as_ref().map(Vec::len), Some(2));
     }
 
     #[test]
