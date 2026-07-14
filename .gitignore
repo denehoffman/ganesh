@@ -3,6 +3,7 @@
 src/main.rs
 
 *.pkl
+examples/*/data.json
 /*.gif
 __pycache__/
 *.pyc

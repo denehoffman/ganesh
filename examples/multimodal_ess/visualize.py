@@ -1,80 +1,59 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = [
-#     "corner",
-#     "matplotlib",
-#     "numpy",
+#   "matplotlib==3.11.0",
+#   "numpy==2.5.1",
 # ]
 # ///
-import pickle
+"""Render traces, diagnostics, and the sampled Himmelblau landscape."""
+
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-if __name__ == '__main__':
-    with Path('data.pkl').open('rb') as f:
-        (chains, taus) = pickle.load(f)
-    chains = np.array(
-        [[[step[0][i] for i in range(2)] for step in chain] for chain in chains]
-    )
-    plt.plot(np.arange(len(taus)) * 50, taus)
-    plt.title('Integrated Autocorrelation Time')
-    plt.xlabel('Step')
-    plt.ylabel(r'Mean $\tau$')
-    plt.savefig('iat.svg')
-    plt.close()
-    _, ax = plt.subplots(nrows=2, sharex=True, figsize=(10, 50))
-    steps = np.arange(chains.shape[1])
-    burn_in = int(taus[-1])
-    for i in range(chains.shape[2]):
-        for j in range(chains.shape[0]):
-            ax[i].plot(steps[burn_in:], chains[j, burn_in:, i], color='k', alpha=0.1)
-            ax[i].plot(
-                steps[:burn_in], chains[j, :burn_in, i], color='k', ls='--', alpha=0.1
-            )
-        ax[i].plot(steps[burn_in:], chains[0, burn_in:, i], color='r', label='Walker 0')
-        ax[i].plot(
-            steps[:burn_in],
-            chains[0, :burn_in, i],
-            color='r',
-            ls='--',
-            label='Walker 0 (burn-in)',
-        )
-        ax[i].set_xlabel('Step')
-        ax[i].set_ylabel(f'Parameter {i}')
-        ax[i].legend()
-    plt.savefig('traces.svg')
-    plt.close()
-    flat_chain = chains[:, burn_in:, :].reshape(-1, chains.shape[2])
+plt.switch_backend('Agg')
 
-    plt.scatter(
-        flat_chain[:, 0],
-        flat_chain[:, 1],
-        s=1,
-        marker='.',
-        linewidths=0,
-        edgecolors='none',
-        color='k',
-        label='MCMC Samples',
-    )
-    plt.plot(
-        chains[0, burn_in:, 0],
-        chains[0, burn_in:, 1],
-        markersize=1.0,
-        linewidth=0.1,
-        marker='.',
-        markeredgecolor='none',
-        color='r',
-        label='Walker 0',
-    )
-    g = np.arange(-5, 5, 0.01)
-    X, Y = np.meshgrid(g, g)
-    Z = np.power((np.power(X, 2) + Y - 11), 2) + np.power(X + np.power(Y, 2) - 7, 2)
-    plt.contour(X, Y, -Z, levels=20)
-    plt.legend()
-    plt.savefig(
-        'scatter.png', dpi=2000
-    )  # high DPI here because the image is very detailed
-    plt.close()
+ROOT = Path(__file__).parent
+payload = json.loads((ROOT / 'data.json').read_text())
+chains = np.asarray(payload['chains'])
+burn, thin = payload['burn'], payload['thin']
+samples = chains[:, burn::thin].reshape(-1, 2)
+plt.style.use('seaborn-v0_8-whitegrid')
+
+fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True, constrained_layout=True)
+for index, axis in enumerate(axes):
+    axis.plot(chains[:, :, index].T, color='#2563eb', alpha=0.08, linewidth=0.5)
+    axis.axvspan(0, burn, color='#fdba74', alpha=0.3, label='burn-in')
+    axis.set_ylabel(payload['parameter_names'][index])
+axes[0].legend(frameon=False)
+axes[-1].set_xlabel('ensemble step')
+fig.suptitle(payload['title'], fontsize=16)
+fig.savefig(ROOT / 'traces.png', dpi=240)
+plt.close(fig)
+
+grid = np.linspace(-6, 6, 500)
+x, y = np.meshgrid(grid, grid)
+energy = (x * x + y - 11) ** 2 + (x + y * y - 7) ** 2
+fig, axis = plt.subplots(figsize=(9, 8), constrained_layout=True)
+axis.contourf(x, y, np.exp(-energy / 8), levels=32, cmap='YlGnBu')
+axis.scatter(samples[::8, 0], samples[::8, 1], s=3, color='#dc2626', alpha=0.2)
+axis.set(xlabel='x', ylabel='y', title='Four modes recovered by ESS')
+fig.savefig(ROOT / 'scatter.png', dpi=220)
+plt.close(fig)
+
+fig, axis = plt.subplots(figsize=(8, 4), constrained_layout=True)
+labels = payload['parameter_names']
+axis.bar(labels, payload['effective_sample_size'], color='#2563eb')
+axis.set(title='Effective sample size', ylabel='samples')
+axis.text(
+    0.99,
+    0.95,
+    f'mean acceptance = {payload["acceptance_rate"]:.1%}',
+    ha='right',
+    va='top',
+    transform=axis.transAxes,
+)
+fig.savefig(ROOT / 'iat.png', dpi=240)

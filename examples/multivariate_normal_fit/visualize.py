@@ -1,165 +1,80 @@
+#!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = [
-#     "matplotlib",
-#     "matplotloom",
-#     "numpy",
-#     "corner",
-#     "joblib",
-#     "polars",
+#   "corner==2.3.0",
+#   "matplotlib==3.11.0",
+#   "numpy==2.5.1",
 # ]
 # ///
-import pickle
+"""Render the generated data, optimizer result, posterior traces, and corner plot."""
+
+import json
 from pathlib import Path
 
+import corner
 import matplotlib.pyplot as plt
 import numpy as np
-import polars as pl
-from corner import corner, overplot_lines
-from joblib import Parallel, delayed
-from matplotloom import Loom
 
-if __name__ == '__main__':
-    print('Plotting dataset...')
-    with Path('data.pkl').open('rb') as f:
-        data = np.array(pickle.load(f)).transpose()
-    plt.hist2d(*data, bins=100, cmap='gist_heat_r')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('Sampled Dataset')
-    plt.savefig('data.svg')
-    plt.close()
+plt.switch_backend('Agg')
+plt.style.use('seaborn-v0_8-whitegrid')
 
-    print('Plotting traces (no burn-in)...')
-    parameter_labels = [
-        r'$\mu_0$',
-        r'$\mu_1$',
-        r'$\Sigma_{00}$',
-        r'$\Sigma_{01}$',
-        r'$\Sigma_{11}$',
-    ]
-    with Path('fit.pkl').open('rb') as f:
-        fit_result_data = pickle.load(f)
-    truths = np.array(fit_result_data[0])
-    fit_result = np.array(fit_result_data[1])
-    fit_result_err = np.array(fit_result_data[2])
-    with Path('chain.pkl').open('rb') as f:
-        chain, burn = pickle.load(f)
-    chain = np.array(chain)
-    n_walkers, n_steps, n_parameters = chain.shape
-    _, ax = plt.subplots(nrows=n_parameters, sharex=True, figsize=(10, 50))
-    steps = np.arange(n_steps)
-    for i in range(n_parameters):
-        for j in range(n_walkers):
-            ax[i].plot(steps[burn:], chain[j, burn:, i], color='k', alpha=0.1)
-            ax[i].plot(steps[:burn], chain[j, :burn, i], color='k', ls='--', alpha=0.1)
-        ax[i].plot(steps[burn:], chain[0, burn:, i], color='m', label='Walker 0')
-        ax[i].plot(
-            steps[:burn],
-            chain[0, :burn, i],
-            color='m',
-            ls='--',
-            label='Walker 0 (burn-in)',
-        )
-        ax[i].axhline(fit_result[i], color='b', label='Best fit')
-        ax[i].axhline(truths[i], color='r', label='Truth')
-        ax[i].set_xlabel('Step')
-        ax[i].set_ylabel(parameter_labels[i])
-        ax[i].legend()
-    plt.savefig('traces.svg')
-    plt.close()
+ROOT = Path(__file__).parent
+payload = json.loads((ROOT / 'data.json').read_text())
+data = np.asarray(payload['observations'])
+chains = np.asarray(payload['chains'])
+burn = payload['burn']
+labels = payload['parameter_names']
+truth = np.asarray(payload['truth'])
+fit = np.asarray(payload['fit'])
+samples = chains[:, burn:].reshape(-1, chains.shape[-1])
 
-    print('Plotting traces (with burn-in)...')
-    _, ax = plt.subplots(nrows=n_parameters, sharex=True, figsize=(10, 50))
-    steps = np.arange(n_steps)
-    for i in range(n_parameters):
-        for j in range(n_walkers):
-            ax[i].plot(steps[burn:], chain[j, burn:, i], color='k', alpha=0.1)
-        ax[i].plot(steps[burn:], chain[0, burn:, i], color='m', label='Walker 0')
-        ax[i].axhline(fit_result[i], color='b', label='Best fit')
-        ax[i].axhline(truths[i], color='r', label='Truth')
-        ax[i].set_xlabel('Step')
-        ax[i].set_ylabel(parameter_labels[i])
-        ax[i].legend()
-    plt.savefig('traces_burned.svg')
-    plt.close()
+figure, axis = plt.subplots(figsize=(7, 6), constrained_layout=True)
+axis.scatter(
+    data[:, 0],
+    data[:, 1],
+    s=18,
+    color='#60a5fa',
+    alpha=0.35,
+    edgecolors='none',
+    label='observations',
+)
+axis.scatter(*truth[:2], marker='*', s=190, color='#f59e0b', edgecolor='white', label='truth')
+axis.scatter(*fit[:2], marker='x', s=100, linewidth=2.5, color='#dc2626', label='fit')
+axis.set(xlabel='x₀', ylabel='x₁', title='Synthetic correlated Gaussian data')
+axis.legend(frameon=True)
+figure.savefig(ROOT / 'data.png', dpi=240)
+plt.close(figure)
 
-    print('Plotting corner plot...')
-    ci = 68.27
-    with Path('flat_chain.pkl').open('rb') as f:
-        flat_chain = np.array(pickle.load(f))
-    fig = corner(
-        flat_chain,
-        labels=parameter_labels,
-        truths=truths,
-        truth_color='r',
-        quantiles=[(50 - ci / 2) / 100, 0.5, (50 + ci / 2) / 100],
-        show_titles=True,
-        title_fmt='.4f',
-    )
-    overplot_lines(
-        fig,
-        fit_result,
-        color='b',
-    )
-    plt.savefig('corner.svg')
-    plt.close()
+figure, axes = plt.subplots(len(labels), 1, figsize=(12, 11), sharex=True, constrained_layout=True)
+for index, axis in enumerate(axes):
+    axis.plot(chains[:, :, index].T, color='#2563eb', alpha=0.07, linewidth=0.45)
+    axis.axhline(truth[index], color='#f59e0b', linewidth=1)
+    axis.axvspan(0, burn, color='#fdba74', alpha=0.3)
+    axis.set_ylabel(labels[index])
+axes[-1].set_xlabel('ensemble step')
+figure.savefig(ROOT / 'traces.png', dpi=240)
+plt.close(figure)
 
-    def compute_ranges(chain, pad_frac=0.02):
-        mins = chain.min(axis=(0, 1))
-        maxs = chain.max(axis=(0, 1))
-        widths = np.maximum(maxs - mins, 1e-9)
-        mins = mins - pad_frac * widths
-        maxs = maxs + pad_frac * widths
-        return [(float(a), float(b)) for a, b in zip(mins, maxs, strict=True)]
+figure, axes = plt.subplots(len(labels), 1, figsize=(12, 11), sharex=True, constrained_layout=True)
+for index, axis in enumerate(axes):
+    axis.plot(chains[:, burn:, index].T, color='#2563eb', alpha=0.07, linewidth=0.45)
+    axis.axhline(truth[index], color='#f59e0b', linewidth=1)
+    axis.set_ylabel(labels[index])
+axes[-1].set_xlabel('post-burn ensemble step')
+figure.savefig(ROOT / 'traces_burned.png', dpi=240)
+plt.close(figure)
 
-    def make_frame(i, chain, labels, ranges, loom):
-        j0 = max(0, i - 10)
-        window = chain[:, j0 : i + 1, :]
-        flat = window.reshape(-1, window.shape[-1])
-
-        fig = corner(
-            flat,
-            labels=labels,
-            range=ranges,
-            plot_contours=False,
-            show_titles=False,
-        )
-        loom.save_frame(fig, i)
-        plt.close(fig)
-
-    burned_chain = chain[:, burn:, :]
-    n_steps = burned_chain.shape[1]
-    ranges = compute_ranges(burned_chain)
-
-    print('Making animated corner plot...')
-    with Loom('walkers_corner.gif', fps=20, parallel=True, overwrite=True) as loom:
-        Parallel(n_jobs=-1, prefer='processes')(
-            delayed(make_frame)(i, burned_chain, parameter_labels, ranges, loom)
-            for i in range(n_steps)
-        )
-
-    parameter_labels_unicode = ['μ₀', 'μ₁', 'Σ₀₀', 'Σ₀₁', 'Σ₁₁']
-    qlo, qmid, qhi = (50 - ci / 2, 50, 50 + ci / 2)
-    lo, mid, hi = np.percentile(flat_chain, [qlo, qmid, qhi], axis=0)
-    mcmc_err_minus = mid - lo
-    mcmc_err_plus = hi - mid
-    fit_col = [f'{v:.6g}' for v in fit_result]
-    cov_col = [f'±{e:.3g}' for e in fit_result_err]
-    mcmc_col = [
-        f'-{em:.3g} / +{ep:.3g}'
-        for em, ep in zip(mcmc_err_minus, mcmc_err_plus, strict=True)
-    ]
-    truth_col = [f'{t:.6g}' for t in truths]
-    print('Summary')
-    print(
-        pl.DataFrame(
-            {
-                'Parameter': parameter_labels_unicode,
-                'Truths': truth_col,
-                'Fit Result': fit_col,
-                'Uncertainty (Covariance)': cov_col,
-                'Uncertainty (MCMC)': mcmc_col,
-            }
-        )
-    )
+figure = corner.corner(
+    samples,
+    labels=labels,
+    truths=truth,
+    color='#2563eb',
+    show_titles=True,
+    plot_datapoints=False,
+    fill_contours=True,
+)
+corner.overplot_lines(figure, fit, color='#dc2626')
+figure.suptitle(payload['title'], fontsize=16)
+figure.savefig(ROOT / 'corner.png', dpi=240)
+plt.close(figure)

@@ -1,3 +1,10 @@
-default:
-  cargo r -r --example multimodal_ess
-  uv run --script visualize.py
+default: show
+
+run:
+    cargo run --release --manifest-path ../../Cargo.toml --example multimodal_ess
+
+show: run
+    uv run visualize.py
+
+clean:
+    rm -f data.json
