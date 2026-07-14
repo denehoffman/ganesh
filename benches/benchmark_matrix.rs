@@ -1,173 +1,205 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use ganesh::{
     algorithms::{
-        gradient::{LegacyLBFGSB, LegacyLBFGSBConfig},
-        gradient_free::{LegacyNelderMead, LegacyNelderMeadConfig, LegacyNelderMeadInit},
-        mcmc::{
-            aies::AIESInit, ess::ESSInit, ESSMove, LegacyAIES, LegacyAIESConfig, LegacyESS,
-            LegacyESSConfig,
+        gradient::{
+            Adam, AdamConfig, ConjugateGradient, ConjugateGradientConfig, LBFGSBConfig,
+            TrustRegion, TrustRegionConfig, LBFGSB,
         },
-        particles::{LegacyPSO, LegacyPSOConfig, Swarm, SwarmPositionInitializer},
+        gradient_free::{
+            CMAESConfig, DifferentialEvolution, DifferentialEvolutionConfig, NelderMead,
+            NelderMeadConfig, SimulatedAnnealing, SimulatedAnnealingConfig, CMAES,
+        },
+        line_search::{BacktrackingLineSearch, HagerZhangLineSearch, MoreThuenteLineSearch},
+        mcmc::{AIESConfig, AIESInit, ESSConfig, ESSInit, AIES, ESS},
+        particles::{PSOConfig, PSO},
     },
-    core::MaxSteps,
+    core::{Callbacks, EvalCounts, MaxSteps},
     test_functions::{rastrigin::Rastrigin, rosenbrock::Rosenbrock},
-    traits::Algorithm,
-    DVector, Float,
+    traits::{Algorithm, LineSearch},
+    Bounds, Vector,
 };
 
-const OPT_DIMS: [usize; 2] = [2, 8];
-const MCMC_DIMS: [usize; 2] = [2, 4];
-const MCMC_WALKERS: usize = 12;
-const MCMC_STEPS: usize = 40;
-const PSO_STEPS: usize = 60;
-const LBFGSB_STEPS: usize = 80;
-const NELDER_MEAD_STEPS: usize = 120;
+const DIMS: [usize; 2] = [2, 8];
 
-fn rosenbrock_start(n: usize) -> Vec<Float> {
-    vec![5.0; n]
+fn start(n: usize) -> Vector<f64> {
+    vec![2.0; n].into()
 }
 
-fn matrix_walkers(n: usize) -> Vec<DVector<Float>> {
-    (0..MCMC_WALKERS)
+fn walkers(n: usize) -> Vec<Vector<f64>> {
+    (0..12)
         .map(|i| {
-            DVector::from_fn(n, |j, _| {
-                let center = if (i + j) % 2 == 0 { -1.5 } else { 1.5 };
-                center + 0.1 * (i as Float) + 0.05 * (j as Float)
-            })
+            (0..n)
+                .map(|j| if (i + j) % 2 == 0 { -1.5 } else { 1.5 })
+                .collect::<Vec<_>>()
+                .into()
         })
         .collect()
 }
 
-fn benchmark_lbfgsb(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/LegacyLBFGSB");
-    for n in OPT_DIMS {
-        group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
+macro_rules! bench_optimizer {
+    ($group:expr, $name:literal, $n:expr, $setup:expr) => {
+        $group.bench_with_input(BenchmarkId::new($name, $n), &$n, |b, &_n| {
             b.iter_batched(
-                || {
-                    (
-                        Rosenbrock { n: ndim },
-                        LegacyLBFGSB::default(),
-                        DVector::from_vec(rosenbrock_start(ndim)),
-                        LegacyLBFGSBConfig::default(),
-                        LegacyLBFGSB::default_callbacks().with_terminator(MaxSteps(LBFGSB_STEPS)),
-                    )
-                },
-                |(problem, mut solver, init, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
-    group.finish();
-}
-
-fn benchmark_nelder_mead(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/Nelder-Mead");
-    for n in OPT_DIMS {
-        group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            b.iter_batched(
-                || {
-                    (
-                        Rosenbrock { n: ndim },
-                        LegacyNelderMead::default(),
-                        LegacyNelderMeadInit::new(rosenbrock_start(ndim)),
-                        LegacyNelderMeadConfig::default(),
-                        LegacyNelderMead::default_callbacks()
-                            .with_terminator(MaxSteps(NELDER_MEAD_STEPS)),
-                    )
-                },
-                |(problem, mut solver, init, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
-    group.finish();
-}
-
-fn benchmark_pso(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/LegacyPSO");
-    for n in OPT_DIMS {
-        group.bench_with_input(BenchmarkId::new("Rastrigin", n), &n, |b, &ndim| {
-            let bounds = vec![(-5.12, 5.12); ndim];
-            b.iter_batched(
-                || {
-                    (
-                        Rastrigin { n: ndim },
-                        LegacyPSO::default(),
-                        Swarm::new(SwarmPositionInitializer::RandomInLimits {
-                            bounds: bounds.clone(),
-                            n_particles: 24,
-                        }),
-                        LegacyPSOConfig::default()
-                            .with_c1(0.1)
-                            .unwrap()
-                            .with_c2(0.1)
-                            .unwrap()
-                            .with_omega(0.8)
+                || $setup,
+                |(problem, mut algorithm, init, config, callbacks)| {
+                    black_box(
+                        algorithm
+                            .process(&problem, &(), init, config, callbacks)
                             .unwrap(),
-                        LegacyPSO::default_callbacks().with_terminator(MaxSteps(PSO_STEPS)),
-                    )
-                },
-                |(problem, mut solver, init, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
+                    );
                 },
                 BatchSize::SmallInput,
             );
+        });
+    };
+}
+
+fn benchmark_optimizers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("algorithms/optimization");
+    for n in DIMS {
+        bench_optimizer!(group, "adam", n, {
+            (
+                Rosenbrock { n },
+                Adam::default(),
+                start(n),
+                AdamConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(100)),
+            )
+        });
+        bench_optimizer!(group, "conjugate-gradient", n, {
+            (
+                Rosenbrock { n },
+                ConjugateGradient::<f64>::default(),
+                start(n),
+                ConjugateGradientConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(60)),
+            )
+        });
+        bench_optimizer!(group, "lbfgsb", n, {
+            (
+                Rosenbrock { n },
+                LBFGSB::<f64>::default(),
+                start(n),
+                LBFGSBConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(60)),
+            )
+        });
+        bench_optimizer!(group, "trust-region", n, {
+            (
+                Rosenbrock { n },
+                TrustRegion::default(),
+                start(n),
+                TrustRegionConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(30)),
+            )
+        });
+        bench_optimizer!(group, "differential-evolution", n, {
+            (
+                Rosenbrock { n },
+                DifferentialEvolution::new(Some(7)),
+                start(n),
+                DifferentialEvolutionConfig::default()
+                    .with_population_size(24)
+                    .unwrap(),
+                Callbacks::empty().with_terminator(MaxSteps(40)),
+            )
+        });
+        bench_optimizer!(group, "nelder-mead", n, {
+            (
+                Rosenbrock { n },
+                NelderMead::default(),
+                start(n),
+                NelderMeadConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(80)),
+            )
+        });
+        bench_optimizer!(group, "cmaes", n, {
+            (
+                Rosenbrock { n },
+                CMAES::new(Some(7)),
+                start(n),
+                CMAESConfig::default().with_population_size(24).unwrap(),
+                Callbacks::empty().with_terminator(MaxSteps(40)),
+            )
+        });
+        bench_optimizer!(group, "simulated-annealing", n, {
+            (
+                Rosenbrock { n },
+                SimulatedAnnealing::new(Some(7)),
+                start(n),
+                SimulatedAnnealingConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(400)),
+            )
+        });
+        let bounds: Bounds = Bounds::new(vec![(-5.12, 5.12); n]).unwrap();
+        bench_optimizer!(group, "pso", n, {
+            (
+                Rastrigin { n },
+                PSO::new(Some(7)),
+                Vector::zeros(n),
+                PSOConfig::default()
+                    .with_particles(24)
+                    .unwrap()
+                    .with_transform(bounds.clone()),
+                Callbacks::empty().with_terminator(MaxSteps(40)),
+            )
         });
     }
     group.finish();
 }
 
-fn benchmark_aies(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/LegacyAIES");
-    for n in MCMC_DIMS {
-        group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            b.iter_batched(
-                || {
-                    (
-                        Rosenbrock { n: ndim },
-                        LegacyAIES::default(),
-                        AIESInit::new(matrix_walkers(ndim)).unwrap(),
-                        LegacyAIESConfig::default(),
-                        LegacyAIES::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
-                    )
-                },
-                |(problem, mut solver, init, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
-                },
-                BatchSize::SmallInput,
-            );
+fn benchmark_samplers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("algorithms/sampling");
+    for n in [2, 4] {
+        bench_optimizer!(group, "aies", n, {
+            (
+                Rosenbrock { n },
+                AIES::new(Some(7)),
+                AIESInit::new(walkers(n)).unwrap(),
+                AIESConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(30)),
+            )
+        });
+        bench_optimizer!(group, "ess", n, {
+            (
+                Rosenbrock { n },
+                ESS::new(Some(7)),
+                ESSInit::new(walkers(n)).unwrap(),
+                ESSConfig::default(),
+                Callbacks::empty().with_terminator(MaxSteps(30)),
+            )
         });
     }
     group.finish();
 }
 
-fn benchmark_ess(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Matrix/LegacyESS");
-    for n in MCMC_DIMS {
-        group.bench_with_input(BenchmarkId::new("Rosenbrock", n), &n, |b, &ndim| {
-            b.iter_batched(
-                || {
-                    (
-                        Rosenbrock { n: ndim },
-                        LegacyESS::default(),
-                        ESSInit::new(matrix_walkers(ndim)).unwrap(),
-                        LegacyESSConfig::default()
-                            .with_moves([ESSMove::gaussian(0.2), ESSMove::differential(0.8)])
-                            .unwrap()
-                            .with_n_adaptive(5)
-                            .with_max_steps(64),
-                        LegacyESS::default_callbacks().with_terminator(MaxSteps(MCMC_STEPS)),
-                    )
-                },
-                |(problem, mut solver, init, cfg, callbacks)| {
-                    black_box(solver.process(&problem, &(), init, cfg, callbacks).unwrap());
-                },
-                BatchSize::SmallInput,
-            );
+fn benchmark_line_searches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("algorithms/line-search");
+    let problem = Rosenbrock { n: 2 };
+    let x: Vector = [-1.2, 1.0].into();
+    let direction: Vector = [215.6, 88.0].into();
+    for (name, kind) in [("backtracking", 0), ("more-thuente", 1), ("hager-zhang", 2)] {
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                let mut evals = EvalCounts::default();
+                let _ = match kind {
+                    0 => black_box(
+                        BacktrackingLineSearch::default()
+                            .search(&x, &direction, None, &problem, &(), &mut evals)
+                            .unwrap(),
+                    ),
+                    1 => black_box(
+                        MoreThuenteLineSearch::default()
+                            .search(&x, &direction, None, &problem, &(), &mut evals)
+                            .unwrap(),
+                    ),
+                    _ => black_box(
+                        HagerZhangLineSearch::default()
+                            .search(&x, &direction, None, &problem, &(), &mut evals)
+                            .unwrap(),
+                    ),
+                };
+            });
         });
     }
     group.finish();
@@ -175,10 +207,8 @@ fn benchmark_ess(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    benchmark_lbfgsb,
-    benchmark_nelder_mead,
-    benchmark_pso,
-    benchmark_aies,
-    benchmark_ess
+    benchmark_optimizers,
+    benchmark_samplers,
+    benchmark_line_searches
 );
 criterion_main!(benches);

@@ -1,4 +1,4 @@
-//! Linear algebra backend wrappers and implementations.
+//! Linear algebra provider wrappers and implementations.
 
 use crate::core::RealScalar;
 use nalgebra::{DMatrix, DVector, LU};
@@ -6,15 +6,16 @@ use nalgebra::{DMatrix, DVector, LU};
 use ndarray::{Array1, Array2};
 #[cfg(feature = "backend-ndarray")]
 use ndarray_linalg::{Determinant as NdDeterminant, Eigh, Inverse, Lapack, Solve, UPLO};
+use serde::{Serialize, Serializer};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-/// Backend marker and operation surface for dense vector and matrix storage.
+/// Linear algebra provider and operation surface for dense vector and matrix storage.
 pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
-    /// Owned vector storage used by this backend.
+    /// Owned vector storage used by this provider.
     type VectorStorage: Clone + Debug + PartialEq + Send + Sync + 'static;
-    /// Owned matrix storage used by this backend.
+    /// Owned matrix storage used by this provider.
     type MatrixStorage: Clone + Debug + PartialEq + Send + Sync + 'static;
 
     /// Create a zero vector.
@@ -29,6 +30,11 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn vector_set(value: &mut Self::VectorStorage, index: usize, entry: T);
     /// Return vector entries as owned values.
     fn vector_to_vec(value: &Self::VectorStorage) -> Vec<T>;
+    /// Borrow contiguous vector entries when supported by the provider.
+    fn vector_as_slice(value: &Self::VectorStorage) -> Option<&[T]> {
+        let _ = value;
+        None
+    }
 
     /// Vector addition.
     fn vec_add(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> Self::VectorStorage;
@@ -38,6 +44,14 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn vec_neg(value: &Self::VectorStorage) -> Self::VectorStorage;
     /// Vector scaling.
     fn vec_scale(value: &Self::VectorStorage, alpha: T) -> Self::VectorStorage;
+    /// Fused allocation of `lhs + alpha * rhs` when supported by the provider.
+    fn vec_add_scaled(
+        lhs: &Self::VectorStorage,
+        rhs: &Self::VectorStorage,
+        alpha: T,
+    ) -> Self::VectorStorage {
+        Self::vec_add(lhs, &Self::vec_scale(rhs, alpha))
+    }
     /// Dot product.
     fn vec_dot(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> T;
     /// Euclidean norm.
@@ -74,7 +88,7 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage;
 }
 
-/// Backend capability for solving dense linear systems and computing inverses.
+/// Capability for solving dense linear systems and computing inverses.
 pub trait LinearSolve<T: RealScalar>: LinearAlgebra<T> {
     /// Solve `matrix * x = rhs` using an LU-style solve.
     fn lu_solve(
@@ -90,19 +104,19 @@ pub trait LinearSolve<T: RealScalar>: LinearAlgebra<T> {
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage>;
 }
 
-/// Backend capability for computing a matrix pseudoinverse.
+/// Capability for computing a matrix pseudoinverse.
 pub trait PseudoInverse<T: RealScalar>: LinearAlgebra<T> {
     /// Compute the pseudoinverse.
     fn pseudo_inverse(matrix: &Self::MatrixStorage, epsilon: T) -> Option<Self::MatrixStorage>;
 }
 
-/// Backend capability for computing a determinant.
+/// Capability for computing a determinant.
 pub trait Determinant<T: RealScalar>: LinearAlgebra<T> {
     /// Compute the determinant.
     fn determinant(matrix: &Self::MatrixStorage) -> Option<T>;
 }
 
-/// Backend capability for symmetric eigendecomposition.
+/// Capability for symmetric eigendecomposition.
 pub trait SymmetricEigen<T: RealScalar>: LinearAlgebra<T> {
     /// Return eigenvalues and column-oriented eigenvectors of a symmetric matrix.
     fn symmetric_eigen(
@@ -174,14 +188,69 @@ impl<T: RealScalar> Neg for Scalar<T> {
     }
 }
 
-/// Owned dense vector wrapper parameterized by scalar and backend.
-pub struct Vector<T: RealScalar, B: LinearAlgebra<T> = NalgebraBackend> {
+/// Owned dense vector wrapper parameterized by scalar and provider.
+pub struct Vector<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     storage: B::VectorStorage,
     _marker: PhantomData<(T, B)>,
 }
 
+impl<T, B> Serialize for Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    B::VectorStorage: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.storage.serialize(serializer)
+    }
+}
+
+impl<T, B> From<Vec<T>> for Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn from(values: Vec<T>) -> Self {
+        Self::from_vec(values)
+    }
+}
+
+impl<T, B> From<&[T]> for Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn from(values: &[T]) -> Self {
+        Self::from_vec(values.to_vec())
+    }
+}
+
+impl<T, B, const N: usize> From<[T; N]> for Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn from(values: [T; N]) -> Self {
+        Self::from_vec(Vec::from(values))
+    }
+}
+
+impl<T, B, const N: usize> From<&[T; N]> for Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn from(values: &[T; N]) -> Self {
+        Self::from_vec(values.to_vec())
+    }
+}
+
 impl<T: RealScalar, B: LinearAlgebra<T>> Vector<T, B> {
-    /// Wrap backend vector storage.
+    /// Wrap provider vector storage.
+    #[inline]
     pub const fn from_storage(storage: B::VectorStorage) -> Self {
         Self {
             storage,
@@ -189,92 +258,116 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Vector<T, B> {
         }
     }
 
-    /// Consume the wrapper and return backend vector storage.
+    /// Consume the wrapper and return provider vector storage.
+    #[inline]
     pub fn into_storage(self) -> B::VectorStorage {
         self.storage
     }
 
-    /// Borrow backend vector storage.
+    /// Borrow provider vector storage.
+    #[inline]
     pub const fn as_storage(&self) -> &B::VectorStorage {
         &self.storage
     }
 
-    /// Mutably borrow backend vector storage.
+    /// Mutably borrow provider vector storage.
+    #[inline]
     pub fn as_storage_mut(&mut self) -> &mut B::VectorStorage {
         &mut self.storage
     }
 
     /// Create a zero vector.
+    #[inline]
     pub fn zeros(len: usize) -> Self {
         Self::from_storage(B::vector_zeros(len))
     }
 
     /// Create a vector from owned values.
+    #[inline]
     pub fn from_vec(values: Vec<T>) -> Self {
         Self::from_storage(B::vector_from_vec(values))
     }
 
     /// Return vector length.
+    #[inline]
     pub fn len(&self) -> usize {
         B::vector_len(&self.storage)
     }
 
     /// Return `true` when the vector has no entries.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Get one element.
+    #[inline]
     pub fn get(&self, index: usize) -> T {
         B::vector_get(&self.storage, index)
     }
 
     /// Set one element.
+    #[inline]
     pub fn set(&mut self, index: usize, entry: T) {
         B::vector_set(&mut self.storage, index, entry);
     }
 
     /// Return entries as owned values.
+    #[inline]
     pub fn to_vec(&self) -> Vec<T> {
         B::vector_to_vec(&self.storage)
     }
 
+    /// Borrow contiguous entries when supported by the selected provider.
+    #[inline]
+    pub fn as_slice(&self) -> Option<&[T]> {
+        B::vector_as_slice(&self.storage)
+    }
+
     /// Dot product.
+    #[inline]
     pub fn dot(&self, rhs: &Self) -> T {
         B::vec_dot(&self.storage, &rhs.storage)
     }
 
     /// Euclidean norm.
+    #[inline]
     pub fn norm(&self) -> T {
         B::vec_norm(&self.storage)
     }
 
     /// Return `self * alpha`.
+    #[inline]
     pub fn scale(&self, alpha: T) -> Self {
         Self::from_storage(B::vec_scale(&self.storage, alpha))
     }
 
     /// Return `self + rhs`.
+    #[inline]
     pub fn add(&self, rhs: &Self) -> Self {
         self + rhs
     }
 
     /// Return `self - rhs`.
+    #[inline]
     pub fn sub(&self, rhs: &Self) -> Self {
         self - rhs
     }
 
     /// Return `-self`.
+    #[inline]
     pub fn neg(&self) -> Self {
         -self
     }
 
     /// Return `self + rhs * alpha`.
+    #[inline]
     pub fn add_scaled(&self, rhs: &Self, alpha: T) -> Self {
-        self + &rhs.scale(alpha)
+        Self::from_storage(B::vec_add_scaled(&self.storage, &rhs.storage, alpha))
     }
 
     /// Return `true` when all entries are finite.
+    #[inline]
     pub fn all_finite(&self) -> bool {
         B::vec_all_finite(&self.storage)
     }
@@ -410,14 +503,28 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Div<T> for Vector<T, B> {
     }
 }
 
-/// Owned dense matrix wrapper parameterized by scalar and backend.
-pub struct Matrix<T: RealScalar, B: LinearAlgebra<T> = NalgebraBackend> {
+/// Owned dense matrix wrapper parameterized by scalar and provider.
+pub struct Matrix<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     storage: B::MatrixStorage,
     _marker: PhantomData<(T, B)>,
 }
 
+impl<T, B> Serialize for Matrix<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    B::MatrixStorage: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.storage.serialize(serializer)
+    }
+}
+
 impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
-    /// Wrap backend matrix storage.
+    /// Wrap provider matrix storage.
     pub const fn from_storage(storage: B::MatrixStorage) -> Self {
         Self {
             storage,
@@ -425,17 +532,17 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
         }
     }
 
-    /// Consume the wrapper and return backend matrix storage.
+    /// Consume the wrapper and return provider matrix storage.
     pub fn into_storage(self) -> B::MatrixStorage {
         self.storage
     }
 
-    /// Borrow backend matrix storage.
+    /// Borrow provider matrix storage.
     pub const fn as_storage(&self) -> &B::MatrixStorage {
         &self.storage
     }
 
-    /// Mutably borrow backend matrix storage.
+    /// Mutably borrow provider matrix storage.
     pub fn as_storage_mut(&mut self) -> &mut B::MatrixStorage {
         &mut self.storage
     }
@@ -649,62 +756,91 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Mul<&Matrix<T, B>> for &Matrix<T, B> {
     }
 }
 
-/// Nalgebra dynamic vector/matrix backend.
+/// Nalgebra dynamic vector/matrix provider.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NalgebraBackend;
+pub struct NalgebraProvider;
 
-impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
+impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraProvider {
     type VectorStorage = DVector<T>;
     type MatrixStorage = DMatrix<T>;
 
+    #[inline]
     fn vector_zeros(len: usize) -> Self::VectorStorage {
         DVector::from_element(len, <T as RealScalar>::zero())
     }
 
+    #[inline]
     fn vector_from_vec(values: Vec<T>) -> Self::VectorStorage {
         DVector::from_vec(values)
     }
 
+    #[inline]
     fn vector_len(value: &Self::VectorStorage) -> usize {
         value.len()
     }
 
+    #[inline]
     fn vector_get(value: &Self::VectorStorage, index: usize) -> T {
         value[index]
     }
 
+    #[inline]
     fn vector_set(value: &mut Self::VectorStorage, index: usize, entry: T) {
         value[index] = entry;
     }
 
+    #[inline]
     fn vector_to_vec(value: &Self::VectorStorage) -> Vec<T> {
         value.iter().copied().collect()
     }
 
+    #[inline]
+    fn vector_as_slice(value: &Self::VectorStorage) -> Option<&[T]> {
+        Some(value.as_slice())
+    }
+
+    #[inline]
     fn vec_add(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> Self::VectorStorage {
         lhs + rhs
     }
 
+    #[inline]
     fn vec_sub(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> Self::VectorStorage {
         lhs - rhs
     }
 
+    #[inline]
     fn vec_neg(value: &Self::VectorStorage) -> Self::VectorStorage {
         -value
     }
 
+    #[inline]
     fn vec_scale(value: &Self::VectorStorage, alpha: T) -> Self::VectorStorage {
         value * alpha
     }
 
+    #[inline]
+    fn vec_add_scaled(
+        lhs: &Self::VectorStorage,
+        rhs: &Self::VectorStorage,
+        alpha: T,
+    ) -> Self::VectorStorage {
+        let mut result = lhs.clone();
+        result.axpy(alpha, rhs, <T as RealScalar>::one());
+        result
+    }
+
+    #[inline]
     fn vec_dot(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> T {
         lhs.dot(rhs)
     }
 
+    #[inline]
     fn vec_norm(value: &Self::VectorStorage) -> T {
         value.norm()
     }
 
+    #[inline]
     fn vec_all_finite(value: &Self::VectorStorage) -> bool {
         value.iter().all(|entry| entry.is_finite())
     }
@@ -762,7 +898,7 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraBackend {
     }
 }
 
-impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraBackend {
+impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraProvider {
     fn lu_solve(
         matrix: &Self::MatrixStorage,
         rhs: &Self::VectorStorage,
@@ -782,19 +918,19 @@ impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraBackend {
     }
 }
 
-impl<T: RealScalar + nalgebra::RealField> PseudoInverse<T> for NalgebraBackend {
+impl<T: RealScalar + nalgebra::RealField> PseudoInverse<T> for NalgebraProvider {
     fn pseudo_inverse(matrix: &Self::MatrixStorage, epsilon: T) -> Option<Self::MatrixStorage> {
         matrix.clone().pseudo_inverse(epsilon).ok()
     }
 }
 
-impl<T: RealScalar + nalgebra::RealField> Determinant<T> for NalgebraBackend {
+impl<T: RealScalar + nalgebra::RealField> Determinant<T> for NalgebraProvider {
     fn determinant(matrix: &Self::MatrixStorage) -> Option<T> {
         matrix.is_square().then(|| matrix.clone().determinant())
     }
 }
 
-impl<T: RealScalar + nalgebra::RealField> SymmetricEigen<T> for NalgebraBackend {
+impl<T: RealScalar + nalgebra::RealField> SymmetricEigen<T> for NalgebraProvider {
     fn symmetric_eigen(
         matrix: &Self::MatrixStorage,
     ) -> Option<(Self::VectorStorage, Self::MatrixStorage)> {
@@ -806,13 +942,13 @@ impl<T: RealScalar + nalgebra::RealField> SymmetricEigen<T> for NalgebraBackend 
     }
 }
 
-/// Ndarray `Array1`/`Array2` backend.
+/// Ndarray `Array1`/`Array2` provider.
 #[cfg(feature = "backend-ndarray")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NdArrayBackend;
+pub struct NdArrayProvider;
 
 #[cfg(feature = "backend-ndarray")]
-impl<T> LinearAlgebra<T> for NdArrayBackend
+impl<T> LinearAlgebra<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
@@ -841,6 +977,11 @@ where
 
     fn vector_to_vec(value: &Self::VectorStorage) -> Vec<T> {
         value.iter().copied().collect()
+    }
+
+    #[inline]
+    fn vector_as_slice(value: &Self::VectorStorage) -> Option<&[T]> {
+        value.as_slice()
     }
 
     fn vec_add(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> Self::VectorStorage {
@@ -880,7 +1021,16 @@ where
     }
 
     fn matrix_from_vec(rows: usize, cols: usize, values: Vec<T>) -> Self::MatrixStorage {
-        Array2::from_shape_vec((rows, cols), values).expect("shape matches row-major values")
+        assert_eq!(
+            values.len(),
+            rows.saturating_mul(cols),
+            "matrix dimensions must match the number of row-major values"
+        );
+        let mut matrix = Array2::zeros((rows, cols));
+        for (entry, value) in matrix.iter_mut().zip(values) {
+            *entry = value;
+        }
+        matrix
     }
 
     fn matrix_rows(value: &Self::MatrixStorage) -> usize {
@@ -925,7 +1075,7 @@ where
 }
 
 #[cfg(feature = "backend-ndarray")]
-impl<T> LinearSolve<T> for NdArrayBackend
+impl<T> LinearSolve<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
@@ -955,7 +1105,7 @@ where
 }
 
 #[cfg(feature = "backend-ndarray")]
-impl<T> PseudoInverse<T> for NdArrayBackend
+impl<T> PseudoInverse<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
@@ -965,7 +1115,7 @@ where
 }
 
 #[cfg(feature = "backend-ndarray")]
-impl<T> Determinant<T> for NdArrayBackend
+impl<T> Determinant<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
@@ -975,7 +1125,7 @@ where
 }
 
 #[cfg(feature = "backend-ndarray")]
-impl<T> SymmetricEigen<T> for NdArrayBackend
+impl<T> SymmetricEigen<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
@@ -1050,7 +1200,7 @@ mod tests {
     }
 
     fn nalgebra_pseudo_inverse_contract() {
-        let singular = Matrix::<f64, NalgebraBackend>::from_vec(2, 2, vec![1.0, 2.0, 2.0, 4.0]);
+        let singular = Matrix::<f64, NalgebraProvider>::from_vec(2, 2, vec![1.0, 2.0, 2.0, 4.0]);
         let Some(pseudo_inverse) = singular.pseudo_inverse(f64::EPSILON.cbrt()) else {
             panic!("pseudoinverse");
         };
@@ -1059,16 +1209,29 @@ mod tests {
     }
 
     #[test]
-    fn nalgebra_backend_satisfies_contracts() {
-        vector_contract::<NalgebraBackend>();
-        matrix_contract::<NalgebraBackend>();
+    fn nalgebra_provider_satisfies_contracts() {
+        vector_contract::<NalgebraProvider>();
+        matrix_contract::<NalgebraProvider>();
         nalgebra_pseudo_inverse_contract();
+    }
+
+    #[test]
+    fn vector_converts_from_owned_and_borrowed_collections() {
+        let owned: Vector = vec![1.0, 2.0, 3.0].into();
+        let array: Vector = [4.0, 5.0, 6.0].into();
+        let borrowed_slice: Vector = (&[7.0, 8.0][..]).into();
+        let borrowed_array: Vector = (&[9.0, 10.0]).into();
+
+        assert_eq!(owned.to_vec(), vec![1.0, 2.0, 3.0]);
+        assert_eq!(array.to_vec(), vec![4.0, 5.0, 6.0]);
+        assert_eq!(borrowed_slice.to_vec(), vec![7.0, 8.0]);
+        assert_eq!(borrowed_array.to_vec(), vec![9.0, 10.0]);
     }
 
     #[cfg(feature = "backend-ndarray")]
     #[test]
-    fn ndarray_backend_satisfies_contracts() {
-        vector_contract::<NdArrayBackend>();
-        matrix_contract::<NdArrayBackend>();
+    fn ndarray_provider_satisfies_contracts() {
+        vector_contract::<NdArrayProvider>();
+        matrix_contract::<NdArrayProvider>();
     }
 }

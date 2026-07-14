@@ -1,4 +1,4 @@
-//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides minimization and sampling algorithms through scalar- and linear-algebra-backend-generic Rust interfaces. Most users implement [`CostFunction`](crate::traits::CostFunction), optionally implement [`Gradient`](crate::traits::Gradient), and run an [`Algorithm`](crate::traits::Algorithm). Default finite differences keep analytic derivatives optional.
+//! `ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides minimization and sampling algorithms through scalar- and linear-algebra-generic Rust interfaces. Most users implement [`CostFunction`](crate::traits::CostFunction), optionally implement [`Gradient`](crate::traits::Gradient), and run an [`Algorithm`](crate::traits::Algorithm). Default finite differences keep analytic derivatives optional.
 //!
 //! # Table of Contents
 //! - [Key Features](#key-features)
@@ -15,11 +15,19 @@
 //! * A simple interface that lets new users get started quickly.
 //! * A pure Rust implementation of [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB).
 //! * `f64`/nalgebra defaults with native `f32`, optional ndarray, and downstream-extensible scalar
-//!   and backend traits. Python bindings intentionally remain `f64`-facing.
+//!   and linear algebra traits.
+//!
+//! Rust precision is selected through type parameters, so `f32` and `f64` can coexist without
+//! feature switching. The crate is entirely Python-agnostic; downstream bindings own their Python
+//! types and translate them to ordinary `ganesh` Rust values.
+//!
+//! The `backend-ndarray` feature deliberately does not choose an `ndarray-linalg` LAPACK source.
+//! Applications using it should depend on `ndarray-linalg` directly and enable exactly one of its
+//! source features before linking an executable that uses those operations.
 //!
 //! ## Quick Start
 //!
-//! This crate provides some common test functions in the [`test_functions`](crate::test_functions) module. Consider the following implementation of the Rosenbrock function:
+//! This crate provides some common test functions in the [`test_functions`] module. Consider the following implementation of the Rosenbrock function:
 //!
 //! ```rust
 //! use ganesh::traits::*;
@@ -46,13 +54,12 @@
 //! ```rust
 //! use ganesh::algorithms::gradient_free::NelderMead;
 //! use ganesh::traits::*;
-//! use ganesh::{Vector, test_functions::Rosenbrock};
+//! use ganesh::test_functions::Rosenbrock;
 //! use std::convert::Infallible;
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
-//!     let mut nm = NelderMead::<f64>::default();
-//!     let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
-//!     let result = nm.process_default(&problem, &(), init)?;
+//!     let mut nm: NelderMead = Default::default();
+//!     let result = nm.process_default(&problem, &(), [2.0, 2.0])?;
 //!     println!("{}", result);
 //!     Ok(())
 //! }
@@ -62,17 +69,16 @@
 //! ```rust
 //! use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 //! use ganesh::traits::*;
-//! use ganesh::{Vector, test_functions::Rosenbrock};
+//! use ganesh::test_functions::Rosenbrock;
 //! use std::convert::Infallible;
 //! fn main() -> Result<(), Infallible> {
 //!     let problem = Rosenbrock { n: 2 };
-//!     let mut nm = NelderMead::<f64>::default();
-//!     let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
-//!     let config = NelderMeadConfig::<f64>::default();
+//!     let mut nm: NelderMead = Default::default();
+//!     let config = NelderMeadConfig::default();
 //!     let result = nm.process(
 //!         &problem,
 //!         &(),
-//!         init,
+//!         vec![2.0, 2.0],
 //!         config,
 //!         NelderMead::default_callbacks(),
 //!     )?;
@@ -81,28 +87,23 @@
 //! }
 //! ```
 //!
-//! This should output
+//! The same program is available as `cargo run --example readme`. It outputs
 //! ```shell
-//! ╭──────────────────────────────────────────────────────────────────╮
-//! │                                                                  │
-//! │                           FIT RESULTS                            │
-//! │                                                                  │
-//! ├───────────┬───────────────────┬────────────────┬─────────────────┤
-//! │ Status    │ f(x)              │ #f(x)          │ #∇f(x)          │
-//! ├───────────┼───────────────────┼────────────────┼─────────────────┤
-//! │ Converged │ 0.00023           │ 76             │ 0               │
-//! ├───────────┼───────────────────┴────────────────┴─────────────────┤
-//! │           │                                                      │
-//! │ Message   │ term_f = STDDEV                                      │
-//! │           │                                                      │
-//! ├───────────┴─────────────────────────────┬────────────┬───────────┤
-//! │ Parameter                               │ Bound      │ At Limit? │
-//! ├───────────┬─────────┬─────────┬─────────┼──────┬─────┼───────────┤
-//! │           │ =       │ σ       │ 0       │ -    │ +   │           │
-//! ├───────────┼─────────┼─────────┼─────────┼──────┼─────┼───────────┤
-//! │ x_0       │ 1.00081 │ 0.84615 │ 2.00000 │ -inf │ inf │ No        │
-//! │ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
-//! ╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
+//! ╭─────────────────────────────────────────────────────────────╮
+//! │                    MINIMIZATION SUMMARY                     │
+//! ├───────────┬─────────┬─────────────┬─────────┬───────────────┤
+//! │ Status    │ f(x)    │ # f(x)      │ # ∇f(x) │ # H(x)        │
+//! ├───────────┼─────────┼─────────────┼─────────┼───────────────┤
+//! │ Converged │ 0.00009 │ 80          │ 0       │ 0             │
+//! ├───────────┼─────────┴─────────────┴─────────┴───────────────┤
+//! │ Message   │ Success: term_f = STDDEV                        │
+//! ├───────────┴─────────────────────────────────┬───────────────┤
+//! │ Parameters                                  │ Bounds        │
+//! ├───────────┬─────────┬─────────────┬─────────┼───────┬───────┤
+//! │ Name      │ Value   │ Uncertainty │ Initial │ Lower │ Upper │
+//! │ x_0       │ 1.00410 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+//! │ x_1       │ 1.00909 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+//! ╰───────────┴─────────┴─────────────┴─────────┴───────┴───────╯
 //! ```
 //!
 //! The `ganesh` crate uses algorithm methods such as [`Algorithm::process`](`crate::traits::algorithm::Algorithm::process`),
@@ -134,16 +135,18 @@
 //!
 //! ## Examples
 //!
-//! More examples can be found in the `examples` directory of this project. They all contain a
-//! `.justfile` which allows the whole example to be run with the command, [`just`](https://github.com/casey/just).
-//! To just run the Rust-side code and skip the Python visualization, any of the examples can be run with
+//! The `examples` directory contains a compact generic numeric example and four polished showcase
+//! examples for optimization, fitting, and ensemble sampling. Run any Rust example directly:
 //!
 //! ```shell
-//! cargo r -r --example <example_name>
+//! cargo run --release --example pso
 //! ```
+//! Each showcase directory also contains a `.justfile`. For example,
+//! `just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization
+//! with a standalone `uv` script whose Python dependencies are pinned inline.
 //!
 //! ## Bounds
-//! Generic algorithms accept [`BackendBounds`](crate::traits::BackendBounds) as a smooth transform; [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB) instead keeps native projected bounds. While users provide external parameters, transformed algorithms operate on internal coordinates and evaluate problems after converting back to external coordinates:
+//! Generic algorithms accept [`Bounds`] as a smooth transform; [`L-BFGS-B`](crate::algorithms::gradient::LBFGSB) instead keeps native projected bounds. While users provide external parameters, transformed algorithms operate on internal coordinates and evaluate problems after converting back to external coordinates:
 //!
 //! Upper and lower bounds:
 //! ```math
@@ -233,7 +236,6 @@
     clippy::doc_link_with_quotes,
     clippy::missing_safety_doc,
     clippy::missing_panics_doc,
-    clippy::missing_errors_doc,
     clippy::perf,
     clippy::style,
     missing_docs
@@ -251,21 +253,12 @@ pub mod algorithms;
 /// Module containing standard functions for testing algorithms.
 pub mod test_functions;
 
-mod prototype;
-
 /// Module containing `ganesh`-wide error types
 pub mod error;
 
-/// Feature-gated Python / `pyo3` wrapper support.
+/// Default floating-point type used by convenience APIs and reporting utilities.
 ///
-/// This module is intended for downstream Rust crates with Python bindings.
-#[cfg(feature = "python")]
-pub mod python;
-
-/// Legacy/Python floating-point boundary type.
-///
-/// Generic Rust APIs select their scalar through type parameters; this compatibility alias is
-/// intentionally fixed to [`f64`].
+/// Generic algorithms select their scalar through type parameters.
 pub type Float = f64;
 
 /// Re-export some useful `nalgebra` types for convenience.
@@ -273,15 +266,14 @@ pub use nalgebra;
 pub use nalgebra::{DMatrix, DVector};
 
 #[cfg(feature = "backend-ndarray")]
-pub use core::NdArrayBackend;
+pub use core::NdArrayProvider;
 /// Re-export crate-owned scalar and linear algebra traits for generic optimizer APIs.
 pub use core::{
-    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraBackend, PseudoInverse, RandomScalar,
+    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, RandomScalar,
     RealScalar, Scalar, SymmetricEigen, Vector,
 };
 pub use traits::{
-    BackendBounds, BackendScaleTransform, BackendTransform, BackendTransformedProblem,
-    IdentityTransform, ScalarBound,
+    Bounds, IdentityTransform, ScalarBound, ScaleTransform, Transform, TransformedProblem,
 };
 
 /// The mathematical constant $`\pi`$.

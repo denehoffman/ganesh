@@ -1,15 +1,29 @@
 use crate::{
-    algorithms::mcmc::ChainStorageMode,
     core::{
-        mcmc_diagnostics::diagnostics_from_chain, transforms::Bounds, EvalCounts, LinearAlgebra,
-        MCMCDiagnostics, Matrix, NalgebraBackend, RealScalar, Vector,
+        mcmc_diagnostics::diagnostics_from_chain, EvalCounts, LinearAlgebra, MCMCDiagnostics,
+        Matrix, NalgebraProvider, RealScalar, Vector,
     },
-    traits::{Bound, StatusMessage},
-    DMatrix, DVector, Float,
+    traits::{ScalarBound, StatusMessage},
+    DVector,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Error as SerdeJsonError;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use tabled::{
+    builder::Builder,
+    settings::{
+        object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Padding, Span,
+        Style, Theme,
+    },
+};
+
+pub(crate) fn unknown_uncertainties<T, B>(dimension: usize) -> Vector<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    Vector::from_vec(vec![T::literal(f64::NAN); dimension])
+}
 
 /// A trait used with the associated [`Summary`](`crate::traits::Algorithm`) type to set parameter names.
 pub trait HasParameterNames: Sized {
@@ -91,42 +105,17 @@ pub trait SummaryExport: Display + Serialize {
 }
 impl<T> SummaryExport for T where T: Display + Serialize {}
 
-/// A struct that holds the results of a minimization run.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MinimizationSummary {
-    /// The bounds of the parameters. This is `None` if no bounds were set.
-    pub bounds: Option<Bounds>,
-    /// The names of the parameters. This is `None` if no names were set.
-    pub parameter_names: Option<Vec<String>>,
-    /// A message that can be set by minimization algorithms.
-    pub message: StatusMessage,
-    /// The initial parameters of the minimization.
-    pub x0: DVector<Float>,
-    /// The current parameters of the minimization.
-    pub x: DVector<Float>,
-    /// The standard deviations of the parameters at the end of the fit.
-    pub std: DVector<Float>,
-    /// The current value of the minimization problem function at [`MinimizationSummary::x`].
-    pub fx: Float,
-    /// Evaluation counts requested by the algorithm API.
-    #[serde(flatten)]
-    pub evals: EvalCounts,
-    /// Covariance of fit parameters.
-    pub covariance: DMatrix<Float>,
-}
-
-impl HasParameterNames for MinimizationSummary {
-    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
-        &mut self.parameter_names
-    }
-}
-
-/// Scalar- and backend-generic result of a minimization run.
+/// Scalar- and linear-algebra-generic result of a minimization run.
 ///
 /// Serialization is deliberately not a core requirement: it is available to adapters when the
-/// selected scalar and backend storage types support it.
-#[derive(Debug, Clone)]
-pub struct BackendMinimizationSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+/// selected scalar and provider storage types support it.
+#[derive(Clone, Serialize)]
+#[serde(bound(
+    serialize = "T: Serialize, B::VectorStorage: Serialize, B::MatrixStorage: Serialize"
+))]
+pub struct MinimizationSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    /// Optional user-facing parameter bounds.
+    pub bounds: Option<Vec<ScalarBound<T>>>,
     /// Optional parameter names.
     pub parameter_names: Option<Vec<String>>,
     /// Final status message.
@@ -145,13 +134,14 @@ pub struct BackendMinimizationSummary<T: RealScalar = f64, B: LinearAlgebra<T> =
     pub covariance: Matrix<T, B>,
 }
 
-impl<T, B> Default for BackendMinimizationSummary<T, B>
+impl<T, B> Default for MinimizationSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
 {
     fn default() -> Self {
         Self {
+            bounds: None,
             parameter_names: None,
             message: StatusMessage::default(),
             x0: Vector::zeros(0),
@@ -164,7 +154,7 @@ where
     }
 }
 
-impl<T, B> HasParameterNames for BackendMinimizationSummary<T, B>
+impl<T, B> HasParameterNames for MinimizationSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -174,7 +164,98 @@ where
     }
 }
 
-impl<T, B> Display for BackendMinimizationSummary<T, B>
+impl<T, B> Display for MinimizationSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut builder = Builder::default();
+        let status = if self.message.success() {
+            "Converged".to_string()
+        } else {
+            "Not converged".to_string()
+        };
+        let parameter_row = |index: usize| {
+            let name = self
+                .parameter_names
+                .as_ref()
+                .and_then(|names| names.get(index))
+                .cloned()
+                .unwrap_or_else(|| format!("x_{index}"));
+            let uncertainty = if index < self.std.len() {
+                format!("{:.5}", self.std.get(index))
+            } else {
+                "—".to_string()
+            };
+            let initial = if index < self.x0.len() {
+                format!("{:.5}", self.x0.get(index))
+            } else {
+                "—".to_string()
+            };
+            [
+                name,
+                format!("{:.5}", self.x.get(index)),
+                uncertainty,
+                initial,
+            ]
+        };
+        let mut title = vec![String::new(); 6];
+        title[0] = "MINIMIZATION SUMMARY".to_string();
+        builder.push_record(title);
+        builder.push_record(["Status", "f(x)", "# f(x)", "# ∇f(x)", "# H(x)", ""]);
+        builder.push_record([
+            status,
+            format!("{:.5}", self.fx),
+            self.evals.f().to_string(),
+            self.evals.g().to_string(),
+            self.evals.h().to_string(),
+            String::new(),
+        ]);
+        builder.push_record(["Message", &self.message.to_string(), "", "", "", ""]);
+        builder.push_record(["Parameters", "", "", "", "Bounds", ""]);
+        builder.push_record(["Name", "Value", "Uncertainty", "Initial", "Lower", "Upper"]);
+        for index in 0..self.x.len() {
+            let mut row = parameter_row(index).to_vec();
+            let bound = self
+                .bounds
+                .as_ref()
+                .and_then(|bounds| bounds.get(index))
+                .copied()
+                .unwrap_or(ScalarBound::Unbounded);
+            let (lower, upper) = match bound {
+                ScalarBound::Unbounded => ("−∞".to_string(), "∞".to_string()),
+                ScalarBound::Lower(lower) => (format!("{lower:.5}"), "∞".to_string()),
+                ScalarBound::Upper(upper) => ("−∞".to_string(), format!("{upper:.5}")),
+                ScalarBound::Both(lower, upper) => (format!("{lower:.5}"), format!("{upper:.5}")),
+            };
+            let endpoints: [String; 2] = (lower, upper).into();
+            row.extend(endpoints);
+            builder.push_record(row);
+        }
+        let mut table = builder.build();
+        let mut theme = Theme::from_style(Style::rounded().remove_horizontals());
+        for row in 1..=5 {
+            theme.insert_horizontal_line(row, HorizontalLine::inherit(Style::modern()));
+        }
+        table
+            .with(theme)
+            .modify(
+                Row::from(0),
+                (Alignment::center(), Padding::new(1, 1, 0, 0)),
+            )
+            .modify((0, 0), Span::column(6))
+            .modify((3, 1), Span::column(5))
+            .modify((1, 4), Span::column(2))
+            .modify((2, 4), Span::column(2))
+            .modify((4, 0), Span::column(4))
+            .modify((4, 4), Span::column(2))
+            .with(BorderCorrection::span());
+        f.write_str(&table.to_string())
+    }
+}
+
+impl<T, B> Debug for MinimizationSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -191,156 +272,10 @@ where
     }
 }
 
-impl Display for MinimizationSummary {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use tabled::{
-            builder::Builder,
-            settings::{
-                object::Row, style::HorizontalLine, themes::BorderCorrection, Alignment, Color,
-                Padding, Span, Style, Theme,
-            },
-        };
-        let mut builder = Builder::default();
-        builder.push_record(["FIT RESULTS"]);
-        builder.push_record(["Status", "f(x)", "", "#f(x)", "", "#∇f(x)", ""]);
-        builder.push_record([
-            if self.message.success() {
-                "Converged"
-            } else {
-                "Invalid Minimum"
-            },
-            &format!("{:.5}", self.fx),
-            "",
-            &format!("{:.5}", self.evals.f()),
-            "",
-            &format!("{:.5}", self.evals.g()),
-            "",
-        ]);
-        builder.push_record(["Message", &self.message.to_string()]);
-
-        let names = self
-            .parameter_names
-            .clone()
-            .unwrap_or_else(|| {
-                vec![""; self.x.len()]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("x_{}", i))
-                    .collect::<Vec<_>>()
-            })
-            .into_iter();
-        let bounds = self
-            .bounds
-            .clone()
-            .map(|bs| bs.iter().map(|b| b.0).collect())
-            .unwrap_or_else(|| vec![Bound::NoBound; self.x.len()])
-            .into_iter();
-
-        builder.push_record(["Parameter", "", "", "", "Bound", "", "At Limit?"]);
-
-        builder.push_record(["", "=", "σ", "0", "-", "+", ""]);
-        for ((((v, v0), e), b), n) in self
-            .x
-            .iter()
-            .zip(&self.x0)
-            .zip(&self.std)
-            .zip(bounds)
-            .zip(names)
-        {
-            builder.push_record([
-                &n,
-                &format!("{:.5}", v),
-                &format!("{:.5}", e),
-                &format!("{:.5}", v0),
-                &format!("{:.5}", b.lower()),
-                &format!("{:.5}", b.upper()),
-                &(if b.at_bound(*v, Float::EPSILON) {
-                    "Yes"
-                } else {
-                    "No"
-                }
-                .to_string()),
-            ]);
-        }
-        let mut table = builder.build();
-        let mut style = Theme::from_style(Style::rounded().remove_horizontals());
-        style.insert_horizontal_line(1, HorizontalLine::inherit(Style::modern()));
-        style.insert_horizontal_line(2, HorizontalLine::inherit(Style::modern()));
-        style.insert_horizontal_line(3, HorizontalLine::inherit(Style::modern()));
-        style.insert_horizontal_line(4, HorizontalLine::inherit(Style::modern()));
-        style.insert_horizontal_line(5, HorizontalLine::inherit(Style::modern()));
-        style.insert_horizontal_line(6, HorizontalLine::inherit(Style::modern()));
-
-        table
-            .with(style)
-            .modify(
-                Row::from(0),
-                (Padding::new(1, 1, 1, 1), Alignment::center(), Color::BOLD),
-            )
-            .modify((0, 0), Span::column(7))
-            .modify(Row::from(1), Color::BOLD)
-            .modify((1, 1), Span::column(2))
-            .modify((1, 3), Span::column(2))
-            .modify((1, 5), Span::column(2))
-            .modify((2, 1), Span::column(2))
-            .modify((2, 3), Span::column(2))
-            .modify((2, 5), Span::column(2))
-            .modify(Row::from(3), Padding::new(1, 1, 1, 1))
-            .modify((3, 0), Color::BOLD)
-            .modify((3, 1), Span::column(6))
-            .modify(Row::from(4), Color::BOLD)
-            .modify((4, 0), Span::column(4))
-            .modify((4, 4), Span::column(2))
-            .modify(Row::from(5), Color::BOLD)
-            .with(BorderCorrection::span());
-
-        f.write_str(&table.to_string())?;
-        Ok(())
-    }
-}
-
-/// A struct that holds the results of a minimization run.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SimulatedAnnealingSummary<I> {
-    /// The bounds of the parameters. This is `None` if no bounds were set.
-    pub bounds: Option<Bounds>,
-    /// A message that can be set by minimization algorithms.
-    pub message: StatusMessage,
-    /// The initial parameters of the minimization.
-    pub x0: I,
-    /// The current parameters of the minimization.
-    pub x: I,
-    /// The standard deviations of the parameters at the end of the fit.
-    pub fx: Float,
-    /// Evaluation counts requested by the algorithm API.
-    #[serde(flatten)]
-    pub evals: EvalCounts,
-}
-
-/// A struct that holds the results of an MCMC sampling.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MCMCSummary {
-    /// The bounds of the parameters. This is `None` if no bounds were set.
-    pub bounds: Option<Bounds>,
-    /// The names of the parameters. This is `None` if no names were set.
-    pub parameter_names: Option<Vec<String>>,
-    /// A message that can be set by minimization algorithms.
-    pub message: StatusMessage,
-    /// The chain of positions sampled by each walker with dimension `(n_walkers, n_steps,
-    /// n_variables)`.
-    pub chain: Vec<Vec<DVector<Float>>>,
-    /// The mode used to retain chain history in memory during sampling.
-    pub chain_storage: ChainStorageMode,
-    /// Evaluation counts requested by the algorithm API.
-    #[serde(flatten)]
-    pub evals: EvalCounts,
-    /// The dimension of the ensemble `(n_walkers, n_steps, n_variables)`
-    pub dimension: (usize, usize, usize),
-}
-
-/// Scalar- and backend-generic MCMC result.
-#[derive(Debug, Clone)]
-pub struct BackendMCMCSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend> {
+/// Scalar- and linear-algebra-generic MCMC result.
+#[derive(Clone, Serialize)]
+#[serde(bound(serialize = "B::VectorStorage: Serialize"))]
+pub struct MCMCSummary<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     /// Optional parameter names.
     pub parameter_names: Option<Vec<String>>,
     /// Final status message.
@@ -353,7 +288,7 @@ pub struct BackendMCMCSummary<T: RealScalar = f64, B: LinearAlgebra<T> = Nalgebr
     pub dimension: (usize, usize, usize),
 }
 
-impl<T, B> Default for BackendMCMCSummary<T, B>
+impl<T, B> Default for MCMCSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -369,7 +304,7 @@ where
     }
 }
 
-impl<T, B> HasParameterNames for BackendMCMCSummary<T, B>
+impl<T, B> HasParameterNames for MCMCSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -379,7 +314,51 @@ where
     }
 }
 
-impl<T, B> Display for BackendMCMCSummary<T, B>
+impl<T, B> Display for MCMCSummary<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut builder = Builder::default();
+        builder.push_record(["MCMC SUMMARY", "", "", ""]);
+        builder.push_record(["Status", "Walkers", "Retained steps", "Variables"]);
+        builder.push_record([
+            if self.message.success() {
+                "Complete".to_string()
+            } else {
+                "Incomplete".to_string()
+            },
+            self.dimension.0.to_string(),
+            self.dimension.1.to_string(),
+            self.dimension.2.to_string(),
+        ]);
+        builder.push_record(["Message", &self.message.to_string(), "", ""]);
+        builder.push_record([
+            "Density evaluations",
+            &self.evals.f().to_string(),
+            "Retained samples",
+            &(self.dimension.0.saturating_mul(self.dimension.1)).to_string(),
+        ]);
+        let mut table = builder.build();
+        let mut theme = Theme::from_style(Style::rounded().remove_horizontals());
+        for row in 1..=4 {
+            theme.insert_horizontal_line(row, HorizontalLine::inherit(Style::modern()));
+        }
+        table
+            .with(theme)
+            .modify(
+                Row::from(0),
+                (Alignment::center(), Padding::new(1, 1, 0, 0)),
+            )
+            .modify((0, 0), Span::column(4))
+            .modify((3, 1), Span::column(3))
+            .with(BorderCorrection::span());
+        f.write_str(&table.to_string())
+    }
+}
+
+impl<T, B> Debug for MCMCSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -395,12 +374,12 @@ where
     }
 }
 
-impl<T, B> BackendMCMCSummary<T, B>
+impl<T, B> MCMCSummary<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
 {
-    /// Return a burned and thinned clone of the retained backend-native chain.
+    /// Return a burned and thinned clone of the retained native chain.
     pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<Vector<T, B>>> {
         let burn = burn.unwrap_or(0);
         let thin = thin.unwrap_or(1).max(1);
@@ -439,171 +418,99 @@ where
     }
 }
 
-impl MCMCSummary {
-    /// Compute diagnostics from the retained chain.
-    ///
-    /// The diagnostics are computed from the retained chain after optional burn-in and thinning.
-    /// Acceptance rates are inferred from retained chain transitions, so `Rolling` and `Sampled`
-    /// storage modes describe the retained transitions rather than the full original run.
-    pub fn diagnostics(&self, burn: Option<usize>, thin: Option<usize>) -> MCMCDiagnostics {
-        diagnostics_from_chain(&self.get_chain(burn, thin))
-    }
-
-    /// Get a [`Vec`] containing a [`Vec`] of positions for each
-    /// [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`](crate::algorithms::mcmc::Walker)'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`](crate::algorithms::mcmc::Walker)'s history.
-    pub fn get_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<Vec<DVector<Float>>> {
-        let burn = burn.unwrap_or(0);
-        let thin = thin.unwrap_or(1);
-        self.chain
-            .iter()
-            .map(|walker| {
-                walker
-                    .iter()
-                    .skip(burn)
-                    .enumerate()
-                    .filter_map(|(i, position)| {
-                        if i % thin == 0 {
-                            Some(position.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-    /// Get a [`Vec`] containing positions for each [`Walker`](crate::algorithms::mcmc::Walker) in the ensemble, flattened
-    ///
-    /// If `burn` is [`None`], no burn-in will be performed, otherwise the given number of steps
-    /// will be discarded from the beginning of each [`Walker`](crate::algorithms::mcmc::Walker)'s history.
-    ///
-    /// If `thin` is [`None`], no thinning will be performed, otherwise every `thin`-th step will
-    /// be discarded from the [`Walker`](crate::algorithms::mcmc::Walker)'s history.
-    pub fn get_flat_chain(&self, burn: Option<usize>, thin: Option<usize>) -> Vec<DVector<Float>> {
-        let chain = self.get_chain(burn, thin);
-        chain.into_iter().flatten().collect()
-    }
-}
-
-impl HasParameterNames for MCMCSummary {
-    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
-        &mut self.parameter_names
-    }
-}
-
-impl Display for MCMCSummary {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "MCMC Summary: status={}, cost_evals={}, gradient_evals={}, dimension={:?}",
-            self.message,
-            self.evals.f(),
-            self.evals.g(),
-            self.dimension
-        )
-    }
-}
-
-impl<I> Display for SimulatedAnnealingSummary<I>
-where
-    I: Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Simulated Annealing Summary: status={}, f(x)={:.5}, cost_evals={}",
-            self.message,
-            self.fx,
-            self.evals.f()
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{dmatrix, dvector};
 
     #[test]
-    fn test_minimization_result() {
-        let result = MinimizationSummary {
-            bounds: None,
-            parameter_names: None,
-            message: StatusMessage::default().set_success(),
-            x0: dvector![1.0, 2.0, 3.0],
-            x: dvector![1.0, 2.0, 3.0],
-            std: dvector![0.1, 0.2, 0.3],
-            fx: 3.0,
-            evals: EvalCounts::new(10, 5, 1),
-            covariance: dmatrix![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+    fn generic_summaries_render_human_readable_output() {
+        let mut result = MinimizationSummary::<f64> {
+            x0: [2.0, -1.0].into(),
+            x: [1.0, 0.5].into(),
+            std: [0.1, 0.2].into(),
+            fx: 0.25,
+            evals: EvalCounts::new(12, 4, 1),
+            ..Default::default()
         };
-        println!("{}", result);
+        result.message.succeed_with_message("minimum found");
+        let display = result.to_string();
+        assert!(display.contains("MINIMIZATION SUMMARY"));
+        assert!(display.contains("Parameter"));
+        assert!(display.contains("Uncertainty"));
+        assert!(display.contains("x_0"));
+        assert!(display.contains("minimum found"));
+        assert!(display.contains("Bounds"));
+        assert!(display.contains("# H(x)"));
+        assert!(display.contains("−∞"));
+        assert!(display.contains('∞'));
+        assert!(!display.lines().next().unwrap().contains('┬'));
+        let message_row = display
+            .lines()
+            .find(|line| line.contains("Message"))
+            .unwrap();
+        assert_eq!(message_row.matches('│').count(), 3);
+        assert_eq!(
+            format!("{result:?}"),
+            "Minimization Summary: status=Success: minimum found, f(x)=0.25, cost_evals=12, gradient_evals=4"
+        );
+        let json = result.to_json_string().unwrap();
+        assert!(json.contains("\"parameter_names\":null"));
+        assert!(json.contains("\"bounds\":null"));
+        assert!(json.contains("\"fx\":0.25"));
+
+        let mut result = MCMCSummary::<f64> {
+            evals: EvalCounts::new(240, 0, 0),
+            dimension: (12, 20, 3),
+            ..Default::default()
+        };
+        result.message.succeed_with_message("sampling complete");
+        let display = result.to_string();
+        assert!(display.contains("MCMC SUMMARY"));
+        assert!(display.contains("Retained steps"));
+        assert!(display.contains("240"));
+        assert_eq!(
+            format!("{result:?}"),
+            "MCMC Summary: status=Success: sampling complete, density_evals=240, dimension=(12, 20, 3)"
+        );
+        let json = result.to_json_string().unwrap();
+        assert!(json.contains("\"dimension\":[12,20,3]"));
     }
 
     #[test]
-    fn minimization_summary_can_render_pretty_and_json() {
-        let result = MinimizationSummary {
-            bounds: None,
-            parameter_names: Some(vec!["alpha".to_string(), "beta".to_string()]),
-            message: StatusMessage::default().set_success_with_message("ok"),
-            x0: dvector![1.0, 2.0],
-            x: dvector![0.5, 1.5],
-            std: dvector![0.1, 0.2],
-            fx: 1.25,
-            evals: EvalCounts::new(10, 4, 1),
-            covariance: dmatrix![1.0, 0.0, 0.0, 1.0],
-        };
+    fn empty_summaries_still_render_complete_tables() {
+        let minimization = MinimizationSummary::<f64>::default().to_string();
+        assert!(minimization.contains("MINIMIZATION SUMMARY"));
+        assert!(minimization.contains("Parameter"));
 
-        let rendered = result.render().unwrap();
-
-        assert!(rendered.pretty.contains("FIT RESULTS"));
-        assert!(rendered.json.contains("\"fx\":1.25"));
-        assert!(rendered
-            .json
-            .contains("\"parameter_names\":[\"alpha\",\"beta\"]"));
+        let mcmc = MCMCSummary::<f64>::default().to_string();
+        assert!(mcmc.contains("MCMC SUMMARY"));
+        assert!(mcmc.contains("Density evaluations"));
     }
 
     #[test]
-    fn mcmc_summary_can_render_pretty_json() {
-        let result = MCMCSummary {
-            bounds: None,
-            parameter_names: Some(vec!["x".to_string()]),
-            message: StatusMessage::default().set_initialized_with_message("warmup"),
-            chain: vec![vec![dvector![1.0], dvector![2.0]]],
-            chain_storage: ChainStorageMode::Full,
-            evals: EvalCounts::new(8, 0, 0),
-            dimension: (1, 2, 1),
+    fn minimization_bounds_use_grouped_headers_and_unicode_infinity() {
+        let summary = MinimizationSummary::<f64> {
+            bounds: Some(vec![
+                ScalarBound::Unbounded,
+                ScalarBound::Lower(-2.0),
+                ScalarBound::Upper(3.0),
+                ScalarBound::Both(-4.0, 5.0),
+            ]),
+            x0: [0.0, 0.0, 0.0, 0.0].into(),
+            x: [0.0, 0.0, 0.0, 0.0].into(),
+            std: unknown_uncertainties(4),
+            evals: EvalCounts::new(10, 2, 3),
+            ..Default::default()
         };
-
-        let rendered = result.render_pretty_json().unwrap();
-
-        assert!(rendered.pretty.contains("MCMC Summary"));
-        assert!(rendered.pretty.contains("cost_evals=8"));
-        assert!(rendered.json.contains("\n  \"dimension\": [\n"));
-        assert!(rendered.json.contains("\"n_f_evals\": 8"));
-    }
-
-    #[test]
-    fn simulated_annealing_summary_can_render_json() {
-        let result = SimulatedAnnealingSummary {
-            bounds: None,
-            message: StatusMessage::default().set_success_with_message("done"),
-            x0: "start".to_string(),
-            x: "finish".to_string(),
-            fx: 0.5,
-            evals: EvalCounts::new(12, 0, 0),
-        };
-
-        let rendered = result.render().unwrap();
-
-        assert!(rendered.pretty.contains("Simulated Annealing Summary"));
-        assert!(rendered.json.contains("\"fx\":0.5"));
-        assert!(rendered.json.contains("\"x\":\"finish\""));
+        let display = summary.to_string();
+        assert!(display.contains("Bounds"));
+        assert!(display.contains("Lower"));
+        assert!(display.contains("Upper"));
+        assert!(display.contains("−∞"));
+        assert!(display.contains('∞'));
+        assert!(display.contains("# H(x)"));
+        assert!(display.contains('3'));
+        assert!(summary.bounds.as_ref().unwrap()[0] == ScalarBound::Unbounded);
+        assert!(summary.to_json_string().unwrap().contains("\"bounds\""));
     }
 }

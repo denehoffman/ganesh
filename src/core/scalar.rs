@@ -69,60 +69,78 @@ pub trait RandomScalar: RealScalar {
 macro_rules! impl_native_scalar {
     ($type:ty, $sample:ident) => {
         impl RealScalar for $type {
+            #[inline]
             fn zero() -> Self {
                 0.0
             }
+            #[inline]
             fn one() -> Self {
                 1.0
             }
+            #[inline]
             fn infinity() -> Self {
                 Self::INFINITY
             }
+            #[inline]
             fn epsilon() -> Self {
                 Self::EPSILON
             }
+            #[inline]
             fn literal(value: f64) -> Self {
                 value as Self
             }
+            #[inline]
             fn to_f64(self) -> Option<f64> {
                 Some(self as f64)
             }
+            #[inline]
             fn abs(self) -> Self {
                 self.abs()
             }
+            #[inline]
             fn sqrt(self) -> Self {
                 self.sqrt()
             }
+            #[inline]
             fn cbrt(self) -> Self {
                 self.cbrt()
             }
+            #[inline]
             fn powi(self, exponent: i32) -> Self {
                 self.powi(exponent)
             }
+            #[inline]
             fn exp(self) -> Self {
                 self.exp()
             }
+            #[inline]
             fn ln(self) -> Self {
                 self.ln()
             }
+            #[inline]
             fn cos(self) -> Self {
                 self.cos()
             }
+            #[inline]
             fn mul_add(self, multiplier: Self, addend: Self) -> Self {
                 self.mul_add(multiplier, addend)
             }
+            #[inline]
             fn is_finite(self) -> bool {
                 self.is_finite()
             }
+            #[inline]
             fn is_nan(self) -> bool {
                 self.is_nan()
             }
+            #[inline]
             fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
                 <$type>::total_cmp(self, other)
             }
         }
 
         impl RandomScalar for $type {
+            #[inline]
             fn random_unit(rng: &mut fastrand::Rng) -> Self {
                 rng.$sample()
             }

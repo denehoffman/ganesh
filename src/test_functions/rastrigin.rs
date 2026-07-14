@@ -1,6 +1,6 @@
 use crate::{
-    traits::{CostFunction, Gradient, LegacyCostFunction, LegacyGradient},
-    DVector, Float, LinearAlgebra, RealScalar, Vector, PI,
+    traits::{CostFunction, Gradient},
+    LinearAlgebra, RealScalar, Vector,
 };
 use std::convert::Infallible;
 
@@ -13,17 +13,6 @@ pub struct Rastrigin {
     /// The number of dimensions of the function (must be >= 2).
     pub n: usize,
 }
-impl LegacyCostFunction for Rastrigin {
-    fn evaluate(&self, x: &DVector<Float>, _args: &()) -> Result<Float, Infallible> {
-        #[allow(clippy::suboptimal_flops)]
-        Ok(10.0 * self.n as Float
-            + (0..self.n)
-                .map(|i| x[i].powi(2) - 10.0 * Float::cos(2.0 * PI * x[i]))
-                .sum::<Float>())
-    }
-}
-impl LegacyGradient for Rastrigin {}
-
 impl<T, B> CostFunction<T, B> for Rastrigin
 where
     T: RealScalar,

@@ -1,494 +1,557 @@
-use std::{borrow::Cow, ops::Deref};
+//! Scalar- and linear-algebra-generic parameter transforms.
 
-use dyn_clone::DynClone;
-use nalgebra::{DMatrix, DVector, LU};
+use crate::core::{LinearAlgebra, Matrix, NalgebraProvider, RealScalar, Vector};
+use crate::error::{GaneshError, GaneshResult};
+use crate::traits::{CostFunction, Gradient, LogDensity};
+use serde::Serialize;
+use std::marker::PhantomData;
 
-use crate::{
-    error::{GaneshError, GaneshResult},
-    traits::{LegacyCostFunction, LegacyGradient},
-    Float,
-};
-
-/// A trait used to define a change of basis.
-///
-/// This can be used to restrict an algorithm to a space of valid coordinates, such as a bounded
-/// space or a space satisfying some constraints between parameters.
-pub trait Transform: DynClone + Send + Sync {
-    /// Map from internal to external coordinates.
-    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>>;
-    /// Map from external to internal coordinates.
-    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>>;
-
-    /// Map from internal to external coordinates, returning an owned vector.
-    #[inline]
-    fn to_owned_external(&self, z: &DVector<Float>) -> DVector<Float> {
-        self.to_external(z).into_owned()
-    }
-    /// Map from external to internal coordinates, returning an owned vector.
-    #[inline]
-    fn to_owned_internal(&self, x: &DVector<Float>) -> DVector<Float> {
-        self.to_internal(x).into_owned()
-    }
-    /// The Jacobian of the map from internal to external coordinates.
-    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float>;
-    /// The Hessian of the map from internal to external coordinates for the `a`th coordinate.
-    fn to_external_component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float>;
-
-    /// The Jacobian of the map from external to internal coordinates.
-    #[inline]
-    fn to_internal_jacobian(&self, x: &DVector<Float>) -> DMatrix<Float> {
-        #[allow(clippy::expect_used)]
-        self.try_to_internal_jacobian(x)
-            .expect("J is not invertible")
+/// A differentiable coordinate transform used by linear-algebra-generic algorithms.
+pub trait Transform<T, B>: Send + Sync
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Return user-facing parameter bounds when this transform represents bounds.
+    fn parameter_bounds(&self) -> Option<&[ScalarBound<T>]> {
+        None
     }
 
-    /// The Jacobian of the map from external to internal coordinates.
+    /// Convert internal coordinates to user-facing external coordinates.
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B>;
+
+    /// Convert external coordinates to internal coordinates.
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B>;
+
+    /// Jacobian of `to_external` at `internal`.
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B>;
+
+    /// Hessian of external component `component` at `internal`.
+    fn to_external_component_hessian(
+        &self,
+        component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B>;
+
+    /// Pull an external-space gradient back to internal coordinates.
+    fn pullback_gradient(
+        &self,
+        internal: &Vector<T, B>,
+        external_gradient: &Vector<T, B>,
+    ) -> Vector<T, B> {
+        self.to_external_jacobian(internal)
+            .transpose()
+            .mul_vec(external_gradient)
+    }
+
+    /// Pull an external-space Hessian back to internal coordinates.
+    fn pullback_hessian(
+        &self,
+        internal: &Vector<T, B>,
+        external_gradient: &Vector<T, B>,
+        external_hessian: &Matrix<T, B>,
+    ) -> Matrix<T, B> {
+        let jacobian = self.to_external_jacobian(internal);
+        let mut hessian = jacobian
+            .transpose()
+            .mul_mat(external_hessian)
+            .mul_mat(&jacobian);
+        for component in 0..external_gradient.len() {
+            let contribution = self
+                .to_external_component_hessian(component, internal)
+                .scale(external_gradient.get(component));
+            hessian = &hessian + &contribution;
+        }
+        hessian
+    }
+}
+
+/// Identity coordinate transform.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IdentityTransform;
+
+impl<T, B> Transform<T, B> for IdentityTransform
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        internal.clone()
+    }
+
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        external.clone()
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        Matrix::identity(internal.len())
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        _component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        Matrix::zeros(internal.len(), internal.len())
+    }
+}
+
+/// Generic diagonal scaling transform.
+#[derive(Clone, Debug)]
+pub struct ScaleTransform<T = f64, B = NalgebraProvider>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    multipliers: Vector<T, B>,
+    _provider: PhantomData<B>,
+}
+
+/// One scalar-valued parameter bound.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum ScalarBound<T: RealScalar> {
+    /// No finite limits.
+    Unbounded,
+    /// Finite lower limit.
+    Lower(T),
+    /// Finite upper limit.
+    Upper(T),
+    /// Finite lower and upper limits.
+    Both(T, T),
+}
+
+impl<T: RealScalar> ScalarBound<T> {
+    /// Construct a bound from possibly-infinite endpoints.
     ///
     /// # Errors
+    /// Returns a configuration error for NaNs or reversed finite bounds.
+    pub fn new(lower: T, upper: T) -> GaneshResult<Self> {
+        if lower.is_nan() || upper.is_nan() || lower >= upper {
+            return Err(GaneshError::ConfigError(
+                "bounds must be ordered and must not contain NaN".to_string(),
+            ));
+        }
+        Ok(match (lower.is_finite(), upper.is_finite()) {
+            (false, false) => Self::Unbounded,
+            (true, false) => Self::Lower(lower),
+            (false, true) => Self::Upper(upper),
+            (true, true) => Self::Both(lower, upper),
+        })
+    }
+}
+
+/// Smooth linear-algebra-generic box-bounds transform.
+#[derive(Clone, Debug)]
+pub struct Bounds<T = f64, B = NalgebraProvider>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    bounds: Vec<ScalarBound<T>>,
+    _provider: PhantomData<B>,
+}
+
+impl<T, B> Bounds<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct bounds from lower/upper endpoint pairs.
     ///
-    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
-    #[inline]
-    fn try_to_internal_jacobian(&self, x: &DVector<Float>) -> GaneshResult<DMatrix<Float>> {
-        let z = self.to_internal(x);
-        let j = self.to_external_jacobian(&z);
-        LU::new(j).try_inverse().ok_or_else(|| {
-            GaneshError::NumericalError("Transform Jacobian is not invertible".to_string())
+    /// # Errors
+    /// Returns a configuration error when a bound is invalid or the collection is empty.
+    pub fn new<I>(bounds: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (T, T)>,
+    {
+        let bounds = bounds
+            .into_iter()
+            .map(|(lower, upper)| ScalarBound::new(lower, upper))
+            .collect::<GaneshResult<Vec<_>>>()?;
+        if bounds.is_empty() {
+            return Err(GaneshError::ConfigError(
+                "bounds must contain at least one parameter".to_string(),
+            ));
+        }
+        Ok(Self {
+            bounds,
+            _provider: PhantomData,
         })
     }
 
-    /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.
-    #[inline]
-    fn to_internal_component_hessian(&self, b: usize, x: &DVector<Float>) -> DMatrix<Float> {
-        #[allow(clippy::expect_used)]
-        self.try_to_internal_component_hessian(b, x)
-            .expect("J is not invertible")
+    /// Return the parameter bounds.
+    pub fn bounds(&self) -> &[ScalarBound<T>] {
+        &self.bounds
     }
 
-    /// The Hessian of the map from external to internal coordinates for the `b`th coordinate.
+    fn external_component(bound: ScalarBound<T>, internal: T) -> T {
+        let root = (internal * internal + T::one()).sqrt();
+        match bound {
+            ScalarBound::Unbounded => internal,
+            ScalarBound::Lower(lower) => lower + root + internal,
+            ScalarBound::Upper(upper) => upper - root + internal,
+            ScalarBound::Both(lower, upper) => {
+                let two = T::literal(2.0);
+                let center = (lower + upper) / two;
+                let width = (upper - lower) / two;
+                center + width * internal / root
+            }
+        }
+    }
+
+    fn internal_component(bound: ScalarBound<T>, external: T) -> T {
+        let two = T::literal(2.0);
+        match bound {
+            ScalarBound::Unbounded => external,
+            ScalarBound::Lower(lower) => {
+                let distance = external - lower;
+                (distance - T::one() / distance) / two
+            }
+            ScalarBound::Upper(upper) => {
+                let distance = upper - external;
+                (T::one() / distance - distance) / two
+            }
+            ScalarBound::Both(lower, upper) => {
+                let center = (lower + upper) / two;
+                let width = (upper - lower) / two;
+                let mut unit = (external - center) / width;
+                let margin = T::epsilon().sqrt();
+                let limit = T::one() - margin;
+                if unit > limit {
+                    unit = limit;
+                } else if unit < -limit {
+                    unit = -limit;
+                }
+                unit / (T::one() - unit * unit).sqrt()
+            }
+        }
+    }
+
+    fn first_derivative(bound: ScalarBound<T>, internal: T) -> T {
+        let base = internal * internal + T::one();
+        let root = base.sqrt();
+        match bound {
+            ScalarBound::Unbounded => T::one(),
+            ScalarBound::Lower(_) => T::one() + internal / root,
+            ScalarBound::Upper(_) => T::one() - internal / root,
+            ScalarBound::Both(lower, upper) => {
+                let width = (upper - lower) / T::literal(2.0);
+                width / (base * root)
+            }
+        }
+    }
+
+    fn second_derivative(bound: ScalarBound<T>, internal: T) -> T {
+        let base = internal * internal + T::one();
+        let denominator = base * base.sqrt();
+        match bound {
+            ScalarBound::Unbounded => T::zero(),
+            ScalarBound::Lower(_) => T::one() / denominator,
+            ScalarBound::Upper(_) => -T::one() / denominator,
+            ScalarBound::Both(lower, upper) => {
+                let width = (upper - lower) / T::literal(2.0);
+                -T::literal(3.0) * width * internal / (denominator * base)
+            }
+        }
+    }
+}
+
+impl<T, B> Transform<T, B> for Bounds<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn parameter_bounds(&self) -> Option<&[ScalarBound<T>]> {
+        Some(&self.bounds)
+    }
+
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        assert_eq!(
+            internal.len(),
+            self.bounds.len(),
+            "bounds dimension mismatch"
+        );
+        Vector::from_vec(
+            self.bounds
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, bound)| Self::external_component(bound, internal.get(index)))
+                .collect(),
+        )
+    }
+
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        assert_eq!(
+            external.len(),
+            self.bounds.len(),
+            "bounds dimension mismatch"
+        );
+        Vector::from_vec(
+            self.bounds
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, bound)| Self::internal_component(bound, external.get(index)))
+                .collect(),
+        )
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        let mut jacobian = Matrix::zeros(internal.len(), internal.len());
+        for (index, bound) in self.bounds.iter().copied().enumerate() {
+            jacobian.set(
+                index,
+                index,
+                Self::first_derivative(bound, internal.get(index)),
+            );
+        }
+        jacobian
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        let mut hessian = Matrix::zeros(internal.len(), internal.len());
+        hessian.set(
+            component,
+            component,
+            Self::second_derivative(self.bounds[component], internal.get(component)),
+        );
+        hessian
+    }
+}
+
+impl<T, B> ScaleTransform<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct from external-to-internal multipliers.
     ///
     /// # Errors
+    /// Returns a configuration error for empty, zero, or non-finite multipliers.
+    pub fn from_multipliers<I>(multipliers: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let multipliers = multipliers.into_iter().collect::<Vec<_>>();
+        if multipliers.is_empty()
+            || multipliers
+                .iter()
+                .any(|value| !value.is_finite() || *value == T::zero())
+        {
+            return Err(GaneshError::ConfigError(
+                "scale multipliers must be nonempty, finite, and nonzero".to_string(),
+            ));
+        }
+        Ok(Self {
+            multipliers: Vector::from_vec(multipliers),
+            _provider: PhantomData,
+        })
+    }
+
+    /// Construct from characteristic external parameter scales.
     ///
-    /// Returns a numerical error if the external-to-internal Jacobian is not invertible.
-    #[inline]
-    fn try_to_internal_component_hessian(
-        &self,
-        b: usize,
-        x: &DVector<Float>,
-    ) -> GaneshResult<DMatrix<Float>> {
-        let z = self.to_internal(x);
-        let k = self.try_to_internal_jacobian(x)?;
-        let n = z.len();
-        let mut g = DMatrix::zeros(n, n);
-        for a in 0..n {
-            let h_a = self.to_external_component_hessian(a, &z);
-            let s = &k.transpose() * h_a * &k;
-            g -= s * k[(b, a)];
-        }
-        Ok(g)
+    /// # Errors
+    /// Returns a configuration error for invalid scales.
+    pub fn from_parameter_scales<I>(scales: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = T>,
+    {
+        Self::from_multipliers(scales.into_iter().map(|scale| T::one() / scale))
     }
 
-    /// The gradient on the internal space given an internal coordinate `z` and the external
-    /// gradient `g_ext`.
-    #[inline]
-    fn pullback_gradient(&self, z: &DVector<Float>, g_ext: &DVector<Float>) -> DVector<Float> {
-        self.to_external_jacobian(z).transpose() * g_ext
-    }
-
-    /// The Hessian on the internal space given an internal coordinate `z`, the external
-    /// gradient `g_ext`, and the external Hessian `h_ext`.
-    #[inline]
-    fn pullback_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_ext: &DVector<Float>,
-        h_ext: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        let j = self.to_external_jacobian(z);
-        let mut h = j.transpose() * h_ext * j;
-        for a in 0..g_ext.len() {
-            h += self.to_external_component_hessian(a, z) * g_ext[a];
-        }
-        h
-    }
-
-    /// The gradient on the external space given an internal coordinate `z` and the internal
-    /// gradient `g_int`.
-    #[inline]
-    fn pushforward_gradient(&self, z: &DVector<Float>, g_int: &DVector<Float>) -> DVector<Float> {
-        let x = self.to_external(z);
-        let k = self.to_internal_jacobian(&x);
-        k.transpose() * g_int
-    }
-
-    /// The Hessian on the external space given an internal coordinate `z`, the internal
-    /// gradient `g_int`, and the internal Hessian `h_int`.
-    #[inline]
-    fn pushforward_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_int: &DVector<Float>,
-        h_int: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        let x = self.to_external(z);
-        let j_inv = self.to_internal_jacobian(&x);
-        let mut h = j_inv.transpose() * h_int * j_inv;
-        for b in 0..g_int.len() {
-            h += self.to_internal_component_hessian(b, &x) * g_int[b];
-        }
-        h
+    /// Return external-to-internal multipliers.
+    pub const fn multipliers(&self) -> &Vector<T, B> {
+        &self.multipliers
     }
 }
-dyn_clone::clone_trait_object!(Transform);
 
-/// A struct represengint the composition of two transforms.
-///
-/// Specifically, this struct is designed such that `t1.compose(t2)` will
-/// yield the mapping `t2.to_external(t1.to_external(z))`, so this composition starts with internal
-/// coordinates, conducts the `t1` transform, and then conducts the `t2` transform.
-#[derive(Clone)]
-pub struct Compose<T1, T2> {
-    /// The first transform in the composition.
-    pub t1: T1,
-    /// The second transform in the composition.
-    pub t2: T2,
-}
-
-/// A helper trait to compose transforms.
-pub trait TransformExt: Sized {
-    /// Compose a transform with another.
-    ///
-    /// The convention used is such that `t1.compose(t2)` will
-    /// yield the mapping `t2.to_external(t1.to_external(z))`.
-    fn compose<T2>(self, t2: T2) -> Compose<Self, T2> {
-        Compose { t1: self, t2 }
-    }
-}
-impl<T> TransformExt for T {}
-impl<T1, T2> Transform for Compose<T1, T2>
+impl<T, B> Transform<T, B> for ScaleTransform<T, B>
 where
-    T1: Transform + Clone,
-    T2: Transform + Clone,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
 {
-    #[inline]
-    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        match self.t1.to_external(z) {
-            Cow::Borrowed(z1) => self.t2.to_external(z1),
-            Cow::Owned(x1) => match self.t2.to_external(&x1) {
-                Cow::Borrowed(_) => Cow::Owned(x1), // t2 is identity
-                Cow::Owned(x2) => Cow::Owned(x2),
-            },
-        }
-    }
-
-    #[inline]
-    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        match self.t2.to_internal(x) {
-            Cow::Borrowed(x1) => self.t1.to_internal(x1),
-            Cow::Owned(z1) => match self.t1.to_internal(&z1) {
-                Cow::Borrowed(_) => Cow::Owned(z1), // t1 is identity
-                Cow::Owned(z2) => Cow::Owned(z2),
-            },
-        }
-    }
-
-    #[inline]
-    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-        let u = self.t1.to_external(z);
-        let j2 = self.t2.to_external_jacobian(u.as_ref());
-        let j1 = self.t1.to_external_jacobian(z);
-        j2 * j1
-    }
-
-    #[inline]
-    fn to_external_component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-        let x = self.t1.to_external(z);
-        let j1 = self.t1.to_external_jacobian(z);
-        let h2a = self.t2.to_external_component_hessian(a, &x);
-        let mut h = j1.transpose() * h2a * j1;
-        let j2 = self.t2.to_external_jacobian(&x);
-        for b in 0..j2.ncols() {
-            let h1b = self.t1.to_external_component_hessian(b, z);
-            h += h1b.scale(j2[(a, b)]);
-        }
-        h
-    }
-
-    #[inline]
-    fn to_internal_jacobian(&self, x: &DVector<Float>) -> DMatrix<Float> {
-        let z = self.t2.to_internal(x);
-        let k1 = self.t1.to_internal_jacobian(&z);
-        let k2 = self.t2.to_internal_jacobian(x);
-        k1 * k2
-    }
-
-    #[inline]
-    fn to_internal_component_hessian(&self, b: usize, x: &DVector<Float>) -> DMatrix<Float> {
-        let z = self.t2.to_internal(x);
-        let k2 = self.t2.to_internal_jacobian(x);
-        let g1b = self.t1.to_internal_component_hessian(b, &z);
-        let mut g = k2.transpose() * g1b * k2;
-        let k1 = self.t1.to_internal_jacobian(&z);
-        for a in 0..k1.ncols() {
-            let g2a = self.t2.to_internal_component_hessian(a, x);
-            g += g2a.scale(k1[(b, a)]);
-        }
-        g
-    }
-}
-
-impl<T> Transform for Option<T>
-where
-    T: Transform + Clone,
-{
-    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        self.as_ref().map_or(Cow::Borrowed(z), |t| t.to_external(z))
-    }
-
-    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        self.as_ref().map_or(Cow::Borrowed(x), |t| t.to_internal(x))
-    }
-
-    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-        self.as_ref().map_or_else(
-            || DMatrix::identity(z.len(), z.len()),
-            |t| t.to_external_jacobian(z),
+    fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        Vector::from_vec(
+            (0..internal.len())
+                .map(|index| internal.get(index) / self.multipliers.get(index))
+                .collect(),
         )
     }
 
-    fn to_external_component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-        self.as_ref().map_or_else(
-            || DMatrix::zeros(z.len(), z.len()),
-            |t| t.to_external_component_hessian(a, z),
+    fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        Vector::from_vec(
+            (0..external.len())
+                .map(|index| external.get(index) * self.multipliers.get(index))
+                .collect(),
+        )
+    }
+
+    fn to_external_jacobian(&self, internal: &Vector<T, B>) -> Matrix<T, B> {
+        let mut jacobian = Matrix::zeros(internal.len(), internal.len());
+        for index in 0..internal.len() {
+            jacobian.set(index, index, T::one() / self.multipliers.get(index));
+        }
+        jacobian
+    }
+
+    fn to_external_component_hessian(
+        &self,
+        _component: usize,
+        internal: &Vector<T, B>,
+    ) -> Matrix<T, B> {
+        Matrix::zeros(internal.len(), internal.len())
+    }
+}
+
+/// Objective adapter that presents external-space functions in internal coordinates.
+pub struct TransformedProblem<'a, P, T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    problem: &'a P,
+    transform: Option<&'a dyn Transform<T, B>>,
+}
+
+impl<'a, P, T, B> TransformedProblem<'a, P, T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Construct an adapter around a problem and optional transform.
+    pub const fn new(problem: &'a P, transform: Option<&'a dyn Transform<T, B>>) -> Self {
+        Self { problem, transform }
+    }
+
+    /// Convert external coordinates to the algorithm's internal coordinates.
+    pub fn to_internal(&self, external: &Vector<T, B>) -> Vector<T, B> {
+        self.transform.map_or_else(
+            || external.clone(),
+            |transform| transform.to_internal(external),
+        )
+    }
+
+    /// Convert internal coordinates to external coordinates.
+    pub fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
+        self.transform.map_or_else(
+            || internal.clone(),
+            |transform| transform.to_external(internal),
         )
     }
 }
 
-impl Transform for Box<dyn Transform> {
-    fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        self.deref().to_external(z)
-    }
-
-    fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-        self.deref().to_internal(x)
-    }
-
-    fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-        self.deref().to_external_jacobian(z)
-    }
-
-    fn to_external_component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-        self.deref().to_external_component_hessian(a, z)
+impl<P, T, B, U, E> CostFunction<T, B, U, E> for TransformedProblem<'_, P, T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
+{
+    fn evaluate(&self, internal: &Vector<T, B>, args: &U) -> Result<T, E> {
+        self.problem.evaluate(&self.to_external(internal), args)
     }
 }
 
-/// A wrapper for a problem that has been transformed.
-///
-/// [`LegacyCostFunction`]s and [`LegacyGradient`]s of this struct are intended to be evaluated on internal
-/// coordinates, the [`LegacyGradient::gradient`] and [`LegacyGradient::hessian`] methods will both provide
-/// internal versions of the gradient and Hessian. The external gradient and Hessian can be
-/// obtained via the [`TransformedProblem::pushforward_gradient`] and [`TransformedProblem::pushforward_hessian`]
-/// methods.
-pub struct TransformedProblem<'a, F, T>
+impl<P, T, B, U, E> Gradient<T, B, U, E> for TransformedProblem<'_, P, T, B>
 where
-    T: Transform,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: Gradient<T, B, U, E>,
 {
-    /// The problem being transformed.
-    pub f: &'a F,
-    /// The transform to apply.
-    pub t: &'a T,
-}
-impl<'a, F, T> TransformedProblem<'a, F, T>
-where
-    T: Transform,
-{
-    /// Create a new transformed problem from the given problem and transform.
-    pub const fn new(f: &'a F, t: &'a T) -> Self {
-        Self { f, t }
-    }
-    /// Use the stored transform to map from internal coordinates to external coordinates.
-    pub fn to_external<'b>(&'b self, z: &'b DVector<Float>) -> Cow<'b, DVector<Float>> {
-        self.t.to_external(z)
-    }
-
-    /// Use the stored transform to map from external coordinates to internal coordinates.
-    pub fn to_internal<'b>(&'b self, x: &'b DVector<Float>) -> Cow<'b, DVector<Float>> {
-        self.t.to_internal(x)
-    }
-
-    /// Used the stored transform to map from internal coordinates to external coordinates,
-    /// producing an owned vector.
-    pub fn to_owned_external(&self, z: &DVector<Float>) -> DVector<Float> {
-        self.to_external(z).into_owned()
-    }
-
-    /// Use the stored transform to map from external coordinates to internal coordinates,
-    /// producing an owned vector.
-    pub fn to_owned_internal(&self, x: &DVector<Float>) -> DVector<Float> {
-        self.to_internal(x).into_owned()
-    }
-
-    /// The Jacobian of the map from internal to external coordinates.
-    pub fn jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-        self.t.to_external_jacobian(z)
-    }
-
-    /// The Hessian of the map from internal to external coordinates for the `a`th coordinate.
-    pub fn component_hessian(&self, a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-        self.t.to_external_component_hessian(a, z)
-    }
-
-    /// The gradient on the internal space given an internal coordinate `z` and the external
-    /// gradient `g_ext`.
-    pub fn pullback_gradient(&self, z: &DVector<Float>, g_ext: &DVector<Float>) -> DVector<Float> {
-        self.t.pullback_gradient(z, g_ext)
-    }
-
-    /// The Hessian on the internal space given an internal coordinate `z`, the external
-    /// gradient `g_ext`, and the external Hessian `h_ext`.
-    pub fn pullback_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_ext: &DVector<Float>,
-        h_ext: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        self.t.pullback_hessian(z, g_ext, h_ext)
-    }
-
-    /// The gradient on the external space given an internal coordinate `z` and the internal
-    /// gradient `g_int`.
-    pub fn pushforward_gradient(
-        &self,
-        z: &DVector<Float>,
-        g_int: &DVector<Float>,
-    ) -> DVector<Float> {
-        self.t.pushforward_gradient(z, g_int)
-    }
-
-    /// The Hessian on the external space given an internal coordinate `z`, the internal
-    /// gradient `g_int`, and the internal Hessian `h_int`.
-    pub fn pushforward_hessian(
-        &self,
-        z: &DVector<Float>,
-        g_int: &DVector<Float>,
-        h_int: &DMatrix<Float>,
-    ) -> DMatrix<Float> {
-        self.t.pushforward_hessian(z, g_int, h_int)
-    }
-}
-
-impl<'a, F, U, E, T> LegacyCostFunction<U, E> for TransformedProblem<'a, F, T>
-where
-    F: LegacyCostFunction<U, E>,
-    T: Transform,
-{
-    #[inline]
-    fn evaluate(&self, z: &DVector<Float>, args: &U) -> Result<Float, E> {
-        self.f.evaluate(&self.t.to_external(z), args)
-    }
-}
-
-impl<'a, F, U, E, T> LegacyGradient<U, E> for TransformedProblem<'a, F, T>
-where
-    F: LegacyGradient<U, E>,
-    T: Transform,
-{
-    #[inline]
-    fn gradient(&self, z: &DVector<Float>, args: &U) -> Result<DVector<Float>, E> {
-        let y = self.t.to_external(z);
-        let gy = self.f.gradient(y.as_ref(), args)?;
-        Ok(self.t.pullback_gradient(z, &gy))
-    }
-    #[inline]
-    fn evaluate_with_gradient(
-        &self,
-        z: &DVector<Float>,
-        args: &U,
-    ) -> Result<(Float, DVector<Float>), E> {
-        let y = self.t.to_external(z);
-        let (v, gy) = self.f.evaluate_with_gradient(y.as_ref(), args)?;
-        Ok((v, self.t.pullback_gradient(z, &gy)))
-    }
-    #[inline]
-    fn hessian(&self, z: &DVector<Float>, args: &U) -> Result<DMatrix<Float>, E> {
-        let y = self.t.to_external(z);
-        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
-        Ok(self.t.pullback_hessian(z, &gy, &hy))
-    }
-    #[inline]
-    fn gradient_with_hessian(
-        &self,
-        z: &DVector<Float>,
-        args: &U,
-    ) -> Result<(DVector<Float>, DMatrix<Float>), E> {
-        let y = self.t.to_external(z);
-        let (gy, hy) = self.f.gradient_with_hessian(y.as_ref(), args)?;
-        Ok((
-            self.t.pullback_gradient(z, &gy),
-            self.t.pullback_hessian(z, &gy, &hy),
+    fn gradient(&self, internal: &Vector<T, B>, args: &U) -> Result<Vector<T, B>, E> {
+        let external = self.to_external(internal);
+        let gradient = self.problem.gradient(&external, args)?;
+        Ok(self.transform.map_or_else(
+            || gradient.clone(),
+            |transform| transform.pullback_gradient(internal, &gradient),
         ))
     }
-    #[inline]
-    fn evaluate_with_gradient_and_hessian(
-        &self,
-        z: &DVector<Float>,
-        args: &U,
-    ) -> Result<(Float, DVector<Float>, DMatrix<Float>), E> {
-        let y = self.t.to_external(z);
-        let (v, gy, hy) = self
-            .f
-            .evaluate_with_gradient_and_hessian(y.as_ref(), args)?;
-        Ok((
-            v,
-            self.t.pullback_gradient(z, &gy),
-            self.t.pullback_hessian(z, &gy, &hy),
+
+    fn hessian(&self, internal: &Vector<T, B>, args: &U) -> Result<Matrix<T, B>, E> {
+        let external = self.to_external(internal);
+        let (gradient, hessian) = self.problem.gradient_with_hessian(&external, args)?;
+        Ok(self.transform.map_or_else(
+            || hessian.clone(),
+            |transform| transform.pullback_hessian(internal, &gradient, &hessian),
         ))
+    }
+}
+
+impl<P, T, B, U, E> LogDensity<T, B, U, E> for TransformedProblem<'_, P, T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: LogDensity<T, B, U, E>,
+{
+    fn log_density(&self, internal: &Vector<T, B>, args: &U) -> Result<T, E> {
+        self.problem.log_density(&self.to_external(internal), args)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::NalgebraProvider;
+    use std::convert::Infallible;
 
-    #[derive(Clone)]
-    struct SingularScale;
+    struct Quadratic;
 
-    impl Transform for SingularScale {
-        fn to_external<'a>(&'a self, z: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(z.clone())
+    impl CostFunction for Quadratic {
+        fn evaluate(&self, x: &Vector<f64>, _: &()) -> Result<f64, Infallible> {
+            Ok(x.dot(x))
+        }
+    }
+
+    impl Gradient for Quadratic {
+        fn gradient(&self, x: &Vector<f64>, _: &()) -> Result<Vector<f64>, Infallible> {
+            Ok(x.scale(2.0))
         }
 
-        fn to_internal<'a>(&'a self, x: &'a DVector<Float>) -> Cow<'a, DVector<Float>> {
-            Cow::Owned(x.clone())
-        }
-
-        fn to_external_jacobian(&self, z: &DVector<Float>) -> DMatrix<Float> {
-            DMatrix::zeros(z.len(), z.len())
-        }
-
-        fn to_external_component_hessian(&self, _a: usize, z: &DVector<Float>) -> DMatrix<Float> {
-            DMatrix::zeros(z.len(), z.len())
+        fn hessian(&self, x: &Vector<f64>, _: &()) -> Result<Matrix<f64>, Infallible> {
+            Ok(Matrix::identity(x.len()).scale(2.0))
         }
     }
 
     #[test]
-    fn try_to_internal_jacobian_returns_numerical_error_for_singular_transform() {
-        let t = SingularScale;
-        let x = DVector::from_vec(vec![1.0, 2.0]);
-
-        let err = t.try_to_internal_jacobian(&x).unwrap_err();
-
-        assert!(matches!(err, GaneshError::NumericalError(_)));
-        assert!(err.to_string().contains("not invertible"));
+    fn identity_transform_preserves_derivatives() {
+        let transform = IdentityTransform;
+        let problem =
+            TransformedProblem::<_, f64, NalgebraProvider>::new(&Quadratic, Some(&transform));
+        let x = Vector::from_vec(vec![1.0, 2.0]);
+        assert_eq!(problem.evaluate(&x, &()).unwrap(), 5.0);
+        assert_eq!(problem.gradient(&x, &()).unwrap().to_vec(), vec![2.0, 4.0]);
+        assert_eq!(problem.hessian(&x, &()).unwrap().get(0, 0), 2.0);
     }
 
     #[test]
-    fn try_to_internal_component_hessian_returns_numerical_error_for_singular_transform() {
-        let t = SingularScale;
-        let x = DVector::from_vec(vec![1.0, 2.0]);
+    fn scale_transform_round_trips() {
+        let transform =
+            ScaleTransform::<f32, NalgebraProvider>::from_parameter_scales([2.0, 0.5]).unwrap();
+        let external = Vector::from_vec(vec![4.0, 3.0]);
+        let internal = transform.to_internal(&external);
+        assert_eq!(internal.to_vec(), vec![2.0, 6.0]);
+        assert_eq!(transform.to_external(&internal), external);
+    }
 
-        let err = t.try_to_internal_component_hessian(0, &x).unwrap_err();
-
-        assert!(matches!(err, GaneshError::NumericalError(_)));
-        assert!(err.to_string().contains("not invertible"));
+    #[test]
+    fn bounds_transform_round_trips_all_bound_kinds() {
+        let bounds = Bounds::<f64, NalgebraProvider>::new([
+            (-1.0, 2.0),
+            (0.0, f64::INFINITY),
+            (f64::NEG_INFINITY, 3.0),
+            (f64::NEG_INFINITY, f64::INFINITY),
+        ])
+        .unwrap();
+        let external = Vector::from_vec(vec![0.25, 1.5, 1.0, -2.0]);
+        let internal = bounds.to_internal(&external);
+        let roundtrip = bounds.to_external(&internal);
+        for index in 0..external.len() {
+            assert!((roundtrip.get(index) - external.get(index)).abs() < 1e-12);
+        }
     }
 }

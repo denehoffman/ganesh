@@ -1,719 +1,194 @@
-use crate::{
-    algorithms::gradient_free::LegacyGradientFreeStatus,
-    core::{Bounds, Callbacks, EvaluatedPoint, LegacyMinimizationSummary, Point},
-    error::{GaneshError, GaneshResult},
-    traits::algorithm::{resolve_bounds_and_transform, BoundsHandlingMode},
-    traits::{
-        Algorithm, CheckpointableAlgorithm, LegacyCostFunction, Status, SupportsBounds,
-        SupportsParameterNames, SupportsTransform, Terminator, Transform,
-    },
-    DMatrix, DVector, Float,
+//! Scalar- and linear-algebra-generic Nelder-Mead optimization.
+
+use crate::algorithms::gradient_free::GradientFreeStatus;
+use crate::core::{
+    Callbacks, LinearAlgebra, Matrix, MinimizationSummary, NalgebraProvider, RealScalar, Vector,
 };
-use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, ops::ControlFlow};
+use crate::error::{GaneshError, GaneshResult};
+use crate::traits::{
+    Algorithm, CheckpointableAlgorithm, CostFunction, Status, SupportsParameterNames, Terminator,
+    Transform, TransformedProblem,
+};
+use std::{marker::PhantomData, ops::ControlFlow};
 
-/// Gives a method for constructing a simplex.
-#[derive(Debug, Clone)]
-pub enum SimplexConstructionMethod {
-    /// Creates a simplex by starting at the given `x0` and stepping a distance of `x0[i] *
-    /// orthogonal_multiplier` in every orthogonal direction for values of `x0` where
-    /// `x0[i] != 0.0` and `orthogonal_zero_step` for values of `x0` where `x0[i] == 0.0`.
-    ScaledOrthogonal {
-        /// The origin point of the simplex
-        x0: DVector<Float>,
-        /// The multiplier used to generate steps on coordinates of `x0` which are nonzero (default = 1.05).
-        orthogonal_multiplier: Float,
-        /// The total step used on coordinates of `x0` which are zero (default = 0.00025).
-        orthogonal_zero_step: Float,
-    },
-    /// Creates a simplex by starting at the given `x0` and stepping a distance of `+simplex_size`
-    /// in every orthogonal direction.
-    Orthogonal {
-        /// The origin point of the simplex
-        x0: DVector<Float>,
-        /// The distance to place each other simplex point in each orthogonal direction from `x0` (default = 1.0)
-        simplex_size: Float,
-    },
-    /// Creates a custom simplex from a list of points.
-    Custom {
-        /// The points to use in the simplex (ignores any given starting point).
-        simplex: Vec<DVector<Float>>,
-    },
+#[derive(Clone, Debug)]
+struct Vertex<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    x: Vector<T, B>,
+    fx: T,
 }
-impl SimplexConstructionMethod {
-    fn starting_point(&self) -> DVector<Float> {
-        match self {
-            Self::ScaledOrthogonal { x0, .. } | Self::Orthogonal { x0, .. } => x0.clone(),
-            Self::Custom { simplex } => simplex.first().cloned().unwrap_or_default(),
-        }
-    }
 
-    /// Create a new [`SimplexConstructionMethod::ScaledOrthogonal`] with the given `x0` and
-    /// default settings.
-    pub fn scaled_orthogonal<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self::ScaledOrthogonal {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            orthogonal_multiplier: 1.05,
-            orthogonal_zero_step: 0.00025,
-        }
-    }
-    /// Create a new [`SimplexConstructionMethod::ScaledOrthogonal`] with the given `x0` and
-    /// custom settings.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if either step parameter is not strictly positive.
-    pub fn custom_scaled_orthogonal<I>(
-        x0: I,
-        orthogonal_multiplier: Float,
-        orthogonal_zero_step: Float,
-    ) -> GaneshResult<Self>
-    where
-        I: AsRef<[Float]>,
-    {
-        if orthogonal_multiplier <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "orthogonal_multiplier must be greater than 0".to_string(),
-            ));
-        }
-        if orthogonal_zero_step <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "orthogonal_zero_step must be greater than 0".to_string(),
-            ));
-        }
-        Ok(Self::ScaledOrthogonal {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            orthogonal_multiplier,
-            orthogonal_zero_step,
-        })
-    }
-    /// Create a new [`SimplexConstructionMethod::Orthogonal`] with the given `x0` and
-    /// default settings.
-    pub fn orthogonal<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self::Orthogonal {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            simplex_size: 1.0,
-        }
-    }
-    /// Create a new [`SimplexConstructionMethod::Orthogonal`] with the given `x0` and
-    /// custom settings.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `simplex_size` is not strictly positive.
-    pub fn custom_orthogonal<I>(x0: I, simplex_size: Float) -> GaneshResult<Self>
-    where
-        I: AsRef<[Float]>,
-    {
-        if simplex_size <= 0.0 {
-            return Err(GaneshError::ConfigError(
-                "simplex_size must be greater than 0".to_string(),
-            ));
-        }
-        Ok(Self::Orthogonal {
-            x0: DVector::from_row_slice(x0.as_ref()),
-            simplex_size,
-        })
-    }
-    /// Create a new [`SimplexConstructionMethod::Custom`] from the given points.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if the simplex is empty, has inconsistent dimensions, or
-    /// does not contain exactly `n + 1` points for an `n`-dimensional problem.
-    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
-    where
-        I: AsRef<[DVector<Float>]>,
-    {
-        let simplex = simplex.as_ref();
-        let Some(first) = simplex.first() else {
-            return Err(GaneshError::ConfigError(
-                "Custom simplex must not be empty".to_string(),
-            ));
-        };
-        if first.len() < 2 {
-            return Err(GaneshError::ConfigError(
-                "Nelder-Mead is only a suitable method for problems of dimension >= 2".to_string(),
-            ));
-        }
-        if simplex.iter().any(|point| point.len() != first.len()) {
-            return Err(GaneshError::ConfigError(
-                "Custom simplex points must all have the same dimension".to_string(),
-            ));
-        }
-        if simplex.len() != first.len() + 1 {
-            return Err(GaneshError::ConfigError(
-                "Custom simplex must contain exactly n + 1 points for dimension n".to_string(),
-            ));
-        }
-        Ok(Self::Custom {
-            simplex: simplex.to_vec(),
-        })
+impl<T: RealScalar, B: LinearAlgebra<T>> SupportsParameterNames for NelderMeadConfig<T, B> {
+    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.parameter_names
     }
 }
 
-/// Initialization payload for a [`NelderMead`] run.
-#[derive(Clone)]
-pub struct NelderMeadInit {
-    construction_method: SimplexConstructionMethod,
-}
-impl NelderMeadInit {
-    /// Construct an initial simplex using the default scaled-orthogonal method from `x0`.
-    pub fn new<I>(x0: I) -> Self
-    where
-        I: AsRef<[Float]>,
-    {
-        Self {
-            construction_method: SimplexConstructionMethod::scaled_orthogonal(x0),
-        }
-    }
-    /// Construct an initialization payload from an explicit simplex construction method.
-    pub const fn new_with_method(construction_method: SimplexConstructionMethod) -> Self {
-        Self {
-            construction_method,
-        }
-    }
-    /// Construct an initialization payload from a custom simplex.
-    ///
-    /// # Errors
-    ///
-    /// Returns any validation error raised by [`SimplexConstructionMethod::custom`].
-    pub fn custom<I>(simplex: I) -> GaneshResult<Self>
-    where
-        I: AsRef<[DVector<Float>]>,
-    {
-        Ok(Self {
-            construction_method: SimplexConstructionMethod::custom(simplex)?,
-        })
-    }
-    fn starting_point(&self) -> DVector<Float> {
-        self.construction_method.starting_point()
-    }
-}
-
-impl SimplexConstructionMethod {
-    fn generate<U, E>(
-        &self,
-        func: &dyn LegacyCostFunction<U, E>,
-        transform: &Option<Box<dyn Transform>>,
-        bounds: Option<&Bounds>,
-        args: &U,
-    ) -> Result<Simplex, E> {
-        match self {
-            Self::ScaledOrthogonal {
-                x0,
-                orthogonal_multiplier,
-                orthogonal_zero_step,
-            } => {
-                let mut points = Vec::default();
-                let point_0 = Point::from(transform.to_internal(x0).into_owned())
-                    .evaluate_transformed(func, transform, args)?;
-                points.push(point_0.clone());
-                let dim = point_0.x.len();
-                assert!(
-                    dim >= 2,
-                    "Nelder-Mead is only a suitable method for problems of dimension >= 2"
-                );
-                for i in 0..dim {
-                    let mut point_i = point_0.clone();
-                    if point_i.x[i] == 0.0 {
-                        point_i.x[i] = *orthogonal_zero_step;
-                    } else {
-                        point_i.x[i] *= *orthogonal_multiplier;
-                    }
-                    // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
-                    if let Some(bounds) = bounds {
-                        point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                            if *v > b.0.upper() {
-                                *v = Float::mul_add(2.0, b.0.upper(), -(*v));
-                            }
-                        });
-                    }
-                    if let Some(b) = bounds {
-                        point_i.x = b.clip_values(&point_i.x);
-                    }
-                    points
-                        .push(Point::from(point_i.x).evaluate_transformed(func, transform, args)?);
-                }
-                Ok(Simplex::new(&points))
-            }
-            Self::Orthogonal { x0, simplex_size } => {
-                let mut points = Vec::default();
-                let point_0 = Point::from(transform.to_internal(x0).into_owned())
-                    .evaluate_transformed(func, transform, args)?;
-                points.push(point_0.clone());
-                let dim = point_0.x.len();
-                assert!(
-                    dim >= 2,
-                    "Nelder-Mead is only a suitable method for problems of dimension >= 2"
-                );
-                for i in 0..dim {
-                    let mut point_i = point_0.clone();
-                    point_i.x[i] += *simplex_size;
-                    // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
-                    if let Some(bounds) = bounds {
-                        point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                            if *v > b.0.upper() {
-                                *v = Float::mul_add(2.0, b.0.upper(), -(*v));
-                            }
-                        });
-                    }
-                    if let Some(b) = bounds {
-                        point_i.x = b.clip_values(&point_i.x);
-                    }
-                    points
-                        .push(Point::from(point_i.x).evaluate_transformed(func, transform, args)?);
-                }
-                Ok(Simplex::new(&points))
-            }
-            Self::Custom { simplex } => {
-                assert!(!simplex.is_empty());
-                assert!(simplex.len() == simplex[0].len() + 1);
-                assert!(simplex.len() > 2);
-                Ok(Simplex::new(
-                    &simplex
-                        .iter()
-                        .map(|x| {
-                            let mut point_i = Point::from(transform.to_internal(x).into_owned());
-                            // See https://github.com/scipy/scipy/blob/bdd3b0e77a3813c22c038c908d992b6de23ffcda/scipy/optimize/_optimize.py#L832
-                            if let Some(bounds) = bounds {
-                                point_i.x.iter_mut().zip(bounds.iter()).for_each(|(v, b)| {
-                                    if *v > b.0.upper() {
-                                        *v = Float::mul_add(2.0, b.0.upper(), -(*v));
-                                    }
-                                });
-                            }
-                            if let Some(b) = bounds {
-                                point_i.x = b.clip_values(&point_i.x);
-                            }
-                            point_i.evaluate_transformed(func, transform, args)
-                        })
-                        .collect::<Result<Vec<EvaluatedPoint<DVector<Float>>>, E>>()?,
-                ))
-            }
-        }
-    }
-}
-
-/// A [`Simplex`] represents a list of [`Point`]s. This particular implementation is intended to be
-/// sorted.
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct Simplex {
-    points: Vec<EvaluatedPoint<DVector<Float>>>,
-    dimension: usize,
-    sorted: bool,
-    total_centroid: DVector<Float>,
-    volume: Float,
-    initial_best: EvaluatedPoint<DVector<Float>>,
-    initial_worst: EvaluatedPoint<DVector<Float>>,
-    initial_volume: Float,
-}
-impl Debug for Simplex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#?}", self.points)
-    }
-}
-impl Simplex {
-    fn new(points: &[EvaluatedPoint<DVector<Float>>]) -> Self {
-        let mut sorted_points = points.to_vec();
-        sorted_points.sort_by(|a, b| a.total_cmp(b));
-        let initial_best = sorted_points[0].clone();
-        let initial_worst = sorted_points[sorted_points.len() - 1].clone();
-        let n_params = points.len() - 1;
-        let diffs: Vec<DVector<Float>> = sorted_points
-            .iter()
-            .skip(1)
-            .map(|p| &p.x - &initial_best.x)
-            .collect();
-        let gram_mat = DMatrix::from_fn(n_params, n_params, |i, j| diffs[i].dot(&diffs[j]));
-        // HACK: volume calculation is off by a constant 1/n! which divides out on both sides
-        // whenever we use this!
-        let volume = Float::sqrt(gram_mat.determinant());
-        let total_centroid =
-            sorted_points.iter().map(|p| &p.x).sum::<DVector<Float>>() / points.len() as Float;
-        Self {
-            points: sorted_points,
-            dimension: points.len(),
-            sorted: false,
-            total_centroid,
-            volume,
-            initial_best,
-            initial_worst,
-            initial_volume: volume,
-        }
-    }
-    fn size(&self) -> usize {
-        self.points.len()
-    }
-    fn corrected_centroid(&self) -> DVector<Float> {
-        let n = self.points.len();
-        let total = &self.total_centroid * (n as Float);
-        let sum = total - &self.points[n - 1].x;
-        sum / ((n - 1) as Float)
-    }
-    fn best_position(&self, transform: &Option<Box<dyn Transform>>) -> (DVector<Float>, Float) {
-        let best = self.best();
-        (transform.to_owned_external(&best.x), best.fx)
-    }
-    fn best(&self) -> &EvaluatedPoint<DVector<Float>> {
-        &self.points[0]
-    }
-    fn worst(&self) -> &EvaluatedPoint<DVector<Float>> {
-        &self.points[self.points.len() - 1]
-    }
-    fn second_worst(&self) -> &EvaluatedPoint<DVector<Float>> {
-        &self.points[self.points.len() - 2]
-    }
-    fn insert_and_sort(&mut self, index: usize, element: EvaluatedPoint<DVector<Float>>) {
-        let removed = self.points.remove(self.points.len() - 1);
-        let n = self.points.len() as Float + 1.0;
-        self.total_centroid += (&element.x - &removed.x) / n;
-
-        self.points.insert(index, element);
-        self.sorted = false;
-        self.sort();
-    }
-    fn insert_sorted(&mut self, index: usize, element: EvaluatedPoint<DVector<Float>>) {
-        let removed = self.points.remove(self.points.len() - 1);
-        self.points.insert(index, element);
-        self.sorted = true;
-
-        let n = self.points.len() as Float;
-        self.total_centroid += (&self.points[index].x - &removed.x) / n;
-    }
-
-    fn sort(&mut self) {
-        if !self.sorted {
-            self.sorted = true;
-            self.points.sort_by(|a, b| a.total_cmp(b));
-        }
-    }
-    fn compute_total_centroid(&mut self) {
-        let n = self.points.len() as Float;
-        self.total_centroid = self.points.iter().map(|p| &p.x).sum::<DVector<Float>>() / n;
-    }
-    fn scale_volume(&mut self, factor: Float) {
-        self.volume *= factor;
-    }
-}
-
-/// Selects the expansion method used in the Nelder-Mead algorithm. See Lagarias et al.[^1] for more details.
-///
-/// [^1]: [J. C. Lagarias, J. A. Reeds, M. H. Wright, and P. E. Wright, ‘Convergence Properties of the Nelder--Mead Simplex Method in Low Dimensions’, SIAM Journal on Optimization, vol. 9, no. 1, pp. 112–147, 1998.](https://doi.org/10.1137/S1052623496303470)
-#[derive(Default, Debug, Clone)]
+/// Selects how an improving expansion step chooses its replacement vertex.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SimplexExpansionMethod {
-    /// Greedy minimization will calculate both a reflected an expanded point in an expansion step
-    /// but will return the one that gives the best minimum.
+    /// Keep the better of the reflected and expanded vertices.
     #[default]
     GreedyMinimization,
-    /// Greedy expansion will calculate both a reflected and expanded point in an expansion step
-    /// but will return the expanded point always, even if the reflected point is a better minimum.
+    /// Always keep the expanded vertex.
     GreedyExpansion,
 }
 
-/// Various termination methods based on the evaluation of the function at each point in the
-/// simplex. See Singer et al.[^1] for more details.
-///
-/// [^1]: [S. Singer and S. Singer, ‘Efficient Implementation of the Nelder–Mead Search Algorithm’, Applied Numerical Analysis & Computational Mathematics, vol. 1, no. 2, pp. 524–534, 2004.](https://doi.org/10.1002/anac.200410015)
+/// Objective-value termination criteria for [`NelderMead`].
 #[derive(Debug, Clone)]
-pub enum NelderMeadFTerminator {
-    /// For the worst point $`x_h`$ and best point $`x_l`$, converge if the following is true:
-    /// ```math
-    /// 2 \frac{f(x_h) - f(x_l)}{|f(x_h)| + |f(x_l)|} <= \varepsilon
-    /// ```
+pub enum NelderMeadFTerminator<T: RealScalar = f64> {
+    /// Relative difference between the worst and best objective values.
     Amoeba {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_rel: Float,
+        /// Relative tolerance.
+        eps_rel: T,
     },
-    /// For the worst point $`x_h`$ and best point $`x_l`$, converge if the following is true:
-    /// ```math
-    /// f(x_h) - f(x_l) <= \varepsilon
-    /// ```
+    /// Absolute difference between the worst and best objective values.
     Absolute {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_abs: Float,
+        /// Absolute tolerance.
+        eps_abs: T,
     },
-    /// Converge if the standard deviation of the function evaluations of all points in the simplex
-    /// is $`\sigma <= \varepsilon`$.
+    /// Standard deviation of all simplex objective values.
     StdDev {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_abs: Float,
+        /// Absolute standard-deviation tolerance.
+        eps_abs: T,
     },
 }
-impl Default for NelderMeadFTerminator {
+
+impl<T: RealScalar> Default for NelderMeadFTerminator<T> {
     fn default() -> Self {
         Self::StdDev {
-            eps_abs: Float::EPSILON.powf(0.25),
+            eps_abs: T::epsilon().sqrt().sqrt(),
         }
-    }
-}
-impl<P, U, E> Terminator<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
-    for NelderMeadFTerminator
-where
-    P: LegacyCostFunction<U, E>,
-{
-    fn check_for_termination(
-        &mut self,
-        _current_step: usize,
-        algorithm: &mut NelderMead,
-        _problem: &P,
-        status: &mut LegacyGradientFreeStatus,
-        _args: &U,
-        _config: &NelderMeadConfig,
-    ) -> ControlFlow<()> {
-        let simplex = &algorithm.simplex;
-        match self {
-            Self::Amoeba { eps_rel: eps_f_rel } => {
-                let fh = simplex.worst().fx;
-                let fl = simplex.best().fx;
-                if 2.0 * (fh - fl) / (Float::abs(fh) + Float::abs(fl)) <= *eps_f_rel {
-                    status.set_message().succeed_with_message("term_f = AMOEBA");
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::Absolute { eps_abs: eps_f_abs } => {
-                let fh = simplex.worst().fx;
-                let fl = simplex.best().fx;
-                if fh - fl <= *eps_f_abs {
-                    status
-                        .set_message()
-                        .succeed_with_message("term_f = ABSOLUTE");
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::StdDev { eps_abs: eps_f_abs } => {
-                let dim = simplex.dimension as Float;
-                let mean = simplex.points.iter().map(|point| point.fx).sum::<Float>() / dim;
-                let std_dev = Float::sqrt(
-                    simplex
-                        .points
-                        .iter()
-                        .map(|point| Float::powi(point.fx - mean, 2))
-                        .sum::<Float>()
-                        / dim,
-                );
-                if std_dev <= *eps_f_abs {
-                    status.set_message().succeed_with_message("term_f = STDDEV");
-                    return ControlFlow::Break(());
-                }
-            }
-        }
-        ControlFlow::Continue(())
     }
 }
 
-/// Various termination methods based on the the position of points in the simplex.
-/// See Singer et al.[^1] for more details.
-///
-/// [^1]: [S. Singer and S. Singer, ‘Efficient Implementation of the Nelder–Mead Search Algorithm’, Applied Numerical Analysis & Computational Mathematics, vol. 1, no. 2, pp. 524–534, 2004.](https://doi.org/10.1002/anac.200410015)
+/// Position-based termination criteria for [`NelderMead`].
 #[derive(Debug, Clone)]
-pub enum NelderMeadXTerminator {
-    /// For the best point in the simplex $`x_l`$, converge if the following condition is met:
-    /// ```math
-    /// \max_{j\neq l} ||x_j - x_l||_{\inf} \leq \varepsilon
-    /// ```
+pub enum NelderMeadXTerminator<T: RealScalar = f64> {
+    /// Maximum infinity-norm distance from the best vertex.
     Diameter {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_abs: Float,
+        /// Absolute diameter tolerance.
+        eps_abs: T,
     },
-    /// For the best point in the simplex $`x_l`$, converge if the following condition is met:
-    /// ```math
-    /// \frac{\max_{j\neq l} ||x_j - x_l||_1}{\max\left\{1, ||x_l||_1\right\}} \leq \varepsilon
-    /// ```
+    /// Maximum relative one-norm distance from the best vertex.
     Higham {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_rel: Float,
+        /// Relative distance tolerance.
+        eps_rel: T,
     },
-    /// For the worst point $`x_h`$ and best point $`x_l`$, as well as the original values of those
-    /// points at the beginning of the algorithm, denoted $`x_h^{(0)}`$ and $`x_l^{(0)}`$
-    /// respectively, converge if the following condition is met:
-    /// ```math
-    /// ||x_h - x_l||_2 \leq \varepsilon ||x_h^{(0)} - x_l^{(0)}||_2
-    /// ```
+    /// Best-to-worst distance relative to its initial value.
     Rowan {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_rel: Float,
+        /// Relative distance tolerance.
+        eps_rel: T,
     },
-    /// Given the volume of the simplex
-    /// ```math
-    /// V(S) \equiv \frac{1}{n!}\sqrt{\Gamma(x_1-x_0,...,x_n-x_0)}
-    /// ```
-    /// where $`\Gamma`$ is the Gram determinant, compute the linearized volume $`LV(S)\equiv
-    /// \sqrt[n]{V(S)}`$ and converge if the following condition is met:
-    /// ```math
-    /// LV(S) \leq \varepsilon LV(S^{(0)})
-    /// ```
-    /// where $`S`$ is the current simplex and $`S^{(0)}`$ is the simplex at the beginning of the
-    /// algorithm. Note that $`V(S)`$ is only calculated once in practice and updated according to
-    /// each step type by a single multiplication, so this method is very efficient.
+    /// Linearized simplex volume relative to its initial value.
     Singer {
-        /// The value of $`\varepsilon`$ (default: `MACH_EPS^(1/4)`.
-        eps_rel: Float,
+        /// Relative linearized-volume tolerance.
+        eps_rel: T,
     },
 }
-impl Default for NelderMeadXTerminator {
+
+impl<T: RealScalar> Default for NelderMeadXTerminator<T> {
     fn default() -> Self {
         Self::Singer {
-            eps_rel: Float::EPSILON.powf(0.25),
+            eps_rel: T::epsilon().sqrt().sqrt(),
         }
     }
 }
 
-impl<P, U, E> Terminator<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
-    for NelderMeadXTerminator
-where
-    P: LegacyCostFunction<U, E>,
-{
-    fn check_for_termination(
-        &mut self,
-        _current_step: usize,
-        algorithm: &mut NelderMead,
-        _problem: &P,
-        status: &mut LegacyGradientFreeStatus,
-        _args: &U,
-        _config: &NelderMeadConfig,
-    ) -> ControlFlow<()> {
-        let simplex = &algorithm.simplex;
-        match self {
-            Self::Diameter { eps_abs: eps_x_abs } => {
-                let l = simplex.best();
-                let max_inf_norm = simplex
-                    .points
-                    .iter()
-                    .rev()
-                    .skip(1) // skip l itself
-                    .map(|point| {
-                        let diff = &point.x - &l.x;
-                        let mut inf_norm = 0.0;
-                        for i in 0..diff.len() {
-                            if inf_norm < Float::abs(diff[i]) {
-                                inf_norm = Float::abs(diff[i])
-                            }
-                        }
-                        inf_norm
-                    })
-                    .max_by(|&a, &b| a.total_cmp(&b))
-                    .unwrap_or(0.0);
-                if max_inf_norm <= *eps_x_abs {
-                    status
-                        .set_message()
-                        .succeed_with_message("term_x = DIAMETER");
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::Higham { eps_rel: eps_x_rel } => {
-                let l = simplex.best();
-                let l1_norm_l = l.x.lp_norm(1);
-                let denom = Float::max(l1_norm_l, 1.0);
-                let numer = simplex
-                    .points
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .map(|point| {
-                        let diff = &point.x - &l.x;
-                        diff.lp_norm(1)
-                    })
-                    .max_by(|&a, &b| a.total_cmp(&b))
-                    .unwrap_or(0.0);
-                if numer / denom <= *eps_x_rel {
-                    status.set_message().succeed_with_message("term_x = HIGHAM");
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::Rowan { eps_rel: eps_x_rel } => {
-                let init_diff = (&simplex.initial_worst.x - &simplex.initial_best.x).lp_norm(2);
-                let current_diff = (&simplex.worst().x - &simplex.best().x).lp_norm(2);
-                if current_diff <= *eps_x_rel * init_diff {
-                    status.set_message().succeed_with_message("term_x = ROWAN");
-                    return ControlFlow::Break(());
-                }
-            }
-            Self::Singer { eps_rel: eps_x_rel } => {
-                let dim = simplex.dimension as Float;
-                let lv_init = Float::powf(simplex.initial_volume, 1.0 / dim);
-                let lv_current = Float::powf(simplex.volume, 1.0 / dim);
-                if lv_current <= *eps_x_rel * lv_init {
-                    status.set_message().succeed_with_message("term_x = SINGER");
-                    return ControlFlow::Break(());
-                }
-            }
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-/// The internal configuration struct for the [`NelderMead`] algorithm.
-#[derive(Clone)]
-pub struct NelderMeadConfig {
-    bounds: Option<Bounds>,
-    bounds_handling: BoundsHandlingMode,
-    parameter_names: Option<Vec<String>>,
-    transform: Option<Box<dyn Transform>>,
-    alpha: Float,
-    beta: Float,
-    gamma: Float,
-    delta: Float,
+/// Configuration for linear-algebra-generic Nelder-Mead.
+pub struct NelderMeadConfig<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    /// Reflection coefficient.
+    reflection: T,
+    /// Expansion coefficient.
+    expansion: T,
+    /// Contraction coefficient.
+    contraction: T,
+    /// Shrink coefficient.
+    shrink: T,
+    /// Relative displacement for nonzero coordinates in the initial scaled-orthogonal simplex.
+    initial_step: T,
+    /// Absolute displacement for zero coordinates in the initial scaled-orthogonal simplex.
+    initial_zero_step: T,
+    /// Policy used when an expansion is attempted.
     expansion_method: SimplexExpansionMethod,
+    /// Optional externally expressed custom simplex with exactly `dimension + 1` vertices.
+    initial_simplex: Option<Vec<Vector<T, B>>>,
+    /// Optional names for the optimized parameters.
+    parameter_names: Option<Vec<String>>,
+    /// Optional coordinate transform.
+    transform: Option<Box<dyn Transform<T, B>>>,
 }
-impl NelderMeadConfig {
-    /// Create a new configuration with default hyperparameters.
+
+impl<T, B> Default for NelderMeadConfig<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    fn default() -> Self {
+        Self {
+            reflection: T::one(),
+            expansion: T::literal(2.0),
+            contraction: T::literal(0.5),
+            shrink: T::literal(0.5),
+            initial_step: T::literal(0.05),
+            initial_zero_step: T::literal(0.00025),
+            expansion_method: SimplexExpansionMethod::default(),
+            initial_simplex: None,
+            parameter_names: None,
+            transform: None,
+        }
+    }
+}
+
+impl<T, B> NelderMeadConfig<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
+    /// Create a configuration with default hyperparameters.
     pub fn new() -> Self {
         Self::default()
     }
-    /// Set the reflection coefficient $`\alpha`$ (default = `1`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is not strictly positive.
-    pub fn with_alpha(mut self, value: Float) -> GaneshResult<Self> {
-        if value <= 0.0 {
+
+    /// Set the reflection coefficient.
+    pub fn with_alpha(mut self, value: T) -> GaneshResult<Self> {
+        if value <= T::zero() {
             return Err(GaneshError::ConfigError(
                 "Reflection coefficient alpha must be greater than 0".to_string(),
             ));
         }
-        self.alpha = value;
+        self.reflection = value;
         Ok(self)
     }
-    /// Set the expansion coefficient $`\beta`$ (default = `2`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is not greater than `1` and the configured
-    /// reflection coefficient.
-    pub fn with_beta(mut self, value: Float) -> GaneshResult<Self> {
-        if value <= 1.0 {
+
+    /// Set the expansion coefficient.
+    pub fn with_beta(mut self, value: T) -> GaneshResult<Self> {
+        if value <= T::one() {
             return Err(GaneshError::ConfigError(
                 "Expansion coefficient beta must be greater than 1".to_string(),
             ));
         }
-        if value <= self.alpha {
+        if value <= self.reflection {
             return Err(GaneshError::ConfigError(format!(
                 "Expansion coefficient beta must be greater than reflection coefficient alpha ({})",
-                self.alpha
+                self.reflection
             )));
         }
-        self.beta = value;
+        self.expansion = value;
         Ok(self)
     }
-    /// Set the reflection coefficient $`\alpha`$ (default = `1`) and the expansion coefficient $`\beta`$ (default = `2`) simultaneously.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `alpha <= 0`, `beta <= 1`, or `beta <= alpha`.
-    pub fn with_alpha_beta(mut self, alpha: Float, beta: Float) -> GaneshResult<Self> {
-        if alpha <= 0.0 {
+
+    /// Set the reflection and expansion coefficients together.
+    pub fn with_alpha_beta(mut self, alpha: T, beta: T) -> GaneshResult<Self> {
+        if alpha <= T::zero() {
             return Err(GaneshError::ConfigError(
                 "Reflection coefficient alpha must be greater than 0".to_string(),
             ));
         }
-        if beta <= 1.0 {
+        if beta <= T::one() {
             return Err(GaneshError::ConfigError(
                 "Expansion coefficient beta must be greater than 1".to_string(),
             ));
@@ -724,187 +199,402 @@ impl NelderMeadConfig {
                     .to_string(),
             ));
         }
-        self.alpha = alpha;
-        self.beta = beta;
+        self.reflection = alpha;
+        self.expansion = beta;
         Ok(self)
     }
-    /// Set the contraction coefficient $`\gamma`$ (default = `0.5`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is not in the interval `(0, 1)`.
-    pub fn with_gamma(mut self, value: Float) -> GaneshResult<Self> {
-        if value >= 1.0 || value <= 0.0 {
+
+    /// Set the contraction coefficient.
+    pub fn with_gamma(mut self, value: T) -> GaneshResult<Self> {
+        if value <= T::zero() || value >= T::one() {
             return Err(GaneshError::ConfigError(
                 "Contraction coefficient gamma must be in (0, 1)".to_string(),
             ));
         }
-        self.gamma = value;
+        self.contraction = value;
         Ok(self)
     }
-    /// Set the shrink coefficient $`\delta`$ (default = `0.5`).
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `value` is not in the interval `(0, 1)`.
-    pub fn with_delta(mut self, value: Float) -> GaneshResult<Self> {
-        if value >= 1.0 || value <= 0.0 {
+
+    /// Set the shrink coefficient.
+    pub fn with_delta(mut self, value: T) -> GaneshResult<Self> {
+        if value <= T::zero() || value >= T::one() {
             return Err(GaneshError::ConfigError(
                 "Shrink coefficient delta must be in (0, 1)".to_string(),
             ));
         }
-        self.delta = value;
+        self.shrink = value;
         Ok(self)
     }
-    /// A set of adaptive hyperparameters according to Gao and Han[^1]. This method, dubbed ANMS
-    /// for Adaptive Nelder-Mead Simplex, is identical to the Standard Nelder-Mead Simplex (SNMS)
-    /// when the input dimension is equal to 2. The authors of the paper show that this method can
-    /// significantly reduce the number of function evaluations for dimensions greater than 10,
-    /// although it has mixed results for the Moré-Garbow-Hilstrom test functions with dimensions
-    /// between 2 and 6 and can sometimes lead to significantly more function evaluations. For
-    /// dimensions greater than 6 for the subset of those test functions which support higher
-    /// dimensions, it generally required less evaluations (with several exceptions, see
-    /// **Table 4** in the paper for more details).
-    ///
-    /// [^1]: [Gao, F., Han, L. Implementing the Nelder-Mead simplex algorithm with adaptive parameters. *Comput Optim Appl* **51**, 259–277 (2012).](https://doi.org/10.1007/s10589-010-9329-3)
+
+    /// Set the relative displacement used for nonzero initial coordinates.
+    pub fn with_initial_step(mut self, value: T) -> GaneshResult<Self> {
+        if !value.is_finite() || value <= T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Initial simplex step must be finite and greater than 0".to_string(),
+            ));
+        }
+        self.initial_step = value;
+        Ok(self)
+    }
+
+    /// Set the absolute displacement used for zero initial coordinates.
+    pub fn with_initial_zero_step(mut self, value: T) -> GaneshResult<Self> {
+        if !value.is_finite() || value <= T::zero() {
+            return Err(GaneshError::ConfigError(
+                "Initial zero-coordinate simplex step must be finite and greater than 0"
+                    .to_string(),
+            ));
+        }
+        self.initial_zero_step = value;
+        Ok(self)
+    }
+
+    /// Use the Gao–Han adaptive coefficients for a problem of dimension `dimension`.
     ///
     /// # Errors
-    ///
-    /// Returns a configuration error if `n < 1`.
-    pub fn with_adaptive(mut self, n: usize) -> GaneshResult<Self> {
-        if n < 1 {
+    /// Returns a configuration error when `dimension` is zero.
+    pub fn with_adaptive(mut self, dimension: usize) -> GaneshResult<Self> {
+        if dimension == 0 {
             return Err(GaneshError::ConfigError(
                 "Adaptive hyperparameters requires input dimension >= 1".to_string(),
             ));
         }
-        let n = n as Float;
-        self.alpha = 1.0;
-        self.beta = 1.0 + (2.0 / n);
-        self.gamma = 0.75 - 1.0 / (2.0 * n);
-        self.delta = 1.0 - 1.0 / n;
+        let dimension = T::literal(dimension as f64);
+        self.reflection = T::one();
+        self.expansion = T::one() + T::literal(2.0) / dimension;
+        self.contraction = T::literal(0.75) - T::one() / (T::literal(2.0) * dimension);
+        self.shrink = T::one() - T::one() / dimension;
         Ok(self)
     }
-    /// Set the [`SimplexExpansionMethod`].
-    pub const fn with_expansion_method(mut self, method: SimplexExpansionMethod) -> Self {
-        self.expansion_method = method;
+
+    /// Select the expansion replacement policy.
+    pub const fn with_expansion_method(mut self, expansion_method: SimplexExpansionMethod) -> Self {
+        self.expansion_method = expansion_method;
         self
     }
-    /// Set the policy used to handle configured bounds when a transform is also present.
-    pub const fn with_bounds_handling(mut self, bounds_handling: BoundsHandlingMode) -> Self {
-        self.bounds_handling = bounds_handling;
+
+    /// Use a caller-supplied simplex expressed in external coordinates.
+    ///
+    /// # Errors
+    /// Returns a configuration error unless the simplex contains exactly `dimension + 1`
+    /// same-dimensional vertices.
+    pub fn with_initial_simplex(mut self, simplex: Vec<Vector<T, B>>) -> GaneshResult<Self> {
+        let Some(first) = simplex.first() else {
+            return Err(GaneshError::ConfigError(
+                "custom simplex must not be empty".to_string(),
+            ));
+        };
+        let dimension = first.len();
+        if simplex.len() != dimension + 1 {
+            return Err(GaneshError::ConfigError(format!(
+                "custom simplex requires exactly dimension + 1 vertices (received {} for dimension {dimension})",
+                simplex.len()
+            )));
+        }
+        if simplex.iter().any(|vertex| vertex.len() != dimension) {
+            return Err(GaneshError::ConfigError(
+                "custom simplex vertices must have the same dimension".to_string(),
+            ));
+        }
+        self.initial_simplex = Some(simplex);
+        Ok(self)
+    }
+
+    /// Configure a coordinate transform or bounds transform.
+    pub fn with_transform<X>(mut self, transform: X) -> Self
+    where
+        X: Transform<T, B> + 'static,
+    {
+        self.transform = Some(Box::new(transform));
         self
     }
 }
-impl Default for NelderMeadConfig {
+
+/// Scalar- and linear-algebra-generic Nelder-Mead optimizer.
+#[derive(Clone, Debug)]
+pub struct NelderMead<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
+    simplex: Vec<Vertex<T, B>>,
+    coordinate_sum: Vector<T, B>,
+    initial_best: Vector<T, B>,
+    initial_worst: Vector<T, B>,
+    relative_volume: T,
+    _provider: PhantomData<B>,
+}
+
+/// Step-boundary checkpoint for [`NelderMead`].
+#[derive(Clone, Debug)]
+pub struct NelderMeadCheckpoint<T: RealScalar, B: LinearAlgebra<T>> {
+    simplex: Vec<(Vector<T, B>, T)>,
+    coordinate_sum: Vector<T, B>,
+    initial_best: Vector<T, B>,
+    initial_worst: Vector<T, B>,
+    relative_volume: T,
+    status: GradientFreeStatus<T, B>,
+    next_step: usize,
+}
+
+impl<T, B> Default for NelderMead<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+{
     fn default() -> Self {
         Self {
-            bounds: None,
-            bounds_handling: BoundsHandlingMode::default(),
-            parameter_names: None,
-            transform: None,
-            alpha: 1.0,
-            beta: 2.0,
-            gamma: 0.5,
-            delta: 0.5,
-            expansion_method: SimplexExpansionMethod::default(),
+            simplex: Vec::new(),
+            coordinate_sum: Vector::zeros(0),
+            initial_best: Vector::zeros(0),
+            initial_worst: Vector::zeros(0),
+            relative_volume: T::one(),
+            _provider: PhantomData,
         }
     }
 }
-impl SupportsBounds for NelderMeadConfig {
-    fn get_bounds_mut(&mut self) -> &mut Option<Bounds> {
-        &mut self.bounds
-    }
-}
-impl SupportsTransform for NelderMeadConfig {
-    fn get_transform_mut(&mut self) -> &mut Option<Box<dyn Transform>> {
-        &mut self.transform
-    }
-}
-impl SupportsParameterNames for NelderMeadConfig {
-    fn get_parameter_names_mut(&mut self) -> &mut Option<Vec<String>> {
-        &mut self.parameter_names
-    }
-}
 
-/// The Nelder-Mead method
-///
-/// The Nelder-Mead method uses a simplex of $`n+1`$ points where $`n`$ is the dimension of the
-/// input vector. The algorithm is as follows:
-///
-/// 0. Pick a starting simplex. The default implementation just takes one simplex point to be the
-///    starting point and the others to be the starting point scaled by a small amount in each coordinate direction.
-/// 1. Compute $`f(\vec{x}_i)`$ for each point in the simplex.
-/// 2. Calculate the centroid of all but the worst point $`\vec{x}^\dagger`$ in the simplex,
-///    $`\vec{x}_o`$.
-/// 3. Check for convergence: (see [`NelderMeadFTerminator`] and [`NelderMeadXTerminator`]).
-/// 4. **Reflection**: Compute $`\vec{x}_r = \vec{x}_o + \alpha (\vec{x}_o - \vec{x}^\dagger)`$.
-///    If $`f(\vec{x}_r)`$ is better than the second worst point $`\vec{x}^\ddagger`$ and not
-///    better than the best point $`\vec{x}^*`$, then replace $`\vec{x}^\dagger`$ with
-///    $`\vec{x}_r`$ and go to **Step 1**. Else, go to **Step 6**.
-/// 5. **Expansion**: If $`\vec{x}_r`$ is the best point in the simplex, compute the $`\vec{x}_e =
-///    \vec{x}_o + \gamma (\vec{x}_r - \vec{x}_o)`$, replace $`\vec{x}^\dagger`$ with whichever is
-///    better, $`\vec{x}_r`$ or $`\vec{x}_e`$, if greedy minimization is used, otherwise choose
-///    $`\vec{x}_e`$ if greedy expansion is used and go to **Step 1**.
-/// 6. **Contraction**: Here, $`\vec{x}_r`$ is either the worst or second worst point. If it's
-///    second-worst, go to **Step 7**. If it's the worst, go to **Step 8**.
-/// 7. Compute the "outside" contracted point $`\vec{x}_c + \rho_o (\vec{x}_r - \vec{x}_o)`$.
-///    If $`f(\vec{x}_c) < f(\vec{x}_r)`$ (if the contraction improved the point),
-///    replace $`\vec{x}^\dagger`$ with $`\vec{x}_c`$ and go to **Step 1**. Else, go to **Step 9**.
-/// 8. Compute the "inside" contracted point $`\vec{x}_c - \rho_i (\vec{x}_r - \vec{x}_o)`$ (note
-///    the minus sign). If $`f(\vec{x}_c) < f(\vec{x}^\dagger)`$ (if the contraction improved the
-///    worst point), replace $`\vec{x}^\dagger`$ with $`\vec{x}_c`$ and go to **Step 1**. Else,
-///    go to **Step 9**.
-/// 9. **Shrink**: Replace all the points except the best, $`\vec{x}^*`$, with $`\vec{x}_i =
-///    \vec{x}^* + \sigma (\vec{x}_i - \vec{x}^*)`$ and go to **Step 1**.
-#[derive(Clone, Default)]
-pub struct NelderMead {
-    simplex: Simplex,
-    internal_bounds: Option<Bounds>,
-    resolved_transform: Option<Box<dyn Transform>>,
-    initial_x0: DVector<Float>,
-}
-
-/// A step-boundary checkpoint for the [`NelderMead`] algorithm.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct NelderMeadCheckpoint {
-    /// The internal simplex state.
-    pub simplex: Simplex,
-    /// The original starting point used for summary output.
-    pub initial_x0: DVector<Float>,
-    /// The saved gradient-free status.
-    pub status: LegacyGradientFreeStatus,
-    /// The next step index to execute when resuming.
-    pub next_step: usize,
-}
-impl<P, U, E> Algorithm<P, LegacyGradientFreeStatus, U, E> for NelderMead
+impl<T, B> NelderMead<T, B>
 where
-    P: LegacyCostFunction<U, E>,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
 {
-    type Summary = LegacyMinimizationSummary;
-    type Config = NelderMeadConfig;
-    type Init = NelderMeadInit;
+    fn sort_simplex(&mut self) {
+        self.simplex
+            .sort_by(|left, right| left.fx.total_cmp(&right.fx));
+    }
+
+    fn centroid_without_worst(&self) -> Vector<T, B> {
+        let dimension = self.simplex[0].x.len();
+        let divisor = T::literal(dimension as f64);
+        let worst = &self.simplex[self.simplex.len() - 1];
+        Vector::from_vec(
+            (0..dimension)
+                .map(|coordinate| {
+                    (self.coordinate_sum.get(coordinate) - worst.x.get(coordinate)) / divisor
+                })
+                .collect(),
+        )
+    }
+
+    fn replace_vertex(&mut self, index: usize, replacement: Vertex<T, B>) {
+        for coordinate in 0..replacement.x.len() {
+            self.coordinate_sum.set(
+                coordinate,
+                self.coordinate_sum.get(coordinate) - self.simplex[index].x.get(coordinate)
+                    + replacement.x.get(coordinate),
+            );
+        }
+        self.simplex[index] = replacement;
+    }
+
+    fn replace_worst_sorted(&mut self, replacement: Vertex<T, B>) {
+        let mut index = self.simplex.len() - 1;
+        self.replace_vertex(index, replacement);
+        while index > 0 && self.simplex[index].fx < self.simplex[index - 1].fx {
+            self.simplex.swap(index, index - 1);
+            index -= 1;
+        }
+    }
+
+    fn evaluate<P, U, E>(
+        problem: &TransformedProblem<'_, P, T, B>,
+        x: Vector<T, B>,
+        args: &U,
+        status: &mut GradientFreeStatus<T, B>,
+    ) -> Result<Vertex<T, B>, E>
+    where
+        P: CostFunction<T, B, U, E>,
+    {
+        let fx = problem.evaluate(&x, args)?;
+        status.evals.record_f();
+        Ok(Vertex { x, fx })
+    }
+}
+
+impl<T, B, P, U, E>
+    Terminator<NelderMead<T, B>, P, GradientFreeStatus<T, B>, U, E, NelderMeadConfig<T, B>>
+    for NelderMeadFTerminator<T>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut NelderMead<T, B>,
+        _problem: &P,
+        status: &mut GradientFreeStatus<T, B>,
+        _args: &U,
+        _config: &NelderMeadConfig<T, B>,
+    ) -> ControlFlow<()> {
+        let best = &algorithm.simplex[0];
+        let worst = &algorithm.simplex[algorithm.simplex.len() - 1];
+        let message = match self {
+            Self::Amoeba { eps_rel } => {
+                let denominator = worst.fx.abs() + best.fx.abs();
+                (T::literal(2.0) * (worst.fx - best.fx) / denominator <= *eps_rel)
+                    .then_some("term_f = AMOEBA")
+            }
+            Self::Absolute { eps_abs } => {
+                (worst.fx - best.fx <= *eps_abs).then_some("term_f = ABSOLUTE")
+            }
+            Self::StdDev { eps_abs } => {
+                let count = T::literal(algorithm.simplex.len() as f64);
+                let mean = algorithm
+                    .simplex
+                    .iter()
+                    .fold(T::zero(), |sum, vertex| sum + vertex.fx)
+                    / count;
+                let variance = algorithm
+                    .simplex
+                    .iter()
+                    .fold(T::zero(), |sum, vertex| sum + (vertex.fx - mean).powi(2))
+                    / count;
+                (variance.sqrt() <= *eps_abs).then_some("term_f = STDDEV")
+            }
+        };
+        message.map_or(ControlFlow::Continue(()), |message| {
+            status.set_message().succeed_with_message(message);
+            ControlFlow::Break(())
+        })
+    }
+}
+
+impl<T, B, P, U, E>
+    Terminator<NelderMead<T, B>, P, GradientFreeStatus<T, B>, U, E, NelderMeadConfig<T, B>>
+    for NelderMeadXTerminator<T>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
+{
+    fn check_for_termination(
+        &mut self,
+        _current_step: usize,
+        algorithm: &mut NelderMead<T, B>,
+        _problem: &P,
+        status: &mut GradientFreeStatus<T, B>,
+        _args: &U,
+        _config: &NelderMeadConfig<T, B>,
+    ) -> ControlFlow<()> {
+        let best = &algorithm.simplex[0].x;
+        let worst = &algorithm.simplex[algorithm.simplex.len() - 1].x;
+        let max_distance = |one_norm: bool| {
+            algorithm
+                .simplex
+                .iter()
+                .skip(1)
+                .fold(T::zero(), |largest, vertex| {
+                    let distance = if one_norm {
+                        (0..best.len()).fold(T::zero(), |sum, index| {
+                            sum + (vertex.x.get(index) - best.get(index)).abs()
+                        })
+                    } else {
+                        (0..best.len()).fold(T::zero(), |maximum, index| {
+                            let value = (vertex.x.get(index) - best.get(index)).abs();
+                            if value > maximum {
+                                value
+                            } else {
+                                maximum
+                            }
+                        })
+                    };
+                    if distance > largest {
+                        distance
+                    } else {
+                        largest
+                    }
+                })
+        };
+        let message = match self {
+            Self::Diameter { eps_abs } => {
+                (max_distance(false) <= *eps_abs).then_some("term_x = DIAMETER")
+            }
+            Self::Higham { eps_rel } => {
+                let best_norm =
+                    (0..best.len()).fold(T::zero(), |sum, index| sum + best.get(index).abs());
+                let denominator = if best_norm > T::one() {
+                    best_norm
+                } else {
+                    T::one()
+                };
+                (max_distance(true) / denominator <= *eps_rel).then_some("term_x = HIGHAM")
+            }
+            Self::Rowan { eps_rel } => {
+                let initial = algorithm.initial_worst.sub(&algorithm.initial_best).norm();
+                (worst.sub(best).norm() <= *eps_rel * initial).then_some("term_x = ROWAN")
+            }
+            Self::Singer { eps_rel } => (algorithm.relative_volume
+                <= eps_rel.powi(best.len() as i32))
+            .then_some("term_x = SINGER"),
+        };
+        message.map_or(ControlFlow::Continue(()), |message| {
+            status.set_message().succeed_with_message(message);
+            ControlFlow::Break(())
+        })
+    }
+}
+
+impl<T, B, P, U, E> Algorithm<P, GradientFreeStatus<T, B>, U, E> for NelderMead<T, B>
+where
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
+{
+    type Summary = MinimizationSummary<T, B>;
+    type Config = NelderMeadConfig<T, B>;
+    type Init = Vector<T, B>;
+
     fn initialize(
         &mut self,
         problem: &P,
-        status: &mut LegacyGradientFreeStatus,
+        status: &mut GradientFreeStatus<T, B>,
         args: &U,
         init: &Self::Init,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        let internal_bounds = bounds.map(|b| b.apply(&transform));
-        self.internal_bounds = internal_bounds;
-        self.resolved_transform = transform;
-        self.simplex = init.construction_method.generate(
-            problem,
-            &self.resolved_transform,
-            self.internal_bounds.as_ref(),
-            args,
-        )?;
-        status.evals.record_many_f(self.simplex.size());
-        self.initial_x0 = init.starting_point();
-        status.initialize(self.simplex.best_position(&self.resolved_transform));
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let origin = transformed.to_internal(init);
+        self.simplex.clear();
+        if let Some(simplex) = config.initial_simplex.as_ref() {
+            for vertex in simplex {
+                let vertex = transformed.to_internal(vertex);
+                self.simplex
+                    .push(Self::evaluate(&transformed, vertex, args, status)?);
+            }
+        } else {
+            self.simplex
+                .push(Self::evaluate(&transformed, origin.clone(), args, status)?);
+            for coordinate in 0..origin.len() {
+                let mut vertex = origin.clone();
+                let value = origin.get(coordinate);
+                vertex.set(
+                    coordinate,
+                    if value == T::zero() {
+                        config.initial_zero_step
+                    } else {
+                        value * (T::one() + config.initial_step)
+                    },
+                );
+                self.simplex
+                    .push(Self::evaluate(&transformed, vertex, args, status)?);
+            }
+        }
+        self.coordinate_sum = Vector::from_vec(
+            (0..origin.len())
+                .map(|coordinate| {
+                    self.simplex
+                        .iter()
+                        .fold(T::zero(), |sum, vertex| sum + vertex.x.get(coordinate))
+                })
+                .collect(),
+        );
+        self.sort_simplex();
+        self.initial_best = self.simplex[0].x.clone();
+        self.initial_worst = self.simplex[self.simplex.len() - 1].x.clone();
+        self.relative_volume = T::one();
+        status.initialize(
+            transformed.to_external(&self.simplex[0].x),
+            self.simplex[0].fx,
+        );
         Ok(())
     }
 
@@ -912,218 +602,149 @@ where
         &mut self,
         _current_step: usize,
         problem: &P,
-        status: &mut LegacyGradientFreeStatus,
+        status: &mut GradientFreeStatus<T, B>,
         args: &U,
         config: &Self::Config,
     ) -> Result<(), E> {
-        let h = self.simplex.worst();
-        let s = self.simplex.second_worst();
-        let l = self.simplex.best();
-        let c = &self.simplex.corrected_centroid();
-        let mut xrx = c + (c - &h.x).scale(config.alpha);
-        if let Some(ib) = self.internal_bounds.as_ref() {
-            xrx = ib.clip_values(&xrx);
-        }
-        let xr = Point::from(xrx).evaluate_transformed(problem, &self.resolved_transform, args)?;
-        status.evals.record_f();
-        if l <= &xr && &xr < s {
-            // Reflect if l <= x_r < s
-            // In this general case, we just know that r is better than s, we just don't know where
-            // it should go. We have to do a sort, but it should be quick since most of the simplex
-            // is already sorted.
-            self.simplex.insert_and_sort(self.simplex.dimension - 2, xr);
-            status.set_message().step_with_message("REFLECT");
-            self.simplex.scale_volume(config.alpha);
-            return Ok(());
-        } else if &xr < l {
-            // Expand if x_r < l
-            // This means that x_r is certainly the best point so far. We should either expand and
-            // accept the expanded point x_e regardless (greedy expansion), or we should do one
-            // final comparison between x_r and x_e and choose the smallest (greedy minimization).
-            let mut xex = c + (&xr.x - c).scale(config.beta);
-            if let Some(ib) = self.internal_bounds.as_ref() {
-                xex = ib.clip_values(&xex);
-            }
-            let xe =
-                Point::from(xex).evaluate_transformed(problem, &self.resolved_transform, args)?;
-            status.evals.record_f();
-            let accepted = match config.expansion_method {
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let previous_best_fx = self.simplex[0].fx;
+        let centroid = self.centroid_without_worst();
+        let worst_index = self.simplex.len() - 1;
+        let worst = self.simplex[worst_index].clone();
+        let reflected_x = centroid.add_scaled(&centroid.sub(&worst.x), config.reflection);
+        let reflected = Self::evaluate(&transformed, reflected_x, args, status)?;
+
+        let step_message = if reflected.fx < self.simplex[0].fx {
+            let expanded_x = centroid.add_scaled(&reflected.x.sub(&centroid), config.expansion);
+            let expanded = Self::evaluate(&transformed, expanded_x, args, status)?;
+            let replacement = match config.expansion_method {
                 SimplexExpansionMethod::GreedyMinimization => {
-                    if xe < xr {
-                        xe
+                    if expanded.fx < reflected.fx {
+                        expanded
                     } else {
-                        xr
+                        reflected
                     }
                 }
-                SimplexExpansionMethod::GreedyExpansion => xe,
+                SimplexExpansionMethod::GreedyExpansion => expanded,
             };
-            let accepted_fx = accepted.fx;
-            let accepted_x = self.resolved_transform.to_owned_external(&accepted.x);
-            self.simplex.insert_sorted(0, accepted);
-            status.set_position_silent((accepted_x, accepted_fx));
-            status.set_message().step_with_message("EXPAND");
-            self.simplex.scale_volume(config.alpha * config.beta);
-            return Ok(());
-        } else if s <= &xr {
-            // Try to contract if s <= x_r
-            // This means x_r would just be another worst, although possibly an improvement from the
-            // previous worst. If it is better than worst (in between worst and second-worst), we
-            // try contracting on the segment c-x_r. Otherwise, x_r would be worse than the worst,
-            // but we'll try one more attempt at at least improving it to be better than worst by
-            // contracting on the segment h-c.
-            // If all else fails, and we don't find improvement, we shrink the whole simplex
-            // towards l, the best point.
-            //
-            // Note that if we had an improving x_r, we still reject it unless contracting improves
-            // it, in which we take the improved value. Shouldn't we also accept x_r in the case
-            // where x_c is not better, but x_r is still better than h? There must be a reason we
-            // don't do this in practice. For instance, if x_r was worse than worst, contracting to
-            // make it event the slightest bit better than worst will be accepted.
-            if &xr < h {
-                // Try to contract outside if x_r < h
-                let mut xcx = c + (&xr.x - c).scale(config.gamma);
-                if let Some(ib) = self.internal_bounds.as_ref() {
-                    xcx = ib.clip_values(&xcx);
-                }
-                let xc = Point::from(xcx).evaluate_transformed(
-                    problem,
-                    &self.resolved_transform,
-                    args,
-                )?;
-                status.evals.record_f();
-                if xc <= xr {
-                    if &xc < s {
-                        // If we are better than the second-worst, we need to sort everything, we
-                        // could technically be anywhere, even in a new best.
-                        let xc_is_new_best = &xc < l;
-                        let xc_fx = xc.fx;
-                        let xc_x = xc_is_new_best
-                            .then(|| self.resolved_transform.to_owned_external(&xc.x));
-                        self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        if let Some(xc_x) = xc_x {
-                            status.set_position_silent((xc_x, xc_fx));
-                        }
-                    } else {
-                        // Otherwise, we don't even need to update the best position, this was just
-                        // a new worst or equal to second worst.
-                        self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
-                    }
-                    status.set_message().step_with_message("CONTRACT OUT");
-                    self.simplex.scale_volume(config.alpha * config.gamma);
-                    return Ok(());
-                }
-                // TODO: else try accepting x_r here?
+            self.replace_worst_sorted(replacement);
+            self.relative_volume = self.relative_volume * config.reflection * config.expansion;
+            "EXPAND"
+        } else if reflected.fx < self.simplex[worst_index - 1].fx {
+            self.replace_worst_sorted(reflected);
+            self.relative_volume = self.relative_volume * config.reflection;
+            "REFLECT"
+        } else {
+            let outside = reflected.fx < worst.fx;
+            let (contraction_target, contraction_value) = if outside {
+                (reflected.x, reflected.fx)
             } else {
-                // Contract inside if h <= x_r
-                let mut xcx = c + (&h.x - c).scale(config.gamma);
-                if let Some(ib) = self.internal_bounds.as_ref() {
-                    xcx = ib.clip_values(&xcx);
+                (worst.x, worst.fx)
+            };
+            let contracted_x =
+                centroid.add_scaled(&contraction_target.sub(&centroid), config.contraction);
+            let contracted = Self::evaluate(&transformed, contracted_x, args, status)?;
+            if contracted.fx < contraction_value {
+                self.replace_worst_sorted(contracted);
+                let factor = if outside {
+                    config.reflection * config.contraction
+                } else {
+                    config.contraction
+                };
+                self.relative_volume = self.relative_volume * factor;
+                if outside {
+                    "CONTRACT OUT"
+                } else {
+                    "CONTRACT IN"
                 }
-                let xc = Point::from(xcx).evaluate_transformed(
-                    problem,
-                    &self.resolved_transform,
-                    args,
-                )?;
-                status.evals.record_f();
-                if &xc < h {
-                    if &xc < s {
-                        // If we are better than the second-worst, we need to sort everything, we
-                        // could technically be anywhere, even in a new best.
-                        let xc_is_new_best = &xc < l;
-                        let xc_fx = xc.fx;
-                        let xc_x = xc_is_new_best
-                            .then(|| self.resolved_transform.to_owned_external(&xc.x));
-                        self.simplex.insert_and_sort(self.simplex.dimension - 1, xc);
-                        if let Some(xc_x) = xc_x {
-                            status.set_position_silent((xc_x, xc_fx));
-                        }
-                    } else {
-                        // Otherwise, we don't even need to update the best position, this was just
-                        // a new worst or equal to second worst.
-                        self.simplex.insert_sorted(self.simplex.dimension - 1, xc);
-                    }
-                    status.set_message().step_with_message("CONTRACT IN");
-                    self.simplex.scale_volume(config.gamma);
-                    return Ok(());
+            } else {
+                let best = self.simplex[0].clone();
+                for index in 1..self.simplex.len() {
+                    let shrunk = best
+                        .x
+                        .add_scaled(&self.simplex[index].x.sub(&best.x), config.shrink);
+                    let replacement = Self::evaluate(&transformed, shrunk, args, status)?;
+                    self.replace_vertex(index, replacement);
                 }
+                self.sort_simplex();
+                self.relative_volume =
+                    self.relative_volume * config.shrink.powi(best.x.len() as i32);
+                "SHRINK"
             }
+        };
+        if self.simplex[0].fx < previous_best_fx {
+            status.set_position(
+                transformed.to_external(&self.simplex[0].x),
+                self.simplex[0].fx,
+            );
+        } else {
+            status.set_message().step();
         }
-        // If no point is accepted, shrink
-        let l_clone = l.clone();
-        for p in self.simplex.points.iter_mut().skip(1) {
-            let mut px = &l_clone.x + (&p.x - &l_clone.x).scale(config.delta);
-            if let Some(ib) = self.internal_bounds.as_ref() {
-                px = ib.clip_values(&px);
-            }
-            *p = Point::from(px).evaluate_transformed(problem, &self.resolved_transform, args)?;
-            status.evals.record_f();
-        }
-        // We must do a fresh sort here, since we don't know the ordering of the shrunken simplex,
-        // things might have moved around a lot!
-        self.simplex.sorted = false;
-        self.simplex.sort();
-        // We also need to recalculate the centroid and figure out if there's a new best position:
-        self.simplex.compute_total_centroid();
-        status.set_position_silent(self.simplex.best_position(&self.resolved_transform));
-        status.set_message().step_with_message("SHRINK");
-        self.simplex
-            .scale_volume(Float::powi(config.delta, self.simplex.dimension as i32 - 1));
+        status.set_message().step_with_message(step_message);
         Ok(())
     }
 
     fn summarize(
         &self,
         _current_step: usize,
-        _func: &P,
-        status: &LegacyGradientFreeStatus,
+        _problem: &P,
+        status: &GradientFreeStatus<T, B>,
         _args: &U,
-        _init: &Self::Init,
+        init: &Self::Init,
         config: &Self::Config,
-    ) -> Result<LegacyMinimizationSummary, E> {
-        Ok(LegacyMinimizationSummary {
-            x0: self.initial_x0.clone(),
-            x: status.x.clone(),
-            fx: status.fx,
-            bounds: config.bounds.clone(),
-            evals: status.evals,
-            message: status.message.clone(),
+    ) -> Result<Self::Summary, E> {
+        let dimension = status.x.len();
+        Ok(MinimizationSummary {
+            bounds: config
+                .transform
+                .as_deref()
+                .and_then(|transform| transform.parameter_bounds())
+                .map(Vec::from),
             parameter_names: config.parameter_names.clone(),
-            std: status
-                .err
-                .clone()
-                .unwrap_or_else(|| DVector::from_element(status.x.len(), 0.0)),
-            covariance: status
-                .cov
-                .clone()
-                .unwrap_or_else(|| DMatrix::identity(status.x.len(), status.x.len())),
+            message: status.message.clone(),
+            x0: init.clone(),
+            x: status.x.clone(),
+            std: crate::core::summary::unknown_uncertainties(dimension),
+            fx: status.fx,
+            evals: status.evals,
+            covariance: Matrix::identity(dimension),
         })
     }
 
-    fn default_callbacks() -> Callbacks<Self, P, LegacyGradientFreeStatus, U, E, Self::Config>
-    where
-        Self: Sized,
-    {
+    fn reset(&mut self) {
+        self.simplex.clear();
+        self.coordinate_sum = Vector::zeros(0);
+        self.initial_best = Vector::zeros(0);
+        self.initial_worst = Vector::zeros(0);
+        self.relative_volume = T::one();
+    }
+
+    fn default_callbacks() -> Callbacks<Self, P, GradientFreeStatus<T, B>, U, E, Self::Config> {
         Callbacks::empty()
             .with_terminator(NelderMeadFTerminator::default())
             .with_terminator(NelderMeadXTerminator::default())
     }
-
-    fn reset(&mut self) {
-        self.simplex = Simplex::default();
-        self.initial_x0 = DVector::default();
-    }
 }
 
-impl<P, U, E> CheckpointableAlgorithm<P, LegacyGradientFreeStatus, U, E> for NelderMead
+impl<T, B, P, U, E> CheckpointableAlgorithm<P, GradientFreeStatus<T, B>, U, E> for NelderMead<T, B>
 where
-    P: LegacyCostFunction<U, E>,
+    T: RealScalar,
+    B: LinearAlgebra<T>,
+    P: CostFunction<T, B, U, E>,
 {
-    type Checkpoint = NelderMeadCheckpoint;
+    type Checkpoint = NelderMeadCheckpoint<T, B>;
 
-    fn checkpoint(&self, status: &LegacyGradientFreeStatus, next_step: usize) -> Self::Checkpoint {
+    fn checkpoint(&self, status: &GradientFreeStatus<T, B>, next_step: usize) -> Self::Checkpoint {
         NelderMeadCheckpoint {
-            simplex: self.simplex.clone(),
-            initial_x0: self.initial_x0.clone(),
+            simplex: self
+                .simplex
+                .iter()
+                .map(|vertex| (vertex.x.clone(), vertex.fx))
+                .collect(),
+            coordinate_sum: self.coordinate_sum.clone(),
+            initial_best: self.initial_best.clone(),
+            initial_worst: self.initial_worst.clone(),
+            relative_volume: self.relative_volume,
             status: status.clone(),
             next_step,
         }
@@ -1132,14 +753,20 @@ where
     fn restore(
         &mut self,
         checkpoint: &Self::Checkpoint,
-        config: &Self::Config,
-    ) -> (LegacyGradientFreeStatus, usize) {
-        let (bounds, transform): (Option<Bounds>, Option<Box<dyn Transform>>) =
-            resolve_bounds_and_transform(&config.bounds, &config.transform, config.bounds_handling);
-        self.internal_bounds = bounds.map(|b| b.apply(&transform));
-        self.resolved_transform = transform;
-        self.simplex = checkpoint.simplex.clone();
-        self.initial_x0 = checkpoint.initial_x0.clone();
+        _config: &Self::Config,
+    ) -> (GradientFreeStatus<T, B>, usize) {
+        self.simplex = checkpoint
+            .simplex
+            .iter()
+            .map(|(x, fx)| Vertex {
+                x: x.clone(),
+                fx: *fx,
+            })
+            .collect();
+        self.coordinate_sum = checkpoint.coordinate_sum.clone();
+        self.initial_best = checkpoint.initial_best.clone();
+        self.initial_worst = checkpoint.initial_worst.clone();
+        self.relative_volume = checkpoint.relative_volume;
         (checkpoint.status.clone(), checkpoint.next_step)
     }
 }
@@ -1147,749 +774,108 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        core::{AtomicCheckpointSignal, CheckpointOnSignal, CheckpointStore, MaxSteps},
-        test_functions::Rosenbrock,
-        traits::{AbortSignal, CheckpointableAlgorithm, Observer},
-    };
-    use approx::assert_relative_eq;
-    use nalgebra::dvector;
-    use std::convert::Infallible;
-
-    #[derive(Clone)]
-    struct TriggerAbortAtStep<Sig> {
-        target_step: usize,
-        signal: Sig,
-    }
-
-    impl<Sig> TriggerAbortAtStep<Sig> {
-        fn new(target_step: usize, signal: Sig) -> Self {
-            Self {
-                target_step,
-                signal,
-            }
-        }
-    }
-
-    impl<P, U, E, Sig> Observer<NelderMead, P, LegacyGradientFreeStatus, U, E, NelderMeadConfig>
-        for TriggerAbortAtStep<Sig>
-    where
-        P: LegacyCostFunction<U, E>,
-        Sig: AbortSignal + Clone,
-    {
-        fn observe(
-            &mut self,
-            current_step: usize,
-            _algorithm: &NelderMead,
-            _problem: &P,
-            _status: &LegacyGradientFreeStatus,
-            _args: &U,
-            _config: &NelderMeadConfig,
-        ) {
-            if current_step == self.target_step {
-                self.signal.abort();
-            }
-        }
-    }
+    use crate::test_functions::Rosenbrock;
+    use crate::traits::Bounds;
 
     #[test]
-    fn test_nelder_mead() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    NelderMeadInit::new(starting_value),
-                    NelderMeadConfig::default(),
-                    NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
-        }
-    }
-
-    #[test]
-    fn nelder_mead_checkpoint_signal_resume_matches_uninterrupted_run() {
-        let problem = Rosenbrock { n: 2 };
-        let init = NelderMeadInit::new([2.0, 2.0]);
-        let config = NelderMeadConfig::default();
-        let uninterrupted = NelderMead::default()
+    fn nelder_mead_runs_with_f32_and_bounds() {
+        let bounds = Bounds::new([(-2.0_f32, 2.0), (-1.0, 3.0)]).unwrap();
+        let config = NelderMeadConfig::<f32>::default().with_transform(bounds);
+        let mut algorithm = NelderMead::<f32>::default();
+        let result = algorithm
             .process(
-                &problem,
+                &Rosenbrock { n: 2 },
                 &(),
-                init.clone(),
-                config.clone(),
-                NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
-            )
-            .unwrap();
-
-        let signal = AtomicCheckpointSignal::new();
-        let store = CheckpointStore::new();
-        let store_sink = store.clone();
-        let checkpointed = NelderMead::default()
-            .process(
-                &problem,
-                &(),
-                init.clone(),
-                config.clone(),
-                NelderMead::default_callbacks()
-                    .with_terminator(MaxSteps(200))
-                    .with_observer(TriggerAbortAtStep::new(4, signal.clone()))
-                    .with_terminator(CheckpointOnSignal::new(signal, move |checkpoint| {
-                        store_sink.save(checkpoint);
-                    })),
-            )
-            .unwrap();
-        assert!(checkpointed
-            .message
-            .text_or_empty()
-            .contains("Checkpoint requested"));
-
-        let checkpoint = store.load().unwrap();
-        let checkpoint_json = serde_json::to_string(&checkpoint).unwrap();
-        let checkpoint: NelderMeadCheckpoint = serde_json::from_str(&checkpoint_json).unwrap();
-        let resumed = NelderMead::default()
-            .process_from_checkpoint(
-                &problem,
-                &(),
-                init,
+                Vector::from_vec(vec![-1.2, 1.0]),
                 config,
-                &checkpoint,
-                NelderMead::default_callbacks().with_terminator(MaxSteps(200)),
-            )
-            .unwrap();
-
-        assert_relative_eq!(
-            resumed.fx,
-            uninterrupted.fx,
-            epsilon = Float::EPSILON.powf(0.2)
-        );
-        assert_relative_eq!(
-            resumed.x[0],
-            uninterrupted.x[0],
-            epsilon = Float::EPSILON.powf(0.2)
-        );
-        assert_relative_eq!(
-            resumed.x[1],
-            uninterrupted.x[1],
-            epsilon = Float::EPSILON.powf(0.2)
-        );
-        assert_eq!(resumed.evals.f(), uninterrupted.evals.f());
-    }
-
-    #[test]
-    fn test_bounded_nelder_mead() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    NelderMeadInit::new(starting_value),
-                    NelderMeadConfig::default().with_bounds([(-4.0, 4.0), (-4.0, 4.0)]),
-                    NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
-        }
-    }
-
-    #[test]
-    fn test_transformed_nelder_mead() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    NelderMeadInit::new(starting_value),
-                    NelderMeadConfig::default()
-                        .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
-                    NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
-        }
-    }
-
-    #[test]
-    fn test_adaptive_nelder_mead() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let starting_values = vec![
-            [-2.0, 2.0],
-            [2.0, 2.0],
-            [2.0, -2.0],
-            [-2.0, -2.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-        ];
-        for starting_value in starting_values {
-            let result = solver
-                .process(
-                    &problem,
-                    &(),
-                    NelderMeadInit::new(starting_value),
-                    NelderMeadConfig::default().with_adaptive(2).unwrap(),
-                    NelderMead::default_callbacks().with_terminator(MaxSteps(1_000_000)),
-                )
-                .unwrap();
-            assert!(result.message.success());
-            assert_relative_eq!(result.fx, 0.0, epsilon = Float::EPSILON.powf(0.2));
-        }
-    }
-
-    fn point(x: &[Float], fx: Float) -> EvaluatedPoint<DVector<Float>> {
-        EvaluatedPoint::new(DVector::from_column_slice(x), fx)
-    }
-
-    #[test]
-    fn test_corrected_centroid() {
-        let pts = vec![
-            point(&[1.0, 2.0], 1.0),
-            point(&[2.0, 3.0], 2.0),
-            point(&[3.0, 4.0], 3.0),
-        ];
-        let simplex = Simplex::new(&pts);
-
-        let expected = (&pts[0].x + &pts[1].x) / 2.0;
-
-        let actual = simplex.corrected_centroid();
-        assert_eq!(actual, expected);
-    }
-    #[test]
-    fn test_insert_sorted() {
-        let mut simplex = Simplex::new(&[
-            point(&[0.0, 0.0], 0.0),
-            point(&[1.0, 1.0], 1.0),
-            point(&[2.0, 2.0], 2.0),
-        ]);
-
-        let original_total = simplex.total_centroid.clone();
-
-        let new_point = point(&[3.0, 3.0], 1.5);
-        simplex.insert_sorted(1, new_point.clone());
-
-        let expected_total = &original_total + (&new_point.x - &point(&[2.0, 2.0], 2.0).x) / 3.0;
-
-        assert_eq!(simplex.total_centroid.clone(), expected_total);
-    }
-    #[test]
-    fn test_insert_and_sort() {
-        let mut simplex = Simplex::new(&[
-            point(&[5.0, 0.0], 5.0),
-            point(&[1.0, 1.0], 1.0),
-            point(&[2.0, 2.0], 2.0),
-        ]);
-
-        let original_total = simplex.total_centroid.clone();
-        let new_point = point(&[0.5, 0.5], 0.2);
-
-        simplex.insert_and_sort(0, new_point.clone());
-
-        let expected_total = &original_total + (&new_point.x - &point(&[5.0, 0.0], 5.0).x) / 3.0;
-
-        assert_eq!(simplex.best(), &new_point);
-        assert_eq!(simplex.total_centroid.clone(), expected_total);
-    }
-
-    #[test]
-    fn terminates_with_f_amoeba() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks =
-            Callbacks::empty().with_terminator(NelderMeadFTerminator::Amoeba { eps_rel: 0.01 });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
+                NelderMead::<f32>::default_callbacks(),
             )
             .unwrap();
         assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_f = AMOEBA"));
+        assert!(result.fx < 24.2);
+        assert!(result.std.to_vec().iter().all(|value| value.is_nan()));
+        assert_eq!(result.bounds.as_ref().map(Vec::len), Some(2));
+        assert!(result.to_string().contains("Bounds"));
     }
 
     #[test]
-    fn terminates_with_f_absolute() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
+    fn adaptive_coefficients_match_gao_han() {
+        let config = NelderMeadConfig::<f64>::default().with_adaptive(2).unwrap();
+        assert_eq!(config.reflection, 1.0);
+        assert_eq!(config.expansion, 2.0);
+        assert_eq!(config.contraction, 0.5);
+        assert_eq!(config.shrink, 0.5);
+    }
 
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::Absolute {
-            eps_abs: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+    #[test]
+    fn coefficient_builders_report_the_specific_invalid_parameter() {
+        let alpha = NelderMeadConfig::<f64>::default()
+            .with_alpha(0.0)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_f = ABSOLUTE"));
-    }
+        assert!(alpha.to_string().contains("alpha"));
 
-    #[test]
-    fn terminates_with_f_stddev() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadFTerminator::StdDev {
-            eps_abs: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+        let beta = NelderMeadConfig::<f64>::default()
+            .with_beta(1.0)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_f = STDDEV"));
-    }
+        assert!(beta.to_string().contains("beta"));
 
-    #[test]
-    fn terminates_with_x_diameter() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Diameter {
-            eps_abs: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+        let ordering = NelderMeadConfig::<f64>::default()
+            .with_alpha_beta(2.0, 1.5)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_x = DIAMETER"));
-    }
+        assert!(ordering.to_string().contains("beta"));
+        assert!(ordering.to_string().contains("alpha"));
 
-    #[test]
-    fn terminates_with_x_higham() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Higham {
-            eps_rel: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+        let gamma = NelderMeadConfig::<f64>::default()
+            .with_gamma(1.0)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_x = HIGHAM"));
-    }
+        assert!(gamma.to_string().contains("gamma"));
 
-    #[test]
-    fn terminates_with_x_rowan() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Rowan {
-            eps_rel: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+        let delta = NelderMeadConfig::<f64>::default()
+            .with_delta(0.0)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_x = ROWAN"));
-    }
+        assert!(delta.to_string().contains("delta"));
 
-    #[test]
-    fn terminates_with_x_singer() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-
-        let cfg = NelderMeadConfig::default();
-
-        let callbacks = Callbacks::empty().with_terminator(NelderMeadXTerminator::Singer {
-            eps_rel: Float::EPSILON.powf(0.25),
-        });
-
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                cfg,
-                callbacks,
-            )
+        let adaptive = NelderMeadConfig::<f64>::default()
+            .with_adaptive(0)
+            .err()
             .unwrap();
-        assert!(result.message.success());
-        assert!(result.message.to_string().contains("term_x = SINGER"));
+        assert!(adaptive.to_string().contains("dimension"));
     }
 
     #[test]
-    fn simplex_total_centroid_matches_mean() {
-        let simplex = Simplex::new(&[
-            point(&[0.0, 0.0], 3.0),
-            point(&[2.0, 0.0], 2.0),
-            point(&[0.0, 2.0], 1.0),
-        ]);
-        let expected =
-            (&point(&[0.0, 0.0], 0.0).x + &point(&[2.0, 0.0], 0.0).x + &point(&[0.0, 2.0], 0.0).x)
-                / 3.0;
-        assert_relative_eq!(simplex.total_centroid, expected);
-    }
-
-    #[test]
-    fn simplex_scale_volume_multiplies() {
-        let mut simplex = Simplex::new(&[
-            point(&[0.0, 0.0], 3.0),
-            point(&[2.0, 0.0], 2.0),
-            point(&[0.0, 2.0], 1.0),
-        ]);
-        let v0 = simplex.volume;
-        simplex.scale_volume(2.5);
-        assert_relative_eq!(simplex.volume, v0 * 2.5);
-    }
-
-    #[test]
-    fn diameter_terminator_uses_best_point_as_reference() {
-        let mut solver = NelderMead {
-            simplex: Simplex::new(&[
-                point(&[1.0, 1.0], 0.0),
-                point(&[0.0, 0.0], 1.0),
-                point(&[2.0, 2.0], 2.0),
-            ]),
-            ..Default::default()
-        };
-        let mut status = LegacyGradientFreeStatus::default();
-
-        let terminated = NelderMeadXTerminator::Diameter { eps_abs: 1.5 }.check_for_termination(
-            0,
-            &mut solver,
-            &Rosenbrock { n: 2 },
-            &mut status,
-            &(),
-            &NelderMeadConfig::default(),
-        );
-
-        assert!(terminated.is_break());
-        assert!(status.message.to_string().contains("term_x = DIAMETER"));
-    }
-
-    #[test]
-    fn higham_terminator_uses_best_point_as_reference() {
-        let mut solver = NelderMead {
-            simplex: Simplex::new(&[
-                point(&[10.0, 10.0], 0.0),
-                point(&[9.5, 10.0], 1.0),
-                point(&[0.0, 0.0], 2.0),
-            ]),
-            ..Default::default()
-        };
-        let mut status = LegacyGradientFreeStatus::default();
-
-        let terminated = NelderMeadXTerminator::Higham { eps_rel: 2.0 }.check_for_termination(
-            0,
-            &mut solver,
-            &Rosenbrock { n: 2 },
-            &mut status,
-            &(),
-            &NelderMeadConfig::default(),
-        );
-
-        assert!(terminated.is_break());
-        assert!(status.message.to_string().contains("term_x = HIGHAM"));
-    }
-
-    #[test]
-    fn shrink_volume_uses_parameter_dimension_exponent() {
-        let mut simplex = Simplex::new(&[
-            point(&[0.0, 0.0], 3.0),
-            point(&[2.0, 0.0], 2.0),
-            point(&[0.0, 2.0], 1.0),
-        ]);
-        let delta = 0.5;
-        let v0 = simplex.volume;
-
-        simplex.scale_volume(Float::powi(delta, simplex.dimension as i32 - 1));
-
-        assert_relative_eq!(simplex.volume, v0 * Float::powi(delta, 2));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Nelder-Mead is only a suitable method for problems of dimension >= 2"
-    )]
-    fn orthogonal_simplex_panics_in_1d() {
-        let method = SimplexConstructionMethod::ScaledOrthogonal {
-            x0: DVector::from_element(1, 1.0),
-            orthogonal_multiplier: 1.05,
-            orthogonal_zero_step: 0.00025,
-        };
-        let problem = Rosenbrock { n: 1 };
-        // x0 has dimension 1 → should panic inside generate
-        let _ = method
-            .generate::<_, Infallible>(&problem, &None, None, &())
+    fn custom_simplex_and_expansion_policy_are_supported() {
+        let names = vec!["x".to_string(), "y".to_string()];
+        let config = NelderMeadConfig::<f64>::default()
+            .with_expansion_method(SimplexExpansionMethod::GreedyExpansion)
+            .with_initial_simplex(vec![
+                Vector::from_vec(vec![-1.2, 1.0]),
+                Vector::from_vec(vec![-1.1, 1.0]),
+                Vector::from_vec(vec![-1.2, 1.1]),
+            ])
             .unwrap();
-    }
-
-    #[test]
-    fn custom_simplex_ignores_x0_and_sorts_by_fx() {
-        let method = SimplexConstructionMethod::Custom {
-            simplex: vec![dvector![2.0, 2.0], dvector![1.0, 1.0], dvector![0.0, 0.0]],
+        let config = NelderMeadConfig {
+            parameter_names: Some(names.clone()),
+            ..config
         };
         let problem = Rosenbrock { n: 2 };
-        let simplex = method
-            .generate::<_, Infallible>(&problem, &None, None, &())
+        let init = Vector::from_vec(vec![-1.2, 1.0]);
+        let mut algorithm: NelderMead = Default::default();
+        let mut status = GradientFreeStatus::default();
+        algorithm
+            .initialize(&problem, &mut status, &(), &init, &config)
             .unwrap();
-
-        // Global min at (1,1) for Rosenbrock
-        assert_relative_eq!(simplex.best().x[0], 1.0);
-        assert_relative_eq!(simplex.best().x[1], 1.0);
-        assert!(simplex.best().fx <= simplex.second_worst().fx);
-        assert!(simplex.second_worst().fx <= simplex.worst().fx);
-    }
-
-    #[test]
-    fn adaptive_parameters_match_gao_han() {
-        // For n=2, ANMS sets: alpha=1, beta=1+2/n=2, gamma=0.75-1/(2n)=0.5, delta=1-1/n=0.5
-        let cfg = NelderMeadConfig::default().with_adaptive(2).unwrap();
-        assert_relative_eq!(cfg.alpha, 1.0);
-        assert_relative_eq!(cfg.beta, 2.0);
-        assert_relative_eq!(cfg.gamma, 0.5);
-        assert_relative_eq!(cfg.delta, 0.5);
-    }
-
-    #[test]
-    fn expansion_and_construction_method_switches_are_accepted() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::custom(vec![
-                    dvector![0.5, -0.5],
-                    dvector![1.5, -0.5],
-                    dvector![0.5, 0.5],
-                ])
-                .unwrap(),
-                NelderMeadConfig::default()
-                    .with_expansion_method(SimplexExpansionMethod::GreedyExpansion),
-                NelderMead::default_callbacks(),
-            )
+        algorithm
+            .step(0, &problem, &mut status, &(), &config)
             .unwrap();
-        assert!(result.message.success());
-    }
-
-    #[test]
-    fn custom_simplex_config_rejects_invalid_shapes() {
-        let err = match NelderMeadInit::custom(Vec::<DVector<Float>>::new()) {
-            Err(err) => err,
-            Ok(_) => panic!("empty custom simplex should be rejected"),
-        };
-        assert!(err.to_string().contains("must not be empty"));
-
-        let err = match NelderMeadInit::custom(vec![
-            dvector![1.0, 2.0],
-            dvector![3.0],
-            dvector![4.0, 5.0],
-        ]) {
-            Err(err) => err,
-            Ok(_) => panic!("mixed-dimension custom simplex should be rejected"),
-        };
-        assert!(err.to_string().contains("same dimension"));
-
-        let err = match NelderMeadInit::custom(vec![dvector![1.0, 2.0], dvector![3.0, 4.0]]) {
-            Err(err) => err,
-            Ok(_) => panic!("wrong-size custom simplex should be rejected"),
-        };
-        assert!(err.to_string().contains("exactly n + 1 points"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_panics_on_nonpositive() {
-        let _ = NelderMeadConfig::default().with_alpha(0.0).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_beta_panics_when_not_gt_one() {
-        let _ = NelderMeadConfig::default().with_beta(1.0).unwrap();
-    }
-
-    #[test]
-    fn with_alpha_beta_sets_values() {
-        let nmc = NelderMeadConfig::default()
-            .with_alpha_beta(1.1, 2.2)
+        let result = algorithm
+            .summarize(1, &problem, &status, &(), &init, &config)
             .unwrap();
-        assert_eq!(nmc.alpha, 1.1);
-        assert_eq!(nmc.beta, 2.2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_alpha_nonpositive() {
-        let _ = NelderMeadConfig::default()
-            .with_alpha_beta(0.0, 2.0)
-            .unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_beta_not_gt_one() {
-        let _ = NelderMeadConfig::default()
-            .with_alpha_beta(0.5, 1.0)
-            .unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_alpha_beta_panics_when_beta_not_gt_alpha() {
-        let _ = NelderMeadConfig::default()
-            .with_alpha_beta(1.6, 1.5)
-            .unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_beta_panics_when_not_gt_alpha() {
-        let _ = NelderMeadConfig::default()
-            .with_alpha(1.5)
-            .unwrap()
-            .with_beta(1.4)
-            .unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_gamma_panics_if_not_in_unit() {
-        // gamma must be in (0,1)
-        let _ = NelderMeadConfig::default().with_gamma(0.0).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn with_delta_panics_if_not_in_unit() {
-        // delta must be in (0,1)
-        let _ = NelderMeadConfig::default().with_delta(1.0).unwrap();
-    }
-
-    #[test]
-    fn check_bounds_and_num_gradient_evals() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([-3.0, 3.0]),
-                NelderMeadConfig::default()
-                    .with_transform(&Bounds::from([(-4.0, 4.0), (-4.0, 4.0)])),
-                NelderMead::default_callbacks().with_terminator(MaxSteps(200_000)),
-            )
-            .unwrap();
-        assert!(result.message.success());
-        assert_eq!(result.evals.g(), 0);
-    }
-
-    #[test]
-    fn summary_reports_simplex_init_evals_and_terminal_message() {
-        let mut solver = NelderMead::default();
-        let problem = Rosenbrock { n: 2 };
-        let result = solver
-            .process(
-                &problem,
-                &(),
-                NelderMeadInit::new([0.5, -0.5]),
-                NelderMeadConfig::default(),
-                Callbacks::empty().with_terminator(MaxSteps(2)),
-            )
-            .unwrap();
-
-        assert!(result.evals.f() >= 3);
-        assert_eq!(result.evals.g(), 0);
-        assert!(result
-            .message
-            .to_string()
-            .contains("Maximum number of steps reached"));
-    }
-
-    #[test]
-    fn transform_bounds_mode_is_selectable_for_nelder_mead() {
-        let config = NelderMeadConfig::default()
-            .with_bounds([(0.0, 1.0), (0.0, 1.0)])
-            .with_bounds_handling(BoundsHandlingMode::TransformBounds);
-
-        assert!(matches!(
-            config.bounds_handling,
-            BoundsHandlingMode::TransformBounds
-        ));
+        assert!(result.evals.f() >= 4);
+        assert_eq!(result.parameter_names, Some(names));
     }
 }

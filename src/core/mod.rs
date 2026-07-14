@@ -2,10 +2,6 @@
 pub mod abort_signals;
 pub use abort_signals::{AtomicAbortSignal, CtrlCAbortSignal};
 
-/// [`Bounds`] and other implementations of [`Transform`](`crate::traits::Transform`)
-pub mod transforms;
-pub use transforms::{Bounds, ScaleTransform};
-
 /// [`Callbacks`] and some other implementors of [`Terminator`](`crate::traits::Terminator`) and [`Observer`](`crate::traits::Observer`).
 pub mod callbacks;
 pub use callbacks::{Callbacks, DebugObserver, MaxSteps, ProgressObserver};
@@ -29,12 +25,12 @@ pub use eval_counts::EvalCounts;
 pub mod scalar;
 pub use scalar::{RandomScalar, RealScalar};
 
-/// Linear algebra backend traits and implementations.
+/// Linear algebra provider traits and implementations.
 pub mod linalg;
 #[cfg(feature = "backend-ndarray")]
-pub use linalg::NdArrayBackend;
+pub use linalg::NdArrayProvider;
 pub use linalg::{
-    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraBackend, PseudoInverse, Scalar,
+    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, Scalar,
     SymmetricEigen, Vector,
 };
 
@@ -44,15 +40,8 @@ pub use point::{EvaluatedPoint, Point};
 
 /// Summary types for the result of the minimization.
 pub mod summary;
-#[doc(hidden)]
-pub use summary::{BackendMCMCSummary, BackendMinimizationSummary};
 pub use summary::{
-    BackendMCMCSummary as MCMCSummary, BackendMinimizationSummary as MinimizationSummary,
-    HasParameterNames, RenderedSummary, SimulatedAnnealingSummary, SummaryExport,
-};
-#[doc(hidden)]
-pub use summary::{
-    MCMCSummary as LegacyMCMCSummary, MinimizationSummary as LegacyMinimizationSummary,
+    HasParameterNames, MCMCSummary, MinimizationSummary, RenderedSummary, SummaryExport,
 };
 
 /// Multistart minimization orchestration helpers.

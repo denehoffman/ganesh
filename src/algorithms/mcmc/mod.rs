@@ -1,37 +1,10 @@
-use crate::{
-    core::{EvaluatedPoint, Point},
-    error::{GaneshError, GaneshResult},
-    traits::{Algorithm, LegacyLogDensity, Terminator},
-    DVector, Float,
-};
+//! Generic ensemble Markov-chain Monte Carlo algorithms.
+
+use crate::core::{LinearAlgebra, RandomScalar};
+use crate::traits::{Algorithm, Terminator};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{ops::ControlFlow, sync::Arc};
-
-/// Affine Invariant MCMC Ensemble Sampler
-pub mod aies;
-pub mod backend_aies;
-#[doc(hidden)]
-pub use aies::{AIESConfig as LegacyAIESConfig, AIESMove, AIES as LegacyAIES};
-pub use backend_aies::{BackendAIES as AIES, BackendAIESConfig as AIESConfig};
-#[doc(hidden)]
-pub use backend_aies::{BackendAIES, BackendAIESConfig, BackendEnsembleStatus};
-
-pub mod backend_ess;
-/// Ensemble Slice Sampler
-pub mod ess;
-#[doc(hidden)]
-pub use backend_ess::{BackendESS, BackendESSConfig};
-pub use backend_ess::{BackendESS as ESS, BackendESSConfig as ESSConfig};
-#[doc(hidden)]
-pub use ess::{ESSConfig as LegacyESSConfig, ESSMove, ESS as LegacyESS};
-
-/// The [`LegacyEnsembleStatus`] which holds information about the ensemble used by a ensemble sampler
-pub mod ensemble_status;
-pub use crate::core::mcmc_diagnostics::integrated_autocorrelation_times;
-pub use backend_aies::BackendEnsembleStatus as EnsembleStatus;
-#[doc(hidden)]
-pub use ensemble_status::EnsembleStatus as LegacyEnsembleStatus;
 
 /// Controls how much MCMC chain history is retained in memory.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -63,318 +36,67 @@ impl ChainStorageMode {
     }
 }
 
-pub(crate) fn validate_weighted_moves(weights: &[Float], family: &str) -> GaneshResult<()> {
-    if weights.is_empty() {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} move weights must not be empty"
-        )));
-    }
-    if weights
-        .iter()
-        .any(|&weight| !weight.is_finite() || weight < 0.0)
-    {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} move weights must be finite and non-negative"
-        )));
-    }
-    let total = weights.iter().sum::<Float>();
-    if !total.is_finite() || total <= 0.0 {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} move weights must sum to a positive finite value"
-        )));
-    }
-    Ok(())
-}
+/// Affine-invariant ensemble sampling.
+pub mod aies;
+pub use aies::{AIESConfig, AIESInit, AIESMove, EnsembleStatus, AIES};
 
-pub(crate) fn validate_walker_inputs(
-    walkers: &[DVector<Float>],
-    family: &str,
-    min_walkers: usize,
-) -> GaneshResult<()> {
-    if walkers.len() < min_walkers {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} requires at least {min_walkers} walkers"
-        )));
-    }
-    let Some(first) = walkers.first() else {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} walker list must not be empty"
-        )));
-    };
-    if first.is_empty() {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} walker dimension must be at least 1"
-        )));
-    }
-    if walkers.iter().any(|walker| walker.len() != first.len()) {
-        return Err(GaneshError::ConfigError(format!(
-            "{family} walkers must all have the same dimension"
-        )));
-    }
-    Ok(())
-}
+/// Ensemble slice sampling.
+pub mod ess;
+pub use ess::{ESSConfig, ESSInit, ESSMove, ESS};
 
-/// A MCMC walker containing a history of past samples
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Walker {
-    initial: Point<DVector<Float>>,
-    current: Option<EvaluatedPoint<DVector<Float>>>,
-    history: Vec<EvaluatedPoint<DVector<Float>>>,
-    chain_storage: ChainStorageMode,
-    current_retained: bool,
-    total_samples_seen: usize,
-}
-impl Walker {
-    /// Create a new [`Walker`] located at `x0`
-    pub fn new(x0: DVector<Float>) -> Self {
-        let initial = Point::from(x0);
-        Self {
-            initial,
-            current: None,
-            history: Vec::new(),
-            chain_storage: ChainStorageMode::Full,
-            current_retained: true,
-            total_samples_seen: 1,
-        }
-    }
-    /// Get the dimension of the [`Walker`] `(n_steps, n_variables)`
-    pub fn dimension(&self) -> (usize, usize) {
-        let n_steps = self.retained_len();
-        let n_variables = self
-            .current
-            .as_ref()
-            .map_or_else(|| self.initial.x.len(), |current| current.x.len());
-        (n_steps, n_variables)
-    }
-    /// Reset the history of the [`Walker`] (except for its starting position)
-    pub fn reset(&mut self) {
-        self.current = None;
-        self.history.clear();
-        self.current_retained = true;
-        self.total_samples_seen = 1;
-        self.enforce_history_limit();
-    }
-    /// Get the most recent (current) [`Walker`]'s position
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the walker has no history.
-    pub fn get_latest(&self) -> &EvaluatedPoint<DVector<Float>> {
-        #[allow(clippy::expect_used)]
-        self.current
-            .as_ref()
-            .expect("Walker latest position requested before evaluation")
-    }
-    /// Get the most recent coordinates, whether or not they have been evaluated.
-    pub fn latest_position(&self) -> &DVector<Float> {
-        self.current
-            .as_ref()
-            .map_or(&self.initial.x, |point| &point.x)
-    }
-    /// Get a mutable reference to the most recent (current) [`Walker`]'s position
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the walker has no history.
-    pub fn get_latest_mut(&mut self) -> Option<&mut EvaluatedPoint<DVector<Float>>> {
-        self.current.as_mut()
-    }
-    pub(crate) const fn latest_evaluated(&self) -> Option<&EvaluatedPoint<DVector<Float>>> {
-        self.current.as_ref()
-    }
-    /// Evaluate the most recent position of the [`Walker`]
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err(E)` if the evaluation fails. See [`LegacyCostFunction::evaluate`](`crate::traits::LegacyCostFunction::evaluate`) for more information.
-    pub fn log_density_latest<U, E>(
-        &mut self,
-        func: &dyn LegacyLogDensity<U, E>,
-        args: &U,
-    ) -> Result<(), E> {
-        let current = self
-            .current
-            .take()
-            .map_or_else(|| self.initial.clone(), |current| Point::new(current.x));
-        let evaluated = current.log_density(func, args)?;
-        self.current = Some(evaluated.clone());
-        if self.history.is_empty() {
-            self.history.push(evaluated);
-        }
-        Ok(())
-    }
-    /// Add a new position to the [`Walker`]'s history
-    pub fn push(&mut self, position: EvaluatedPoint<DVector<Float>>) {
-        self.total_samples_seen += 1;
-        self.current = Some(position);
-        self.current_retained = self.should_retain_current();
-        if self.current_retained {
-            if let Some(current) = &self.current {
-                self.history.push(current.clone());
-            }
-        }
-        self.enforce_history_limit();
-    }
+pub use crate::core::mcmc_diagnostics::integrated_autocorrelation_times;
 
-    pub(crate) fn set_chain_storage(&mut self, chain_storage: ChainStorageMode) {
-        self.chain_storage = chain_storage;
-        self.rebuild_retained_history();
-        self.enforce_history_limit();
-    }
-
-    pub(crate) fn retained_positions(&self) -> Vec<&EvaluatedPoint<DVector<Float>>> {
-        if self.current_retained {
-            self.history.iter().collect()
-        } else {
-            let mut positions = self.history.iter().collect::<Vec<_>>();
-            if let Some(current) = &self.current {
-                positions.push(current);
-            }
-            positions
-        }
-    }
-
-    fn retained_len(&self) -> usize {
-        self.history.len() + usize::from(!self.current_retained)
-    }
-
-    const fn should_retain_current(&self) -> bool {
-        match self.chain_storage {
-            ChainStorageMode::Full | ChainStorageMode::Rolling { .. } => true,
-            ChainStorageMode::Sampled { keep_every, .. } => {
-                keep_every == 0 || (self.total_samples_seen - 1) % keep_every == 0
-            }
-        }
-    }
-
-    fn rebuild_retained_history(&mut self) {
-        self.history.clear();
-        if let Some(current) = &self.current {
-            self.current_retained = self.should_retain_current();
-            if self.current_retained {
-                self.history.push(current.clone());
-            }
-            return;
-        }
-        self.current_retained = false;
-    }
-
-    fn enforce_history_limit(&mut self) {
-        if let Some(limit) = self.chain_storage.history_limit() {
-            if self.history.len() > limit {
-                let excess = self.history.len() - limit;
-                self.history.drain(0..excess);
-            }
-        }
-    }
-}
-
-/// An obsever which can check the integrated autocorrelation time of the ensemble and
-/// terminate if convergence conditions are met
-///
-/// After getting the IAT for each parameter, the mean value is taken and multiplied by
-/// `n_taus_threshold` and compared to the current step. If the ensemble has passed the required
-/// number of steps and the change in the mean IAT is less than the given `dtau_threshold`, the
-/// observer terminates the sampler (if `terminate` is `true`).
-///
-/// # Usage:
-///
-/// ```rust
-/// use fastrand::Rng;
-/// use ganesh::algorithms::mcmc::AutocorrelationTerminator;
-/// use ganesh::algorithms::mcmc::{ess::ESSInit, ESSMove, LegacyESS, LegacyESSConfig};
-/// use ganesh::test_functions::Rosenbrock;
-/// use ganesh::{core::{utils::SampleFloat, Callbacks}, Float, DVector};
-/// use ganesh::traits::*;
-/// use approx::assert_relative_eq;
-///
-/// let problem = Rosenbrock { n: 2 };
-/// let mut rng = Rng::new();
-/// // Use a seed that will converge in a reasonable amount of time
-/// rng.seed(0);
-/// let x0: Vec<DVector<Float>> = (0..5)
-///     .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
-///     .collect();
-/// let aco = AutocorrelationTerminator::default()
-///     .with_n_check(20)
-///     .with_verbose(true)
-///     .build();
-/// let mut sampler = LegacyESS::new(Some(1));
-/// let init = ESSInit::new(x0.clone()).unwrap();
-/// let config = LegacyESSConfig::default()
-///     .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
-///     .unwrap();
-/// let result = sampler
-///     .process(
-///         &problem,
-///         &(),
-///         init,
-///         config,
-///         Callbacks::empty().with_terminator(aco.clone()),
-///     )
-///     .unwrap();
-///
-/// println!(
-///     "Walker 0 Final Position: {}",
-///     result.chain[0].last().unwrap()
-/// );
-/// println!(
-///     "Autocorrelation Time at Termination: {}",
-///     aco.lock().taus.last().unwrap()
-/// )
-/// ```
+/// Periodically checks ensemble integrated autocorrelation times and optionally terminates.
 #[derive(Clone)]
 pub struct AutocorrelationTerminator {
     n_check: usize,
     n_taus_threshold: usize,
-    dtau_threshold: Float,
-    discard: Float,
+    dtau_threshold: f64,
+    discard: f64,
     terminate: bool,
-    c: Option<Float>,
+    c: Option<f64>,
     verbose: bool,
-    /// A list of recorded mean IAT values
-    pub taus: Vec<Float>,
+    /// Recorded mean integrated autocorrelation times.
+    pub taus: Vec<f64>,
 }
 
 impl AutocorrelationTerminator {
-    /// Set how often (in number of steps) to check this observer (default: `50`)
+    /// Set the number of steps between checks.
     pub const fn with_n_check(mut self, n_check: usize) -> Self {
         self.n_check = n_check;
         self
     }
-    /// Set the number of mean integrated autocorrelation times needed to terminate (default: `50`)
-    pub const fn with_n_taus_threshold(mut self, n_taus_threshold: usize) -> Self {
-        self.n_taus_threshold = n_taus_threshold;
+    /// Set the minimum number of autocorrelation times required.
+    pub const fn with_n_taus_threshold(mut self, value: usize) -> Self {
+        self.n_taus_threshold = value;
         self
     }
-    /// Set the threshold for the absolute change in integrated autocorrelation time Δτ/τ (default: `0.01`)
-    pub const fn with_dtau_threshold(mut self, dtau_threshold: Float) -> Self {
-        self.dtau_threshold = dtau_threshold;
+    /// Set the relative autocorrelation-time stability threshold.
+    pub const fn with_dtau_threshold(mut self, value: f64) -> Self {
+        self.dtau_threshold = value;
         self
     }
-    /// Set the fraction of steps to discard from the beginning of the chain (default: `0.5`)
-    pub const fn with_discard(mut self, discard: Float) -> Self {
-        self.discard = discard;
+    /// Set the fraction of initial samples discarded for the check.
+    pub const fn with_discard(mut self, value: f64) -> Self {
+        self.discard = value;
         self
     }
-    /// Set to `false` to forego termination even if the chains converge (default: `true`)
-    pub const fn with_terminate(mut self, terminate: bool) -> Self {
-        self.terminate = terminate;
+    /// Select whether convergence terminates the run.
+    pub const fn with_terminate(mut self, value: bool) -> Self {
+        self.terminate = value;
         self
     }
-    /// Set the integrated autocorrelation time window size[^Sokal] (default: `7.0`)
-    /// [^Sokal]: Sokal, A. (1997). Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms. In C. DeWitt-Morette, P. Cartier, & A. Folacci (Eds.), Functional Integration: Basics and Applications (pp. 131–192). doi:10.1007/978-1-4899-0319-8_6
-    pub const fn with_sokal_window(mut self, c: Float) -> Self {
-        self.c = Some(c);
+    /// Set Sokal's autocorrelation window parameter.
+    pub const fn with_sokal_window(mut self, value: f64) -> Self {
+        self.c = Some(value);
         self
     }
-    /// Set to `true` to print out details at each check (default: `false`)
-    pub const fn with_verbose(mut self, verbose: bool) -> Self {
-        self.verbose = verbose;
+    /// Select verbose diagnostic output.
+    pub const fn with_verbose(mut self, value: bool) -> Self {
+        self.verbose = value;
         self
     }
-
-    /// Wrap the observer in an [`Arc<Mutex<_>>`].
+    /// Wrap the terminator for shared inspection after a run.
     pub fn build(self) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(self))
     }
@@ -390,107 +112,74 @@ impl Default for AutocorrelationTerminator {
             terminate: true,
             c: None,
             verbose: false,
-            taus: Vec::default(),
+            taus: Vec::new(),
         }
     }
 }
 
-impl<A, P, U, E, C> Terminator<A, P, LegacyEnsembleStatus, U, E, C> for AutocorrelationTerminator
+impl<T, B, A, P, U, E, C> Terminator<A, P, EnsembleStatus<T, B>, U, E, C>
+    for AutocorrelationTerminator
 where
-    A: Algorithm<P, LegacyEnsembleStatus, U, E, Config = C>,
+    T: RandomScalar,
+    B: LinearAlgebra<T>,
+    A: Algorithm<P, EnsembleStatus<T, B>, U, E, Config = C>,
 {
     fn check_for_termination(
         &mut self,
         current_step: usize,
         _algorithm: &mut A,
         _problem: &P,
-        status: &mut LegacyEnsembleStatus,
+        status: &mut EnsembleStatus<T, B>,
         _args: &U,
         _config: &C,
     ) -> ControlFlow<()> {
-        if current_step % self.n_check == 0 {
-            let taus = status.get_integrated_autocorrelation_times(
-                self.c,
-                Some((current_step as Float * self.discard) as usize),
-                None,
-            );
-            let tau = taus.mean();
-            let enough_steps = tau * (self.n_taus_threshold as Float) < current_step as Float;
-            let (dtau, dtau_met) = if !self.taus.is_empty() {
-                let dtau = Float::abs(self.taus.last().unwrap_or(&0.0) - tau) / tau;
-                (dtau, dtau < self.dtau_threshold)
-            } else {
-                (Float::NAN, false)
-            };
-            let converged = enough_steps && dtau_met;
-            if self.verbose {
-                println!("Integrated Autocorrelation Analysis:");
-                println!("τ = \n{}", taus);
-                println!(
-                    "Minimum steps to converge = {}",
-                    (tau * (self.n_taus_threshold as Float)) as usize
-                );
-                println!("Steps completed = {}", current_step);
-                println!("Δτ/τ = {} (converges if < {})", dtau, self.dtau_threshold);
-                println!("Converged: {}\n", converged);
-            }
-            self.taus.push(tau);
-            if converged && self.terminate {
-                return ControlFlow::Break(());
-            }
+        if current_step % self.n_check != 0 || status.chain.is_empty() {
+            return ControlFlow::Continue(());
         }
-        ControlFlow::Continue(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        core::{utils::SampleFloat, Callbacks},
-        test_functions::Rosenbrock,
-        DVector,
-    };
-    use fastrand::Rng;
-
-    #[test]
-    fn test_autocorrelation_terminator() {
-        let problem = Rosenbrock { n: 2 };
-        let mut rng = Rng::new();
-        rng.seed(0);
-        let x0: Vec<DVector<Float>> = (0..5)
-            .map(|_| DVector::from_fn(2, |_, _| rng.normal(1.0, 4.0)))
-            .collect();
-        let aco = AutocorrelationTerminator::default()
-            .with_n_check(20)
-            .with_discard(0.55)
-            .with_sokal_window(7.1)
-            .with_terminate(true)
-            .with_dtau_threshold(0.05)
-            .with_n_taus_threshold(51)
-            .with_verbose(false)
-            .build();
-        let mut sampler = LegacyESS::new(Some(1));
-        let init = crate::algorithms::mcmc::ess::ESSInit::new(x0).unwrap();
-        let config = LegacyESSConfig::default()
-            .with_moves([ESSMove::gaussian(0.1), ESSMove::differential(0.9)])
-            .unwrap();
-        let result = sampler
-            .process(
-                &problem,
-                &(),
-                init,
-                config,
-                Callbacks::empty().with_terminator(aco.clone()),
-            )
-            .unwrap();
-        println!(
-            "Walker 0 Final Position: {}",
-            result.chain[0].last().unwrap()
-        );
-        println!(
-            "Autocorrelation Time at Termination: {}",
-            aco.lock().taus.last().unwrap()
-        )
+        let discard = (current_step as f64 * self.discard) as usize;
+        let samples = status
+            .chain
+            .iter()
+            .map(|chain| {
+                chain
+                    .iter()
+                    .skip(discard.min(chain.len()))
+                    .filter_map(|sample| {
+                        let values = (0..sample.len())
+                            .map(|index| sample.get(index).to_f64())
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(nalgebra::DVector::from_vec(values))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if samples.iter().any(Vec::is_empty) {
+            return ControlFlow::Continue(());
+        }
+        let taus = integrated_autocorrelation_times(samples, self.c);
+        let tau = taus.iter().sum::<f64>() / taus.len() as f64;
+        let enough_steps = tau * (self.n_taus_threshold as f64) < current_step as f64;
+        let dtau = self
+            .taus
+            .last()
+            .map_or(f64::NAN, |previous| (previous - tau).abs() / tau);
+        let converged = enough_steps && dtau < self.dtau_threshold;
+        if self.verbose {
+            println!("Integrated Autocorrelation Analysis:");
+            println!("τ = \n{taus}");
+            println!(
+                "Minimum steps to converge = {}",
+                (tau * self.n_taus_threshold as f64) as usize
+            );
+            println!("Steps completed = {current_step}");
+            println!("Δτ/τ = {dtau} (converges if < {})", self.dtau_threshold);
+            println!("Converged: {converged}\n");
+        }
+        self.taus.push(tau);
+        if converged && self.terminate {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
     }
 }

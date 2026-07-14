@@ -1,111 +1,17 @@
-use crate::core::{EvalCounts, LinearAlgebra, NalgebraBackend, RealScalar, Vector};
-use crate::traits::{BackendLineSearch, BackendLineSearchOutput, Gradient};
-use crate::{
-    algorithms::gradient::LegacyGradientStatus,
-    core::Bounds,
-    error::{GaneshError, GaneshResult},
-    traits::{LegacyGradient, LegacyLineSearch, LegacyLineSearchOutput},
-    DVector, Float,
-};
+use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
+use crate::error::{GaneshError, GaneshResult};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput};
 use std::marker::PhantomData;
 
-/// A minimal line search algorithm which satisfies the Armijo condition. This is equivalent to
-/// Algorithm 3.1 from Nocedal and Wright's book "Numerical Optimization"[^1] (page 37).
-///
-/// [^1]: [Numerical Optimization. Springer New York, 2006. doi: 10.1007/978-0-387-40065-5.](https://doi.org/10.1007/978-0-387-40065-5)
-#[derive(Clone)]
-pub struct BacktrackingLineSearch {
-    rho: Float,
-    c: Float,
-}
-impl Default for BacktrackingLineSearch {
-    fn default() -> Self {
-        Self { rho: 0.5, c: 1e-4 }
-    }
-}
-impl BacktrackingLineSearch {
-    /// Set the backtracking factor $`\rho`$ (default = `0.5`).
-    ///
-    /// On each unsuccessful Armijo check, the step is scaled by $`\rho`$.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `rho` is not in the interval `(0, 1)`.
-    pub fn with_rho(mut self, rho: Float) -> GaneshResult<Self> {
-        if !(0.0 < rho && rho < 1.0) {
-            return Err(GaneshError::ConfigError(
-                "BacktrackingLineSearch requires 0 < rho < 1".to_string(),
-            ));
-        }
-        self.rho = rho;
-        Ok(self)
-    }
-
-    /// Set the Armijo parameter $`c`$ (default = `1e-4`).
-    ///
-    /// The Armijo condition is $`\phi(\alpha) \le \phi(0) + c\,\alpha\,\phi'(0)`$.
-    ///
-    /// # Errors
-    ///
-    /// Returns a configuration error if `c` is not in the interval `(0, 1)`.
-    pub fn with_c(mut self, c: Float) -> GaneshResult<Self> {
-        if !(0.0 < c && c < 1.0) {
-            return Err(GaneshError::ConfigError(
-                "BacktrackingLineSearch requires 0 < c < 1".to_string(),
-            ));
-        }
-        self.c = c;
-        Ok(self)
-    }
-}
-
-impl<U, E> LegacyLineSearch<LegacyGradientStatus, U, E> for BacktrackingLineSearch {
-    fn search(
-        &mut self,
-        x: &DVector<Float>,
-        p: &DVector<Float>,
-        max_step: Option<Float>,
-        problem: &dyn LegacyGradient<U, E>,
-        _bounds: Option<&Bounds>,
-        args: &U,
-        status: &mut LegacyGradientStatus,
-    ) -> Result<Result<LegacyLineSearchOutput, LegacyLineSearchOutput>, E> {
-        let mut alpha_i = max_step.map_or(1.0, |max_alpha| max_alpha);
-        let phi = |alpha: Float, args: &U, st: &mut LegacyGradientStatus| -> Result<Float, E> {
-            st.evals.record_f();
-            problem.evaluate(&(x + p.scale(alpha)), args)
-        };
-        status.evals.record_fg();
-        let (phi_0, g_0) = problem.evaluate_with_gradient(x, args)?;
-        let mut phi_alpha_i = phi(alpha_i, args, status)?;
-        let dphi_0 = g_0.dot(p);
-        loop {
-            let armijo = phi_alpha_i <= (self.c * alpha_i).mul_add(dphi_0, phi_0);
-            if armijo {
-                status.evals.record_g();
-                let g_alpha_i = problem.gradient(&(x + p.scale(alpha_i)), args)?;
-                return Ok(Ok(LegacyLineSearchOutput {
-                    alpha: alpha_i,
-                    fx: phi_alpha_i,
-                    g: g_alpha_i,
-                }));
-            }
-            alpha_i *= self.rho;
-            phi_alpha_i = phi(alpha_i, args, status)?;
-        }
-    }
-}
-
-/// Scalar- and backend-generic Armijo backtracking line search.
+/// Scalar- and linear-algebra-generic Armijo backtracking line search.
 #[derive(Clone, Debug)]
-pub struct BackendBacktrackingLineSearch<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraBackend>
-{
+pub struct BacktrackingLineSearch<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     rho: T,
     c: T,
-    _backend: PhantomData<B>,
+    _provider: PhantomData<B>,
 }
 
-impl<T, B> Default for BackendBacktrackingLineSearch<T, B>
+impl<T, B> Default for BacktrackingLineSearch<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -114,12 +20,12 @@ where
         Self {
             rho: T::literal(0.5),
             c: T::literal(1e-4),
-            _backend: PhantomData,
+            _provider: PhantomData,
         }
     }
 }
 
-impl<T, B> BackendBacktrackingLineSearch<T, B>
+impl<T, B> BacktrackingLineSearch<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -153,7 +59,7 @@ where
     }
 }
 
-impl<T, B, P, U, E> BackendLineSearch<T, B, P, U, E> for BackendBacktrackingLineSearch<T, B>
+impl<T, B, P, U, E> LineSearch<T, B, P, U, E> for BacktrackingLineSearch<T, B>
 where
     T: RealScalar,
     B: LinearAlgebra<T>,
@@ -167,7 +73,7 @@ where
         problem: &P,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<Result<BackendLineSearchOutput<T, B>, BackendLineSearchOutput<T, B>>, E> {
+    ) -> Result<Result<LineSearchOutput<T, B>, LineSearchOutput<T, B>>, E> {
         let mut alpha = max_step.unwrap_or_else(T::one);
         let (fx, gradient) = problem.evaluate_with_gradient(x, args)?;
         evals.record_fg();
@@ -179,7 +85,7 @@ where
             if trial_fx <= fx + self.c * alpha * directional_derivative {
                 let trial_gradient = problem.gradient(&trial, args)?;
                 evals.record_g();
-                return Ok(Ok(BackendLineSearchOutput {
+                return Ok(Ok(LineSearchOutput {
                     alpha,
                     fx: trial_fx,
                     gradient: trial_gradient,
@@ -187,7 +93,7 @@ where
             }
             alpha = alpha * self.rho;
             if alpha <= T::epsilon() {
-                return Ok(Err(BackendLineSearchOutput {
+                return Ok(Err(LineSearchOutput {
                     alpha: T::zero(),
                     fx,
                     gradient,
@@ -203,34 +109,46 @@ mod tests {
 
     #[test]
     fn with_rho_sets_value() {
-        let ls = BacktrackingLineSearch::default().with_rho(0.7).unwrap();
+        let ls = BacktrackingLineSearch::<f64>::default()
+            .with_rho(0.7)
+            .unwrap();
         assert_eq!(ls.rho, 0.7);
     }
 
     #[test]
     fn with_c_sets_value() {
-        let ls = BacktrackingLineSearch::default().with_c(1e-3).unwrap();
+        let ls = BacktrackingLineSearch::<f64>::default()
+            .with_c(1e-3)
+            .unwrap();
         assert_eq!(ls.c, 1e-3);
     }
 
     #[test]
     fn with_rho_errors_when_out_of_range_low() {
-        assert!(BacktrackingLineSearch::default().with_rho(0.0).is_err());
+        assert!(BacktrackingLineSearch::<f64>::default()
+            .with_rho(0.0)
+            .is_err());
     }
 
     #[test]
     fn with_rho_errors_when_out_of_range_high() {
-        assert!(BacktrackingLineSearch::default().with_rho(1.0).is_err());
+        assert!(BacktrackingLineSearch::<f64>::default()
+            .with_rho(1.0)
+            .is_err());
     }
 
     #[test]
     fn with_c_errors_when_out_of_range_low() {
-        assert!(BacktrackingLineSearch::default().with_c(0.0).is_err());
+        assert!(BacktrackingLineSearch::<f64>::default()
+            .with_c(0.0)
+            .is_err());
     }
 
     #[test]
     fn with_c_errors_when_out_of_range_high() {
-        assert!(BacktrackingLineSearch::default().with_c(1.0).is_err());
+        assert!(BacktrackingLineSearch::<f64>::default()
+            .with_c(1.0)
+            .is_err());
     }
 
     struct Quadratic;
@@ -260,8 +178,8 @@ mod tests {
     }
 
     #[test]
-    fn backend_backtracking_supports_f32() {
-        let mut search = BackendBacktrackingLineSearch::<f32>::default();
+    fn provider_backtracking_supports_f32() {
+        let mut search = BacktrackingLineSearch::<f32>::default();
         let x = Vector::from_vec(vec![2.0, -1.0]);
         let direction = x.scale(-2.0);
         let mut evals = EvalCounts::default();

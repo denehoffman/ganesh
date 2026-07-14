@@ -26,9 +26,7 @@
     <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fcodspeed.io%2Fbadge.json&style=for-the-badge" alt="CodSpeed"/></a>
 </p>
 
-<!-- cargo-rdme start -->
-
-`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides several common minimization algorithms as well as a straightforward, trait-based interface to create your own extensions. This crate is intended to be as simple as possible. For most minimization problems user needs to implement the [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.CostFunction.html) trait on some struct which will take a vector of parameters and return a single-valued `Result` ($`f(\mathbb{R}^n) \to \mathbb{R}`$). Some algorithms require a gradient which can be implemented via the [`Gradient`](https://docs.rs/ganesh/latest/ganesh/traits/cost_function/trait.Gradient.html) trait. While users may provide an analytic gradient function to speed up some algorithms, this trait comes with a default central finite-difference implementation so that all algorithms will work out of the box as long as the cost function is well-defined.
+`ganesh` (/ɡəˈneɪʃ/), named after the Hindu god of wisdom, provides minimization and sampling algorithms through scalar- and linear-algebra-generic Rust interfaces. Most users implement [`CostFunction`](https://docs.rs/ganesh/latest/ganesh/traits/trait.CostFunction.html), optionally implement [`Gradient`](https://docs.rs/ganesh/latest/ganesh/traits/trait.Gradient.html), and run an algorithm. Default finite differences keep analytic derivatives optional.
 
 # Table of Contents
 - [Key Features](#key-features)
@@ -44,11 +42,16 @@
 * Traits which make developing future algorithms simple and consistent.
 * A simple interface that lets new users get started quickly.
 * A pure Rust implementation of the [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html) algorithm.
-* Scalar- and backend-generic Rust APIs with `f64`/nalgebra defaults, native `f32`, and optional
+* Scalar- and linear-algebra-generic Rust APIs with `f64`/nalgebra defaults, native `f32`, and optional
   ndarray support.
 
 Rust precision is selected through type parameters, so `f32` and `f64` can coexist without feature
-switching. Python bindings intentionally remain NumPy `float64`-facing.
+switching. The crate is entirely Python-agnostic; downstream bindings own their Python types and
+translate them to ordinary ganesh Rust values.
+
+The `backend-ndarray` feature deliberately does not choose an `ndarray-linalg` LAPACK source.
+Applications using it should depend on `ndarray-linalg` directly and enable exactly one of its
+source features before linking an executable that uses those operations.
 
 ## Quick Start
 
@@ -79,14 +82,13 @@ To minimize this function, we could consider using the Nelder-Mead algorithm:
 ```rust
 use ganesh::algorithms::gradient_free::NelderMead;
 use ganesh::traits::*;
-use ganesh::{Vector, test_functions::Rosenbrock};
+use ganesh::test_functions::Rosenbrock;
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
-    let mut nm = NelderMead::<f64>::default();
-    let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
-    let result = nm.process_default(&problem, &(), init)?;
+    let mut nm: NelderMead = Default::default();
+    let result = nm.process_default(&problem, &(), [2.0, 2.0])?;
     println!("{}", result);
     Ok(())
 }
@@ -96,18 +98,17 @@ We could also use some more verbose syntax if we wanted additional customization
 ```rust
 use ganesh::algorithms::gradient_free::{NelderMead, NelderMeadConfig};
 use ganesh::traits::*;
-use ganesh::{Vector, test_functions::Rosenbrock};
+use ganesh::test_functions::Rosenbrock;
 use std::convert::Infallible;
 
 fn main() -> Result<(), Infallible> {
     let problem = Rosenbrock { n: 2 };
-    let mut nm = NelderMead::<f64>::default();
-    let init = Vector::<f64>::from_vec(vec![2.0, 2.0]);
-    let config = NelderMeadConfig::<f64>::default();
+    let mut nm: NelderMead = Default::default();
+    let config = NelderMeadConfig::default();
     let result = nm.process(
         &problem,
         &(),
-        init,
+        vec![2.0, 2.0],
         config,
         NelderMead::default_callbacks(),
     )?;
@@ -116,28 +117,23 @@ fn main() -> Result<(), Infallible> {
 }
 ```
 
-This should output
+The same program is available as `cargo run --example readme`. It outputs
 ```shell
-╭──────────────────────────────────────────────────────────────────╮
-│                                                                  │
-│                           FIT RESULTS                            │
-│                                                                  │
-├───────────┬───────────────────┬────────────────┬─────────────────┤
-│ Status    │ f(x)              │ #f(x)          │ #∇f(x)          │
-├───────────┼───────────────────┼────────────────┼─────────────────┤
-│ Converged │ 0.00023           │ 76             │ 0               │
-├───────────┼───────────────────┴────────────────┴─────────────────┤
-│           │                                                      │
-│ Message   │ term_f = STDDEV                                      │
-│           │                                                      │
-├───────────┴─────────────────────────────┬────────────┬───────────┤
-│ Parameter                               │ Bound      │ At Limit? │
-├───────────┬─────────┬─────────┬─────────┼──────┬─────┼───────────┤
-│           │ =       │ σ       │ 0       │ -    │ +   │           │
-├───────────┼─────────┼─────────┼─────────┼──────┼─────┼───────────┤
-│ x_0       │ 1.00081 │ 0.84615 │ 2.00000 │ -inf │ inf │ No        │
-│ x_1       │ 1.00313 │ 1.69515 │ 2.00000 │ -inf │ inf │ No        │
-╰───────────┴─────────┴─────────┴─────────┴──────┴─────┴───────────╯
+╭─────────────────────────────────────────────────────────────╮
+│                    MINIMIZATION SUMMARY                     │
+├───────────┬─────────┬─────────────┬─────────┬───────────────┤
+│ Status    │ f(x)    │ # f(x)      │ # ∇f(x) │ # H(x)        │
+├───────────┼─────────┼─────────────┼─────────┼───────────────┤
+│ Converged │ 0.00009 │ 80          │ 0       │ 0             │
+├───────────┼─────────┴─────────────┴─────────┴───────────────┤
+│ Message   │ Success: term_f = STDDEV                        │
+├───────────┴─────────────────────────────────┬───────────────┤
+│ Parameters                                  │ Bounds        │
+├───────────┬─────────┬─────────────┬─────────┼───────┬───────┤
+│ Name      │ Value   │ Uncertainty │ Initial │ Lower │ Upper │
+│ x_0       │ 1.00410 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+│ x_1       │ 1.00909 │ NaN         │ 2.00000 │ −∞    │ ∞     │
+╰───────────┴─────────┴─────────────┴─────────┴───────┴───────╯
 ```
 
 The `ganesh` crate uses algorithm methods such as `Algorithm::process`,
@@ -169,13 +165,16 @@ All algorithms are written in pure Rust, including [`L-BFGS-B`](https://docs.rs/
 
 ## Examples
 
-More examples can be found in the `examples` directory of this project. They all contain a
-`.justfile` which allows the whole example to be run with the command, [`just`](https://github.com/casey/just).
-To just run the Rust-side code and skip the Python visualization, any of the examples can be run with
+The `examples` directory contains a compact generic numeric example and four polished showcase
+examples for optimization, fitting, and ensemble sampling. Run any Rust example directly:
 
 ```shell
-cargo r -r --example <example_name>
+cargo run --release --example pso
 ```
+
+Each showcase directory also contains a `.justfile`. For example,
+`just --justfile examples/pso/.justfile show` runs the Rust code and renders the visualization with
+a standalone `uv` script whose Python dependencies are pinned inline.
 
 ## Bounds
 All [`Algorithm`](https://docs.rs/ganesh/latest/ganesh/traits/algorithm/trait.Algorithm.html)s in `ganesh` can be constructed to have access to a feature which allows algorithms which usually function in unbounded parameter spaces to only return results inside a bounding box. This is done via a parameter transformation, similar to that used by [`LMFIT`](https://lmfit.github.io/lmfit-py/) and [`MINUIT`](https://root.cern.ch/doc/master/classTMinuit.html). This transform is not directly useful with algorithms which already have bounded implementations, like [`L-BFGS-B`](https://docs.rs/ganesh/latest/ganesh/algorithms/gradient/lbfgsb/struct.LBFGSB.html), but it can be combined with other transformations which may be useful to algorithms with bounds. While the user inputs parameters within the bounds, unbounded algorithms can (and in practice will) convert those values to a set of unbounded "internal" parameters. When functions are called, however, these internal parameters are converted back into bounded "external" parameters, via the following transformations:
@@ -260,5 +259,3 @@ While this project does not currently have an associated paper, most of the algo
   pages = {65–80}
 }
 ```
-
-<!-- cargo-rdme end -->

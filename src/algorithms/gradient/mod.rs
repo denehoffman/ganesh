@@ -1,52 +1,27 @@
-pub mod backend_lbfgsb;
-/// Implementation of the L-BFGS-B algorithm.
+/// L-BFGS-B minimization.
 pub mod lbfgsb;
-#[doc(hidden)]
-pub use backend_lbfgsb::{BackendLBFGSB, BackendLBFGSBConfig};
-pub use backend_lbfgsb::{BackendLBFGSB as LBFGSB, BackendLBFGSBConfig as LBFGSBConfig};
-#[doc(hidden)]
-pub use lbfgsb::{LBFGSBConfig as LegacyLBFGSBConfig, LBFGSB as LegacyLBFGSB};
+pub use lbfgsb::{
+    LBFGSBCheckpoint, LBFGSBConfig, LBFGSBErrorMode, LBFGSBFTerminator, LBFGSBGTerminator,
+    LBFGSBInfNormGTerminator, LBFGSB,
+};
 
-/// Implementation of the Adam algorithm.
+/// Adam minimization.
 pub mod adam;
-#[doc(hidden)]
-pub use adam::{Adam as LegacyAdam, AdamConfig as LegacyAdamConfig};
-#[doc(hidden)]
-pub use adam::{BackendAdam, BackendAdamConfig};
-pub use adam::{BackendAdam as Adam, BackendAdamConfig as AdamConfig};
+pub use adam::{Adam, AdamConfig, AdamEMATerminator};
 
-/// Implementation of the nonlinear conjugate-gradient algorithm.
+/// Nonlinear conjugate-gradient minimization.
 pub mod conjugate_gradient;
-#[doc(hidden)]
-pub use conjugate_gradient::{BackendConjugateGradient, BackendConjugateGradientConfig};
 pub use conjugate_gradient::{
-    BackendConjugateGradient as ConjugateGradient,
-    BackendConjugateGradientConfig as ConjugateGradientConfig, ConjugateGradientUpdate,
-};
-#[doc(hidden)]
-pub use conjugate_gradient::{
-    ConjugateGradient as LegacyConjugateGradient,
-    ConjugateGradientConfig as LegacyConjugateGradientConfig,
-    ConjugateGradientGTerminator as LegacyConjugateGradientGTerminator,
+    ConjugateGradient, ConjugateGradientConfig, ConjugateGradientGTerminator,
+    ConjugateGradientUpdate,
 };
 
-/// Implementation of the trust-region algorithm.
+/// Trust-region minimization.
 pub mod trust_region;
-pub use crate::prototype::scalar::{
-    TrustRegion, TrustRegion as BackendTrustRegion, TrustRegionConfig,
-    TrustRegionConfig as BackendTrustRegionConfig, TrustRegionSubproblem,
-};
-#[doc(hidden)]
 pub use trust_region::{
-    TrustRegion as LegacyTrustRegion, TrustRegionConfig as LegacyTrustRegionConfig,
-    TrustRegionGTerminator as LegacyTrustRegionGTerminator,
-    TrustRegionSubproblem as LegacyTrustRegionSubproblem,
+    TrustRegion, TrustRegionConfig, TrustRegionGTerminator, TrustRegionSubproblem,
 };
 
-/// [`GradientStatus`] type for gradient-based minimizers.
+/// Status used by gradient-based minimizers.
 pub mod gradient_status;
-#[doc(hidden)]
-pub use gradient_status::BackendGradientStatus;
-pub use gradient_status::BackendGradientStatus as GradientStatus;
-#[doc(hidden)]
-pub use gradient_status::GradientStatus as LegacyGradientStatus;
+pub use gradient_status::GradientStatus;

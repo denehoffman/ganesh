@@ -1,77 +1,92 @@
+//! Sample a correlated five-dimensional Gaussian with ensemble slice sampling.
+
 use fastrand::Rng;
 use ganesh::{
-    algorithms::mcmc::{
-        ess::ESSInit, AutocorrelationTerminator, ESSMove, LegacyESS, LegacyESSConfig,
-    },
-    core::{utils::SampleFloat, Callbacks, MaxSteps},
-    traits::{Algorithm, LegacyLogDensity},
-    DMatrix, DVector, Float,
+    algorithms::mcmc::{ESSConfig, ESSInit, ESSMove, ESS},
+    core::{Callbacks, MaxSteps},
+    traits::{Algorithm, LogDensity},
+    Matrix, NalgebraProvider, Vector,
 };
-use std::{convert::Infallible, error::Error, fs::File, io::BufWriter, path::Path};
+use serde_json::json;
+use std::{convert::Infallible, error::Error, fs::File, path::PathBuf};
+
+struct CorrelatedGaussian;
+
+impl LogDensity<f64, NalgebraProvider, Matrix> for CorrelatedGaussian {
+    fn log_density(&self, x: &Vector, precision: &Matrix) -> Result<f64, Infallible> {
+        Ok(-0.5 * x.dot(&precision.mul_vec(x)))
+    }
+}
+
+fn normal(rng: &mut Rng, scale: f64) -> f64 {
+    let radius = (-2.0 * rng.f64().max(f64::MIN_POSITIVE).ln()).sqrt();
+    scale * radius * (std::f64::consts::TAU * rng.f64()).cos()
+}
+
+fn output_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/multivariate_normal_ess/data.json")
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Define the function to sample (a multinormal distribution)
-    struct Problem;
-    // Implement Function (args is the inverse of the covariance matrix)
-    // NOTE: this is just proportional to the log of the multinormal!
-    impl LegacyLogDensity<DMatrix<Float>> for Problem {
-        fn log_density(
-            &self,
-            x: &DVector<Float>,
-            args: &DMatrix<Float>,
-        ) -> Result<Float, Infallible> {
-            Ok(-0.5 * x.dot(&(args * x)))
-        }
-    }
-    let problem = Problem;
-
-    // Create and seed a random number generator
-    let mut rng = Rng::new();
-    rng.seed(0);
-
-    // Define the initial state of the (100) walkers (normally distributed in 5 dimensions)
-    let x0: Vec<DVector<Float>> = (0..100)
-        .map(|_| DVector::from_fn(5, |_, _| rng.normal(0.0, 4.0)))
+    const DIMENSION: usize = 5;
+    let precision = Matrix::from_vec(
+        DIMENSION,
+        DIMENSION,
+        (0..DIMENSION)
+            .flat_map(|row| (0..DIMENSION).map(move |col| if row == col { 1.0 } else { 0.12 }))
+            .collect(),
+    );
+    let covariance = precision.lu_inverse().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "the demonstration matrix must be invertible",
+        )
+    })?;
+    let mut rng = Rng::with_seed(11);
+    let walkers: Vec<Vector> = (0..80)
+        .map(|_| {
+            (0..DIMENSION)
+                .map(|_| normal(&mut rng, 3.0))
+                .collect::<Vec<_>>()
+                .into()
+        })
+        .collect();
+    let config: ESSConfig = ESSConfig::default().with_moves([
+        ESSMove::gaussian(0.2),
+        ESSMove::global(0.5),
+        ESSMove::differential(0.3),
+    ])?;
+    let summary = ESS::new(Some(11)).process(
+        &CorrelatedGaussian,
+        &precision,
+        ESSInit::new(walkers)?,
+        config,
+        Callbacks::empty().with_terminator(MaxSteps(1_000)),
+    )?;
+    let diagnostics = summary.diagnostics(Some(200), Some(2));
+    let chains: Vec<Vec<Vec<f64>>> = summary
+        .chain
+        .iter()
+        .map(|chain| chain.iter().map(Vector::to_vec).collect())
+        .collect();
+    let covariance: Vec<Vec<f64>> = (0..DIMENSION)
+        .map(|row| (0..DIMENSION).map(|col| covariance.get(row, col)).collect())
         .collect();
 
-    // Generate a random (inverse) covariance matrix (scaling on off-diagonals makes for
-    // nicer-looking results)
-    let cov_inv = DMatrix::from_fn(5, 5, |i, j| if i == j { 1.0 } else { 0.1 } / rng.float());
-    println!("Σ⁻¹ = \n{}", cov_inv);
-
-    let aco = AutocorrelationTerminator::default()
-        .with_verbose(true)
-        .build();
-
-    let mut sampler = LegacyESS::default();
-    let init = ESSInit::new(x0.clone()).unwrap();
-    let config = LegacyESSConfig::default().with_moves([
-        ESSMove::gaussian(0.1),
-        ESSMove::custom_global(0.7, None, Some(0.5), Some(4))?,
-        ESSMove::differential(0.2),
-    ])?;
-
-    // Create a new Ensemble Slice Sampler algorithm which uses Differential steps 90% of the time
-    // and Gaussian steps the other 10%
-    // Run a maximum of 1000 steps of the MCMC algorithm
-    let result = sampler.process(
-        &problem,
-        &cov_inv,
-        init,
-        config,
-        Callbacks::empty()
-            .with_terminator(aco.clone())
-            .with_terminator(MaxSteps(1000)),
+    serde_json::to_writer_pretty(
+        File::create(output_path())?,
+        &json!({
+            "title": "Correlated Gaussian ensemble slice sampling",
+            "parameter_names": ["x₀", "x₁", "x₂", "x₃", "x₄"],
+            "chains": chains,
+            "burn": 200,
+            "thin": 2,
+            "target_covariance": covariance,
+            "r_hat": diagnostics.r_hat.as_slice(),
+            "effective_sample_size": diagnostics.ess.as_slice(),
+        }),
     )?;
-
-    // Get the resulting samples (no burn-in)
-    let chains = result.chain;
-
-    // Get the integrated autocorrelation times
-    let taus = aco.lock().taus.clone();
-
-    // Export the results to a Python .pkl file to visualize via matplotlib
-    let mut writer = BufWriter::new(File::create(Path::new("data.pkl"))?);
-    serde_pickle::to_writer(&mut writer, &(chains, taus), Default::default())?;
+    println!("{summary}");
+    println!("wrote {}", output_path().display());
     Ok(())
 }

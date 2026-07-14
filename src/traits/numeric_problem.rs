@@ -1,6 +1,6 @@
-//! Scalar- and backend-generic numerical problem traits.
+//! Scalar- and linear-algebra-generic numerical problem traits.
 
-use crate::core::{LinearAlgebra, Matrix, NalgebraBackend, RealScalar, Vector};
+use crate::core::{LinearAlgebra, Matrix, NalgebraProvider, RealScalar, Vector};
 use std::convert::Infallible;
 
 /// Objective value, gradient, and Hessian returned together.
@@ -8,10 +8,10 @@ pub type ValueGradientHessian<T, B> = (T, Vector<T, B>, Matrix<T, B>);
 /// Gradient and Hessian returned together.
 pub type GradientHessian<T, B> = (Vector<T, B>, Matrix<T, B>);
 
-/// A scalar- and backend-generic objective function.
+/// A scalar- and linear-algebra-generic objective function.
 pub trait ScalarCostFunction<
     T: RealScalar = f64,
-    B: LinearAlgebra<T> = NalgebraBackend,
+    B: LinearAlgebra<T> = NalgebraProvider,
     U = (),
     E = Infallible,
 >
@@ -23,10 +23,10 @@ pub trait ScalarCostFunction<
     fn evaluate(&self, x: &Vector<T, B>, args: &U) -> Result<T, E>;
 }
 
-/// A scalar- and backend-generic objective with derivatives.
+/// A scalar- and linear-algebra-generic objective with derivatives.
 pub trait ScalarGradient<
     T: RealScalar = f64,
-    B: LinearAlgebra<T> = NalgebraBackend,
+    B: LinearAlgebra<T> = NalgebraProvider,
     U = (),
     E = Infallible,
 >: ScalarCostFunction<T, B, U, E>
@@ -118,10 +118,10 @@ pub trait ScalarGradient<
     }
 }
 
-/// A scalar- and backend-generic log probability density.
+/// A scalar- and linear-algebra-generic log probability density.
 pub trait ScalarLogDensity<
     T: RealScalar = f64,
-    B: LinearAlgebra<T> = NalgebraBackend,
+    B: LinearAlgebra<T> = NalgebraProvider,
     U = (),
     E = Infallible,
 >

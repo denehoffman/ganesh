@@ -15,33 +15,26 @@ exclude = ["src/main.rs", "*.png", "*.svg", "*.gif", "*.pkl"]
 
 [lib]
 bench = false
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
-nalgebra = { version = "0.34.2", features = ["serde-serialize"] }
+nalgebra = { version = "0.35.0", features = ["serde-serialize"] }
+spec_math = "0.1.6"
+logsumexp = "0.1.0"
 ctrlc = "3.5.2"
 dyn-clone = "1.0.20"
 thiserror = "2.0.18"
-typetag = "0.2.21"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = "1.0.149"
-serde-pickle = "1.2.0"
-spec_math = "0.1.6"
-fastrand = "2.3.0"
-fastrand-contrib = "0.1.0"
-logsumexp = "0.1.0"
+serde_json = "1.0.150"
+fastrand = "2.4.1"
 parking_lot = { version = "0.12.5", features = ["serde"] }
 rustfft = "6.4.1"
-num = "0.4.3"
-num-traits = "0.2.19"
+tabled = { version = "0.20.0", default-features = false, features = ["std"] }
 ndarray = { version = "0.17.2", optional = true }
 ndarray-linalg = { version = "0.18.1", optional = true, default-features = false }
-tabled = { version = "0.20.0", default-features = false, features = ["std"] }
-pyo3 = { version = "0.28.3", optional = true, features = ["abi3", "generate-import-lib", "auto-initialize"] }
-numpy = { version = "0.28.0", optional = true }
 
 [dev-dependencies]
-criterion = { version = "4.4.1", package = "codspeed-criterion-compat", features = [
+criterion = { version = "5.0.1", package = "codspeed-criterion-compat", features = [
   "html_reports",
 ] }
 approx = "0.5.1"
@@ -49,36 +42,9 @@ approx = "0.5.1"
 [features]
 default = []
 backend-ndarray = ["dep:ndarray", "dep:ndarray-linalg"]
-backend-ndarray-openblas-system = ["backend-ndarray", "ndarray-linalg/openblas-system"]
-backend-ndarray-openblas-static = ["backend-ndarray", "ndarray-linalg/openblas-static"]
-backend-ndarray-netlib-system = ["backend-ndarray", "ndarray-linalg/netlib-system"]
-backend-ndarray-netlib-static = ["backend-ndarray", "ndarray-linalg/netlib-static"]
-backend-ndarray-intel-mkl-system = ["backend-ndarray", "ndarray-linalg/intel-mkl-system"]
-python = ["dep:pyo3", "dep:numpy"]
-python-module = ["python", "pyo3/extension-module"]
-
-[[bench]]
-name = "nelder_mead_benchmark"
-harness = false
-
-[[bench]]
-name = "lbfgsb_benchmark"
-harness = false
-
-[[bench]]
-name = "derivatives"
-harness = false
 
 [[bench]]
 name = "benchmark_matrix"
-harness = false
-
-[[bench]]
-name = "microkernels"
-harness = false
-
-[[bench]]
-name = "generic_scalar_prototype"
 harness = false
 
 [package.metadata.docs.rs]
