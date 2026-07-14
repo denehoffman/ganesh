@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0](https://github.com/denehoffman/ganesh/compare/v0.27.1...v0.28.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* RealScalar implementations must provide rem_euclid.
+
+### Features
+
+* Genericize numerical backends and downstream bindings ([#94](https://github.com/denehoffman/ganesh/issues/94)) ([53da02f](https://github.com/denehoffman/ganesh/commit/53da02faa2a9a1ac0ff8216e174678e66793a75d))
+
 ## [0.27.1](https://github.com/denehoffman/ganesh/compare/v0.27.0...v0.27.1) (2026-05-19)
 
 
