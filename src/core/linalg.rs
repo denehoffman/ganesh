@@ -272,7 +272,7 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Vector<T, B> {
 
     /// Mutably borrow provider vector storage.
     #[inline]
-    pub fn as_storage_mut(&mut self) -> &mut B::VectorStorage {
+    pub const fn as_storage_mut(&mut self) -> &mut B::VectorStorage {
         &mut self.storage
     }
 
@@ -543,7 +543,7 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
     }
 
     /// Mutably borrow provider matrix storage.
-    pub fn as_storage_mut(&mut self) -> &mut B::MatrixStorage {
+    pub const fn as_storage_mut(&mut self) -> &mut B::MatrixStorage {
         &mut self.storage
     }
 

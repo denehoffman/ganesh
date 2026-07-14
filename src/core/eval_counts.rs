@@ -38,55 +38,55 @@ impl EvalCounts {
     }
 
     /// Record one function evaluation result.
-    pub fn record_f(&mut self) {
+    pub const fn record_f(&mut self) {
         self.f += 1;
     }
 
     /// Record `count` function evaluation results.
-    pub fn record_many_f(&mut self, count: usize) {
+    pub const fn record_many_f(&mut self, count: usize) {
         self.f += count;
     }
 
     /// Record one gradient evaluation result.
-    pub fn record_g(&mut self) {
+    pub const fn record_g(&mut self) {
         self.g += 1;
     }
 
     /// Record `count` gradient evaluation results.
-    pub fn record_many_g(&mut self, count: usize) {
+    pub const fn record_many_g(&mut self, count: usize) {
         self.g += count;
     }
 
     /// Record one Hessian evaluation result.
-    pub fn record_h(&mut self) {
+    pub const fn record_h(&mut self) {
         self.h += 1;
     }
 
     /// Record `count` Hessian evaluation results.
-    pub fn record_many_h(&mut self, count: usize) {
+    pub const fn record_many_h(&mut self, count: usize) {
         self.h += count;
     }
 
     /// Record one combined function and gradient evaluation result.
-    pub fn record_fg(&mut self) {
+    pub const fn record_fg(&mut self) {
         self.record_f();
         self.record_g();
     }
 
     /// Record one combined function and Hessian evaluation result.
-    pub fn record_fh(&mut self) {
+    pub const fn record_fh(&mut self) {
         self.record_f();
         self.record_h();
     }
 
     /// Record one combined gradient and Hessian evaluation result.
-    pub fn record_gh(&mut self) {
+    pub const fn record_gh(&mut self) {
         self.record_g();
         self.record_h();
     }
 
     /// Record one combined function, gradient, and Hessian evaluation result.
-    pub fn record_fgh(&mut self) {
+    pub const fn record_fgh(&mut self) {
         self.record_f();
         self.record_g();
         self.record_h();

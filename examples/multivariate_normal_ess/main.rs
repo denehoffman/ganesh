@@ -36,12 +36,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .flat_map(|row| (0..DIMENSION).map(move |col| if row == col { 1.0 } else { 0.12 }))
             .collect(),
     );
-    let covariance = precision.lu_inverse().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "the demonstration matrix must be invertible",
-        )
-    })?;
+    let covariance = precision
+        .lu_inverse()
+        .ok_or_else(|| std::io::Error::other("the demonstration matrix must be invertible"))?;
     let mut rng = Rng::with_seed(11);
     let walkers: Vec<Vector> = (0..80)
         .map(|_| {

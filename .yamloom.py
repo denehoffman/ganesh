@@ -96,9 +96,7 @@ release_please_workflow = Workflow(
                 ReleasePlease(id='release', token=context.secrets.RELEASE_PLEASE),
                 script(
                     'cargo publish',
-                    condition=ReleasePlease.releases_created(
-                        'release'
-                    ).from_json_to_bool(),
+                    condition=ReleasePlease.releases_created('release').from_json_to_bool(),
                     env={'CARGO_REGISTRY_TOKEN': context.secrets.CARGO_REGISTRY_TOKEN},
                 ),
             ],
