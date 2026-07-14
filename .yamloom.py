@@ -79,6 +79,7 @@ rust_workflow = Workflow(
                 SetupRust(components=['clippy']),
                 script('cargo clippy', name='Clippy'),
                 script('cargo test', name='Test'),
+                script('cargo test --features python', name='Test (python)'),
                 script('cargo check --all-features', name='Check all features'),
             ],
         ),
