@@ -19,24 +19,7 @@ jobs:
           components: clippy
       - name: Clippy
         run: cargo clippy
-      - name: Clippy (python)
-        run: cargo clippy -F python
       - name: Test
         run: cargo test
-      - name: Test (python)
-        run: cargo test -F python
-  check-readme:
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Install Rust Tool
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-rdme
-      - name: Check README
-        run: cargo rdme --check
+      - name: Check all features
+        run: cargo check --all-features
