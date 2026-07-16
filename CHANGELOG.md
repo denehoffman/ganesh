@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1](https://github.com/denehoffman/ganesh/compare/v0.28.0...v0.28.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* Preserve native L-BFGS-B bounds ([1c7521d](https://github.com/denehoffman/ganesh/commit/1c7521dcc935c452bb76f643596904365d7186a6))
+
 ## [0.28.0](https://github.com/denehoffman/ganesh/compare/v0.27.1...v0.28.0) (2026-07-14)
 
 
