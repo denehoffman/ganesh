@@ -87,8 +87,6 @@ pub struct LBFGSBConfig<
     error_mode: LBFGSBErrorMode,
     /// Optional native parameter bounds.
     bounds: Option<Vec<ScalarBound<T>>>,
-    /// Native bounds mapped into optimizer coordinates.
-    internal_bounds: Option<Vec<ScalarBound<T>>>,
     /// Optional user-facing parameter names copied into summaries.
     parameter_names: Option<Vec<String>>,
     /// Optional coordinate transform.
@@ -109,7 +107,6 @@ where
             max_step: T::literal(1e8),
             error_mode: LBFGSBErrorMode::default(),
             bounds: None,
-            internal_bounds: None,
             parameter_names: None,
             transform: None,
             line_search: L::default(),
@@ -162,7 +159,6 @@ where
             max_step: self.max_step,
             error_mode: self.error_mode,
             bounds: self.bounds,
-            internal_bounds: self.internal_bounds,
             parameter_names: self.parameter_names,
             transform: self.transform,
             line_search,
@@ -181,28 +177,20 @@ where
             .into_iter()
             .map(|(lower, upper)| ScalarBound::new(lower, upper))
             .collect::<GaneshResult<Vec<_>>>()?;
-        self.internal_bounds = Self::transformed_bounds(Some(&bounds), self.transform.as_deref())?;
         self.bounds = Some(bounds);
         Ok(self)
     }
 
-    /// Apply a differentiable coordinate transform around the native L-BFGS-B parameter space.
+    /// Apply a differentiable coordinate transform around the problem.
     ///
-    /// Configured native bounds remain user-facing and are mapped through the transform into the
-    /// optimizer's internal coordinates. Combining native bounds with a transform therefore
-    /// requires a coordinate-wise monotonic transform to retain an exact box constraint.
-    ///
-    /// # Errors
-    /// Returns a configuration error when existing bounds cannot be represented as an internal
-    /// box after applying the transform.
+    /// Native bounds are constraints in the optimizer's coordinate space and are not rewritten by
+    /// this transform. Pass [`crate::traits::Bounds`] explicitly here when bounds should instead be
+    /// implemented as a parameter transform.
     pub fn with_transform<X>(mut self, transform: X) -> GaneshResult<Self>
     where
         X: Transform<T, B> + 'static,
     {
-        let transform: Box<dyn Transform<T, B>> = Box::new(transform);
-        self.internal_bounds =
-            Self::transformed_bounds(self.bounds.as_deref(), Some(transform.as_ref()))?;
-        self.transform = Some(transform);
+        self.transform = Some(Box::new(transform));
         Ok(self)
     }
 
@@ -210,40 +198,6 @@ where
     pub const fn with_error_mode(mut self, error_mode: LBFGSBErrorMode) -> Self {
         self.error_mode = error_mode;
         self
-    }
-
-    fn transformed_bounds(
-        bounds: Option<&[ScalarBound<T>]>,
-        transform: Option<&dyn Transform<T, B>>,
-    ) -> GaneshResult<Option<Vec<ScalarBound<T>>>> {
-        let Some(bounds) = bounds else {
-            return Ok(None);
-        };
-        let Some(transform) = transform else {
-            return Ok(Some(bounds.to_vec()));
-        };
-        let bound_limits = |bound| match bound {
-            ScalarBound::Unbounded => (-T::infinity(), T::infinity()),
-            ScalarBound::Lower(lower) => (lower, T::infinity()),
-            ScalarBound::Upper(upper) => (-T::infinity(), upper),
-            ScalarBound::Both(lower, upper) => (lower, upper),
-        };
-        let (lower, upper): (Vec<_>, Vec<_>) = bounds.iter().copied().map(bound_limits).unzip();
-        let lower = transform.to_internal(&Vector::from_vec(lower));
-        let upper = transform.to_internal(&Vector::from_vec(upper));
-        (0..bounds.len())
-            .map(|index| {
-                let a = lower.get(index);
-                let b = upper.get(index);
-                let (lower, upper) = if a < b { (a, b) } else { (b, a) };
-                ScalarBound::new(lower, upper).map_err(|_| {
-                    GaneshError::ConfigError(
-                        "transform does not map native bounds to a valid internal box".into(),
-                    )
-                })
-            })
-            .collect::<GaneshResult<Vec<_>>>()
-            .map(Some)
     }
 }
 
@@ -735,7 +689,7 @@ where
         _args: &U,
         config: &LBFGSBConfig<T, L, B>,
     ) -> ControlFlow<()> {
-        let projected = algorithm.projected_gradient(config.internal_bounds.as_deref());
+        let projected = algorithm.projected_gradient(config.bounds.as_deref());
         let mut norm = T::zero();
         for index in 0..projected.len() {
             let value = projected.get(index).abs();
@@ -781,10 +735,7 @@ where
             debug_assert_eq!(bounds.len(), init.len());
         }
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        self.x = Self::clip(
-            transformed.to_internal(init),
-            config.internal_bounds.as_deref(),
-        );
+        self.x = Self::clip(transformed.to_internal(init), config.bounds.as_deref());
         (self.fx, self.gradient) = transformed.evaluate_with_gradient(&self.x, args)?;
         self.f_previous = T::infinity();
         self.s_history.clear();
@@ -807,9 +758,9 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        let direction = self.bound_constrained_direction(config.internal_bounds.as_deref());
+        let direction = self.bound_constrained_direction(config.bounds.as_deref());
         let maximum_step = self
-            .maximum_step(&direction, config.internal_bounds.as_deref())
+            .maximum_step(&direction, config.bounds.as_deref())
             .map_or(config.max_step, |bounded| {
                 if bounded < config.max_step {
                     bounded
@@ -831,7 +782,7 @@ where
         )? {
             let next_x = Self::clip(
                 self.x.add_scaled(&direction, alpha),
-                config.internal_bounds.as_deref(),
+                config.bounds.as_deref(),
             );
             let s = next_x.sub(&self.x);
             let y = gradient.sub(&self.gradient);
@@ -972,7 +923,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::CostFunction;
-    use crate::ScaleTransform;
+    use crate::{Bounds, ScaleTransform};
     use std::convert::Infallible;
 
     struct ShiftedQuadratic;
@@ -1031,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn lbfgsb_combines_native_bounds_with_transform() {
+    fn lbfgsb_does_not_rewrite_native_bounds_for_transform() {
         let transform =
             ScaleTransform::<f64, NalgebraProvider>::from_parameter_scales([2.0, 4.0]).unwrap();
         let config = LBFGSBConfig::<f64>::default()
@@ -1049,10 +1000,33 @@ mod tests {
             )
             .unwrap();
 
-        assert!((result.x.get(0) - 2.0).abs() < 1e-8);
-        assert!(result.x.get(1).abs() < 1e-8);
+        assert!(
+            (result.x.get(0) - 3.0).abs() < 1e-6,
+            "x={:?}, fx={}",
+            result.x,
+            result.fx
+        );
+        assert!(result.x.get(1).abs() < 1e-6);
         assert_eq!(result.x0.to_vec(), vec![0.5, 0.5]);
         assert_eq!(result.bounds.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn lbfgsb_accepts_explicit_bounds_transform() {
+        let transform = Bounds::<f64, NalgebraProvider>::new([(0.0, 2.0), (-1.0, 1.0)]).unwrap();
+        let config = LBFGSBConfig::<f64>::default()
+            .with_transform(transform)
+            .unwrap();
+
+        assert!(config.bounds.is_none());
+        assert_eq!(
+            config
+                .transform
+                .as_deref()
+                .and_then(Transform::parameter_bounds)
+                .map(<[_]>::len),
+            Some(2)
+        );
     }
 
     #[test]
