@@ -288,6 +288,41 @@ where
             .unwrap_or_else(|| Vector::zeros(value.len()))
     }
 
+    fn is_unconstrained(bounds: Option<&[ScalarBound<T>]>) -> bool {
+        bounds.is_none_or(|bounds| {
+            bounds
+                .iter()
+                .all(|bound| matches!(bound, ScalarBound::Unbounded))
+        })
+    }
+
+    fn unconstrained_direction(&self) -> Vector<T, B> {
+        if self.s_history.is_empty() {
+            return self.gradient.scale(-T::one() / self.theta);
+        }
+
+        // Apply the inverse Hessian to -g using the L-BFGS two-loop recursion.
+        let mut direction = self.gradient.neg();
+        let mut coefficients = Vec::with_capacity(self.s_history.len());
+        for (s, y) in self.s_history.iter().zip(&self.y_history).rev() {
+            let curvature = s.dot(y);
+            let alpha = s.dot(&direction) / curvature;
+            direction = direction.add_scaled(y, -alpha);
+            coefficients.push((curvature, alpha));
+        }
+        direction = direction.scale(T::one() / self.theta);
+        for ((s, y), (curvature, alpha)) in self
+            .s_history
+            .iter()
+            .zip(&self.y_history)
+            .zip(coefficients.into_iter().rev())
+        {
+            let beta = y.dot(&direction) / curvature;
+            direction = direction.add_scaled(s, alpha - beta);
+        }
+        direction
+    }
+
     fn m_dot_mat(&self, value: &Matrix<T, B>) -> Matrix<T, B> {
         self.m_system
             .as_ref()
@@ -758,7 +793,16 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        let direction = self.bound_constrained_direction(config.bounds.as_deref());
+        let unconstrained = Self::is_unconstrained(config.bounds.as_deref());
+        let direction = if unconstrained {
+            self.unconstrained_direction()
+        } else {
+            // History can originate from an unconstrained checkpoint or a previous configuration.
+            if self.m_system.is_none() && !self.s_history.is_empty() {
+                self.update_compact_matrices();
+            }
+            self.bound_constrained_direction(config.bounds.as_deref())
+        };
         let maximum_step = self
             .maximum_step(&direction, config.bounds.as_deref())
             .map_or(config.max_step, |bounded| {
@@ -800,7 +844,12 @@ where
                 self.s_history.push(s);
                 self.y_history.push(y);
                 self.theta = yy / sy;
-                self.update_compact_matrices();
+                if unconstrained {
+                    self.w_matrix = Matrix::zeros(self.x.len(), 0);
+                    self.m_system = None;
+                } else {
+                    self.update_compact_matrices();
+                }
             }
             self.x = next_x;
             self.fx = fx;
@@ -912,7 +961,7 @@ where
         self.s_history = checkpoint.s_history.clone();
         self.y_history = checkpoint.y_history.clone();
         self.theta = checkpoint.theta;
-        if self.s_history.is_empty() {
+        if self.s_history.is_empty() || Self::is_unconstrained(config.bounds.as_deref()) {
             self.w_matrix = Matrix::zeros(self.x.len(), 0);
             self.m_system = None;
         } else {
@@ -1080,5 +1129,336 @@ mod tests {
         assert_eq!(restored.x.to_vec(), algorithm.x.to_vec());
         assert_eq!(restored.gradient.to_vec(), algorithm.gradient.to_vec());
         assert_eq!(restored_status.evals, status.evals);
+    }
+}
+
+#[cfg(test)]
+mod unconstrained_tests {
+    use super::*;
+    use crate::test_functions::Rosenbrock;
+    use crate::traits::CostFunction;
+    use std::convert::Infallible;
+
+    fn history_fixture(count: usize) -> LBFGSB<f64> {
+        let mut algorithm = LBFGSB::<f64> {
+            x: Vector::zeros(4),
+            gradient: Vector::from_vec(vec![0.7, -1.3, 0.2, 2.0]),
+            theta: 2.5,
+            ..LBFGSB::default()
+        };
+        for pair in 0..count {
+            let s: Vector = Vector::from_vec(
+                (0..4)
+                    .map(|i| {
+                        ((pair + 1) as f64 * (i + 2) as f64 * 0.43).sin() + 0.2 / (i + 1) as f64
+                    })
+                    .collect(),
+            );
+            let y = Vector::from_vec(
+                (0..4)
+                    .map(|i| s.get(i) * ((i + 1) as f64).powi(2))
+                    .collect(),
+            );
+            algorithm.theta = y.dot(&y) / s.dot(&y);
+            algorithm.s_history.push(s);
+            algorithm.y_history.push(y);
+        }
+        algorithm
+    }
+
+    // Independent dense rank-two inverse-BFGS updates, rather than another two-loop recursion.
+    fn dense_direction(algorithm: &LBFGSB<f64>) -> Vector {
+        let n = algorithm.gradient.len();
+        let mut h = vec![0.0; n * n];
+        for i in 0..n {
+            h[i * n + i] = 1.0 / algorithm.theta;
+        }
+        for (s, y) in algorithm.s_history.iter().zip(&algorithm.y_history) {
+            let sy = s.dot(y);
+            let hy: Vec<f64> = (0..n)
+                .map(|row| (0..n).map(|col| h[row * n + col] * y.get(col)).sum())
+                .collect();
+            let yhy: f64 = (0..n).map(|i| y.get(i) * hy[i]).sum();
+            for row in 0..n {
+                for col in 0..n {
+                    h[row * n + col] += (1.0 + yhy / sy) * s.get(row) * s.get(col) / sy
+                        - s.get(row).mul_add(hy[col], hy[row] * s.get(col)) / sy;
+                }
+            }
+        }
+        Vector::from_vec(
+            (0..n)
+                .map(|row| {
+                    -(0..n)
+                        .map(|col| h[row * n + col] * algorithm.gradient.get(col))
+                        .sum::<f64>()
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn two_loop_matches_dense_inverse_bfgs() {
+        for count in [0, 1, 3, 7] {
+            let algorithm = history_fixture(count);
+            let expected = dense_direction(&algorithm);
+            let actual = algorithm.unconstrained_direction();
+            assert!(
+                actual.sub(&expected).norm() < 1e-11 * (1.0 + expected.norm()),
+                "history={count}"
+            );
+            assert!(actual.dot(&algorithm.gradient) < 0.0);
+        }
+    }
+
+    #[test]
+    fn two_loop_matches_the_compact_model() {
+        for count in [1, 3] {
+            let mut algorithm = history_fixture(count);
+            algorithm.update_compact_matrices();
+            let expected = algorithm.bound_constrained_direction(None);
+            assert!(
+                algorithm.unconstrained_direction().sub(&expected).norm()
+                    < 1e-10 * (1.0 + expected.norm())
+            );
+        }
+    }
+
+    #[test]
+    fn zero_gradient_produces_a_finite_zero_direction() {
+        for count in [0, 3] {
+            let mut algorithm = history_fixture(count);
+            algorithm.gradient = Vector::zeros(4);
+            assert_eq!(algorithm.unconstrained_direction(), Vector::zeros(4));
+        }
+    }
+
+    #[test]
+    fn two_loop_supports_native_f32() {
+        let reference = history_fixture(3);
+        let expected = dense_direction(&reference);
+        let algorithm = LBFGSB::<f32> {
+            x: Vector::zeros(4),
+            gradient: Vector::from_vec(
+                reference
+                    .gradient
+                    .to_vec()
+                    .into_iter()
+                    .map(|x| x as f32)
+                    .collect(),
+            ),
+            theta: reference.theta as f32,
+            s_history: reference
+                .s_history
+                .iter()
+                .map(|s| Vector::from_vec(s.to_vec().into_iter().map(|x| x as f32).collect()))
+                .collect(),
+            y_history: reference
+                .y_history
+                .iter()
+                .map(|y| Vector::from_vec(y.to_vec().into_iter().map(|x| x as f32).collect()))
+                .collect(),
+            ..LBFGSB::default()
+        };
+        let actual = algorithm.unconstrained_direction();
+        for i in 0..4 {
+            assert!((f64::from(actual.get(i)) - expected.get(i)).abs() < 2e-6);
+        }
+    }
+
+    #[test]
+    fn only_entirely_unbounded_native_limits_select_the_fast_path() {
+        assert!(LBFGSB::<f64>::is_unconstrained(None));
+        assert!(LBFGSB::<f64>::is_unconstrained(Some(
+            &[ScalarBound::Unbounded; 3]
+        )));
+        for bound in [
+            ScalarBound::Lower(0.0),
+            ScalarBound::Upper(1.0),
+            ScalarBound::Both(-1.0, 1.0),
+        ] {
+            assert!(!LBFGSB::<f64>::is_unconstrained(Some(&[
+                ScalarBound::Unbounded,
+                bound
+            ])));
+        }
+    }
+
+    fn initialized_rosenbrock(config: &LBFGSBConfig) -> (LBFGSB, GradientStatus) {
+        let mut algorithm = LBFGSB::<f64>::default();
+        let mut status = GradientStatus::default();
+        algorithm
+            .initialize(
+                &Rosenbrock { n: 2 },
+                &mut status,
+                &(),
+                &Vector::from_vec(vec![2.0, 2.0]),
+                config,
+            )
+            .unwrap();
+        algorithm
+            .step(0, &Rosenbrock { n: 2 }, &mut status, &(), config)
+            .unwrap();
+        assert!(!algorithm.s_history.is_empty());
+        (algorithm, status)
+    }
+
+    #[test]
+    fn unconstrained_steps_do_not_build_compact_matrices() {
+        for config in [
+            LBFGSBConfig::default(),
+            LBFGSBConfig::default()
+                .with_bounds([(f64::NEG_INFINITY, f64::INFINITY); 2])
+                .unwrap(),
+        ] {
+            let (algorithm, _) = initialized_rosenbrock(&config);
+            assert!(algorithm.m_system.is_none());
+            assert_eq!(algorithm.w_matrix.cols(), 0);
+        }
+    }
+
+    #[test]
+    fn adding_native_bounds_rebuilds_the_compact_model() {
+        let (mut algorithm, mut status) = initialized_rosenbrock(&LBFGSBConfig::default());
+        let mut reference = algorithm.clone();
+        reference.update_compact_matrices();
+        let mut reference_status = status.clone();
+        let bounded = LBFGSBConfig::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        algorithm
+            .step(1, &Rosenbrock { n: 2 }, &mut status, &(), &bounded)
+            .unwrap();
+        reference
+            .step(
+                1,
+                &Rosenbrock { n: 2 },
+                &mut reference_status,
+                &(),
+                &bounded,
+            )
+            .unwrap();
+        assert_eq!(algorithm.x, reference.x);
+        assert_eq!(algorithm.gradient, reference.gradient);
+        assert_eq!(algorithm.fx, reference.fx);
+        assert!(algorithm.m_system.is_some());
+    }
+
+    #[test]
+    fn removing_native_bounds_invalidates_old_compact_matrices() {
+        let bounded = LBFGSBConfig::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        let (mut algorithm, mut status) = initialized_rosenbrock(&bounded);
+        assert!(algorithm.m_system.is_some());
+        algorithm
+            .step(
+                1,
+                &Rosenbrock { n: 2 },
+                &mut status,
+                &(),
+                &LBFGSBConfig::default(),
+            )
+            .unwrap();
+        assert!(algorithm.m_system.is_none());
+        assert_eq!(algorithm.w_matrix.cols(), 0);
+        assert!(!algorithm.s_history.is_empty());
+    }
+
+    #[test]
+    fn checkpoints_restore_and_resume_both_paths() {
+        let unbounded = LBFGSBConfig::default();
+        let (mut algorithm, mut status) = initialized_rosenbrock(&unbounded);
+        let checkpoint = <LBFGSB as CheckpointableAlgorithm<
+            Rosenbrock,
+            GradientStatus,
+            (),
+            Infallible,
+        >>::checkpoint(&algorithm, &status, 1);
+        let mut restored = LBFGSB::default();
+        let (mut restored_status, next_step) = <LBFGSB as CheckpointableAlgorithm<
+            Rosenbrock,
+            GradientStatus,
+            (),
+            Infallible,
+        >>::restore(
+            &mut restored, &checkpoint, &unbounded
+        );
+        assert_eq!(next_step, 1);
+        assert!(restored.m_system.is_none());
+        assert_eq!(restored.w_matrix.cols(), 0);
+        algorithm
+            .step(1, &Rosenbrock { n: 2 }, &mut status, &(), &unbounded)
+            .unwrap();
+        restored
+            .step(
+                1,
+                &Rosenbrock { n: 2 },
+                &mut restored_status,
+                &(),
+                &unbounded,
+            )
+            .unwrap();
+        assert_eq!(algorithm.x, restored.x);
+        assert_eq!(algorithm.fx, restored.fx);
+        assert_eq!(algorithm.gradient, restored.gradient);
+        assert_eq!(status.evals, restored_status.evals);
+
+        let bounded = LBFGSBConfig::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        let _ = <LBFGSB as CheckpointableAlgorithm<Rosenbrock, GradientStatus, (), Infallible>>::restore(&mut restored, &checkpoint, &bounded);
+        assert!(restored.m_system.is_some());
+        assert_eq!(restored.w_matrix.cols(), 2 * checkpoint.s_history.len());
+    }
+
+    struct MixedBoundQuadratic;
+
+    impl CostFunction for MixedBoundQuadratic {
+        fn evaluate(&self, x: &Vector, _: &()) -> Result<f64, Infallible> {
+            Ok([
+                0.5 * (x.get(0) - 0.5).powi(2),
+                2.0 * (x.get(1) + 2.0).powi(2),
+                4.5 * (x.get(2) - 3.0).powi(2),
+            ]
+            .into_iter()
+            .sum())
+        }
+    }
+
+    impl Gradient for MixedBoundQuadratic {
+        fn gradient(&self, x: &Vector, _: &()) -> Result<Vector, Infallible> {
+            Ok(Vector::from_vec(vec![
+                x.get(0) - 0.5,
+                4.0 * (x.get(1) + 2.0),
+                9.0 * (x.get(2) - 3.0),
+            ]))
+        }
+    }
+
+    #[test]
+    fn mixed_native_bounds_keep_the_constrained_solution() {
+        let mut algorithm = LBFGSB::<f64>::default();
+        let result = algorithm
+            .process(
+                &MixedBoundQuadratic,
+                &(),
+                Vector::from_vec(vec![1.0, 1.0, 0.0]),
+                LBFGSBConfig::default()
+                    .with_error_mode(LBFGSBErrorMode::Skip)
+                    .with_bounds([
+                        (f64::NEG_INFINITY, f64::INFINITY),
+                        (0.0, f64::INFINITY),
+                        (f64::NEG_INFINITY, 2.0),
+                    ])
+                    .unwrap(),
+                LBFGSB::<f64>::default_callbacks(),
+            )
+            .unwrap();
+        assert!((result.x.get(0) - 0.5).abs() < 1e-5);
+        assert_eq!(result.x.get(1), 0.0);
+        assert_eq!(result.x.get(2), 2.0);
+        assert!((result.fx - 12.5).abs() < 1e-10);
+        assert!(algorithm.m_system.is_some());
     }
 }
