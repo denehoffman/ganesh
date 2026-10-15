@@ -5,11 +5,14 @@ use nalgebra::{DMatrix, DVector, LU};
 #[cfg(feature = "backend-ndarray")]
 use ndarray::{Array1, Array2};
 #[cfg(feature = "backend-ndarray")]
-use ndarray_linalg::{Determinant as NdDeterminant, Eigh, Inverse, Lapack, Solve, UPLO};
+use ndarray_linalg::{
+    Determinant as NdDeterminant, Eigh, Factorize, Inverse, LUFactorized, Lapack, Solve, UPLO,
+};
 use serde::{Serialize, Serializer};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::sync::Arc;
 
 /// Linear algebra provider and operation surface for dense vector and matrix storage.
 pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
@@ -88,8 +91,31 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage;
 }
 
+/// An immutable solver for repeated right-hand sides of one owned linear system.
+///
+/// Providers may retain a factorization here. Solves must not modify the system,
+/// so a prepared solver can be shared by cloned algorithms.
+pub trait LuSolver<T: RealScalar, B: LinearAlgebra<T>>: Debug + Send + Sync {
+    /// Solve for one vector right-hand side, returning `None` for a singular system.
+    fn solve(&self, rhs: &B::VectorStorage) -> Option<B::VectorStorage>;
+    /// Solve for matrix right-hand sides, returning `None` for a singular system.
+    fn solve_matrix(&self, rhs: &B::MatrixStorage) -> Option<B::MatrixStorage>;
+}
+
 /// Capability for solving dense linear systems and computing inverses.
 pub trait LinearSolve<T: RealScalar>: LinearAlgebra<T> {
+    /// Prepare an owned solver for repeated LU-style solves of this matrix.
+    ///
+    /// The default preserves existing providers by retaining a matrix copy and
+    /// delegating each solve to `lu_solve` or `lu_solve_matrix`. Providers can
+    /// override this method to factor the matrix once and reuse the factors.
+    /// A singular matrix must produce a solver whose solve methods return `None`.
+    fn lu_factorize(matrix: &Self::MatrixStorage) -> Arc<dyn LuSolver<T, Self>> {
+        Arc::new(UnfactoredSystem::<T, Self> {
+            matrix: matrix.clone(),
+        })
+    }
+
     /// Solve `matrix * x = rhs` using an LU-style solve.
     fn lu_solve(
         matrix: &Self::MatrixStorage,
@@ -102,6 +128,21 @@ pub trait LinearSolve<T: RealScalar>: LinearAlgebra<T> {
     ) -> Option<Self::MatrixStorage>;
     /// Compute the inverse using an LU-style operation.
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage>;
+}
+
+#[derive(Debug)]
+struct UnfactoredSystem<T: RealScalar, B: LinearSolve<T>> {
+    matrix: B::MatrixStorage,
+}
+
+impl<T: RealScalar, B: LinearSolve<T>> LuSolver<T, B> for UnfactoredSystem<T, B> {
+    fn solve(&self, rhs: &B::VectorStorage) -> Option<B::VectorStorage> {
+        B::lu_solve(&self.matrix, rhs)
+    }
+
+    fn solve_matrix(&self, rhs: &B::MatrixStorage) -> Option<B::MatrixStorage> {
+        B::lu_solve_matrix(&self.matrix, rhs)
+    }
 }
 
 /// Capability for computing a matrix pseudoinverse.
@@ -899,6 +940,10 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraProvider 
 }
 
 impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraProvider {
+    fn lu_factorize(matrix: &Self::MatrixStorage) -> Arc<dyn LuSolver<T, Self>> {
+        Arc::new(LU::new(matrix.clone()))
+    }
+
     fn lu_solve(
         matrix: &Self::MatrixStorage,
         rhs: &Self::VectorStorage,
@@ -915,6 +960,18 @@ impl<T: RealScalar + nalgebra::RealField> LinearSolve<T> for NalgebraProvider {
 
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage> {
         LU::new(matrix.clone()).try_inverse()
+    }
+}
+
+impl<T: RealScalar + nalgebra::RealField> LuSolver<T, NalgebraProvider>
+    for LU<T, nalgebra::Dyn, nalgebra::Dyn>
+{
+    fn solve(&self, rhs: &DVector<T>) -> Option<DVector<T>> {
+        self.solve(rhs)
+    }
+
+    fn solve_matrix(&self, rhs: &DMatrix<T>) -> Option<DMatrix<T>> {
+        self.solve(rhs)
     }
 }
 
@@ -1079,6 +1136,10 @@ impl<T> LinearSolve<T> for NdArrayProvider
 where
     T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
 {
+    fn lu_factorize(matrix: &Self::MatrixStorage) -> Arc<dyn LuSolver<T, Self>> {
+        Arc::new(NdArrayLuSolver(matrix.factorize().ok()))
+    }
+
     fn lu_solve(
         matrix: &Self::MatrixStorage,
         rhs: &Self::VectorStorage,
@@ -1101,6 +1162,37 @@ where
 
     fn lu_inverse(matrix: &Self::MatrixStorage) -> Option<Self::MatrixStorage> {
         matrix.inv().ok()
+    }
+}
+
+#[cfg(feature = "backend-ndarray")]
+struct NdArrayLuSolver<T: RealScalar>(Option<LUFactorized<ndarray::OwnedRepr<T>>>);
+
+#[cfg(feature = "backend-ndarray")]
+impl<T: RealScalar> Debug for NdArrayLuSolver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NdArrayLuSolver")
+            .field("factorized", &self.0.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "backend-ndarray")]
+impl<T> LuSolver<T, NdArrayProvider> for NdArrayLuSolver<T>
+where
+    T: RealScalar + Lapack<Real = T> + ndarray::ScalarOperand,
+{
+    fn solve(&self, rhs: &Array1<T>) -> Option<Array1<T>> {
+        self.0.as_ref()?.solve(rhs).ok()
+    }
+
+    fn solve_matrix(&self, rhs: &Array2<T>) -> Option<Array2<T>> {
+        let factorization = self.0.as_ref()?;
+        let mut solved = NdArrayProvider::matrix_zeros(rhs.nrows(), rhs.ncols());
+        for (mut output, input) in solved.columns_mut().into_iter().zip(rhs.columns()) {
+            output.assign(&factorization.solve(&input.to_owned()).ok()?);
+        }
+        Some(solved)
     }
 }
 
@@ -1174,7 +1266,7 @@ mod tests {
         let Some(solved) = a.lu_solve(&rhs) else {
             panic!("matrix should solve");
         };
-        assert_relative_eq!(solved.get(0), 0.0);
+        assert_relative_eq!(solved.get(0), 0.0, epsilon = 1e-12);
         assert_relative_eq!(solved.get(1), 2.5);
 
         let Some(inverse) = a.lu_solve_matrix(&Matrix::identity(2)) else {
@@ -1215,6 +1307,68 @@ mod tests {
         nalgebra_pseudo_inverse_contract();
     }
 
+    fn prepared_solver_contract<T, B>(tolerance: T)
+    where
+        T: RealScalar,
+        B: LinearSolve<T>,
+    {
+        // Indefinite, nonsymmetric, and requiring a row pivot.
+        let mut matrix = Matrix::<T, B>::from_vec(
+            3,
+            3,
+            [0.0, 2.0, 1.0, 3.0, -1.0, 2.0, 1.0, 1.0, -2.0]
+                .into_iter()
+                .map(T::literal)
+                .collect(),
+        );
+        let original = matrix.clone();
+        let solver = B::lu_factorize(matrix.as_storage());
+        // Preparing owns its system; caller mutation cannot invalidate the factors.
+        matrix.set(0, 0, T::literal(99.0));
+        for scale in [1.0, -3.0, 0.0] {
+            let expected = Vector::<T, B>::from_vec(
+                [2.0, -1.0, 0.5]
+                    .into_iter()
+                    .map(|x| T::literal(x * scale))
+                    .collect(),
+            );
+            let rhs = original.mul_vec(&expected);
+            let actual = Vector::<T, B>::from_storage(solver.solve(rhs.as_storage()).unwrap());
+            assert!(actual.sub(&expected).norm() < tolerance);
+        }
+        let rhs = Matrix::<T, B>::from_vec(
+            3,
+            2,
+            [1.0, 3.0, -2.0, 0.5, 0.0, -1.0]
+                .into_iter()
+                .map(T::literal)
+                .collect(),
+        );
+        let actual = Matrix::from_storage(solver.solve_matrix(rhs.as_storage()).unwrap());
+        let residual = &original.mul_mat(&actual) - &rhs;
+        for row in 0..3 {
+            for col in 0..2 {
+                assert!(residual.get(row, col).abs() < tolerance);
+            }
+        }
+        let clone = solver.clone();
+        assert!(Arc::ptr_eq(&solver, &clone));
+        let singular = Matrix::<T, B>::zeros(2, 2);
+        let failed = B::lu_factorize(singular.as_storage());
+        for _ in 0..3 {
+            assert!(failed
+                .solve(Vector::<T, B>::zeros(2).as_storage())
+                .is_none());
+            assert!(failed.solve_matrix(singular.as_storage()).is_none());
+        }
+    }
+
+    #[test]
+    fn nalgebra_prepared_solver_reuses_owned_factors() {
+        prepared_solver_contract::<f64, NalgebraProvider>(1e-12);
+        prepared_solver_contract::<f32, NalgebraProvider>(1e-5);
+    }
+
     #[test]
     fn vector_converts_from_owned_and_borrowed_collections() {
         let owned: Vector = vec![1.0, 2.0, 3.0].into();
@@ -1233,5 +1387,12 @@ mod tests {
     fn ndarray_provider_satisfies_contracts() {
         vector_contract::<NdArrayProvider>();
         matrix_contract::<NdArrayProvider>();
+    }
+
+    #[cfg(feature = "backend-ndarray")]
+    #[test]
+    fn ndarray_prepared_solver_reuses_owned_factors() {
+        prepared_solver_contract::<f64, NdArrayProvider>(1e-12);
+        prepared_solver_contract::<f32, NdArrayProvider>(1e-5);
     }
 }

@@ -286,8 +286,8 @@ pub use nalgebra::{DMatrix, DVector};
 pub use core::NdArrayProvider;
 /// Re-export crate-owned scalar and linear algebra traits for generic optimizer APIs.
 pub use core::{
-    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, RandomScalar,
-    RealScalar, Scalar, SymmetricEigen, Vector,
+    Determinant, LinearAlgebra, LinearSolve, LuSolver, Matrix, NalgebraProvider, PseudoInverse,
+    RandomScalar, RealScalar, Scalar, SymmetricEigen, Vector,
 };
 pub use traits::{
     Bounds, IdentityTransform, ScalarBound, ScaleTransform, Transform, TransformedProblem,

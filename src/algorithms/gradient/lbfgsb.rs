@@ -3,7 +3,7 @@
 use crate::algorithms::gradient::GradientStatus;
 use crate::algorithms::line_search::StrongWolfeLineSearch;
 use crate::core::{
-    Callbacks, LinearAlgebra, LinearSolve, Matrix, MinimizationSummary, NalgebraProvider,
+    Callbacks, LinearAlgebra, LinearSolve, LuSolver, Matrix, MinimizationSummary, NalgebraProvider,
     PseudoInverse, RealScalar, Vector,
 };
 use crate::error::{GaneshError, GaneshResult};
@@ -11,7 +11,7 @@ use crate::traits::{
     Algorithm, CheckpointableAlgorithm, Gradient, LineSearch, LineSearchOutput, LineSearchStart,
     ScalarBound, Status, SupportsParameterNames, Terminator, Transform, TransformedProblem,
 };
-use std::{marker::PhantomData, ops::ControlFlow};
+use std::{marker::PhantomData, ops::ControlFlow, sync::Arc};
 
 macro_rules! lbfgsb_terminator {
     ($name:ident, $default:expr, $doc:literal) => {
@@ -239,7 +239,7 @@ pub struct LBFGSB<
     y_history: Vec<Vector<T, B>>,
     theta: T,
     w_matrix: Matrix<T, B>,
-    m_system: Option<Matrix<T, B>>,
+    m_system: Option<Arc<dyn LuSolver<T, B>>>,
     line_search: L,
     _provider: PhantomData<B>,
 }
@@ -284,7 +284,8 @@ where
     fn m_dot_vec(&self, value: &Vector<T, B>) -> Vector<T, B> {
         self.m_system
             .as_ref()
-            .and_then(|matrix| matrix.lu_solve(value))
+            .and_then(|system| system.solve(value.as_storage()))
+            .map(Vector::from_storage)
             .unwrap_or_else(|| Vector::zeros(value.len()))
     }
 
@@ -326,7 +327,8 @@ where
     fn m_dot_mat(&self, value: &Matrix<T, B>) -> Matrix<T, B> {
         self.m_system
             .as_ref()
-            .and_then(|matrix| matrix.lu_solve_matrix(value))
+            .and_then(|system| system.solve_matrix(value.as_storage()))
+            .map(Matrix::from_storage)
             .unwrap_or_else(|| Matrix::zeros(value.rows(), value.cols()))
     }
 
@@ -336,22 +338,20 @@ where
         self.w_matrix = Matrix::zeros(n, 2 * m);
         let mut s: Matrix<T, B> = Matrix::zeros(n, m);
         let mut y: Matrix<T, B> = Matrix::zeros(n, m);
-        for column in 0..m {
+        for (column, (s_column, y_column)) in self.s_history.iter().zip(&self.y_history).enumerate()
+        {
             for row in 0..n {
-                s.set(row, column, self.s_history[column].get(row));
-                y.set(row, column, self.y_history[column].get(row));
-                self.w_matrix
-                    .set(row, column, self.y_history[column].get(row));
-                self.w_matrix.set(
-                    row,
-                    m + column,
-                    self.theta * self.s_history[column].get(row),
-                );
+                let s_value = s_column.get(row);
+                let y_value = y_column.get(row);
+                s.set(row, column, s_value);
+                y.set(row, column, y_value);
+                self.w_matrix.set(row, column, y_value);
+                self.w_matrix.set(row, m + column, self.theta * s_value);
             }
         }
         let sty = s.transpose().mul_mat(&y);
         let sts = s.transpose().mul_mat(&s).scale(self.theta);
-        let mut system = Matrix::zeros(2 * m, 2 * m);
+        let mut system: Matrix<T, B> = Matrix::zeros(2 * m, 2 * m);
         for row in 0..m {
             system.set(row, row, -sty.get(row, row));
             for column in 0..m {
@@ -362,7 +362,7 @@ where
                 system.set(m + row, m + column, sts.get(row, column));
             }
         }
-        self.m_system = Some(system);
+        self.m_system = Some(B::lu_factorize(system.as_storage()));
     }
 
     fn generalized_cauchy_point(
@@ -1164,6 +1164,254 @@ mod unconstrained_tests {
             algorithm.y_history.push(y);
         }
         algorithm
+    }
+
+    #[derive(Debug)]
+    struct FreshLu(Matrix);
+
+    impl LuSolver<f64, NalgebraProvider> for FreshLu {
+        fn solve(&self, rhs: &nalgebra::DVector<f64>) -> Option<nalgebra::DVector<f64>> {
+            self.0
+                .lu_solve(&Vector::from_storage(rhs.clone()))
+                .map(Vector::into_storage)
+        }
+
+        fn solve_matrix(&self, rhs: &nalgebra::DMatrix<f64>) -> Option<nalgebra::DMatrix<f64>> {
+            self.0
+                .lu_solve_matrix(&Matrix::from_storage(rhs.clone()))
+                .map(Matrix::into_storage)
+        }
+    }
+
+    fn fresh_compact_solver(algorithm: &LBFGSB) -> Arc<dyn LuSolver<f64, NalgebraProvider>> {
+        // Construct the reference system directly from pairwise dots, independently
+        // of the production matrix products. FreshLu factors it on every solve.
+        let m = algorithm.s_history.len();
+        let mut system = Matrix::zeros(2 * m, 2 * m);
+        for i in 0..m {
+            system.set(i, i, -algorithm.s_history[i].dot(&algorithm.y_history[i]));
+            for j in 0..m {
+                if i > j {
+                    let sy = algorithm.s_history[i].dot(&algorithm.y_history[j]);
+                    system.set(m + i, j, sy);
+                    system.set(j, m + i, sy);
+                }
+                system.set(
+                    m + i,
+                    m + j,
+                    algorithm.theta * algorithm.s_history[i].dot(&algorithm.s_history[j]),
+                );
+            }
+        }
+        Arc::new(FreshLu(system))
+    }
+
+    #[test]
+    fn compact_solver_reuses_factors_for_vector_and_matrix_rhs() {
+        for count in [1, 3, 7] {
+            let mut algorithm = history_fixture(count);
+            algorithm.update_compact_matrices();
+            let cached = algorithm.m_system.clone().unwrap();
+            let reference = fresh_compact_solver(&algorithm);
+            for scale in [0.0, 1.0, -2.5] {
+                let rhs =
+                    Vector::from_vec((0..2 * count).map(|i| scale * (i as f64 + 0.3)).collect());
+                let actual = algorithm.m_dot_vec(&rhs);
+                let expected: Vector =
+                    Vector::from_storage(reference.solve(rhs.as_storage()).unwrap());
+                assert!(actual.sub(&expected).norm() < 1e-8 * (1.0 + expected.norm()));
+                let rhs = Matrix::identity(2 * count).scale(scale);
+                let actual = algorithm.m_dot_mat(&rhs);
+                let expected: Matrix =
+                    Matrix::from_storage(reference.solve_matrix(rhs.as_storage()).unwrap());
+                for row in 0..2 * count {
+                    for col in 0..2 * count {
+                        assert!(
+                            (actual.get(row, col) - expected.get(row, col)).abs()
+                                < 1e-8 * (1.0 + expected.get(row, col).abs())
+                        );
+                    }
+                }
+                assert!(Arc::ptr_eq(algorithm.m_system.as_ref().unwrap(), &cached));
+            }
+            algorithm.theta *= 1.7;
+            algorithm.update_compact_matrices();
+            assert!(!Arc::ptr_eq(algorithm.m_system.as_ref().unwrap(), &cached));
+            let rhs = Vector::from_vec(vec![1.0; 2 * count]);
+            let expected: Vector = Vector::from_storage(
+                fresh_compact_solver(&algorithm)
+                    .solve(rhs.as_storage())
+                    .unwrap(),
+            );
+            assert!(
+                algorithm.m_dot_vec(&rhs).sub(&expected).norm() < 1e-8 * (1.0 + expected.norm())
+            );
+        }
+    }
+
+    #[test]
+    fn singular_compact_solver_preserves_zero_fallback() {
+        let mut algorithm = history_fixture(1);
+        algorithm.y_history[0] = Vector::zeros(4);
+        algorithm.update_compact_matrices();
+        let cached = algorithm.m_system.clone().unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                algorithm.m_dot_vec(&Vector::from_vec(vec![1.0; 2])),
+                Vector::zeros(2)
+            );
+            assert_eq!(
+                algorithm.m_dot_mat(&Matrix::identity(2)),
+                Matrix::zeros(2, 2)
+            );
+            assert!(Arc::ptr_eq(algorithm.m_system.as_ref().unwrap(), &cached));
+        }
+    }
+
+    #[test]
+    fn cached_bounded_steps_match_fresh_factorizations_after_history_eviction() {
+        let config = LBFGSBConfig::default()
+            .with_memory_limit(3)
+            .unwrap()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        let (mut cached, mut status) = initialized_rosenbrock(&config);
+        let mut fresh = cached.clone();
+        let mut fresh_status = status.clone();
+        let shared = cached.m_system.clone().unwrap();
+        assert!(Arc::ptr_eq(fresh.m_system.as_ref().unwrap(), &shared));
+        let mut saw_eviction = false;
+        for step in 1..20 {
+            if !fresh.s_history.is_empty() {
+                fresh.m_system = Some(fresh_compact_solver(&fresh));
+            }
+            let old = cached.m_system.clone();
+            cached
+                .step(step, &Rosenbrock { n: 2 }, &mut status, &(), &config)
+                .unwrap();
+            fresh
+                .step(step, &Rosenbrock { n: 2 }, &mut fresh_status, &(), &config)
+                .unwrap();
+            assert!(cached.x.sub(&fresh.x).norm() < 1e-10);
+            assert!((cached.fx - fresh.fx).abs() < 1e-10);
+            assert_eq!(status.evals, fresh_status.evals);
+            if cached.s_history.len() == 3 {
+                saw_eviction = true;
+                assert!(!Arc::ptr_eq(
+                    cached.m_system.as_ref().unwrap(),
+                    old.as_ref().unwrap()
+                ));
+            }
+        }
+        assert!(saw_eviction);
+    }
+
+    #[test]
+    fn rejected_search_and_reinitialization_discard_cached_factors() {
+        #[derive(Clone, Default)]
+        struct RejectSearch;
+
+        impl<P: Gradient> LineSearch<f64, NalgebraProvider, P> for RejectSearch {
+            fn search_from(
+                &mut self,
+                start: LineSearchStart<'_, f64, NalgebraProvider>,
+                _: &Vector,
+                _: Option<f64>,
+                _: &P,
+                _: &(),
+                _: &mut crate::core::EvalCounts,
+            ) -> Result<crate::traits::LineSearchResult<f64, NalgebraProvider>, Infallible>
+            {
+                Ok(Err(LineSearchOutput {
+                    alpha: 0.0,
+                    fx: start.fx,
+                    gradient: start.gradient.clone(),
+                }))
+            }
+        }
+
+        let config = LBFGSBConfig::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        let (fixture, mut status) = initialized_rosenbrock(&config);
+        let mut algorithm = LBFGSB::<f64, NalgebraProvider, RejectSearch> {
+            x: fixture.x,
+            fx: fixture.fx,
+            gradient: fixture.gradient,
+            s_history: fixture.s_history,
+            y_history: fixture.y_history,
+            theta: fixture.theta,
+            ..LBFGSB::default()
+        };
+        algorithm.update_compact_matrices();
+        let rejected_config = LBFGSBConfig::<f64>::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap()
+            .with_line_search(RejectSearch);
+        algorithm
+            .step(1, &Rosenbrock { n: 2 }, &mut status, &(), &rejected_config)
+            .unwrap();
+        assert!(algorithm.s_history.is_empty());
+        assert!(algorithm.m_system.is_none());
+
+        let (mut algorithm, mut status) = initialized_rosenbrock(&config);
+        assert!(algorithm.m_system.is_some());
+        algorithm
+            .initialize(
+                &Rosenbrock { n: 2 },
+                &mut status,
+                &(),
+                &Vector::from_vec(vec![1.5, 2.0]),
+                &config,
+            )
+            .unwrap();
+        assert!(algorithm.s_history.is_empty());
+        assert!(algorithm.m_system.is_none());
+    }
+
+    #[test]
+    fn bounded_checkpoint_rebuilds_factors_and_resumes_identically() {
+        let config = LBFGSBConfig::default()
+            .with_bounds([(-5.0, 5.0); 2])
+            .unwrap();
+        let (mut original, mut status) = initialized_rosenbrock(&config);
+        let checkpoint = <LBFGSB as CheckpointableAlgorithm<
+            Rosenbrock,
+            GradientStatus,
+            (),
+            Infallible,
+        >>::checkpoint(&original, &status, 1);
+        let mut restored = LBFGSB::default();
+        let (mut restored_status, next_step) = <LBFGSB as CheckpointableAlgorithm<
+            Rosenbrock,
+            GradientStatus,
+            (),
+            Infallible,
+        >>::restore(
+            &mut restored, &checkpoint, &config
+        );
+        assert!(!Arc::ptr_eq(
+            original.m_system.as_ref().unwrap(),
+            restored.m_system.as_ref().unwrap()
+        ));
+        for step in next_step..next_step + 5 {
+            original
+                .step(step, &Rosenbrock { n: 2 }, &mut status, &(), &config)
+                .unwrap();
+            restored
+                .step(
+                    step,
+                    &Rosenbrock { n: 2 },
+                    &mut restored_status,
+                    &(),
+                    &config,
+                )
+                .unwrap();
+            assert_eq!(original.x, restored.x);
+            assert_eq!(original.gradient, restored.gradient);
+            assert_eq!(original.fx, restored.fx);
+            assert_eq!(status.evals, restored_status.evals);
+        }
     }
 
     // Independent dense rank-two inverse-BFGS updates, rather than another two-loop recursion.

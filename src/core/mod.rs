@@ -30,8 +30,8 @@ pub mod linalg;
 #[cfg(feature = "backend-ndarray")]
 pub use linalg::NdArrayProvider;
 pub use linalg::{
-    Determinant, LinearAlgebra, LinearSolve, Matrix, NalgebraProvider, PseudoInverse, Scalar,
-    SymmetricEigen, Vector,
+    Determinant, LinearAlgebra, LinearSolve, LuSolver, Matrix, NalgebraProvider, PseudoInverse,
+    Scalar, SymmetricEigen, Vector,
 };
 
 /// [`Point`] type for defining a point in the parameter space.

@@ -332,6 +332,7 @@ fn benchmark_lbfgsb_paths(c: &mut Criterion) {
         ("unconstrained", 512, 0),
         ("explicit-unbounded", 64, 1),
         ("bounded-control", 64, 2),
+        ("bounded-control", 512, 2),
     ] {
         let setup = || {
             let config = LBFGSBConfig::<f64>::default()
