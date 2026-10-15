@@ -1,6 +1,6 @@
 use ganesh::algorithms::gradient_free::NelderMead;
 use ganesh::traits::{Algorithm, CostFunction};
-use ganesh::{LinearAlgebra, RealScalar, Vector};
+use ganesh::{LinearAlgebra, LinearSolve, RealScalar, Vector};
 use std::convert::Infallible;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -223,6 +223,44 @@ impl LinearAlgebra<Wrapped> for VecProvider {
 }
 
 struct Quadratic;
+
+// An existing provider need only implement the original three solve methods.
+// This test provider supports scalar systems, which suffice to exercise delegation.
+impl LinearSolve<Wrapped> for VecProvider {
+    fn lu_solve(matrix: &DenseMatrix, rhs: &Vec<Wrapped>) -> Option<Vec<Wrapped>> {
+        assert_eq!((matrix.rows, matrix.cols, rhs.len()), (1, 1, 1));
+        (matrix.values[0].0 != 0.0).then(|| vec![rhs[0] / matrix.values[0]])
+    }
+
+    fn lu_solve_matrix(matrix: &DenseMatrix, rhs: &DenseMatrix) -> Option<DenseMatrix> {
+        assert_eq!((matrix.rows, matrix.cols, rhs.rows), (1, 1, 1));
+        (matrix.values[0].0 != 0.0).then(|| Self::mat_scale(rhs, Wrapped::one() / matrix.values[0]))
+    }
+
+    fn lu_inverse(matrix: &DenseMatrix) -> Option<DenseMatrix> {
+        Self::lu_solve_matrix(matrix, &Self::matrix_identity(1))
+    }
+}
+
+#[test]
+fn existing_provider_gets_an_owned_solver_without_new_required_methods() {
+    let mut matrix = VecProvider::matrix_from_vec(1, 1, vec![Wrapped(2.0)]);
+    let solver = VecProvider::lu_factorize(&matrix);
+    matrix.values[0] = Wrapped(99.0);
+    assert_eq!(solver.solve(&vec![Wrapped(6.0)]), Some(vec![Wrapped(3.0)]));
+    let rhs = VecProvider::matrix_from_vec(1, 2, vec![Wrapped(6.0), Wrapped(-4.0)]);
+    assert_eq!(
+        solver.solve_matrix(&rhs),
+        Some(VecProvider::matrix_from_vec(
+            1,
+            2,
+            vec![Wrapped(3.0), Wrapped(-2.0)]
+        ))
+    );
+    let singular = VecProvider::lu_factorize(&VecProvider::matrix_zeros(1, 1));
+    assert!(singular.solve(&vec![Wrapped(1.0)]).is_none());
+    assert!(singular.solve_matrix(&rhs).is_none());
+}
 
 impl CostFunction<Wrapped, VecProvider> for Quadratic {
     fn evaluate(&self, x: &Vector<Wrapped, VecProvider>, _: &()) -> Result<Wrapped, Infallible> {
