@@ -3,19 +3,22 @@ use ganesh::{
     algorithms::{
         gradient::{
             Adam, AdamConfig, ConjugateGradient, ConjugateGradientConfig, LBFGSBConfig,
-            TrustRegion, TrustRegionConfig, LBFGSB,
+            LBFGSBErrorMode, TrustRegion, TrustRegionConfig, LBFGSB,
         },
         gradient_free::{
             CMAESConfig, DifferentialEvolution, DifferentialEvolutionConfig, NelderMead,
             NelderMeadConfig, SimulatedAnnealing, SimulatedAnnealingConfig, CMAES,
         },
-        line_search::{BacktrackingLineSearch, HagerZhangLineSearch, MoreThuenteLineSearch},
+        line_search::{
+            BacktrackingLineSearch, HagerZhangLineSearch, MoreThuenteLineSearch,
+            StrongWolfeLineSearch,
+        },
         mcmc::{AIESConfig, AIESInit, ESSConfig, ESSInit, AIES, ESS},
         particles::{PSOConfig, PSO},
     },
     core::{Callbacks, EvalCounts, MaxSteps},
     test_functions::{rastrigin::Rastrigin, rosenbrock::Rosenbrock},
-    traits::{Algorithm, LineSearch},
+    traits::{Algorithm, CostFunction, Gradient, LineSearch},
     Bounds, Vector,
 };
 
@@ -148,6 +151,153 @@ fn benchmark_optimizers(c: &mut Criterion) {
     group.finish();
 }
 
+// A data-fitting objective whose fused override shares the residual calculation.
+// Keep it separate from the small Rosenbrock matrix above so both workloads remain comparable.
+struct LeastSquares {
+    features: Vec<[f64; 8]>,
+    targets: Vec<f64>,
+    fused: bool,
+}
+
+impl LeastSquares {
+    fn new(fused: bool) -> Self {
+        let features: Vec<[f64; 8]> = (0..4096)
+            .map(|row| {
+                std::array::from_fn(|col| ((row + 1) as f64 * (col + 1) as f64 * 0.17).sin())
+            })
+            .collect();
+        let targets = features
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .enumerate()
+                    .map(|(col, a)| a * (col + 1) as f64 * 0.1)
+                    .sum()
+            })
+            .collect();
+        Self {
+            features,
+            targets,
+            fused,
+        }
+    }
+
+    fn residual(row: &[f64; 8], target: f64, x: &Vector) -> f64 {
+        row.iter()
+            .enumerate()
+            .map(|(col, a)| a * x.get(col))
+            .sum::<f64>()
+            - target
+    }
+}
+
+impl CostFunction for LeastSquares {
+    fn evaluate(&self, x: &Vector, _: &()) -> Result<f64, std::convert::Infallible> {
+        Ok(self
+            .features
+            .iter()
+            .zip(&self.targets)
+            .map(|(row, target)| {
+                let residual = Self::residual(row, *target, x);
+                0.5 * residual * residual
+            })
+            .sum())
+    }
+}
+
+impl Gradient for LeastSquares {
+    fn gradient(&self, x: &Vector, _: &()) -> Result<Vector, std::convert::Infallible> {
+        let mut gradient = [0.0; 8];
+        for (row, target) in self.features.iter().zip(&self.targets) {
+            let residual = Self::residual(row, *target, x);
+            for (entry, a) in gradient.iter_mut().zip(row) {
+                *entry += residual * a;
+            }
+        }
+        Ok(Vector::from_vec(gradient.to_vec()))
+    }
+
+    fn evaluate_with_gradient(
+        &self,
+        x: &Vector,
+        args: &(),
+    ) -> Result<(f64, Vector), std::convert::Infallible> {
+        if !self.fused {
+            return Ok((self.evaluate(x, args)?, self.gradient(x, args)?));
+        }
+        let mut fx = 0.0;
+        let mut gradient = [0.0; 8];
+        for (row, target) in self.features.iter().zip(&self.targets) {
+            let residual = Self::residual(row, *target, x);
+            fx += 0.5 * residual * residual;
+            for (entry, a) in gradient.iter_mut().zip(row) {
+                *entry += residual * a;
+            }
+        }
+        Ok((fx, Vector::from_vec(gradient.to_vec())))
+    }
+}
+
+fn benchmark_lbfgsb_evaluations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("algorithms/lbfgsb-evaluations");
+    for (name, fused, search) in [
+        (
+            "least-squares/separate/more-thuente",
+            false,
+            StrongWolfeLineSearch::default(),
+        ),
+        (
+            "least-squares/fused/more-thuente",
+            true,
+            StrongWolfeLineSearch::default(),
+        ),
+        (
+            "least-squares/fused/hager-zhang",
+            true,
+            StrongWolfeLineSearch::from(HagerZhangLineSearch::default()),
+        ),
+    ] {
+        let problem = LeastSquares::new(fused);
+        let setup = || {
+            (
+                LBFGSB::<f64>::default(),
+                start(8),
+                LBFGSBConfig::<f64>::default()
+                    .with_max_step(1.0)
+                    .unwrap()
+                    .with_error_mode(LBFGSBErrorMode::Skip)
+                    .with_line_search(search.clone()),
+                LBFGSB::<f64>::default_callbacks().with_terminator(MaxSteps(60)),
+            )
+        };
+        let (mut algorithm, init, config, callbacks) = setup();
+        let result = algorithm
+            .process(&problem, &(), init, config, callbacks)
+            .unwrap();
+        assert!(result.fx < 1e-10, "{name} did not converge: {}", result.fx);
+        eprintln!(
+            "{name}: fx={:.16e}, f={}, g={}",
+            result.fx,
+            result.evals.f(),
+            result.evals.g()
+        );
+        group.bench_function(name, |b| {
+            b.iter_batched(
+                &setup,
+                |(mut algorithm, init, config, callbacks)| {
+                    black_box(
+                        algorithm
+                            .process(&problem, &(), init, config, callbacks)
+                            .unwrap(),
+                    );
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn benchmark_samplers(c: &mut Criterion) {
     let mut group = c.benchmark_group("algorithms/sampling");
     for n in [2, 4] {
@@ -208,6 +358,7 @@ fn benchmark_line_searches(c: &mut Criterion) {
 criterion_group!(
     benches,
     benchmark_optimizers,
+    benchmark_lbfgsb_evaluations,
     benchmark_samplers,
     benchmark_line_searches
 );

@@ -1,6 +1,6 @@
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 use std::marker::PhantomData;
 
 /// Scalar- and linear-algebra-generic Armijo backtracking line search.
@@ -65,18 +65,17 @@ where
     B: LinearAlgebra<T>,
     P: Gradient<T, B, U, E> + ?Sized,
 {
-    fn search(
+    fn search_from(
         &mut self,
-        x: &Vector<T, B>,
+        start: LineSearchStart<'_, T, B>,
         direction: &Vector<T, B>,
         max_step: Option<T>,
         problem: &P,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<Result<LineSearchOutput<T, B>, LineSearchOutput<T, B>>, E> {
+    ) -> Result<LineSearchResult<T, B>, E> {
+        let LineSearchStart { x, fx, gradient } = start;
         let mut alpha = max_step.unwrap_or_else(T::one);
-        let (fx, gradient) = problem.evaluate_with_gradient(x, args)?;
-        evals.record_fg();
         let directional_derivative = gradient.dot(direction);
         loop {
             let trial = x.add_scaled(direction, alpha);
@@ -96,7 +95,7 @@ where
                 return Ok(Err(LineSearchOutput {
                     alpha: T::zero(),
                     fx,
-                    gradient,
+                    gradient: gradient.clone(),
                 }));
             }
         }

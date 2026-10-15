@@ -2,7 +2,7 @@
 
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 use std::marker::PhantomData;
 
 /// Generic Hager–Zhang approximate-Wolfe line search.
@@ -311,16 +311,20 @@ where
     B: LinearAlgebra<T>,
     P: Gradient<T, B, U, E> + ?Sized,
 {
-    fn search(
+    fn search_from(
         &mut self,
-        x0: &Vector<T, B>,
+        start: LineSearchStart<'_, T, B>,
         direction: &Vector<T, B>,
         max_step: Option<T>,
         problem: &P,
         args: &U,
         evals: &mut EvalCounts,
     ) -> Result<LineSearchResult<T, B>, E> {
-        let (phi0, gradient0) = Self::evaluate_fg(problem, x0, direction, T::zero(), args, evals)?;
+        let LineSearchStart {
+            x: x0,
+            fx: phi0,
+            gradient: gradient0,
+        } = start;
         let dphi0 = gradient0.dot(direction);
         let epsilon_k = self.epsilon * phi0.abs();
         let mut a = T::epsilon();

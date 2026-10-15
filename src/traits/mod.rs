@@ -23,7 +23,7 @@ pub use numeric_problem::{
 
 /// Module containing various line-search methods.
 pub mod linesearch;
-pub use linesearch::{LineSearch, LineSearchOutput, LineSearchResult};
+pub use linesearch::{LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 
 /// Module containing the [`Status`] trait.
 pub mod status;

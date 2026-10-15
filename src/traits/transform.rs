@@ -699,6 +699,20 @@ where
     B: LinearAlgebra<T>,
     P: Gradient<T, B, U, E>,
 {
+    fn evaluate_with_gradient(
+        &self,
+        internal: &Vector<T, B>,
+        args: &U,
+    ) -> Result<(T, Vector<T, B>), E> {
+        if let Some(transform) = self.transform {
+            let external = transform.to_external(internal);
+            let (fx, gradient) = self.problem.evaluate_with_gradient(&external, args)?;
+            Ok((fx, transform.pullback_gradient(internal, &gradient)))
+        } else {
+            self.problem.evaluate_with_gradient(internal, args)
+        }
+    }
+
     fn gradient(&self, internal: &Vector<T, B>, args: &U) -> Result<Vector<T, B>, E> {
         let external = self.to_external(internal);
         let gradient = self.problem.gradient(&external, args)?;
