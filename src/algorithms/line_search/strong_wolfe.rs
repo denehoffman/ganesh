@@ -2,7 +2,7 @@
 
 use crate::algorithms::line_search::{HagerZhangLineSearch, MoreThuenteLineSearch};
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
-use crate::traits::{Gradient, LineSearch, LineSearchResult};
+use crate::traits::{Gradient, LineSearch, LineSearchResult, LineSearchStart};
 
 /// Either supported strong-Wolfe line search.
 ///
@@ -52,9 +52,9 @@ where
     B: LinearAlgebra<T>,
     P: Gradient<T, B, U, E> + ?Sized,
 {
-    fn search(
+    fn search_from(
         &mut self,
-        x: &Vector<T, B>,
+        start: LineSearchStart<'_, T, B>,
         direction: &Vector<T, B>,
         max_step: Option<T>,
         problem: &P,
@@ -63,9 +63,11 @@ where
     ) -> Result<LineSearchResult<T, B>, E> {
         match self {
             Self::MoreThuente(search) => {
-                search.search(x, direction, max_step, problem, args, evals)
+                search.search_from(start, direction, max_step, problem, args, evals)
             }
-            Self::HagerZhang(search) => search.search(x, direction, max_step, problem, args, evals),
+            Self::HagerZhang(search) => {
+                search.search_from(start, direction, max_step, problem, args, evals)
+            }
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 use std::marker::PhantomData;
 
 /// Generic implementation of the Moré–Thuente search and zoom procedure.
@@ -117,19 +117,6 @@ where
         problem.gradient(x, args)
     }
 
-    fn evaluate_fg<P, U, E>(
-        problem: &P,
-        x: &Vector<T, B>,
-        args: &U,
-        evals: &mut EvalCounts,
-    ) -> Result<(T, Vector<T, B>), E>
-    where
-        P: Gradient<T, B, U, E> + ?Sized,
-    {
-        evals.record_fg();
-        problem.evaluate_with_gradient(x, args)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn zoom<P, U, E>(
         &self,
@@ -141,6 +128,7 @@ where
         direction: &Vector<T, B>,
         mut alpha_low: T,
         mut alpha_high: T,
+        mut f_low: T,
         evals: &mut EvalCounts,
     ) -> Result<LineSearchResult<T, B>, E>
     where
@@ -151,11 +139,9 @@ where
             let alpha = (alpha_low + alpha_high) / T::literal(2.0);
             let x = x0.add_scaled(direction, alpha);
             let fx = Self::evaluate_f(problem, &x, args, evals)?;
-            let x_low = x0.add_scaled(direction, alpha_low);
-            let f_low = Self::evaluate_f(problem, &x_low, args, evals)?;
-            let valid = if fx > dphi0.mul_add(self.c1 * alpha, f0) || fx >= f_low {
+            let (valid, gradient) = if fx > dphi0.mul_add(self.c1 * alpha, f0) || fx >= f_low {
                 alpha_high = alpha;
-                false
+                (false, None)
             } else {
                 let gradient = Self::evaluate_g(problem, &x, args, evals)?;
                 let dphi = gradient.dot(direction);
@@ -170,10 +156,14 @@ where
                     alpha_high = alpha_low;
                 }
                 alpha_low = alpha;
-                true
+                f_low = fx;
+                (true, Some(gradient))
             };
             if iteration == self.max_zoom {
-                let gradient = Self::evaluate_g(problem, &x, args, evals)?;
+                let gradient = match gradient {
+                    Some(gradient) => gradient,
+                    None => Self::evaluate_g(problem, &x, args, evals)?,
+                };
                 let output = LineSearchOutput {
                     alpha,
                     fx,
@@ -192,16 +182,20 @@ where
     B: LinearAlgebra<T>,
     P: Gradient<T, B, U, E> + ?Sized,
 {
-    fn search(
+    fn search_from(
         &mut self,
-        x0: &Vector<T, B>,
+        start: LineSearchStart<'_, T, B>,
         direction: &Vector<T, B>,
         max_step: Option<T>,
         problem: &P,
         args: &U,
         evals: &mut EvalCounts,
     ) -> Result<LineSearchResult<T, B>, E> {
-        let (f0, g0) = Self::evaluate_fg(problem, x0, args, evals)?;
+        let LineSearchStart {
+            x: x0,
+            fx: f0,
+            gradient: g0,
+        } = start;
         let alpha_max = max_step.unwrap_or_else(T::one);
         let mut previous_alpha = T::zero();
         let mut alpha = T::one();
@@ -216,10 +210,11 @@ where
                     x0,
                     args,
                     f0,
-                    &g0,
+                    g0,
                     direction,
                     previous_alpha,
                     alpha,
+                    previous_fx,
                     evals,
                 );
             }
@@ -238,10 +233,11 @@ where
                     x0,
                     args,
                     f0,
-                    &g0,
+                    g0,
                     direction,
                     alpha,
                     previous_alpha,
+                    fx,
                     evals,
                 );
             }

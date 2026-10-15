@@ -8,8 +8,8 @@ use crate::core::{
 };
 use crate::error::{GaneshError, GaneshResult};
 use crate::traits::{
-    Algorithm, CheckpointableAlgorithm, Gradient, LineSearch, LineSearchOutput, ScalarBound,
-    Status, SupportsParameterNames, Terminator, Transform, TransformedProblem,
+    Algorithm, CheckpointableAlgorithm, Gradient, LineSearch, LineSearchOutput, LineSearchStart,
+    ScalarBound, Status, SupportsParameterNames, Terminator, Transform, TransformedProblem,
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 
@@ -772,8 +772,12 @@ where
             alpha,
             fx,
             gradient,
-        }) = self.line_search.search(
-            &self.x,
+        }) = self.line_search.search_from(
+            LineSearchStart {
+                x: &self.x,
+                fx: self.fx,
+                gradient: &self.gradient,
+            },
             &direction,
             Some(maximum_step),
             &transformed,
