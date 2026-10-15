@@ -224,6 +224,66 @@ pub struct LBFGSBCheckpoint<T: RealScalar, B: LinearAlgebra<T>> {
     pub next_step: usize,
 }
 
+/// Unscaled products for the current correction history.
+#[derive(Clone, Debug)]
+struct HistoryProducts<T: RealScalar, B: LinearAlgebra<T>> {
+    sty: Matrix<T, B>,
+    sts: Matrix<T, B>,
+}
+
+impl<T: RealScalar, B: LinearAlgebra<T>> HistoryProducts<T, B> {
+    fn from_history(s: &[Vector<T, B>], y: &[Vector<T, B>]) -> Self {
+        let m = s.len();
+        let mut result = Self {
+            sty: Matrix::zeros(m, m),
+            sts: Matrix::zeros(m, m),
+        };
+        for (row, s_row) in s.iter().enumerate() {
+            for (column, y_column) in y.iter().enumerate() {
+                result.sty.set(row, column, s_row.dot(y_column));
+            }
+            for (column, s_column) in s.iter().enumerate().take(row + 1) {
+                let value = s_row.dot(s_column);
+                result.sts.set(row, column, value);
+                result.sts.set(column, row, value);
+            }
+        }
+        result
+    }
+
+    fn with_newest(&self, s: &[Vector<T, B>], y: &[Vector<T, B>], discarded_oldest: bool) -> Self {
+        let m = s.len();
+        let offset = usize::from(discarded_oldest);
+        debug_assert_eq!(self.sty.rows() + 1, m + offset);
+        let mut result = Self {
+            sty: Matrix::zeros(m, m),
+            sts: Matrix::zeros(m, m),
+        };
+        // Retained pairs have not changed, even when theta changes.
+        for row in 0..m - 1 {
+            for column in 0..m - 1 {
+                result
+                    .sty
+                    .set(row, column, self.sty.get(row + offset, column + offset));
+                result
+                    .sts
+                    .set(row, column, self.sts.get(row + offset, column + offset));
+            }
+        }
+        let last = m - 1;
+        for index in 0..last {
+            result.sty.set(last, index, s[last].dot(&y[index]));
+            result.sty.set(index, last, s[index].dot(&y[last]));
+            let value = s[last].dot(&s[index]);
+            result.sts.set(last, index, value);
+            result.sts.set(index, last, value);
+        }
+        result.sty.set(last, last, s[last].dot(&y[last]));
+        result.sts.set(last, last, s[last].dot(&s[last]));
+        result
+    }
+}
+
 /// Scalar- and linear-algebra-generic limited-memory BFGS optimizer with native box projection.
 #[derive(Clone, Debug)]
 pub struct LBFGSB<
@@ -237,6 +297,7 @@ pub struct LBFGSB<
     gradient: Vector<T, B>,
     s_history: Vec<Vector<T, B>>,
     y_history: Vec<Vector<T, B>>,
+    history_products: Option<Box<HistoryProducts<T, B>>>,
     theta: T,
     w_matrix: Matrix<T, B>,
     m_system: Option<Arc<dyn LuSolver<T, B>>>,
@@ -258,6 +319,7 @@ where
             gradient: Vector::zeros(0),
             s_history: Vec::new(),
             y_history: Vec::new(),
+            history_products: None,
             theta: T::one(),
             w_matrix: Matrix::zeros(0, 0),
             m_system: None,
@@ -336,30 +398,34 @@ where
         let m = self.s_history.len();
         let n = self.x.len();
         self.w_matrix = Matrix::zeros(n, 2 * m);
-        let mut s: Matrix<T, B> = Matrix::zeros(n, m);
-        let mut y: Matrix<T, B> = Matrix::zeros(n, m);
         for (column, (s_column, y_column)) in self.s_history.iter().zip(&self.y_history).enumerate()
         {
             for row in 0..n {
                 let s_value = s_column.get(row);
                 let y_value = y_column.get(row);
-                s.set(row, column, s_value);
-                y.set(row, column, y_value);
                 self.w_matrix.set(row, column, y_value);
                 self.w_matrix.set(row, m + column, self.theta * s_value);
             }
         }
-        let sty = s.transpose().mul_mat(&y);
-        let sts = s.transpose().mul_mat(&s).scale(self.theta);
+        let products = self.history_products.get_or_insert_with(|| {
+            Box::new(HistoryProducts::from_history(
+                &self.s_history,
+                &self.y_history,
+            ))
+        });
         let mut system: Matrix<T, B> = Matrix::zeros(2 * m, 2 * m);
         for row in 0..m {
-            system.set(row, row, -sty.get(row, row));
+            system.set(row, row, -products.sty.get(row, row));
             for column in 0..m {
                 if row > column {
-                    system.set(m + row, column, sty.get(row, column));
-                    system.set(column, m + row, sty.get(row, column));
+                    system.set(m + row, column, products.sty.get(row, column));
+                    system.set(column, m + row, products.sty.get(row, column));
                 }
-                system.set(m + row, m + column, sts.get(row, column));
+                system.set(
+                    m + row,
+                    m + column,
+                    self.theta * products.sts.get(row, column),
+                );
             }
         }
         self.m_system = Some(B::lu_factorize(system.as_storage()));
@@ -775,6 +841,7 @@ where
         self.f_previous = T::infinity();
         self.s_history.clear();
         self.y_history.clear();
+        self.history_products = None;
         self.theta = T::one();
         self.w_matrix = Matrix::zeros(self.x.len(), 0);
         self.m_system = None;
@@ -837,7 +904,8 @@ where
             let sy = s.dot(&y);
             let yy = y.dot(&y);
             if sy > T::epsilon() * yy {
-                if self.s_history.len() == config.history_size.max(1) {
+                let discarded_oldest = self.s_history.len() == config.history_size.max(1);
+                if discarded_oldest {
                     self.s_history.remove(0);
                     self.y_history.remove(0);
                 }
@@ -845,9 +913,17 @@ where
                 self.y_history.push(y);
                 self.theta = yy / sy;
                 if unconstrained {
+                    self.history_products = None;
                     self.w_matrix = Matrix::zeros(self.x.len(), 0);
                     self.m_system = None;
                 } else {
+                    if let Some(products) = &mut self.history_products {
+                        **products = products.with_newest(
+                            &self.s_history,
+                            &self.y_history,
+                            discarded_oldest,
+                        );
+                    }
                     self.update_compact_matrices();
                 }
             }
@@ -858,6 +934,7 @@ where
         } else {
             self.s_history.clear();
             self.y_history.clear();
+            self.history_products = None;
             self.theta = T::one();
             self.w_matrix = Matrix::zeros(self.x.len(), 0);
             self.m_system = None;
@@ -960,6 +1037,7 @@ where
         self.gradient = checkpoint.gradient.clone();
         self.s_history = checkpoint.s_history.clone();
         self.y_history = checkpoint.y_history.clone();
+        self.history_products = None;
         self.theta = checkpoint.theta;
         if self.s_history.is_empty() || Self::is_unconstrained(config.bounds.as_deref()) {
             self.w_matrix = Matrix::zeros(self.x.len(), 0);
@@ -969,6 +1047,80 @@ where
         }
         self.line_search = config.line_search.clone();
         (checkpoint.status.clone(), checkpoint.next_step)
+    }
+}
+
+#[cfg(test)]
+mod gram_tests {
+    use super::*;
+
+    fn growing_and_rolling_products<T: RealScalar, B: LinearAlgebra<T>>(tolerance: T) {
+        for limit in [1, 3, 10] {
+            let mut s: Vec<Vector<T, B>> = Vec::new();
+            let mut y: Vec<Vector<T, B>> = Vec::new();
+            let mut products = HistoryProducts::from_history(&s, &y);
+            for pair in 0..2 * limit + 4 {
+                let discarded = s.len() == limit;
+                if discarded {
+                    s.remove(0);
+                    y.remove(0);
+                }
+                let next = Vector::from_vec(
+                    (0..7)
+                        .map(|i| T::literal(((pair + 1) as f64 * (i + 2) as f64 * 0.43).sin()))
+                        .collect(),
+                );
+                y.push(Vector::from_vec(
+                    (0..7)
+                        .map(|i| next.get(i) * T::literal((i + 1) as f64))
+                        .collect(),
+                ));
+                s.push(next);
+                products = products.with_newest(&s, &y, discarded);
+                assert_eq!(products.sty.rows(), s.len());
+                let rebuilt = HistoryProducts::from_history(&s, &y);
+                assert_eq!(products.sty, rebuilt.sty);
+                assert_eq!(products.sts, rebuilt.sts);
+
+                // Independent reference: the dense products used before this cache.
+                let mut dense_s = Matrix::<T, B>::zeros(7, s.len());
+                let mut dense_y = Matrix::<T, B>::zeros(7, s.len());
+                for column in 0..s.len() {
+                    for row in 0..7 {
+                        dense_s.set(row, column, s[column].get(row));
+                        dense_y.set(row, column, y[column].get(row));
+                    }
+                }
+                let reference_sy = dense_s.transpose().mul_mat(&dense_y);
+                let reference_ss = dense_s.transpose().mul_mat(&dense_s);
+                for (actual, expected) in
+                    [(&products.sty, reference_sy), (&products.sts, reference_ss)]
+                {
+                    for row in 0..s.len() {
+                        for column in 0..s.len() {
+                            let value = expected.get(row, column);
+                            assert!(
+                                (actual.get(row, column) - value).abs()
+                                    < tolerance * (T::one() + value.abs())
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_products_match_dense_products_through_growth_and_eviction() {
+        growing_and_rolling_products::<f64, NalgebraProvider>(1e-12);
+        growing_and_rolling_products::<f32, NalgebraProvider>(1e-5);
+    }
+
+    #[cfg(feature = "backend-ndarray")]
+    #[test]
+    fn ndarray_incremental_products_match_dense_products() {
+        growing_and_rolling_products::<f64, crate::core::NdArrayProvider>(1e-12);
+        growing_and_rolling_products::<f32, crate::core::NdArrayProvider>(1e-5);
     }
 }
 
@@ -1032,6 +1184,26 @@ mod tests {
             result.x,
             result.fx
         );
+    }
+
+    #[cfg(feature = "backend-ndarray")]
+    #[test]
+    fn lbfgsb_ndarray_uses_cached_products_with_native_bounds() {
+        use crate::core::NdArrayProvider;
+        type Optimizer = LBFGSB<f64, NdArrayProvider>;
+        let mut algorithm = Optimizer::default();
+        let result = algorithm.process(
+            &ShiftedQuadratic,
+            &(),
+            Vector::from_vec(vec![0.5, 0.5]),
+            LBFGSBConfig::<f64, StrongWolfeLineSearch<f64, NdArrayProvider>, NdArrayProvider>::default()
+                .with_bounds([(0.0, 2.0), (-1.0, 1.0)]).unwrap()
+                .with_error_mode(LBFGSBErrorMode::Skip),
+            Optimizer::default_callbacks(),
+        ).unwrap();
+        assert!((result.x.get(0) - 2.0).abs() < 1e-6);
+        assert!(result.x.get(1).abs() < 1e-6);
+        assert!(algorithm.history_products.is_some());
     }
 
     #[test]
@@ -1235,7 +1407,11 @@ mod unconstrained_tests {
                 assert!(Arc::ptr_eq(algorithm.m_system.as_ref().unwrap(), &cached));
             }
             algorithm.theta *= 1.7;
+            let original_grams = algorithm.history_products.clone().unwrap();
             algorithm.update_compact_matrices();
+            let current_grams = algorithm.history_products.as_ref().unwrap();
+            assert_eq!(current_grams.sty, original_grams.sty);
+            assert_eq!(current_grams.sts, original_grams.sts);
             assert!(!Arc::ptr_eq(algorithm.m_system.as_ref().unwrap(), &cached));
             let rhs = Vector::from_vec(vec![1.0; 2 * count]);
             let expected: Vector = Vector::from_storage(
@@ -1353,6 +1529,7 @@ mod unconstrained_tests {
             .unwrap();
         assert!(algorithm.s_history.is_empty());
         assert!(algorithm.m_system.is_none());
+        assert!(algorithm.history_products.is_none());
 
         let (mut algorithm, mut status) = initialized_rosenbrock(&config);
         assert!(algorithm.m_system.is_some());
@@ -1367,20 +1544,28 @@ mod unconstrained_tests {
             .unwrap();
         assert!(algorithm.s_history.is_empty());
         assert!(algorithm.m_system.is_none());
+        assert!(algorithm.history_products.is_none());
     }
 
     #[test]
     fn bounded_checkpoint_rebuilds_factors_and_resumes_identically() {
         let config = LBFGSBConfig::default()
+            .with_memory_limit(3)
+            .unwrap()
             .with_bounds([(-5.0, 5.0); 2])
             .unwrap();
         let (mut original, mut status) = initialized_rosenbrock(&config);
+        for step in 1..7 {
+            original
+                .step(step, &Rosenbrock { n: 2 }, &mut status, &(), &config)
+                .unwrap();
+        }
         let checkpoint = <LBFGSB as CheckpointableAlgorithm<
             Rosenbrock,
             GradientStatus,
             (),
             Infallible,
-        >>::checkpoint(&original, &status, 1);
+        >>::checkpoint(&original, &status, 7);
         let mut restored = LBFGSB::default();
         let (mut restored_status, next_step) = <LBFGSB as CheckpointableAlgorithm<
             Rosenbrock,
@@ -1561,6 +1746,7 @@ mod unconstrained_tests {
         ] {
             let (algorithm, _) = initialized_rosenbrock(&config);
             assert!(algorithm.m_system.is_none());
+            assert!(algorithm.history_products.is_none());
             assert_eq!(algorithm.w_matrix.cols(), 0);
         }
     }
@@ -1609,6 +1795,7 @@ mod unconstrained_tests {
             )
             .unwrap();
         assert!(algorithm.m_system.is_none());
+        assert!(algorithm.history_products.is_none());
         assert_eq!(algorithm.w_matrix.cols(), 0);
         assert!(!algorithm.s_history.is_empty());
     }
@@ -1634,6 +1821,7 @@ mod unconstrained_tests {
         );
         assert_eq!(next_step, 1);
         assert!(restored.m_system.is_none());
+        assert!(restored.history_products.is_none());
         assert_eq!(restored.w_matrix.cols(), 0);
         algorithm
             .step(1, &Rosenbrock { n: 2 }, &mut status, &(), &unbounded)
