@@ -511,6 +511,7 @@ where
         let n = self.x.len();
         let mut breakpoints = vec![T::infinity(); n];
         let mut direction = self.gradient.neg();
+        let mut moving = 0;
         for index in 0..n {
             let (lower, upper) = bounds
                 .map(|values| Self::bound_limits(values[index]))
@@ -525,6 +526,8 @@ where
             };
             if breakpoints[index] < T::epsilon() {
                 direction.set(index, T::zero());
+            } else if gradient != T::zero() {
+                moving += 1;
             }
         }
         let mut xcp = self.x.clone();
@@ -539,8 +542,10 @@ where
         let mut delta_break = t_break;
         let mut df = -direction.dot(&direction);
         let mut ddf = -self.theta * df - p.dot(&self.m_dot_vec(&p));
-        let mut delta_min = -df / ddf;
-        while delta_min >= delta_break {
+        let mut delta_min = if moving == 0 { T::zero() } else { -df / ddf };
+        // Equal-time bounds have no interval between them: update the whole
+        // direction before testing whether the next segment contains a minimum.
+        while delta_min >= delta_break || delta_break == T::zero() {
             let (lower, upper) = bounds
                 .map(|values| Self::bound_limits(values[breakpoint]))
                 .unwrap_or_else(|| (-T::infinity(), T::infinity()));
@@ -561,12 +566,18 @@ where
                     .collect(),
             );
             df = df + delta_break * ddf + g * (self.theta * z + g - w_row.dot(&self.m_dot_vec(&c)));
+            // Removing d_i = -g changes p to p + g*w_i. Both compact
+            // cross terms therefore subtract from d^T B d.
             ddf = ddf
-                + -g * (self.theta * g + T::literal(-2.0) * w_row.dot(&self.m_dot_vec(&p))
-                    - g * w_row.dot(&self.m_dot_vec(&w_row)));
+                - g * (self.theta * g
+                    + T::literal(2.0) * w_row.dot(&self.m_dot_vec(&p))
+                    + g * w_row.dot(&self.m_dot_vec(&w_row)));
             p = p.add_scaled(&w_row, g);
+            moving -= usize::from(direction.get(breakpoint) != T::zero());
             direction.set(breakpoint, T::zero());
-            delta_min = -df / ddf;
+            // A stationary path has no next minimum to solve for. In particular,
+            // do not let 0/0 contaminate free coordinates with zero gradients.
+            delta_min = if moving == 0 { T::zero() } else { -df / ddf };
             t_old = t_break;
             if let Some(next) = order.next() {
                 breakpoint = next;
@@ -1222,6 +1233,37 @@ mod tests {
         fn hessian(&self, _x: &Vector<T, B>, _: &()) -> Result<Matrix<T, B>, Infallible> {
             Ok(Matrix::identity(2).scale(T::literal(2.0)))
         }
+    }
+
+    #[test]
+    fn lbfgsb_converges_with_a_stationary_unbounded_coordinate() {
+        let config = LBFGSBConfig::<f64>::default()
+            .with_bounds([(f64::NEG_INFINITY, 1.1), (f64::NEG_INFINITY, f64::INFINITY)])
+            .unwrap()
+            .with_error_mode(LBFGSBErrorMode::Skip);
+        let result = LBFGSB::<f64>::default()
+            .process(
+                &ShiftedQuadratic,
+                &(),
+                Vector::from_vec(vec![1.0, 0.0]),
+                config,
+                Callbacks::empty()
+                    .with_terminator(LBFGSBInfNormGTerminator::new(1e-10).unwrap())
+                    .with_terminator(crate::core::MaxSteps(5)),
+            )
+            .unwrap();
+        assert!(
+            result
+                .message
+                .to_string()
+                .contains("PROJECTED GRADIENT WITHIN TOLERANCE"),
+            "{}",
+            result.message
+        );
+        assert!((result.x.get(0) - 1.1).abs() < 1e-14);
+        assert_eq!(result.x.get(1), 0.0);
+        assert!((result.fx - 3.61).abs() < 1e-12);
+        assert_eq!((result.evals.f(), result.evals.g()), (2, 2));
     }
 
     #[test]
@@ -2102,15 +2144,8 @@ mod breakpoint_tests {
     }
 
     fn cauchy_matches_dense<T: RealScalar, B: LinearAlgebra<T> + LinearSolve<T>>(tolerance: T) {
-        for pairs in [0, 1, 3] {
-            // Check crossed segments without history, and the first interval with
-            // history. The existing post-crossing curvature discrepancy is recorded
-            // in the item 8 report; changing that recurrence is a separate fix.
-            let scales: &[f64] = if pairs == 0 {
-                &[0.0001, 0.02, 0.2, 2.0, 1e6]
-            } else {
-                &[1e6]
-            };
+        for pairs in [0, 1, 3, 7] {
+            let scales: &[f64] = &[0.0001, 0.02, 0.2, 2.0, 1e6];
             for &scale in scales {
                 let mut algorithm = LBFGSB::<T, B, StrongWolfeLineSearch<T, B>> {
                     x: Vector::zeros(7),
@@ -2191,5 +2226,86 @@ mod breakpoint_tests {
     fn ndarray_cauchy_point_matches_dense_projected_quadratic() {
         cauchy_matches_dense::<f64, crate::core::NdArrayProvider>(1e-10);
         cauchy_matches_dense::<f32, crate::core::NdArrayProvider>(1e-4);
+    }
+}
+
+#[cfg(test)]
+mod curvature_regression_tests {
+    use super::*;
+    #[test]
+    fn cauchy_curvature_after_crossing_one_bound() {
+        let mut algorithm = LBFGSB::<f64> {
+            x: Vector::zeros(2),
+            gradient: Vector::from_vec(vec![1.0, 1.0]),
+            theta: 5.0 / 3.0,
+            s_history: vec![Vector::from_vec(vec![1.0, 1.0])],
+            y_history: vec![Vector::from_vec(vec![1.0, 2.0])],
+            ..Default::default()
+        };
+        algorithm.update_compact_matrices();
+        // The dense Hessian is [[7/6, -1/6], [-1/6, 13/6]].
+        // With x0 fixed at -.1, its path minimum has x1 = -61/130.
+        let (x, _, _) = algorithm
+            .generalized_cauchy_point(Some(&[ScalarBound::Lower(-0.1), ScalarBound::Unbounded]));
+        assert!((x.get(0) + 0.1).abs() < 1e-14);
+        assert!((x.get(1) + 61.0 / 130.0).abs() < 1e-14, "actual={x:?}");
+    }
+
+    #[test]
+    fn cauchy_processes_simultaneous_bounds_before_minimizing() {
+        // These two pairs with theta=1 give B=diag(1,10,1).
+        let mut algorithm = LBFGSB::<f64> {
+            x: Vector::zeros(3),
+            gradient: Vector::from_vec(vec![1.0, 1.0, 1.0]),
+            theta: 1.0,
+            s_history: vec![
+                Vector::from_vec(vec![0.0, 1.0, 0.0]),
+                Vector::from_vec(vec![0.0, 0.0, 1.0]),
+            ],
+            y_history: vec![
+                Vector::from_vec(vec![0.0, 10.0, 0.0]),
+                Vector::from_vec(vec![0.0, 0.0, 1.0]),
+            ],
+            ..Default::default()
+        };
+        algorithm.update_compact_matrices();
+        let bounds = [
+            ScalarBound::Lower(-0.2),
+            ScalarBound::Lower(-0.2),
+            ScalarBound::Unbounded,
+        ];
+        let (x, c, free) = algorithm.generalized_cauchy_point(Some(&bounds));
+        // Both bounds are reached at t=.2. The intermediate slope after fixing
+        // only coordinate 0 is positive, but the actual right-hand slope is -.8.
+        let expected = Vector::from_vec(vec![-0.2, -0.2, -1.0]);
+        assert!(x.sub(&expected).norm() < 1e-13, "actual={x:?}");
+        assert!(
+            c.sub(&algorithm.w_matrix.transpose().mul_vec(&expected))
+                .norm()
+                < 1e-13
+        );
+        assert_eq!(free, vec![2]);
+    }
+
+    #[test]
+    fn cauchy_point_stays_finite_when_no_coordinates_are_moving() {
+        for (gradient, expected, expected_free) in [
+            (vec![1.0, 0.0], vec![-0.1, 0.0], vec![1]),
+            (vec![0.0, 0.0], vec![0.0, 0.0], vec![0, 1]),
+        ] {
+            let algorithm = LBFGSB::<f64> {
+                x: Vector::zeros(2),
+                gradient: Vector::from_vec(gradient),
+                w_matrix: Matrix::zeros(2, 0),
+                ..Default::default()
+            };
+            let (x, c, free) = algorithm.generalized_cauchy_point(Some(&[
+                ScalarBound::Lower(-0.1),
+                ScalarBound::Unbounded,
+            ]));
+            assert_eq!(x, Vector::from_vec(expected));
+            assert_eq!(c.len(), 0);
+            assert_eq!(free, expected_free);
+        }
     }
 }
