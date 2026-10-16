@@ -13,6 +13,79 @@ use crate::traits::{
 };
 use std::{marker::PhantomData, ops::ControlFlow, sync::Arc};
 
+/// Yields positive breakpoints in stable order, deferring the heap until a second
+/// breakpoint is requested. The first interval needs only a minimum scan.
+struct BreakpointOrder<'a, T> {
+    breakpoints: &'a [T],
+    indices: Vec<usize>,
+    first: Option<usize>,
+    heapified: bool,
+}
+
+impl<'a, T: RealScalar> BreakpointOrder<'a, T> {
+    fn new(breakpoints: &'a [T]) -> Self {
+        let mut indices = Vec::with_capacity(breakpoints.len());
+        let mut first = None;
+        for (index, &value) in breakpoints.iter().enumerate() {
+            if value > T::zero() {
+                if first.is_none_or(|position| value < breakpoints[indices[position]]) {
+                    first = Some(indices.len());
+                }
+                indices.push(index);
+            }
+        }
+        Self {
+            breakpoints,
+            indices,
+            first,
+            heapified: false,
+        }
+    }
+
+    fn earlier(&self, a: usize, b: usize) -> bool {
+        self.breakpoints[a] < self.breakpoints[b]
+            || (self.breakpoints[a] == self.breakpoints[b] && a < b)
+    }
+
+    fn sift_down(&mut self, mut parent: usize) {
+        while 2 * parent + 1 < self.indices.len() {
+            let mut child = 2 * parent + 1;
+            if child + 1 < self.indices.len()
+                && self.earlier(self.indices[child + 1], self.indices[child])
+            {
+                child += 1;
+            }
+            if !self.earlier(self.indices[child], self.indices[parent]) {
+                break;
+            }
+            self.indices.swap(parent, child);
+            parent = child;
+        }
+    }
+}
+
+impl<T: RealScalar> Iterator for BreakpointOrder<'_, T> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(position) = self.first.take() {
+            return Some(self.indices.swap_remove(position));
+        }
+        if self.indices.is_empty() {
+            return None;
+        }
+        if !self.heapified {
+            for parent in (0..self.indices.len() / 2).rev() {
+                self.sift_down(parent);
+            }
+            self.heapified = true;
+        }
+        let index = self.indices.swap_remove(0);
+        self.sift_down(0);
+        Some(index)
+    }
+}
+
 macro_rules! lbfgsb_terminator {
     ($name:ident, $default:expr, $doc:literal) => {
         #[doc = $doc]
@@ -455,28 +528,19 @@ where
             }
         }
         let mut xcp = self.x.clone();
-        let mut order = (0..n)
-            .filter(|&index| breakpoints[index] > T::zero())
-            .collect::<Vec<_>>();
-        order.sort_by(|&a, &b| {
-            breakpoints[a]
-                .partial_cmp(&breakpoints[b])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let mut order = BreakpointOrder::new(&breakpoints);
         let mut p = self.w_matrix.transpose().mul_vec(&direction);
         let mut c = Vector::zeros(p.len());
-        if order.is_empty() {
-            return (xcp, c, order);
-        }
+        let Some(mut breakpoint) = order.next() else {
+            return (xcp, c, Vec::new());
+        };
         let mut t_old = T::zero();
-        let mut cursor = 0;
-        let mut breakpoint = order[cursor];
         let mut t_break = breakpoints[breakpoint];
         let mut delta_break = t_break;
         let mut df = -direction.dot(&direction);
         let mut ddf = -self.theta * df - p.dot(&self.m_dot_vec(&p));
         let mut delta_min = -df / ddf;
-        while delta_min >= delta_break && cursor < order.len() {
+        while delta_min >= delta_break {
             let (lower, upper) = bounds
                 .map(|values| Self::bound_limits(values[breakpoint]))
                 .unwrap_or_else(|| (-T::infinity(), T::infinity()));
@@ -504,13 +568,13 @@ where
             direction.set(breakpoint, T::zero());
             delta_min = -df / ddf;
             t_old = t_break;
-            cursor += 1;
-            if cursor < order.len() {
-                breakpoint = order[cursor];
+            if let Some(next) = order.next() {
+                breakpoint = next;
                 t_break = breakpoints[breakpoint];
                 delta_break = t_break - t_old;
             } else {
                 t_break = T::infinity();
+                break;
             }
         }
         if delta_min < T::zero() {
@@ -1896,5 +1960,236 @@ mod unconstrained_tests {
         assert_eq!(result.x.get(2), 2.0);
         assert!((result.fx - 12.5).abs() < 1e-10);
         assert!(algorithm.m_system.is_some());
+    }
+}
+
+#[cfg(test)]
+mod breakpoint_tests {
+    use super::*;
+
+    fn ordered_breakpoints<T: RealScalar>() {
+        let mut cases = vec![vec![], vec![T::one()], vec![T::one(); 33]];
+        for n in [2, 3, 16, 65, 512] {
+            let values: Vec<T> = (0..n)
+                .map(|i| T::literal(((i * 977) % n) as f64 / 7.0))
+                .collect();
+            cases.push(values.clone());
+            cases.push(values.into_iter().rev().collect());
+        }
+        cases.push(vec![
+            T::infinity(),
+            T::zero(),
+            -T::one(),
+            T::literal(f64::NAN),
+            T::one(),
+            T::infinity(),
+            T::one(),
+            T::epsilon(),
+        ]);
+        for values in cases {
+            let mut expected: Vec<_> = (0..values.len())
+                .filter(|&i| values[i] > T::zero())
+                .collect();
+            expected.sort_by(|&a, &b| values[a].partial_cmp(&values[b]).unwrap());
+            let mut actual = BreakpointOrder::new(&values);
+            for index in expected {
+                assert_eq!(actual.next(), Some(index));
+            }
+            assert_eq!(actual.next(), None);
+            assert_eq!(actual.next(), None);
+        }
+    }
+
+    #[test]
+    fn deferred_breakpoints_match_stable_sort() {
+        ordered_breakpoints::<f64>();
+        ordered_breakpoints::<f32>();
+    }
+
+    // Independent reference: explicitly form a dense BFGS Hessian and minimize
+    // its quadratic along each segment of the projected steepest-descent path.
+    fn dense_cauchy<T: RealScalar, B: LinearAlgebra<T> + LinearSolve<T>>(
+        algorithm: &LBFGSB<T, B, StrongWolfeLineSearch<T, B>>,
+        bounds: &[ScalarBound<T>],
+    ) -> Vector<T, B> {
+        let n = algorithm.x.len();
+        let mut h = Matrix::<T, B>::identity(n).scale(algorithm.theta);
+        for (s, y) in algorithm.s_history.iter().zip(&algorithm.y_history) {
+            let hs = h.mul_vec(s);
+            let shs = s.dot(&hs);
+            let sy = s.dot(y);
+            for i in 0..n {
+                for j in 0..n {
+                    h.set(
+                        i,
+                        j,
+                        h.get(i, j) + y.get(i) * y.get(j) / sy - hs.get(i) * hs.get(j) / shs,
+                    );
+                }
+            }
+        }
+        let times: Vec<_> = bounds
+            .iter()
+            .enumerate()
+            .map(|(i, &bound)| {
+                let (lo, hi) = LBFGSB::<T, B, StrongWolfeLineSearch<T, B>>::bound_limits(bound);
+                let g = algorithm.gradient.get(i);
+                if g > T::zero() {
+                    (algorithm.x.get(i) - lo) / g
+                } else if g < T::zero() {
+                    (algorithm.x.get(i) - hi) / g
+                } else {
+                    T::infinity()
+                }
+            })
+            .collect();
+        let mut endpoints: Vec<_> = times.iter().copied().filter(|&t| t > T::zero()).collect();
+        endpoints.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        endpoints.dedup();
+        endpoints.push(T::infinity());
+        let point = |t: T| {
+            Vector::<T, B>::from_vec(
+                bounds
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &bound)| {
+                        let (lo, hi) =
+                            LBFGSB::<T, B, StrongWolfeLineSearch<T, B>>::bound_limits(bound);
+                        let value = algorithm.x.get(i) - t * algorithm.gradient.get(i);
+                        if value < lo {
+                            lo
+                        } else if value > hi {
+                            hi
+                        } else {
+                            value
+                        }
+                    })
+                    .collect(),
+            )
+        };
+        let mut t = T::zero();
+        for end in endpoints {
+            let x = point(t);
+            let d = Vector::<T, B>::from_vec(
+                times
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &time)| {
+                        if time > t {
+                            -algorithm.gradient.get(i)
+                        } else {
+                            T::zero()
+                        }
+                    })
+                    .collect(),
+            );
+            if d.dot(&d) == T::zero() {
+                return x;
+            }
+            let slope = d.dot(&algorithm.gradient.add(&h.mul_vec(&x.sub(&algorithm.x))));
+            let curvature = d.dot(&h.mul_vec(&d));
+            let delta = if slope >= T::zero() {
+                T::zero()
+            } else {
+                -slope / curvature
+            };
+            if delta < end - t {
+                return point(t + delta);
+            }
+            t = end;
+        }
+        unreachable!("positive-definite model has a finite path minimum")
+    }
+
+    fn cauchy_matches_dense<T: RealScalar, B: LinearAlgebra<T> + LinearSolve<T>>(tolerance: T) {
+        for pairs in [0, 1, 3] {
+            // Check crossed segments without history, and the first interval with
+            // history. The existing post-crossing curvature discrepancy is recorded
+            // in the item 8 report; changing that recurrence is a separate fix.
+            let scales: &[f64] = if pairs == 0 {
+                &[0.0001, 0.02, 0.2, 2.0, 1e6]
+            } else {
+                &[1e6]
+            };
+            for &scale in scales {
+                let mut algorithm = LBFGSB::<T, B, StrongWolfeLineSearch<T, B>> {
+                    x: Vector::zeros(7),
+                    gradient: Vector::from_vec(
+                        [0.0, 1.0, -1.0, 0.2, -3.0, 2.0, -0.5]
+                            .map(T::literal)
+                            .to_vec(),
+                    ),
+                    theta: T::literal(2.5),
+                    ..Default::default()
+                };
+                for pair in 0..pairs {
+                    let s = Vector::<T, B>::from_vec(
+                        (0..7)
+                            .map(|i| T::literal(((pair + 1) as f64 * (i + 2) as f64 * 0.43).sin()))
+                            .collect(),
+                    );
+                    let y = Vector::from_vec(
+                        (0..7)
+                            .map(|i| s.get(i) * T::literal((i + 1) as f64))
+                            .collect(),
+                    );
+                    algorithm.theta = y.dot(&y) / s.dot(&y);
+                    algorithm.s_history.push(s);
+                    algorithm.y_history.push(y);
+                }
+                if pairs == 0 {
+                    algorithm.w_matrix = Matrix::zeros(7, 0);
+                } else {
+                    algorithm.update_compact_matrices();
+                }
+                let bounds: Vec<_> = (0..7)
+                    .map(|i| {
+                        // Include ties, an initially fixed coordinate, and one-sided/unbounded limits.
+                        let distance = T::literal(scale) * algorithm.gradient.get(i).abs();
+                        match i {
+                            0 => ScalarBound::Both(T::zero(), T::zero()),
+                            3 => ScalarBound::Unbounded,
+                            4 => ScalarBound::Upper(distance),
+                            5 => ScalarBound::Lower(-distance),
+                            _ => ScalarBound::Both(-distance, distance),
+                        }
+                    })
+                    .collect();
+                let expected = dense_cauchy(&algorithm, &bounds);
+                let (actual, c, free) = algorithm.generalized_cauchy_point(Some(&bounds));
+                assert!(
+                    actual.sub(&expected).norm() < tolerance * (T::one() + expected.norm()),
+                    "pairs={pairs}, scale={scale}: {actual:?} vs {expected:?}"
+                );
+                let expected_c = algorithm
+                    .w_matrix
+                    .transpose()
+                    .mul_vec(&expected.sub(&algorithm.x));
+                assert!(c.sub(&expected_c).norm() < tolerance * (T::one() + expected_c.norm()));
+                let expected_free: Vec<_> = bounds
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &bound)| {
+                        let (lo, hi) =
+                            LBFGSB::<T, B, StrongWolfeLineSearch<T, B>>::bound_limits(bound);
+                        (actual.get(i) > lo && actual.get(i) < hi).then_some(i)
+                    })
+                    .collect();
+                assert_eq!(free, expected_free);
+            }
+        }
+    }
+
+    #[test]
+    fn cauchy_point_matches_dense_projected_quadratic() {
+        cauchy_matches_dense::<f64, NalgebraProvider>(1e-10);
+        cauchy_matches_dense::<f32, NalgebraProvider>(1e-4);
+    }
+
+    #[cfg(feature = "backend-ndarray")]
+    #[test]
+    fn ndarray_cauchy_point_matches_dense_projected_quadratic() {
+        cauchy_matches_dense::<f64, crate::core::NdArrayProvider>(1e-10);
+        cauchy_matches_dense::<f32, crate::core::NdArrayProvider>(1e-4);
     }
 }

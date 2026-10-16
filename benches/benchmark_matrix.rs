@@ -543,6 +543,96 @@ fn benchmark_lbfgsb_step_policy(c: &mut Criterion) {
     group.finish();
 }
 
+// Native bounds still exercise the Cauchy point when the final solution is interior.
+// Distinct, permuted distances prevent the ordering workload from reducing to 32 ties.
+fn breakpoint_bounds(n: usize, active: bool) -> Vec<(f64, f64)> {
+    (0..n)
+        .map(|i| {
+            let offset = ((i * 977) % n) as f64 / n as f64;
+            if active {
+                (0.9 + 0.09 * offset, 2.0)
+            } else {
+                (-5.0 - 5.0 * offset, 5.0 + 5.0 * offset)
+            }
+        })
+        .collect()
+}
+
+fn benchmark_lbfgsb_breakpoints(c: &mut Criterion) {
+    let mut group = c.benchmark_group("algorithms/lbfgsb-breakpoints");
+    for (name, n, active) in [
+        ("interior", 512, false),
+        ("interior", 4096, false),
+        ("all-active", 4096, true),
+    ] {
+        let bounds = breakpoint_bounds(n, active);
+        let setup = || {
+            (
+                LBFGSB::<f64>::default(),
+                Vector::from_vec(vec![1.0; n]),
+                LBFGSBConfig::<f64>::default()
+                    .with_error_mode(LBFGSBErrorMode::Skip)
+                    .with_bounds(bounds.clone())
+                    .unwrap(),
+                Callbacks::empty()
+                    .with_terminator(LBFGSBInfNormGTerminator::new(1e-8).unwrap())
+                    .with_terminator(MaxSteps(500)),
+            )
+        };
+        let (mut algorithm, init, config, callbacks) = setup();
+        let result = algorithm
+            .process(&SmallScaleQuadratic, &(), init, config, callbacks)
+            .unwrap();
+        if !result
+            .message
+            .to_string()
+            .contains("PROJECTED GRADIENT WITHIN TOLERANCE")
+        {
+            eprintln!("breakpoints-{name}/{n}: NOT_CONVERGED, message={}, fx={:.16e}, f={}, g={}; timing skipped", result.message, result.fx, result.evals.f(), result.evals.g());
+            continue;
+        }
+        let gradient = SmallScaleQuadratic.gradient(&result.x, &()).unwrap();
+        let optimum: f64 = if active {
+            bounds
+                .iter()
+                .enumerate()
+                .map(|(i, &(lower, _))| 0.5e-3 * DiagonalQuadratic::weight(i) * lower.powi(2))
+                .sum()
+        } else {
+            0.0
+        };
+        let mut projected_inf = 0.0_f64;
+        for (i, &(lower, upper)) in bounds.iter().enumerate() {
+            let x = result.x.get(i);
+            assert!(x >= lower && x <= upper);
+            let g = gradient.get(i);
+            let projected = if (x == lower && g > 0.0) || (x == upper && g < 0.0) {
+                0.0
+            } else {
+                g
+            };
+            projected_inf = projected_inf.max(projected.abs());
+        }
+        let gap = (result.fx - optimum).abs();
+        assert!(projected_inf < 1e-8 && gap < 1e-10);
+        eprintln!("breakpoints-{name}/{n}: fx={:.16e}, gap={gap:.16e}, projected_inf={projected_inf:.16e}, f={}, g={}", result.fx, result.evals.f(), result.evals.g());
+        group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
+            b.iter_batched(
+                &setup,
+                |(mut algorithm, init, config, callbacks)| {
+                    black_box(
+                        algorithm
+                            .process(&SmallScaleQuadratic, &(), init, config, callbacks)
+                            .unwrap(),
+                    );
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn benchmark_samplers(c: &mut Criterion) {
     let mut group = c.benchmark_group("algorithms/sampling");
     for n in [2, 4] {
@@ -607,6 +697,7 @@ criterion_group!(
     benchmark_lbfgsb_paths,
     benchmark_lbfgsb_active_bounds,
     benchmark_lbfgsb_step_policy,
+    benchmark_lbfgsb_breakpoints,
     benchmark_samplers,
     benchmark_line_searches
 );
