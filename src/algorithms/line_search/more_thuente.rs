@@ -6,6 +6,13 @@ use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, Li
 use std::marker::PhantomData;
 
 /// Generic implementation of the Moré–Thuente search and zoom procedure.
+///
+/// Trials start at `min(1, max_step)` and expand by a factor of four. `None` leaves the
+/// step unbounded. Trials always respect a supplied upper limit.
+///
+/// At that limit, an Armijo-decreasing step with a negative directional derivative
+/// is also accepted: a constrained minimum can occur before the strong-Wolfe
+/// curvature condition can be met. Interior steps must satisfy both conditions.
 #[derive(Clone, Debug)]
 pub struct MoreThuenteLineSearch<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     max_iterations: usize,
@@ -136,30 +143,32 @@ where
     {
         let dphi0 = g0.dot(direction);
         for iteration in 0..=self.max_zoom {
-            let alpha = (alpha_low + alpha_high) / T::literal(2.0);
+            let alpha = alpha_low + (alpha_high - alpha_low) / T::literal(2.0);
+            let exhausted = iteration == self.max_zoom || alpha == alpha_low || alpha == alpha_high;
             let x = x0.add_scaled(direction, alpha);
             let fx = Self::evaluate_f(problem, &x, args, evals)?;
-            let (valid, gradient) = if fx > dphi0.mul_add(self.c1 * alpha, f0) || fx >= f_low {
-                alpha_high = alpha;
-                (false, None)
-            } else {
-                let gradient = Self::evaluate_g(problem, &x, args, evals)?;
-                let dphi = gradient.dot(direction);
-                if dphi.abs() <= -self.c2 * dphi0 {
-                    return Ok(Ok(LineSearchOutput {
-                        alpha,
-                        fx,
-                        gradient,
-                    }));
-                }
-                if dphi * (alpha_high - alpha_low) >= T::zero() {
-                    alpha_high = alpha_low;
-                }
-                alpha_low = alpha;
-                f_low = fx;
-                (true, Some(gradient))
-            };
-            if iteration == self.max_zoom {
+            let gradient =
+                if !fx.is_finite() || fx > dphi0.mul_add(self.c1 * alpha, f0) || fx >= f_low {
+                    alpha_high = alpha;
+                    None
+                } else {
+                    let gradient = Self::evaluate_g(problem, &x, args, evals)?;
+                    let dphi = gradient.dot(direction);
+                    if dphi.abs() <= -self.c2 * dphi0 {
+                        return Ok(Ok(LineSearchOutput {
+                            alpha,
+                            fx,
+                            gradient,
+                        }));
+                    }
+                    if dphi * (alpha_high - alpha_low) >= T::zero() {
+                        alpha_high = alpha_low;
+                    }
+                    alpha_low = alpha;
+                    f_low = fx;
+                    Some(gradient)
+                };
+            if exhausted {
                 let gradient = match gradient {
                     Some(gradient) => gradient,
                     None => Self::evaluate_g(problem, &x, args, evals)?,
@@ -169,7 +178,7 @@ where
                     fx,
                     gradient,
                 };
-                return Ok(if valid { Ok(output) } else { Err(output) });
+                return Ok(Err(output));
             }
         }
         unreachable!("bounded zoom loop always returns")
@@ -196,15 +205,30 @@ where
             fx: f0,
             gradient: g0,
         } = start;
-        let alpha_max = max_step.unwrap_or_else(T::one);
+        let alpha_max = max_step.unwrap_or_else(T::infinity);
         let mut previous_alpha = T::zero();
-        let mut alpha = T::one();
+        let mut alpha = if alpha_max < T::one() {
+            alpha_max
+        } else {
+            T::one()
+        };
         let mut previous_fx = f0;
         let dphi0 = g0.dot(direction);
+        if !dphi0.is_finite() || dphi0 >= T::zero() || alpha_max.is_nan() || alpha_max <= T::zero()
+        {
+            return Ok(Err(LineSearchOutput {
+                alpha: T::zero(),
+                fx: f0,
+                gradient: g0.clone(),
+            }));
+        }
         for iteration in 0..=self.max_iterations {
             let x = x0.add_scaled(direction, alpha);
             let fx = Self::evaluate_f(problem, &x, args, evals)?;
-            if fx > dphi0.mul_add(self.c1, f0) || (iteration > 1 && fx >= previous_fx) {
+            if !fx.is_finite()
+                || fx > dphi0.mul_add(self.c1 * alpha, f0)
+                || (iteration > 0 && fx >= previous_fx)
+            {
                 return self.zoom(
                     problem,
                     x0,
@@ -220,7 +244,9 @@ where
             }
             let gradient = Self::evaluate_g(problem, &x, args, evals)?;
             let dphi = gradient.dot(direction);
-            if dphi.abs() <= self.c2 * dphi0.abs() {
+            if dphi.abs() <= self.c2 * dphi0.abs()
+                || (alpha == alpha_max && fx < f0 && dphi.is_finite() && dphi < T::zero())
+            {
                 return Ok(Ok(LineSearchOutput {
                     alpha,
                     fx,
@@ -241,16 +267,22 @@ where
                     evals,
                 );
             }
-            previous_alpha = alpha;
-            previous_fx = fx;
-            alpha = (alpha_max - alpha).mul_add(T::literal(0.8), alpha);
-            if iteration == self.max_iterations {
+            let expanded = alpha * T::literal(4.0);
+            let next_alpha = if expanded < alpha_max {
+                expanded
+            } else {
+                alpha_max
+            };
+            if iteration == self.max_iterations || !next_alpha.is_finite() || next_alpha <= alpha {
                 return Ok(Err(LineSearchOutput {
                     alpha,
                     fx,
                     gradient,
                 }));
             }
+            previous_alpha = alpha;
+            previous_fx = fx;
+            alpha = next_alpha;
         }
         unreachable!("bounded search loop always returns")
     }

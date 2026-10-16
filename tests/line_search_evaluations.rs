@@ -2,7 +2,7 @@ use ganesh::{
     algorithms::{
         gradient::{
             ConjugateGradient, ConjugateGradientConfig, ConjugateGradientUpdate, LBFGSBConfig,
-            LBFGSBErrorMode, LBFGSB,
+            LBFGSBErrorMode, LBFGSBInfNormGTerminator, LBFGSB,
         },
         line_search::{
             BacktrackingLineSearch, HagerZhangLineSearch, MoreThuenteLineSearch,
@@ -106,6 +106,250 @@ where
 }
 
 #[test]
+fn more_thuente_respects_the_step_cap_and_scaled_armijo_condition() {
+    let problem = CountingQuadratic::default();
+    let x: Vector = vec![1.0].into();
+    let mut evals = EvalCounts::default();
+    let output = MoreThuenteLineSearch::default()
+        .with_c1(0.4)
+        .unwrap()
+        .search_from(
+            LineSearchStart {
+                x: &x,
+                fx: 0.5,
+                gradient: &x,
+            },
+            &Vector::from_vec(vec![-1.0]),
+            Some(0.25),
+            &problem,
+            &(),
+            &mut evals,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(problem.f_points.borrow().iter().all(|&point| point >= 0.75));
+    assert_eq!(output.alpha, 0.25);
+    assert_eq!(output.fx, 0.5 * 0.75_f64.powi(2));
+    assert_eq!(evals, EvalCounts::new(1, 1, 0));
+}
+
+#[test]
+fn more_thuente_expands_locally_with_a_large_step_ceiling() {
+    let problem = CountingQuadratic::default();
+    let x: Vector = vec![1.0].into();
+    let direction: Vector = vec![-0.01].into();
+    let mut evals = EvalCounts::default();
+    let output = MoreThuenteLineSearch::default()
+        .search_from(
+            LineSearchStart {
+                x: &x,
+                fx: 0.5,
+                gradient: &x,
+            },
+            &direction,
+            Some(1e8),
+            &problem,
+            &(),
+            &mut evals,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(evals.f() <= 8, "{} objective evaluations", evals.f());
+    assert!(output.fx <= 0.5 - 1e-4 * output.alpha * 0.01);
+    assert!(output.gradient.dot(&direction).abs() <= 0.9 * 0.01);
+}
+
+#[test]
+fn more_thuente_zoom_limit_does_not_report_unmet_curvature_as_success() {
+    let problem = CountingQuadratic::default();
+    let x: Vector = vec![1.0].into();
+    let mut evals = EvalCounts::default();
+    let output = MoreThuenteLineSearch::default()
+        .with_c2(0.1)
+        .unwrap()
+        .with_max_zoom(0)
+        .search_from(
+            LineSearchStart {
+                x: &x,
+                fx: 0.5,
+                gradient: &x,
+            },
+            &Vector::from_vec(vec![-3.0]),
+            None,
+            &problem,
+            &(),
+            &mut evals,
+        )
+        .unwrap();
+    assert!(
+        output.is_err(),
+        "zoom exhausted before satisfying curvature"
+    );
+}
+
+#[test]
+fn more_thuente_failure_values_belong_to_the_returned_step() {
+    let problem = CountingQuadratic::default();
+    let x: Vector = vec![1.0].into();
+    let direction: Vector = vec![-0.01].into();
+    let mut evals = EvalCounts::default();
+    let output = MoreThuenteLineSearch::default()
+        .with_max_iterations(0)
+        .search_from(
+            LineSearchStart {
+                x: &x,
+                fx: 0.5,
+                gradient: &x,
+            },
+            &direction,
+            Some(1e8),
+            &problem,
+            &(),
+            &mut evals,
+        )
+        .unwrap()
+        .unwrap_err();
+    let trial = x.add_scaled(&direction, output.alpha);
+    assert_eq!(output.alpha, 1.0);
+    assert_eq!(output.fx, 0.5 * trial.dot(&trial));
+    assert_eq!(output.gradient, trial);
+    assert_eq!(evals, EvalCounts::new(1, 1, 0));
+}
+
+#[test]
+fn more_thuente_rejects_invalid_limits_and_non_descent_without_evaluating() {
+    let x: Vector = vec![1.0].into();
+    for (limit, d) in [
+        (0.0, -1.0),
+        (-1.0, -1.0),
+        (f64::NAN, -1.0),
+        (1.0, 0.0),
+        (1.0, 1.0),
+    ] {
+        let problem = CountingQuadratic::default();
+        let mut evals = EvalCounts::default();
+        let output = MoreThuenteLineSearch::default()
+            .search_from(
+                LineSearchStart {
+                    x: &x,
+                    fx: 0.5,
+                    gradient: &x,
+                },
+                &Vector::from_vec(vec![d]),
+                Some(limit),
+                &problem,
+                &(),
+                &mut evals,
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(output.alpha, 0.0);
+        assert_eq!(output.fx, 0.5);
+        assert_eq!(output.gradient, x);
+        assert_eq!(evals, EvalCounts::default());
+        assert!(problem.f_points.borrow().is_empty());
+        assert!(problem.g_points.borrow().is_empty());
+    }
+}
+
+#[test]
+fn more_thuente_accepts_a_decreasing_feasible_endpoint_before_curvature() {
+    let problem = CountingQuadratic::default();
+    let result = LBFGSB::<f64>::default()
+        .process(
+            &problem,
+            &(),
+            Vector::from_vec(vec![1.0]),
+            LBFGSBConfig::default()
+                .with_bounds([(0.95, 2.0)])
+                .unwrap()
+                .with_error_mode(LBFGSBErrorMode::Skip),
+            Callbacks::empty()
+                .with_terminator(LBFGSBInfNormGTerminator::new(1e-8).unwrap())
+                .with_terminator(MaxSteps(5)),
+        )
+        .unwrap();
+    assert!(result
+        .message
+        .to_string()
+        .contains("PROJECTED GRADIENT WITHIN TOLERANCE"));
+    assert_eq!(result.x.get(0), 0.95);
+    assert_eq!(result.fx, 0.5 * 0.95_f64.powi(2));
+    assert_eq!(result.evals, EvalCounts::new(2, 2, 0));
+    assert!(problem
+        .f_points
+        .borrow()
+        .iter()
+        .all(|&point| (0.95..=2.0).contains(&point)));
+    assert!(problem
+        .g_points
+        .borrow()
+        .iter()
+        .all(|&point| (0.95..=2.0).contains(&point)));
+}
+
+fn check_quadratic_step_conditions<T: RealScalar, B: LinearAlgebra<T>>() {
+    let x = Vector::<T, B>::from_vec(vec![T::one(), T::literal(2.0)]);
+    let fx = T::literal(0.5) * x.dot(&x);
+    for (c1, c2) in [(1e-4, 0.9), (0.4, 0.8), (0.05, 0.1)] {
+        for scale in [1e-3, 0.1, 1.0, 4.0, 100.0] {
+            for cap in [None, Some(0.01), Some(0.25), Some(1.0), Some(1e8)] {
+                let problem = CountingQuadratic::default();
+                let direction = x.scale(-T::literal(scale));
+                let mut evals = EvalCounts::default();
+                let output = MoreThuenteLineSearch::<T, B>::default()
+                    .with_c1_c2(T::literal(c1), T::literal(c2))
+                    .unwrap()
+                    .search_from(
+                        LineSearchStart {
+                            x: &x,
+                            fx,
+                            gradient: &x,
+                        },
+                        &direction,
+                        cap.map(T::literal),
+                        &problem,
+                        &(),
+                        &mut evals,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert!(output.alpha > T::zero());
+                assert!(output.alpha <= cap.map(T::literal).unwrap_or_else(T::infinity));
+                let trial = x.add_scaled(&direction, output.alpha);
+                assert_eq!(output.fx, T::literal(0.5) * trial.dot(&trial));
+                assert_eq!(output.gradient, trial);
+                let derivative0 = x.dot(&direction);
+                let derivative = output.gradient.dot(&direction);
+                let tolerance = T::literal(32.0) * T::epsilon();
+                assert!(
+                    output.fx <= fx + T::literal(c1) * output.alpha * derivative0 + tolerance * fx
+                );
+                if derivative.abs() > (T::literal(c2) + tolerance) * derivative0.abs() {
+                    assert_eq!(Some(output.alpha), cap.map(T::literal));
+                    assert!(derivative < T::zero() && output.fx < fx);
+                }
+                assert_eq!(evals.f(), problem.f_points.borrow().len());
+                assert_eq!(evals.g(), problem.g_points.borrow().len());
+            }
+        }
+    }
+}
+
+#[test]
+fn more_thuente_step_conditions_hold_across_scales_and_limits() {
+    check_quadratic_step_conditions::<f64, NalgebraProvider>();
+    check_quadratic_step_conditions::<f32, NalgebraProvider>();
+}
+
+#[cfg(feature = "backend-ndarray")]
+#[test]
+fn ndarray_more_thuente_step_conditions_hold_across_scales_and_limits() {
+    check_quadratic_step_conditions::<f64, ganesh::NdArrayProvider>();
+    check_quadratic_step_conditions::<f32, ganesh::NdArrayProvider>();
+}
+
+#[test]
 fn built_in_searches_and_dispatch_reuse_the_starting_evaluation() {
     assert_seed_reused(
         MoreThuenteLineSearch::default(),
@@ -178,7 +422,7 @@ fn zoom_reuses_gradient_at_iteration_limit() {
             &mut evals,
         )
         .unwrap()
-        .unwrap();
+        .unwrap_err();
     assert_eq!(output.alpha, 0.5);
     assert_eq!(output.fx, 0.125);
     assert_eq!(*problem.g_points.borrow(), vec![-0.5]);
