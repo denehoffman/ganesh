@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0](https://github.com/denehoffman/ganesh/compare/v0.28.1...v0.29.0) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* an absent maximum step now permits expansion beyond one. At an explicit upper limit, decreasing Armijo steps with a negative slope may be accepted when strong curvature cannot be reached.
+* custom LineSearch implementations must implement search_from. The search method now evaluates the starting point and delegates by default.
+
+### Bug Fixes
+
+* Correct L-BFGS-B Cauchy-point updates ([480a6de](https://github.com/denehoffman/ganesh/commit/480a6de2f078fb395a2c90c15d05a81a0c6da4f1))
+* Correct More-Thuente line-search step handling ([f52a181](https://github.com/denehoffman/ganesh/commit/f52a18129587456c9c27129d7f1607a25c910594))
+
+
+### Performance Improvements
+
+* Cache L-BFGS-B compact-system factorizations ([b623efb](https://github.com/denehoffman/ganesh/commit/b623efbdf576fafdee323678aaa84a76cd5913ab))
+* Defer L-BFGS-B breakpoint ordering ([6ca1277](https://github.com/denehoffman/ganesh/commit/6ca12777d12d78dd875744e9096e8adb8d53fada))
+* Incrementally update L-BFGS-B history products ([3f00516](https://github.com/denehoffman/ganesh/commit/3f005162b7ffdfbf119836ec1c110b126fdfb210))
+* Reuse L-BFGS-B vector storage and transposes ([c20c0e7](https://github.com/denehoffman/ganesh/commit/c20c0e798b63ec19b34f8e832288a9ae04fb495e))
+* Reuse objective and gradient evaluations in line searches ([da4ccdb](https://github.com/denehoffman/ganesh/commit/da4ccdb3284ec147df217a83e3cf869c6cdfe507))
+* Use two-loop L-BFGS for unconstrained fits ([f83edd4](https://github.com/denehoffman/ganesh/commit/f83edd41ce9c30a4a857cb4fdfb9c542a5993997))
+
 ## [0.28.1](https://github.com/denehoffman/ganesh/compare/v0.28.0...v0.28.1) (2026-07-16)
 
 
