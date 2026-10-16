@@ -443,10 +443,10 @@ where
         for (s, y) in self.s_history.iter().zip(&self.y_history).rev() {
             let curvature = s.dot(y);
             let alpha = s.dot(&direction) / curvature;
-            direction = direction.add_scaled(y, -alpha);
+            direction.add_scaled_mut(y, -alpha);
             coefficients.push((curvature, alpha));
         }
-        direction = direction.scale(T::one() / self.theta);
+        direction.scale_mut(T::one() / self.theta);
         for ((s, y), (curvature, alpha)) in self
             .s_history
             .iter()
@@ -454,7 +454,7 @@ where
             .zip(coefficients.into_iter().rev())
         {
             let beta = y.dot(&direction) / curvature;
-            direction = direction.add_scaled(s, alpha - beta);
+            direction.add_scaled_mut(s, alpha - beta);
         }
         direction
     }
@@ -532,8 +532,9 @@ where
         }
         let mut xcp = self.x.clone();
         let mut order = BreakpointOrder::new(&breakpoints);
-        let mut p = self.w_matrix.transpose().mul_vec(&direction);
+        let mut p = self.w_matrix.transpose_mul_vec(&direction);
         let mut c = Vector::zeros(p.len());
+        let mut w_row = Vector::zeros(0);
         let Some(mut breakpoint) = order.next() else {
             return (xcp, c, Vec::new());
         };
@@ -558,13 +559,14 @@ where
                 },
             );
             let z = xcp.get(breakpoint) - self.x.get(breakpoint);
-            c = c.add_scaled(&p, delta_break);
+            c.add_scaled_mut(&p, delta_break);
             let g = self.gradient.get(breakpoint);
-            let w_row = Vector::from_vec(
-                (0..self.w_matrix.cols())
-                    .map(|column| self.w_matrix.get(breakpoint, column))
-                    .collect(),
-            );
+            if w_row.len() != self.w_matrix.cols() {
+                w_row = Vector::zeros(self.w_matrix.cols());
+            }
+            for column in 0..self.w_matrix.cols() {
+                w_row.set(column, self.w_matrix.get(breakpoint, column));
+            }
             df = df + delta_break * ddf + g * (self.theta * z + g - w_row.dot(&self.m_dot_vec(&c)));
             // Removing d_i = -g changes p to p + g*w_i. Both compact
             // cross terms therefore subtract from d^T B d.
@@ -572,7 +574,7 @@ where
                 - g * (self.theta * g
                     + T::literal(2.0) * w_row.dot(&self.m_dot_vec(&p))
                     + g * w_row.dot(&self.m_dot_vec(&w_row)));
-            p = p.add_scaled(&w_row, g);
+            p.add_scaled_mut(&w_row, g);
             moving -= usize::from(direction.get(breakpoint) != T::zero());
             direction.set(breakpoint, T::zero());
             // A stationary path has no next minimum to solve for. In particular,
@@ -597,7 +599,7 @@ where
                 xcp.set(index, xcp.get(index) + t_old * direction.get(index));
             }
         }
-        c = c.add_scaled(&p, delta_min);
+        c.add_scaled_mut(&p, delta_min);
         let free = (0..n)
             .filter(|&index| {
                 let (lower, upper) = bounds
@@ -625,27 +627,29 @@ where
             .gradient
             .add_scaled(&xcp.sub(&self.x), self.theta)
             .sub(&self.w_matrix.mul_vec(&self.m_dot_vec(c)));
-        let r = Vector::from_vec(free.iter().map(|&index| r_full.get(index)).collect());
-        let unconstrained = if two_m == 0 {
-            r.scale(-T::one() / self.theta)
-        } else {
+        let mut unconstrained =
+            Vector::from_vec(free.iter().map(|&index| r_full.get(index)).collect());
+        if two_m != 0 {
             let mut wt_z = Matrix::zeros(two_m, k);
             for (column, &index) in free.iter().enumerate() {
                 for row in 0..two_m {
                     wt_z.set(row, column, self.w_matrix.get(index, row));
                 }
             }
+            let zt_w = wt_z.transpose();
             let correction = self
-                .m_dot_mat(&wt_z.mul_mat(&wt_z.transpose()))
+                .m_dot_mat(&wt_z.mul_mat(&zt_w))
                 .scale(T::one() / self.theta);
             let n_matrix = &Matrix::identity(two_m) - &correction;
-            let rhs = self.m_dot_vec(&wt_z.mul_vec(&r));
+            let rhs = self.m_dot_vec(&wt_z.mul_vec(&unconstrained));
             let v = n_matrix
                 .lu_solve(&rhs)
                 .unwrap_or_else(|| Vector::zeros(two_m));
-            r.add(&wt_z.transpose().mul_vec(&v).scale(T::one() / self.theta))
-                .scale(-T::one() / self.theta)
-        };
+            let mut correction = zt_w.mul_vec(&v);
+            correction.scale_mut(T::one() / self.theta);
+            unconstrained.add_scaled_mut(&correction, T::one());
+        }
+        unconstrained.scale_mut(-T::one() / self.theta);
         let mut alpha = T::one();
         for (position, &index) in free.iter().enumerate() {
             let (lower, upper) = bounds

@@ -55,6 +55,17 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     ) -> Self::VectorStorage {
         Self::vec_add(lhs, &Self::vec_scale(rhs, alpha))
     }
+    /// Replace `lhs` with `lhs + alpha * rhs`.
+    ///
+    /// The default preserves the provider's allocating operation. Override to
+    /// reuse storage without changing existing providers' required methods.
+    fn vec_add_scaled_mut(lhs: &mut Self::VectorStorage, rhs: &Self::VectorStorage, alpha: T) {
+        *lhs = Self::vec_add_scaled(lhs, rhs, alpha);
+    }
+    /// Scale a vector, reusing its storage when supported by the provider.
+    fn vec_scale_mut(value: &mut Self::VectorStorage, alpha: T) {
+        *value = Self::vec_scale(value, alpha);
+    }
     /// Dot product.
     fn vec_dot(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> T;
     /// Euclidean norm.
@@ -89,6 +100,13 @@ pub trait LinearAlgebra<T: RealScalar>: Clone + Debug + Send + Sync + 'static {
     fn mat_mul(lhs: &Self::MatrixStorage, rhs: &Self::MatrixStorage) -> Self::MatrixStorage;
     /// Matrix-vector product.
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage;
+    /// Multiply the transpose by a vector, without an owned transpose when supported.
+    fn mat_transpose_vec(
+        matrix: &Self::MatrixStorage,
+        vector: &Self::VectorStorage,
+    ) -> Self::VectorStorage {
+        Self::mat_vec(&Self::mat_transpose(matrix), vector)
+    }
 }
 
 /// An immutable solver for repeated right-hand sides of one owned linear system.
@@ -383,6 +401,12 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Vector<T, B> {
         Self::from_storage(B::vec_scale(&self.storage, alpha))
     }
 
+    /// Scale this vector, reusing storage when supported by the provider.
+    #[inline]
+    pub fn scale_mut(&mut self, alpha: T) {
+        B::vec_scale_mut(&mut self.storage, alpha);
+    }
+
     /// Return `self + rhs`.
     #[inline]
     pub fn add(&self, rhs: &Self) -> Self {
@@ -405,6 +429,12 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Vector<T, B> {
     #[inline]
     pub fn add_scaled(&self, rhs: &Self, alpha: T) -> Self {
         Self::from_storage(B::vec_add_scaled(&self.storage, &rhs.storage, alpha))
+    }
+
+    /// Add `rhs * alpha` to this vector, reusing storage when supported.
+    #[inline]
+    pub fn add_scaled_mut(&mut self, rhs: &Self, alpha: T) {
+        B::vec_add_scaled_mut(&mut self.storage, &rhs.storage, alpha);
     }
 
     /// Return `true` when all entries are finite.
@@ -636,6 +666,11 @@ impl<T: RealScalar, B: LinearAlgebra<T>> Matrix<T, B> {
     /// Matrix-vector product.
     pub fn mul_vec(&self, rhs: &Vector<T, B>) -> Vector<T, B> {
         Vector::from_storage(B::mat_vec(&self.storage, &rhs.storage))
+    }
+
+    /// Multiply the transpose by a vector, avoiding an owned transpose when supported.
+    pub fn transpose_mul_vec(&self, rhs: &Vector<T, B>) -> Vector<T, B> {
+        Vector::from_storage(B::mat_transpose_vec(&self.storage, &rhs.storage))
     }
 
     /// Matrix-matrix product.
@@ -872,6 +907,16 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraProvider 
     }
 
     #[inline]
+    fn vec_add_scaled_mut(lhs: &mut Self::VectorStorage, rhs: &Self::VectorStorage, alpha: T) {
+        lhs.axpy(alpha, rhs, <T as RealScalar>::one());
+    }
+
+    #[inline]
+    fn vec_scale_mut(value: &mut Self::VectorStorage, alpha: T) {
+        value.scale_mut(alpha);
+    }
+
+    #[inline]
     fn vec_dot(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> T {
         lhs.dot(rhs)
     }
@@ -936,6 +981,13 @@ impl<T: RealScalar + nalgebra::RealField> LinearAlgebra<T> for NalgebraProvider 
 
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage {
         matrix * vector
+    }
+
+    fn mat_transpose_vec(
+        matrix: &Self::MatrixStorage,
+        vector: &Self::VectorStorage,
+    ) -> Self::VectorStorage {
+        matrix.tr_mul(vector)
     }
 }
 
@@ -1057,6 +1109,16 @@ where
         value.mapv(|entry| entry * alpha)
     }
 
+    fn vec_add_scaled_mut(lhs: &mut Self::VectorStorage, rhs: &Self::VectorStorage, alpha: T) {
+        ndarray::Zip::from(lhs)
+            .and(rhs)
+            .for_each(|entry, &other| *entry += other * alpha);
+    }
+
+    fn vec_scale_mut(value: &mut Self::VectorStorage, alpha: T) {
+        value.mapv_inplace(|entry| entry * alpha);
+    }
+
     fn vec_dot(lhs: &Self::VectorStorage, rhs: &Self::VectorStorage) -> T {
         lhs.dot(rhs)
     }
@@ -1128,6 +1190,13 @@ where
 
     fn mat_vec(matrix: &Self::MatrixStorage, vector: &Self::VectorStorage) -> Self::VectorStorage {
         matrix.dot(vector)
+    }
+
+    fn mat_transpose_vec(
+        matrix: &Self::MatrixStorage,
+        vector: &Self::VectorStorage,
+    ) -> Self::VectorStorage {
+        matrix.t().dot(vector)
     }
 }
 
@@ -1298,6 +1367,64 @@ mod tests {
         };
         assert_eq!(pseudo_inverse.rows(), 2);
         assert_eq!(pseudo_inverse.cols(), 2);
+    }
+
+    fn scratch_operations_contract<T: RealScalar, B: LinearAlgebra<T>>(tolerance: T) {
+        for n in [0, 1, 7, 64, 512] {
+            let initial = Vector::<T, B>::from_vec(
+                (0..n)
+                    .map(|i| T::literal((i as f64 * 0.31).sin()))
+                    .collect(),
+            );
+            let rhs = Vector::<T, B>::from_vec(
+                (0..n)
+                    .map(|i| T::literal((i as f64 * 0.17).cos()))
+                    .collect(),
+            );
+            for alpha in [-2.0, 0.0, 0.3, 1.0].map(T::literal) {
+                let mut actual = initial.clone();
+                let allocation = actual.as_slice().unwrap().as_ptr();
+                let expected = actual.add_scaled(&rhs, alpha);
+                actual.add_scaled_mut(&rhs, alpha);
+                assert_eq!(actual, expected);
+                assert_eq!(actual.as_slice().unwrap().as_ptr(), allocation);
+                let expected = actual.scale(alpha);
+                actual.scale_mut(alpha);
+                assert_eq!(actual, expected);
+                assert_eq!(actual.as_slice().unwrap().as_ptr(), allocation);
+            }
+        }
+        for (rows, cols) in [(0, 0), (0, 3), (3, 0), (2, 7), (7, 2), (16, 9)] {
+            let matrix = Matrix::<T, B>::from_vec(
+                rows,
+                cols,
+                (0..rows * cols)
+                    .map(|i| T::literal((i as f64 * 0.37).sin()))
+                    .collect(),
+            );
+            let vector = Vector::<T, B>::from_vec(
+                (0..rows)
+                    .map(|i| T::literal((i as f64 * 0.29).cos()))
+                    .collect(),
+            );
+            let expected = matrix.transpose().mul_vec(&vector);
+            let actual = matrix.transpose_mul_vec(&vector);
+            assert_eq!(actual.len(), cols);
+            assert!(actual.sub(&expected).norm() <= tolerance * (T::one() + expected.norm()));
+        }
+    }
+
+    #[test]
+    fn nalgebra_scratch_operations_preserve_results_and_vector_storage() {
+        scratch_operations_contract::<f64, NalgebraProvider>(1e-12);
+        scratch_operations_contract::<f32, NalgebraProvider>(1e-5);
+    }
+
+    #[cfg(feature = "backend-ndarray")]
+    #[test]
+    fn ndarray_scratch_operations_preserve_results_and_vector_storage() {
+        scratch_operations_contract::<f64, NdArrayProvider>(1e-12);
+        scratch_operations_contract::<f32, NdArrayProvider>(1e-5);
     }
 
     #[test]

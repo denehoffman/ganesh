@@ -280,3 +280,33 @@ fn downstream_scalar_and_provider_run_public_algorithm() {
 
     assert!(result.fx.0 < 1.0e-3, "unexpected objective: {}", result.fx);
 }
+
+#[test]
+fn existing_provider_gets_scratch_operations_without_new_required_methods() {
+    let mut value = Vector::<Wrapped, VecProvider>::from_vec(vec![Wrapped(2.0), Wrapped(-1.0)]);
+    let rhs = Vector::from_vec(vec![Wrapped(3.0), Wrapped(4.0)]);
+    let expected = value.add_scaled(&rhs, Wrapped(0.5));
+    value.add_scaled_mut(&rhs, Wrapped(0.5));
+    assert_eq!(value, expected);
+    let expected = value.scale(Wrapped(-2.0));
+    value.scale_mut(Wrapped(-2.0));
+    assert_eq!(value, expected);
+
+    let matrix = ganesh::Matrix::<Wrapped, VecProvider>::from_vec(
+        2,
+        3,
+        vec![
+            Wrapped(1.0),
+            Wrapped(2.0),
+            Wrapped(3.0),
+            Wrapped(4.0),
+            Wrapped(5.0),
+            Wrapped(6.0),
+        ],
+    );
+    let actual = matrix.transpose_mul_vec(&Vector::from_vec(vec![Wrapped(7.0), Wrapped(8.0)]));
+    assert_eq!(
+        actual.to_vec(),
+        vec![Wrapped(39.0), Wrapped(54.0), Wrapped(69.0)]
+    );
+}
