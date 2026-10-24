@@ -926,7 +926,7 @@ where
         self.m_system = None;
         self.line_search = config.line_search.clone();
         status.evals.record_fg();
-        status.initialize(init.clone(), self.fx);
+        status.initialize(transformed.to_external(&self.x), self.fx);
         Ok(())
     }
 
@@ -1236,6 +1236,44 @@ mod tests {
 
         fn hessian(&self, _x: &Vector<T, B>, _: &()) -> Result<Matrix<T, B>, Infallible> {
             Ok(Matrix::identity(2).scale(T::literal(2.0)))
+        }
+    }
+
+    #[test]
+    fn lbfgsb_reports_projected_initial_position_on_immediate_convergence() {
+        for (scale, bounds, initial, expected) in [
+            (1.0, (4.0, 6.0), 0.5, 4.0),
+            (1.0, (0.8, 1.2), 2.0, 1.2),
+            (2.0, (2.0, 3.0), 0.5, 4.0),
+            (2.0, (0.4, 0.6), 2.0, 1.2),
+        ] {
+            let mut config = LBFGSBConfig::<f64>::default()
+                .with_bounds([bounds, (-1.0, 1.0)])
+                .unwrap()
+                .with_error_mode(LBFGSBErrorMode::Skip);
+            if scale != 1.0 {
+                config = config
+                    .with_transform(ScaleTransform::from_parameter_scales([scale, 4.0]).unwrap())
+                    .unwrap();
+            }
+            let result = LBFGSB::<f64>::default()
+                .process(
+                    &ShiftedQuadratic,
+                    &(),
+                    Vector::from_vec(vec![initial, 0.0]),
+                    config,
+                    LBFGSB::<f64>::default_callbacks(),
+                )
+                .unwrap();
+
+            assert_eq!(result.x0.to_vec(), vec![initial, 0.0]);
+            assert_eq!(result.x.to_vec(), vec![expected, 0.0]);
+            assert_eq!(
+                result.fx,
+                ShiftedQuadratic.evaluate(&result.x, &()).unwrap()
+            );
+            assert_eq!(result.evals.f(), 1);
+            assert_eq!(result.evals.g(), 1);
         }
     }
 
