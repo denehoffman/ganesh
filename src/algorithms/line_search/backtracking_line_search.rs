@@ -1,6 +1,9 @@
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
+use crate::traits::{
+    Gradient, LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
+    Trial,
+};
 use std::marker::PhantomData;
 
 /// Scalar- and linear-algebra-generic Armijo backtracking line search.
@@ -77,28 +80,41 @@ where
         let LineSearchStart { x, fx, gradient } = start;
         let mut alpha = max_step.unwrap_or_else(T::one);
         let directional_derivative = gradient.dot(direction);
-        loop {
+        let mut rejection = None;
+        while alpha.is_finite() && alpha > T::epsilon() {
             let trial = x.add_scaled(direction, alpha);
-            let trial_fx = problem.evaluate(&trial, args)?;
             evals.record_f();
-            if trial_fx <= fx + self.c * alpha * directional_derivative {
-                let trial_gradient = problem.gradient(&trial, args)?;
-                evals.record_g();
-                return Ok(Ok(LineSearchOutput {
-                    alpha,
-                    fx: trial_fx,
-                    gradient: trial_gradient,
-                }));
+            match problem.trial_value(&trial, args)? {
+                Trial::Valid(trial_fx)
+                    if trial_fx <= fx + self.c * alpha * directional_derivative =>
+                {
+                    evals.record_g();
+                    match problem.trial_gradient(&trial, args)? {
+                        Trial::Valid(gradient) => {
+                            return Ok(Ok(LineSearchOutput {
+                                alpha,
+                                fx: trial_fx,
+                                gradient,
+                            }))
+                        }
+                        Trial::Rejected(reason) => rejection = Some(reason),
+                    }
+                }
+                Trial::Rejected(reason) => rejection = Some(reason),
+                Trial::Valid(_) => {}
             }
             alpha = alpha * self.rho;
-            if alpha <= T::epsilon() {
-                return Ok(Err(LineSearchOutput {
+        }
+        Ok(Err(rejection.map_or_else(
+            || {
+                LineSearchFailure::Stalled(LineSearchOutput {
                     alpha: T::zero(),
                     fx,
                     gradient: gradient.clone(),
-                }));
-            }
-        }
+                })
+            },
+            LineSearchFailure::Rejected,
+        )))
     }
 }
 

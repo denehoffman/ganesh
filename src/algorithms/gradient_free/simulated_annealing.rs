@@ -299,8 +299,16 @@ where
                     .collect(),
             )
         };
-        let proposal_fx = transformed.evaluate(&proposal, args)?;
         status.evals.record_f();
+        let proposal_fx = match transformed.trial_value(&proposal, args)? {
+            crate::traits::Trial::Valid(value) => value,
+            crate::traits::Trial::Rejected(reason) => {
+                self.temperature = self.temperature * config.cooling_rate;
+                status.record_trial_progress(Some(reason));
+                return Ok(());
+            }
+        };
+        status.record_trial_progress(None);
         let delta = proposal_fx - self.current_fx;
         let accept =
             delta <= T::zero() || T::random_unit(&mut self.rng) < (-delta / self.temperature).exp();

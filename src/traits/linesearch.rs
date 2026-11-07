@@ -12,8 +12,17 @@ pub struct LineSearchOutput<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraP
     pub gradient: Vector<T, B>,
 }
 
-/// Successful or best-effort line-search output.
-pub type LineSearchResult<T, B> = Result<LineSearchOutput<T, B>, LineSearchOutput<T, B>>;
+/// Why a line search could not accept a step.
+#[derive(Clone, Debug)]
+pub enum LineSearchFailure<T: RealScalar, B: LinearAlgebra<T>> {
+    /// The search conditions were not met. The supplied point is valid.
+    Stalled(LineSearchOutput<T, B>),
+    /// The search exhausted its budget after rejecting an inadmissible candidate.
+    Rejected(String),
+}
+
+/// Successful step or the reason the search could not accept a step.
+pub type LineSearchResult<T, B> = Result<LineSearchOutput<T, B>, LineSearchFailure<T, B>>;
 
 /// A line-search starting point with an already evaluated objective and gradient.
 #[derive(Debug)]

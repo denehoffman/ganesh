@@ -2,7 +2,10 @@
 
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
+use crate::traits::{
+    Gradient, LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
+    Trial,
+};
 use std::marker::PhantomData;
 
 /// Generic implementation of the Moré–Thuente search and zoom procedure.
@@ -103,12 +106,12 @@ where
         x: &Vector<T, B>,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<T, E>
+    ) -> Result<Trial<T>, E>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         evals.record_f();
-        problem.evaluate(x, args)
+        problem.trial_value(x, args)
     }
 
     fn evaluate_g<P, U, E>(
@@ -116,12 +119,12 @@ where
         x: &Vector<T, B>,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<Vector<T, B>, E>
+    ) -> Result<Trial<Vector<T, B>>, E>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         evals.record_g();
-        problem.gradient(x, args)
+        problem.trial_gradient(x, args)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -136,52 +139,69 @@ where
         mut alpha_low: T,
         mut alpha_high: T,
         mut f_low: T,
+        mut rejection: Option<String>,
         evals: &mut EvalCounts,
     ) -> Result<LineSearchResult<T, B>, E>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         let dphi0 = g0.dot(direction);
-        for iteration in 0..=self.max_zoom {
+        let mut best = LineSearchOutput {
+            alpha: T::zero(),
+            fx: f0,
+            gradient: g0.clone(),
+        };
+        for _ in 0..=self.max_zoom {
             let alpha = alpha_low + (alpha_high - alpha_low) / T::literal(2.0);
-            let exhausted = iteration == self.max_zoom || alpha == alpha_low || alpha == alpha_high;
+            if alpha == alpha_low || alpha == alpha_high {
+                break;
+            }
             let x = x0.add_scaled(direction, alpha);
-            let fx = Self::evaluate_f(problem, &x, args, evals)?;
-            let gradient =
-                if !fx.is_finite() || fx > dphi0.mul_add(self.c1 * alpha, f0) || fx >= f_low {
+            let fx = match Self::evaluate_f(problem, &x, args, evals)? {
+                Trial::Valid(fx) if fx <= dphi0.mul_add(self.c1 * alpha, f0) && fx < f_low => fx,
+                Trial::Valid(_) => {
                     alpha_high = alpha;
-                    None
-                } else {
-                    let gradient = Self::evaluate_g(problem, &x, args, evals)?;
-                    let dphi = gradient.dot(direction);
-                    if dphi.abs() <= -self.c2 * dphi0 {
-                        return Ok(Ok(LineSearchOutput {
-                            alpha,
-                            fx,
-                            gradient,
-                        }));
-                    }
-                    if dphi * (alpha_high - alpha_low) >= T::zero() {
-                        alpha_high = alpha_low;
-                    }
-                    alpha_low = alpha;
-                    f_low = fx;
-                    Some(gradient)
-                };
-            if exhausted {
-                let gradient = match gradient {
-                    Some(gradient) => gradient,
-                    None => Self::evaluate_g(problem, &x, args, evals)?,
-                };
-                let output = LineSearchOutput {
+                    continue;
+                }
+                Trial::Rejected(reason) => {
+                    rejection = Some(reason);
+                    alpha_high = alpha;
+                    continue;
+                }
+            };
+            let gradient = match Self::evaluate_g(problem, &x, args, evals)? {
+                Trial::Valid(gradient) => gradient,
+                Trial::Rejected(reason) => {
+                    rejection = Some(reason);
+                    alpha_high = alpha;
+                    continue;
+                }
+            };
+            let dphi = gradient.dot(direction);
+            if dphi.abs() <= -self.c2 * dphi0 {
+                return Ok(Ok(LineSearchOutput {
+                    alpha,
+                    fx,
+                    gradient,
+                }));
+            }
+            if dphi * (alpha_high - alpha_low) >= T::zero() {
+                alpha_high = alpha_low;
+            }
+            if fx < best.fx {
+                best = LineSearchOutput {
                     alpha,
                     fx,
                     gradient,
                 };
-                return Ok(Err(output));
             }
+            alpha_low = alpha;
+            f_low = fx;
         }
-        unreachable!("bounded zoom loop always returns")
+        Ok(Err(rejection.map_or_else(
+            || LineSearchFailure::Stalled(best),
+            LineSearchFailure::Rejected,
+        )))
     }
 }
 
@@ -216,20 +236,16 @@ where
         let dphi0 = g0.dot(direction);
         if !dphi0.is_finite() || dphi0 >= T::zero() || alpha_max.is_nan() || alpha_max <= T::zero()
         {
-            return Ok(Err(LineSearchOutput {
+            return Ok(Err(LineSearchFailure::Stalled(LineSearchOutput {
                 alpha: T::zero(),
                 fx: f0,
                 gradient: g0.clone(),
-            }));
+            })));
         }
         for iteration in 0..=self.max_iterations {
             let x = x0.add_scaled(direction, alpha);
-            let fx = Self::evaluate_f(problem, &x, args, evals)?;
-            if !fx.is_finite()
-                || fx > dphi0.mul_add(self.c1 * alpha, f0)
-                || (iteration > 0 && fx >= previous_fx)
-            {
-                return self.zoom(
+            let zoom = |rejection, evals: &mut EvalCounts| {
+                self.zoom(
                     problem,
                     x0,
                     args,
@@ -239,10 +255,24 @@ where
                     previous_alpha,
                     alpha,
                     previous_fx,
+                    rejection,
                     evals,
-                );
-            }
-            let gradient = Self::evaluate_g(problem, &x, args, evals)?;
+                )
+            };
+            let fx = match Self::evaluate_f(problem, &x, args, evals)? {
+                Trial::Valid(fx)
+                    if fx <= dphi0.mul_add(self.c1 * alpha, f0)
+                        && (iteration == 0 || fx < previous_fx) =>
+                {
+                    fx
+                }
+                Trial::Valid(_) => return zoom(None, evals),
+                Trial::Rejected(reason) => return zoom(Some(reason), evals),
+            };
+            let gradient = match Self::evaluate_g(problem, &x, args, evals)? {
+                Trial::Valid(gradient) => gradient,
+                Trial::Rejected(reason) => return zoom(Some(reason), evals),
+            };
             let dphi = gradient.dot(direction);
             if dphi.abs() <= self.c2 * dphi0.abs()
                 || (alpha == alpha_max && fx < f0 && dphi.is_finite() && dphi < T::zero())
@@ -264,6 +294,7 @@ where
                     alpha,
                     previous_alpha,
                     fx,
+                    None,
                     evals,
                 );
             }
@@ -274,11 +305,11 @@ where
                 alpha_max
             };
             if iteration == self.max_iterations || !next_alpha.is_finite() || next_alpha <= alpha {
-                return Ok(Err(LineSearchOutput {
+                return Ok(Err(LineSearchFailure::Stalled(LineSearchOutput {
                     alpha,
                     fx,
                     gradient,
-                }));
+                })));
             }
             previous_alpha = alpha;
             previous_fx = fx;

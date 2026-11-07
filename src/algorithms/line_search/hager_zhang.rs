@@ -2,7 +2,10 @@
 
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
+use crate::traits::{
+    Gradient, LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
+    Trial,
+};
 use std::marker::PhantomData;
 
 /// Generic Hager–Zhang approximate-Wolfe line search.
@@ -33,6 +36,20 @@ where
             max_iterations: 100,
             max_bisects: 50,
             _provider: PhantomData,
+        }
+    }
+}
+
+enum ProbeError<T, E> {
+    Rejected { alpha: T, reason: String },
+    Fatal(E),
+}
+
+impl<T, E> ProbeError<T, E> {
+    fn from_trial<V>(alpha: T, result: Result<Trial<V>, E>) -> Result<V, Self> {
+        match result.map_err(Self::Fatal)? {
+            Trial::Valid(value) => Ok(value),
+            Trial::Rejected(reason) => Err(Self::Rejected { alpha, reason }),
         }
     }
 }
@@ -147,13 +164,13 @@ where
         alpha: T,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<T, E>
+    ) -> Result<T, ProbeError<T, E>>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         let x = x0.add_scaled(direction, alpha);
         evals.record_f();
-        problem.evaluate(&x, args)
+        ProbeError::from_trial(alpha, problem.trial_value(&x, args))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -164,13 +181,13 @@ where
         alpha: T,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<Vector<T, B>, E>
+    ) -> Result<Vector<T, B>, ProbeError<T, E>>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         let x = x0.add_scaled(direction, alpha);
         evals.record_g();
-        problem.gradient(&x, args)
+        ProbeError::from_trial(alpha, problem.trial_gradient(&x, args))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -181,13 +198,13 @@ where
         alpha: T,
         args: &U,
         evals: &mut EvalCounts,
-    ) -> Result<(T, Vector<T, B>), E>
+    ) -> Result<(T, Vector<T, B>), ProbeError<T, E>>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
-        let x = x0.add_scaled(direction, alpha);
-        evals.record_fg();
-        problem.evaluate_with_gradient(&x, args)
+        let value = Self::evaluate_f(problem, x0, direction, alpha, args, evals)?;
+        let gradient = Self::evaluate_g(problem, x0, direction, alpha, args, evals)?;
+        Ok((value, gradient))
     }
 
     fn secant(a: T, dphi_a: T, b: T, dphi_b: T) -> T {
@@ -207,18 +224,18 @@ where
         b: T,
         c: T,
         evals: &mut EvalCounts,
-    ) -> Result<(T, T), E>
+    ) -> Result<(T, T), ProbeError<T, E>>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
         if c <= a || c >= b {
             return Ok((a, b));
         }
+        let phi_c = Self::evaluate_f(problem, x0, direction, c, args, evals)?;
         let gradient_c = Self::evaluate_g(problem, x0, direction, c, args, evals)?;
         if gradient_c.dot(direction) >= T::zero() {
             return Ok((a, c));
         }
-        let phi_c = Self::evaluate_f(problem, x0, direction, c, args, evals)?;
         if phi_c <= phi0 + epsilon_k {
             return Ok((c, b));
         }
@@ -226,11 +243,11 @@ where
         let mut b_hat = c;
         for iteration in 0..=self.max_bisects {
             let d = a_hat.mul_add(T::one() - self.theta, self.theta * b_hat);
+            let phi_d = Self::evaluate_f(problem, x0, direction, d, args, evals)?;
             let gradient_d = Self::evaluate_g(problem, x0, direction, d, args, evals)?;
             if gradient_d.dot(direction) >= T::zero() || iteration == self.max_bisects {
                 return Ok((a_hat, d));
             }
-            let phi_d = Self::evaluate_f(problem, x0, direction, d, args, evals)?;
             if phi_d <= phi0 + epsilon_k {
                 a_hat = d;
             } else {
@@ -254,7 +271,7 @@ where
         b: T,
         dphi_b: T,
         evals: &mut EvalCounts,
-    ) -> Result<(T, T), E>
+    ) -> Result<(T, T), ProbeError<T, E>>
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
@@ -327,46 +344,91 @@ where
         } = start;
         let dphi0 = gradient0.dot(direction);
         let epsilon_k = self.epsilon * phi0.abs();
-        let mut a = T::epsilon();
-        let mut b = max_step.unwrap_or_else(|| T::literal(1e5));
-        let mut iteration = 0;
-        loop {
-            let (phi_a, gradient_a) = Self::evaluate_fg(problem, x0, direction, a, args, evals)?;
-            let dphi_a = gradient_a.dot(direction);
-            if self.satisfies_wolfe(a, phi_a, dphi_a, phi0, dphi0, epsilon_k) {
-                return Ok(Ok(LineSearchOutput {
-                    alpha: a,
-                    fx: phi_a,
-                    gradient: gradient_a,
-                }));
-            }
-            let (phi_b, gradient_b) = Self::evaluate_fg(problem, x0, direction, b, args, evals)?;
-            let dphi_b = gradient_b.dot(direction);
-            if self.satisfies_wolfe(b, phi_b, dphi_b, phi0, dphi0, epsilon_k) {
-                return Ok(Ok(LineSearchOutput {
-                    alpha: b,
-                    fx: phi_b,
-                    gradient: gradient_b,
-                }));
-            }
-            let (mut next_a, mut next_b) = self.secant2(
-                problem, x0, direction, args, phi0, epsilon_k, a, dphi_a, b, dphi_b, evals,
-            )?;
-            if next_b - next_a > self.gamma * (b - a) {
-                let midpoint = (next_a + next_b) / T::literal(2.0);
-                (next_a, next_b) = self.update(
-                    problem, x0, direction, args, phi0, epsilon_k, next_a, next_b, midpoint, evals,
+        let search = (|| {
+            let mut a = T::epsilon();
+            let mut b = max_step.unwrap_or_else(|| T::literal(1e5));
+            let mut iteration = 0;
+            loop {
+                let (phi_a, gradient_a) =
+                    Self::evaluate_fg(problem, x0, direction, a, args, evals)?;
+                let dphi_a = gradient_a.dot(direction);
+                if self.satisfies_wolfe(a, phi_a, dphi_a, phi0, dphi0, epsilon_k) {
+                    return Ok(Ok(LineSearchOutput {
+                        alpha: a,
+                        fx: phi_a,
+                        gradient: gradient_a,
+                    }));
+                }
+                let (phi_b, gradient_b) =
+                    Self::evaluate_fg(problem, x0, direction, b, args, evals)?;
+                let dphi_b = gradient_b.dot(direction);
+                if self.satisfies_wolfe(b, phi_b, dphi_b, phi0, dphi0, epsilon_k) {
+                    return Ok(Ok(LineSearchOutput {
+                        alpha: b,
+                        fx: phi_b,
+                        gradient: gradient_b,
+                    }));
+                }
+                let (mut next_a, mut next_b) = self.secant2(
+                    problem, x0, direction, args, phi0, epsilon_k, a, dphi_a, b, dphi_b, evals,
                 )?;
+                if next_b - next_a > self.gamma * (b - a) {
+                    let midpoint = (next_a + next_b) / T::literal(2.0);
+                    (next_a, next_b) = self.update(
+                        problem, x0, direction, args, phi0, epsilon_k, next_a, next_b, midpoint,
+                        evals,
+                    )?;
+                }
+                (a, b) = (next_a, next_b);
+                if iteration > self.max_iterations {
+                    return Ok(Err(LineSearchFailure::Stalled(LineSearchOutput {
+                        alpha: T::zero(),
+                        fx: phi0,
+                        gradient: gradient0.clone(),
+                    })));
+                }
+                iteration += 1;
             }
-            (a, b) = (next_a, next_b);
-            if iteration > self.max_iterations {
-                return Ok(Err(LineSearchOutput {
-                    alpha: a,
-                    fx: phi_a,
-                    gradient: gradient_a,
-                }));
+        })();
+        match search {
+            Ok(result) => Ok(result),
+            Err(ProbeError::Fatal(error)) => Err(error),
+            Err(ProbeError::Rejected { alpha, mut reason }) => {
+                // An inadmissible upper endpoint has no derivative for secant interpolation.
+                let mut low = T::zero();
+                let mut high = alpha;
+                for _ in 0..=self.max_bisects {
+                    let alpha = low + (high - low) / T::literal(2.0);
+                    if alpha == low || alpha == high {
+                        break;
+                    }
+                    match Self::evaluate_fg(problem, x0, direction, alpha, args, evals) {
+                        Ok((fx, gradient)) => {
+                            let dphi = gradient.dot(direction);
+                            if self.satisfies_wolfe(alpha, fx, dphi, phi0, dphi0, epsilon_k) {
+                                return Ok(Ok(LineSearchOutput {
+                                    alpha,
+                                    fx,
+                                    gradient,
+                                }));
+                            }
+                            if fx > phi0 + epsilon_k || dphi >= T::zero() {
+                                high = alpha;
+                            } else {
+                                low = alpha;
+                            }
+                        }
+                        Err(ProbeError::Rejected {
+                            reason: message, ..
+                        }) => {
+                            reason = message;
+                            high = alpha;
+                        }
+                        Err(ProbeError::Fatal(error)) => return Err(error),
+                    }
+                }
+                Ok(Err(LineSearchFailure::Rejected(reason)))
             }
-            iteration += 1;
         }
     }
 }

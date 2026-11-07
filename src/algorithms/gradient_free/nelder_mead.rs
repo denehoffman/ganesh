@@ -406,6 +406,19 @@ where
         status.evals.record_f();
         Ok(Vertex { x, fx })
     }
+
+    fn trial_vertex<P, U, E>(
+        problem: &TransformedProblem<'_, P, T, B>,
+        x: Vector<T, B>,
+        args: &U,
+        status: &mut GradientFreeStatus<T, B>,
+    ) -> Result<crate::traits::Trial<Vertex<T, B>>, E>
+    where
+        P: CostFunction<T, B, U, E>,
+    {
+        status.evals.record_f();
+        Ok(problem.trial_value(&x, args)?.map(|fx| Vertex { x, fx }))
+    }
 }
 
 impl<T, B, P, U, E>
@@ -557,25 +570,55 @@ where
         if let Some(simplex) = config.initial_simplex.as_ref() {
             for vertex in simplex {
                 let vertex = transformed.to_internal(vertex);
-                self.simplex
-                    .push(Self::evaluate(&transformed, vertex, args, status)?);
+                let vertex = Self::evaluate(&transformed, vertex, args, status)?;
+                if !vertex.fx.is_finite() {
+                    status.initialize(transformed.to_external(&vertex.x), vertex.fx);
+                    status
+                        .message
+                        .fail_with_message("initial simplex contains a nonfinite objective");
+                    return Ok(());
+                }
+                self.simplex.push(vertex);
             }
         } else {
-            self.simplex
-                .push(Self::evaluate(&transformed, origin.clone(), args, status)?);
+            let start = Self::evaluate(&transformed, origin.clone(), args, status)?;
+            status.initialize(transformed.to_external(&start.x), start.fx);
+            if !start.fx.is_finite() {
+                return Ok(());
+            }
+            self.simplex.push(start);
             for coordinate in 0..origin.len() {
-                let mut vertex = origin.clone();
                 let value = origin.get(coordinate);
-                vertex.set(
-                    coordinate,
-                    if value == T::zero() {
-                        config.initial_zero_step
-                    } else {
-                        value * (T::one() + config.initial_step)
-                    },
-                );
-                self.simplex
-                    .push(Self::evaluate(&transformed, vertex, args, status)?);
+                let mut displacement = if value == T::zero() {
+                    config.initial_zero_step
+                } else {
+                    value * (T::one() + config.initial_step) - value
+                };
+                let mut rejection = None;
+                let mut found = false;
+                for _ in 0..=16 {
+                    let mut vertex = origin.clone();
+                    vertex.set(coordinate, value + displacement);
+                    if rejection.is_some() && vertex.get(coordinate) == value {
+                        break;
+                    }
+                    match Self::trial_vertex(&transformed, vertex, args, status)? {
+                        crate::traits::Trial::Valid(vertex) => {
+                            self.simplex.push(vertex);
+                            found = true;
+                            break;
+                        }
+                        crate::traits::Trial::Rejected(reason) => rejection = Some(reason),
+                    }
+                    displacement = -displacement / T::literal(2.0);
+                }
+                if !found {
+                    status.message.fail_with_message(format!(
+                        "simplex initialization exhausted after trial rejection: {}",
+                        rejection.unwrap_or_default()
+                    ));
+                    return Ok(());
+                }
             }
         }
         self.coordinate_sum = Vector::from_vec(
@@ -612,64 +655,102 @@ where
         let worst_index = self.simplex.len() - 1;
         let worst = self.simplex[worst_index].clone();
         let reflected_x = centroid.add_scaled(&centroid.sub(&worst.x), config.reflection);
-        let reflected = Self::evaluate(&transformed, reflected_x, args, status)?;
+        let reflected = match Self::trial_vertex(&transformed, reflected_x, args, status)? {
+            crate::traits::Trial::Valid(vertex) => Some(vertex),
+            crate::traits::Trial::Rejected(_) => None,
+        };
 
-        let step_message = if reflected.fx < self.simplex[0].fx {
+        let step_message = if let Some(reflected) =
+            reflected.as_ref().filter(|v| v.fx < previous_best_fx)
+        {
             let expanded_x = centroid.add_scaled(&reflected.x.sub(&centroid), config.expansion);
-            let expanded = Self::evaluate(&transformed, expanded_x, args, status)?;
-            let replacement = match config.expansion_method {
-                SimplexExpansionMethod::GreedyMinimization => {
-                    if expanded.fx < reflected.fx {
-                        expanded
-                    } else {
-                        reflected
-                    }
+            match Self::trial_vertex(&transformed, expanded_x, args, status)? {
+                crate::traits::Trial::Valid(expanded)
+                    if expanded.fx < reflected.fx
+                        || matches!(
+                            config.expansion_method,
+                            SimplexExpansionMethod::GreedyExpansion
+                        ) =>
+                {
+                    self.replace_worst_sorted(expanded);
+                    self.relative_volume =
+                        self.relative_volume * config.reflection * config.expansion;
+                    "EXPAND"
                 }
-                SimplexExpansionMethod::GreedyExpansion => expanded,
-            };
-            self.replace_worst_sorted(replacement);
-            self.relative_volume = self.relative_volume * config.reflection * config.expansion;
-            "EXPAND"
-        } else if reflected.fx < self.simplex[worst_index - 1].fx {
-            self.replace_worst_sorted(reflected);
+                crate::traits::Trial::Valid(_) => {
+                    self.replace_worst_sorted(reflected.clone());
+                    self.relative_volume =
+                        self.relative_volume * config.reflection * config.expansion;
+                    "EXPAND"
+                }
+                crate::traits::Trial::Rejected(_) => {
+                    self.replace_worst_sorted(reflected.clone());
+                    self.relative_volume = self.relative_volume * config.reflection;
+                    "REFLECT"
+                }
+            }
+        } else if let Some(reflected) = reflected
+            .as_ref()
+            .filter(|v| v.fx < self.simplex[worst_index - 1].fx)
+        {
+            self.replace_worst_sorted(reflected.clone());
             self.relative_volume = self.relative_volume * config.reflection;
             "REFLECT"
         } else {
-            let outside = reflected.fx < worst.fx;
-            let (contraction_target, contraction_value) = if outside {
-                (reflected.x, reflected.fx)
-            } else {
-                (worst.x, worst.fx)
-            };
-            let contracted_x =
-                centroid.add_scaled(&contraction_target.sub(&centroid), config.contraction);
-            let contracted = Self::evaluate(&transformed, contracted_x, args, status)?;
-            if contracted.fx < contraction_value {
-                self.replace_worst_sorted(contracted);
-                let factor = if outside {
-                    config.reflection * config.contraction
-                } else {
-                    config.contraction
-                };
-                self.relative_volume = self.relative_volume * factor;
-                if outside {
-                    "CONTRACT OUT"
-                } else {
-                    "CONTRACT IN"
+            let outside = reflected.as_ref().filter(|v| v.fx < worst.fx);
+            let target = outside.unwrap_or(&worst);
+            let contracted_x = centroid.add_scaled(&target.x.sub(&centroid), config.contraction);
+            match Self::trial_vertex(&transformed, contracted_x, args, status)? {
+                crate::traits::Trial::Valid(contracted) if contracted.fx < target.fx => {
+                    self.replace_worst_sorted(contracted);
+                    let factor = if outside.is_some() {
+                        config.reflection * config.contraction
+                    } else {
+                        config.contraction
+                    };
+                    self.relative_volume = self.relative_volume * factor;
+                    if outside.is_some() {
+                        "CONTRACT OUT"
+                    } else {
+                        "CONTRACT IN"
+                    }
                 }
-            } else {
-                let best = self.simplex[0].clone();
-                for index in 1..self.simplex.len() {
-                    let shrunk = best
-                        .x
-                        .add_scaled(&self.simplex[index].x.sub(&best.x), config.shrink);
-                    let replacement = Self::evaluate(&transformed, shrunk, args, status)?;
-                    self.replace_vertex(index, replacement);
+                _ => {
+                    let best = self.simplex[0].clone();
+                    let mut shrink = config.shrink;
+                    let mut rejection = None;
+                    let mut replacements = Vec::with_capacity(worst_index);
+                    for _ in 0..=16 {
+                        replacements.clear();
+                        for vertex in &self.simplex[1..] {
+                            let shrunk = best.x.add_scaled(&vertex.x.sub(&best.x), shrink);
+                            match Self::trial_vertex(&transformed, shrunk, args, status)? {
+                                crate::traits::Trial::Valid(vertex) => replacements.push(vertex),
+                                crate::traits::Trial::Rejected(reason) => {
+                                    rejection = Some(reason);
+                                    break;
+                                }
+                            }
+                        }
+                        if replacements.len() == worst_index {
+                            break;
+                        }
+                        shrink = shrink * config.shrink;
+                    }
+                    if replacements.len() != worst_index {
+                        status.message.fail_with_message(format!(
+                            "simplex shrink exhausted after trial rejection: {}",
+                            rejection.unwrap_or_default()
+                        ));
+                        return Ok(());
+                    }
+                    for (index, replacement) in replacements.into_iter().enumerate() {
+                        self.replace_vertex(index + 1, replacement);
+                    }
+                    self.sort_simplex();
+                    self.relative_volume = self.relative_volume * shrink.powi(best.x.len() as i32);
+                    "SHRINK"
                 }
-                self.sort_simplex();
-                self.relative_volume =
-                    self.relative_volume * config.shrink.powi(best.x.len() as i32);
-                "SHRINK"
             }
         };
         if self.simplex[0].fx < previous_best_fx {

@@ -3,10 +3,41 @@
 use crate::core::{LinearAlgebra, Matrix, NalgebraProvider, RealScalar, Vector};
 use std::convert::Infallible;
 
+/// Objective value and gradient returned together.
+pub type ValueGradient<T, B> = (T, Vector<T, B>);
+
 /// Objective value, gradient, and Hessian returned together.
 pub type ValueGradientHessian<T, B> = (T, Vector<T, B>, Matrix<T, B>);
 /// Gradient and Hessian returned together.
 pub type GradientHessian<T, B> = (Vector<T, B>, Matrix<T, B>);
+
+/// The outcome of evaluating a candidate that the algorithm has yet to accept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Trial<V> {
+    /// All requested quantities are usable.
+    Valid(V),
+    /// The candidate is inadmissible. The message describes the rejected evaluation.
+    Rejected(String),
+}
+
+impl<V> Trial<V> {
+    /// Transform a valid result while preserving a rejection.
+    pub fn map<W>(self, map: impl FnOnce(V) -> W) -> Trial<W> {
+        match self {
+            Self::Valid(value) => Trial::Valid(map(value)),
+            Self::Rejected(reason) => Trial::Rejected(reason),
+        }
+    }
+
+    pub(crate) fn validate(self, finite: impl FnOnce(&V) -> bool) -> Self {
+        match self {
+            Self::Valid(value) if !finite(&value) => {
+                Self::Rejected("nonfinite trial evaluation".into())
+            }
+            outcome => outcome,
+        }
+    }
+}
 
 /// A scalar- and linear-algebra-generic objective function.
 pub trait ScalarCostFunction<
@@ -21,6 +52,24 @@ pub trait ScalarCostFunction<
     /// # Errors
     /// Returns an error when objective evaluation fails.
     fn evaluate(&self, x: &Vector<T, B>, args: &U) -> Result<T, E>;
+
+    /// Describe an evaluation error that makes only this trial inadmissible.
+    /// Errors are fatal by default. This hook is used only for trial evaluations.
+    fn trial_rejection(&self, _error: &E) -> Option<String> {
+        None
+    }
+
+    /// Evaluate an uncommitted candidate objective.
+    ///
+    /// # Errors
+    /// Returns any error that the problem has not classified as trial rejection.
+    fn trial_value(&self, x: &Vector<T, B>, args: &U) -> Result<Trial<T>, E> {
+        classify_trial(
+            self.evaluate(x, args),
+            |error| self.trial_rejection(error),
+            |v| v.is_finite(),
+        )
+    }
 }
 
 /// A scalar- and linear-algebra-generic objective with derivatives.
@@ -116,6 +165,71 @@ pub trait ScalarGradient<
         let (value, gradient) = self.evaluate_with_gradient(x, args)?;
         Ok((value, gradient, self.hessian(x, args)?))
     }
+
+    /// Evaluate the gradient of an uncommitted candidate.
+    ///
+    /// # Errors
+    /// Returns any error that the problem has not classified as trial rejection.
+    fn trial_gradient(&self, x: &Vector<T, B>, args: &U) -> Result<Trial<Vector<T, B>>, E> {
+        classify_trial(
+            self.gradient(x, args),
+            |error| self.trial_rejection(error),
+            finite_vector,
+        )
+    }
+
+    /// Evaluate the objective and gradient of an uncommitted candidate.
+    ///
+    /// # Errors
+    /// Returns any error that the problem has not classified as trial rejection.
+    fn trial_value_gradient(
+        &self,
+        x: &Vector<T, B>,
+        args: &U,
+    ) -> Result<Trial<ValueGradient<T, B>>, E> {
+        classify_trial(
+            self.evaluate_with_gradient(x, args),
+            |error| self.trial_rejection(error),
+            |(v, g)| v.is_finite() && finite_vector(g),
+        )
+    }
+
+    /// Evaluate the derivatives of an uncommitted candidate.
+    ///
+    /// # Errors
+    /// Returns any error that the problem has not classified as trial rejection.
+    fn trial_gradient_hessian(
+        &self,
+        x: &Vector<T, B>,
+        args: &U,
+    ) -> Result<Trial<GradientHessian<T, B>>, E> {
+        classify_trial(
+            self.gradient_with_hessian(x, args),
+            |error| self.trial_rejection(error),
+            |(g, h)| finite_vector(g) && finite_matrix(h),
+        )
+    }
+}
+
+fn classify_trial<V, E>(
+    result: Result<V, E>,
+    rejection: impl FnOnce(&E) -> Option<String>,
+    finite: impl FnOnce(&V) -> bool,
+) -> Result<Trial<V>, E> {
+    match result {
+        Ok(value) => Ok(Trial::Valid(value).validate(finite)),
+        Err(error) => {
+            rejection(&error).map_or_else(|| Err(error), |reason| Ok(Trial::Rejected(reason)))
+        }
+    }
+}
+
+pub(crate) fn finite_vector<T: RealScalar, B: LinearAlgebra<T>>(value: &Vector<T, B>) -> bool {
+    (0..value.len()).all(|index| value.get(index).is_finite())
+}
+
+pub(crate) fn finite_matrix<T: RealScalar, B: LinearAlgebra<T>>(value: &Matrix<T, B>) -> bool {
+    (0..value.rows()).all(|row| (0..value.cols()).all(|col| value.get(row, col).is_finite()))
 }
 
 /// A scalar- and linear-algebra-generic log probability density.

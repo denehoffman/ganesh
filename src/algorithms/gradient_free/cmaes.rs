@@ -796,7 +796,11 @@ where
             config.population_size.max(2)
         };
         let mut population = Vec::with_capacity(lambda);
-        for _ in 0..lambda {
+        let mut rejection = None;
+        for _ in 0..16 * lambda {
+            if population.len() == lambda {
+                break;
+            }
             let normal: Vector<T, B> = Vector::from_vec(
                 (0..dimension)
                     .map(|_| sample_standard_normal(&mut self.rng))
@@ -809,9 +813,18 @@ where
             );
             let y = eigenvectors.mul_vec(&scaled);
             let x = self.mean.add_scaled(&y, self.sigma);
-            let fx = transformed.evaluate(&x, args)?;
             status.evals.record_f();
-            population.push(Candidate { x, y, fx });
+            match transformed.trial_value(&x, args)? {
+                crate::traits::Trial::Valid(fx) => population.push(Candidate { x, y, fx }),
+                crate::traits::Trial::Rejected(reason) => rejection = Some(reason),
+            }
+        }
+        if population.len() < lambda {
+            status.message.fail_with_message(format!(
+                "CMA-ES generation exhausted after trial rejection: {}",
+                rejection.unwrap_or_default()
+            ));
+            return Ok(());
         }
         population.sort_by(|left, right| left.fx.total_cmp(&right.fx));
         self.record_generation_history(&population);
