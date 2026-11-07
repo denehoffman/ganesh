@@ -958,11 +958,7 @@ where
                     config.max_step
                 }
             });
-        if let Ok(LineSearchOutput {
-            alpha,
-            fx,
-            gradient,
-        }) = self.line_search.search_from(
+        let search = self.line_search.search_from(
             LineSearchStart {
                 x: &self.x,
                 fx: self.fx,
@@ -973,7 +969,13 @@ where
             &transformed,
             args,
             &mut status.evals,
-        )? {
+        )?;
+        if let Ok(LineSearchOutput {
+            alpha,
+            fx,
+            gradient,
+        }) = search
+        {
             let next_x = Self::clip(
                 self.x.add_scaled(&direction, alpha),
                 config.bounds.as_deref(),
@@ -1010,6 +1012,10 @@ where
             self.fx = fx;
             self.gradient = gradient;
             status.set_position(transformed.to_external(&self.x), self.fx);
+        } else if let Err(crate::traits::LineSearchFailure::Rejected(reason)) = search {
+            status.message.fail_with_message(format!(
+                "line search exhausted after trial rejection: {reason}"
+            ));
         } else {
             self.s_history.clear();
             self.y_history.clear();
@@ -1030,9 +1036,14 @@ where
     ) -> Result<(), E> {
         if config.error_mode == LBFGSBErrorMode::ExactHessian {
             let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-            let hessian = transformed.hessian(&self.x, args)?;
             status.evals.record_h();
-            status.set_hess(hessian);
+            match transformed.hessian(&self.x, args) {
+                Ok(hessian) => status.set_hess(hessian),
+                Err(error) => match problem.trial_rejection(&error) {
+                    Some(reason) => status.note_covariance_rejection(&reason),
+                    None => return Err(error),
+                },
+            }
         }
         Ok(())
     }
@@ -1646,11 +1657,13 @@ mod unconstrained_tests {
                 _: &mut crate::core::EvalCounts,
             ) -> Result<crate::traits::LineSearchResult<f64, NalgebraProvider>, Infallible>
             {
-                Ok(Err(LineSearchOutput {
-                    alpha: 0.0,
-                    fx: start.fx,
-                    gradient: start.gradient.clone(),
-                }))
+                Ok(Err(crate::traits::LineSearchFailure::Stalled(
+                    LineSearchOutput {
+                        alpha: 0.0,
+                        fx: start.fx,
+                        gradient: start.gradient.clone(),
+                    },
+                )))
             }
         }
 

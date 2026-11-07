@@ -83,6 +83,8 @@ pub struct MinimizationResult<T: RealScalar = f64, B: LinearAlgebra<T> = Nalgebr
     pub fx: T,
     /// Evaluation counts performed by the run.
     pub evals: EvalCounts,
+    /// Terminal status, including exhaustion after trial rejection.
+    pub message: crate::traits::StatusMessage,
 }
 
 /// Subproblem used by [`TrustRegion`].
@@ -300,64 +302,22 @@ where
         steps: usize,
     ) -> Result<MinimizationResult<T, B>, E>
     where
+        B: PseudoInverse<T>,
         P: Gradient<T, B, U, E>,
     {
-        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        self.x = transformed.to_internal(&init);
-        (self.f, self.g, self.h) = transformed.evaluate_with_gradient_and_hessian(&self.x, args)?;
-        self.radius = config.initial_radius;
-        self.max_radius = if config.max_radius > config.initial_radius {
-            config.max_radius
-        } else {
-            config.initial_radius
-        };
-
-        let mut evals = EvalCounts::new(1, 1, 1);
-        let quarter = T::literal(0.25);
-        let three_quarters = T::literal(0.75);
-        let two = T::literal(2.0);
-        let boundary_tol_scale = T::literal(1e-12);
-
-        for _ in 0..steps {
-            let p = self.step_direction(config.subproblem);
-            let predicted = self.predicted_reduction(&p);
-            if predicted <= T::epsilon() {
-                self.radius = self.radius * quarter;
-                continue;
+        let mut status = GradientStatus::default();
+        self.initialize(problem, &mut status, args, &init, &config)?;
+        for current_step in 0..steps {
+            if status.check_invariants().is_break() {
+                break;
             }
-
-            let x_trial = self.x.add(&p);
-            let f_trial = transformed.evaluate(&x_trial, args)?;
-            evals.record_f();
-            let rho = (self.f - f_trial) / predicted;
-            let hits_boundary =
-                (p.norm() - self.radius).abs() <= boundary_tol_scale * (T::one() + self.radius);
-
-            if rho < quarter {
-                self.radius = quarter * p.norm();
-            } else if rho > three_quarters && hits_boundary {
-                let candidate = two * self.radius;
-                self.radius = if candidate < self.max_radius {
-                    candidate
-                } else {
-                    self.max_radius
-                };
-            }
-
-            if rho > config.eta {
-                let (g_trial, h_trial) = transformed.gradient_with_hessian(&x_trial, args)?;
-                evals.record_gh();
-                self.x = x_trial;
-                self.f = f_trial;
-                self.g = g_trial;
-                self.h = h_trial;
-            }
+            self.step(current_step, problem, &mut status, args, &config)?;
         }
-
         Ok(MinimizationResult {
-            x: transformed.to_external(&self.x),
-            fx: self.f,
-            evals,
+            x: status.x,
+            fx: status.fx,
+            evals: status.evals,
+            message: status.message,
         })
     }
 }
@@ -403,42 +363,63 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        let p = self.step_direction(config.subproblem);
-        let predicted = self.predicted_reduction(&p);
         let quarter = T::literal(0.25);
-        if predicted <= T::epsilon() {
-            self.radius = self.radius * quarter;
+        let mut rejection = None;
+        loop {
+            let p = self.step_direction(config.subproblem);
+            let predicted = self.predicted_reduction(&p);
+            let x_trial = self.x.add(&p);
+            if predicted <= T::epsilon() || x_trial.sub(&self.x).norm() == T::zero() {
+                self.radius = self.radius * quarter;
+                if let Some(reason) = rejection {
+                    status.message.fail_with_message(format!(
+                        "trust region exhausted after trial rejection: {reason}"
+                    ));
+                }
+                return Ok(());
+            }
+
+            status.evals.record_f();
+            let f_trial = match transformed.trial_value(&x_trial, args)? {
+                crate::traits::Trial::Valid(value) => value,
+                crate::traits::Trial::Rejected(reason) => {
+                    rejection = Some(reason);
+                    self.radius = quarter * p.norm();
+                    continue;
+                }
+            };
+            let rho = (self.f - f_trial) / predicted;
+            if rho > config.eta {
+                status.evals.record_gh();
+                match transformed.trial_gradient_hessian(&x_trial, args)? {
+                    crate::traits::Trial::Valid((gradient, hessian)) => {
+                        self.x = x_trial;
+                        self.f = f_trial;
+                        self.g = gradient;
+                        self.h = hessian;
+                        status.set_position(transformed.to_external(&self.x), self.f);
+                    }
+                    crate::traits::Trial::Rejected(reason) => {
+                        rejection = Some(reason);
+                        self.radius = quarter * p.norm();
+                        continue;
+                    }
+                }
+            }
+            let hits_boundary =
+                (p.norm() - self.radius).abs() <= T::literal(1e-12) * (T::one() + self.radius);
+            if rho < quarter {
+                self.radius = quarter * p.norm();
+            } else if rho > T::literal(0.75) && hits_boundary {
+                let candidate = T::literal(2.0) * self.radius;
+                self.radius = if candidate < self.max_radius {
+                    candidate
+                } else {
+                    self.max_radius
+                };
+            }
             return Ok(());
         }
-
-        let x_trial = self.x.add(&p);
-        let f_trial = transformed.evaluate(&x_trial, args)?;
-        status.evals.record_f();
-        let rho = (self.f - f_trial) / predicted;
-        let three_quarters = T::literal(0.75);
-        let hits_boundary =
-            (p.norm() - self.radius).abs() <= T::literal(1e-12) * (T::one() + self.radius);
-        if rho < quarter {
-            self.radius = quarter * p.norm();
-        } else if rho > three_quarters && hits_boundary {
-            let candidate = T::literal(2.0) * self.radius;
-            self.radius = if candidate < self.max_radius {
-                candidate
-            } else {
-                self.max_radius
-            };
-        }
-
-        if rho > config.eta {
-            let (gradient, hessian) = transformed.gradient_with_hessian(&x_trial, args)?;
-            status.evals.record_gh();
-            self.x = x_trial;
-            self.f = f_trial;
-            self.g = gradient;
-            self.h = hessian;
-            status.set_position(transformed.to_external(&self.x), self.f);
-        }
-        Ok(())
     }
 
     fn postprocessing(
@@ -449,9 +430,14 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        let hessian = problem.hessian(&transformed.to_external(&self.x), args)?;
         status.evals.record_h();
-        status.set_hess(hessian);
+        match problem.hessian(&transformed.to_external(&self.x), args) {
+            Ok(hessian) => status.set_hess(hessian),
+            Err(error) => match problem.trial_rejection(&error) {
+                Some(reason) => status.note_covariance_rejection(&reason),
+                None => return Err(error),
+            },
+        }
         Ok(())
     }
 

@@ -321,11 +321,7 @@ where
             self.direction = self.gradient.neg();
         }
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        if let Ok(LineSearchOutput {
-            alpha,
-            fx,
-            gradient,
-        }) = self.line_search.search_from(
+        let search = self.line_search.search_from(
             LineSearchStart {
                 x: &self.x,
                 fx: self.fx,
@@ -336,7 +332,13 @@ where
             &transformed,
             args,
             &mut status.evals,
-        )? {
+        )?;
+        if let Ok(LineSearchOutput {
+            alpha,
+            fx,
+            gradient,
+        }) = search
+        {
             self.x = self.x.add_scaled(&self.direction, alpha);
             self.fx = fx;
             let beta = self.beta(config.update, &gradient);
@@ -346,6 +348,10 @@ where
                 self.direction = self.gradient.neg();
             }
             status.set_position(transformed.to_external(&self.x), self.fx);
+        } else if let Err(crate::traits::LineSearchFailure::Rejected(reason)) = search {
+            status.message.fail_with_message(format!(
+                "line search exhausted after trial rejection: {reason}"
+            ));
         } else {
             self.direction = self.gradient.neg();
         }
@@ -361,9 +367,14 @@ where
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
         let external = transformed.to_external(&self.x);
-        let hessian = problem.hessian(&external, args)?;
         status.evals.record_h();
-        status.set_hess(hessian);
+        match problem.hessian(&external, args) {
+            Ok(hessian) => status.set_hess(hessian),
+            Err(error) => match problem.trial_rejection(&error) {
+                Some(reason) => status.note_covariance_rejection(&reason),
+                None => return Err(error),
+            },
+        }
         Ok(())
     }
 
