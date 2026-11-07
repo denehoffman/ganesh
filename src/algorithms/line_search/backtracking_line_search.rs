@@ -1,9 +1,6 @@
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{
-    Gradient, LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
-    Trial,
-};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 use std::marker::PhantomData;
 
 /// Scalar- and linear-algebra-generic Armijo backtracking line search.
@@ -80,41 +77,43 @@ where
         let LineSearchStart { x, fx, gradient } = start;
         let mut alpha = max_step.unwrap_or_else(T::one);
         let directional_derivative = gradient.dot(direction);
-        let mut rejection = None;
-        while alpha.is_finite() && alpha > T::epsilon() {
+        let mut rejected = None;
+        loop {
             let trial = x.add_scaled(direction, alpha);
             evals.record_f();
-            match problem.trial_value(&trial, args)? {
-                Trial::Valid(trial_fx)
-                    if trial_fx <= fx + self.c * alpha * directional_derivative =>
-                {
-                    evals.record_g();
-                    match problem.trial_gradient(&trial, args)? {
-                        Trial::Valid(gradient) => {
-                            return Ok(Ok(LineSearchOutput {
-                                alpha,
-                                fx: trial_fx,
-                                gradient,
-                            }))
-                        }
-                        Trial::Rejected(reason) => rejection = Some(reason),
-                    }
+            let trial_fx = super::reject_trial(
+                problem.evaluate(&trial, args),
+                |error| problem.is_recoverable_trial_error(error),
+                &mut rejected,
+            )?;
+            if let Some(trial_fx) =
+                trial_fx.filter(|value| *value <= fx + self.c * alpha * directional_derivative)
+            {
+                evals.record_g();
+                if let Some(trial_gradient) = super::reject_trial(
+                    problem.gradient(&trial, args),
+                    |error| problem.is_recoverable_trial_error(error),
+                    &mut rejected,
+                )? {
+                    return Ok(Ok(LineSearchOutput {
+                        alpha,
+                        fx: trial_fx,
+                        gradient: trial_gradient,
+                    }));
                 }
-                Trial::Rejected(reason) => rejection = Some(reason),
-                Trial::Valid(_) => {}
             }
             alpha = alpha * self.rho;
-        }
-        Ok(Err(rejection.map_or_else(
-            || {
-                LineSearchFailure::Stalled(LineSearchOutput {
+            if alpha <= T::epsilon() || (rejected.is_some() && !alpha.is_finite()) {
+                if let Some(error) = rejected {
+                    return Err(error);
+                }
+                return Ok(Err(LineSearchOutput {
                     alpha: T::zero(),
                     fx,
                     gradient: gradient.clone(),
-                })
-            },
-            LineSearchFailure::Rejected,
-        )))
+                }));
+            }
+        }
     }
 }
 

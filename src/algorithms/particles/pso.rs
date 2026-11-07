@@ -369,19 +369,8 @@ where
             );
         }
         self.swarm.clear();
-        status.evals.record_f();
-        let center_fx = transformed.evaluate(&center, args)?;
-        status.initialize(transformed.to_external(&center), center_fx);
-        if !center_fx.is_finite() {
-            return Ok(());
-        }
         self.global_best_fx = T::infinity();
-        let mut rejection = None;
-        for _ in 0..16 * count {
-            let particle_index = self.swarm.len();
-            if particle_index == count {
-                break;
-            }
+        for particle_index in 0..count {
             let x = match &config.position_initializer {
                 SwarmPositionInitializer::Centered if particle_index == 0 => center.clone(),
                 SwarmPositionInitializer::Centered => Vector::from_vec(
@@ -405,22 +394,8 @@ where
                     transformed.to_internal(&external)
                 }
             };
-            let fx = if particle_index == 0
-                && matches!(
-                    config.position_initializer,
-                    SwarmPositionInitializer::Centered
-                ) {
-                center_fx
-            } else {
-                status.evals.record_f();
-                match transformed.trial_value(&x, args)? {
-                    crate::traits::Trial::Valid(value) => value,
-                    crate::traits::Trial::Rejected(reason) => {
-                        rejection = Some(reason);
-                        continue;
-                    }
-                }
-            };
+            let fx = transformed.evaluate(&x, args)?;
+            status.evals.record_f();
             if fx < self.global_best_fx {
                 self.global_best_fx = fx;
                 self.global_best_x = x.clone();
@@ -442,23 +417,10 @@ where
                 x,
             });
         }
-        if self.swarm.len() < count {
-            if self.global_best_fx < center_fx {
-                status.initialize(
-                    transformed.to_external(&self.global_best_x),
-                    self.global_best_fx,
-                );
-            }
-            status.message.fail_with_message(format!(
-                "swarm initialization exhausted after trial rejection: {}",
-                rejection.unwrap_or_default()
-            ));
-        } else {
-            status.initialize(
-                transformed.to_external(&self.global_best_x),
-                self.global_best_fx,
-            );
-        }
+        status.initialize(
+            transformed.to_external(&self.global_best_x),
+            self.global_best_fx,
+        );
         Ok(())
     }
 
@@ -474,8 +436,6 @@ where
         let social_bests: Vec<Vector<T, B>> = (0..self.swarm.len())
             .map(|index| self.social_best(index, config.topology))
             .collect();
-        let mut any_valid = false;
-        let mut rejection = None;
         #[allow(clippy::needless_range_loop)]
         for particle_index in 0..self.swarm.len() {
             let social_best = &social_bests[particle_index];
@@ -499,19 +459,10 @@ where
                     })
                     .collect(),
             );
-            let candidate = particle.x.add(&velocity);
-            status.evals.record_f();
-            let fx = match transformed.trial_value(&candidate, args)? {
-                crate::traits::Trial::Valid(value) => value,
-                crate::traits::Trial::Rejected(reason) => {
-                    rejection = Some(reason);
-                    particle.velocity = velocity.scale(T::literal(0.5));
-                    continue;
-                }
-            };
-            any_valid = true;
-            particle.x = candidate;
+            particle.x = particle.x.add(&velocity);
             particle.velocity = velocity;
+            let fx = transformed.evaluate(&particle.x, args)?;
+            status.evals.record_f();
             if fx < particle.best_fx {
                 particle.best_fx = fx;
                 particle.best_x = particle.x.clone();
@@ -525,7 +476,6 @@ where
             transformed.to_external(&self.global_best_x),
             self.global_best_fx,
         );
-        status.record_trial_progress(if any_valid { None } else { rejection });
         Ok(())
     }
 

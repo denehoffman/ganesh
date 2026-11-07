@@ -23,8 +23,6 @@ pub struct MinimizationResult<T: RealScalar = f64, B: LinearAlgebra<T> = Nalgebr
     pub fx: T,
     /// Evaluation counts performed by the run.
     pub evals: EvalCounts,
-    /// Terminal status, including exhaustion after trial rejection.
-    pub message: crate::traits::StatusMessage,
 }
 
 impl<T: RealScalar, B: LinearAlgebra<T>> SupportsParameterNames
@@ -216,19 +214,76 @@ where
     where
         P: CostFunction<T, B, U, E>,
     {
-        let mut status = GradientFreeStatus::default();
-        self.initialize(problem, &mut status, args, &init, &config)?;
-        for current_step in 0..steps {
-            if status.check_invariants().is_break() {
-                break;
+        let transformed = TransformedProblem::new(problem, config.transform.as_deref());
+        let init_external = init;
+        let init = transformed.to_internal(&init_external);
+        let pop_size = if config.population_size == 0 {
+            (10 * init.len()).max(4)
+        } else {
+            config.population_size.max(4)
+        };
+        self.population.clear();
+        self.population.reserve(pop_size);
+
+        let fx = transformed.evaluate(&init, args)?;
+        self.best = Candidate {
+            x: init.clone(),
+            fx,
+        };
+        self.population.push(self.best.clone());
+
+        for _ in 1..pop_size {
+            let x = init.add(&self.sample_offset(init.len(), config.initial_scale));
+            let candidate = Candidate {
+                fx: transformed.evaluate(&x, args)?,
+                x,
+            };
+            if candidate.fx < self.best.fx {
+                self.best = candidate.clone();
             }
-            self.step(current_step, problem, &mut status, args, &config)?;
+            self.population.push(candidate);
         }
+
+        let mut evals = EvalCounts::new(self.population.len(), 0, 0);
+        for _ in 0..steps {
+            let snapshot = self.population.clone();
+            let dim = self.best.x.len();
+            for i in 0..self.population.len() {
+                let [a, b, c] = self.choose_distinct_indices(snapshot.len(), i);
+                let forced_index = self.rng.usize(0..dim);
+                let trial_x = Vector::<T, B>::from_vec(
+                    (0..dim)
+                        .map(|j| {
+                            if j == forced_index
+                                || T::random_unit(&mut self.rng) < config.crossover_probability
+                            {
+                                snapshot[a].x.get(j)
+                                    + (snapshot[b].x.get(j) - snapshot[c].x.get(j))
+                                        * config.differential_weight
+                            } else {
+                                self.population[i].x.get(j)
+                            }
+                        })
+                        .collect(),
+                );
+                let trial = Candidate {
+                    fx: transformed.evaluate(&trial_x, args)?,
+                    x: trial_x,
+                };
+                evals.record_f();
+                if trial.fx <= self.population[i].fx {
+                    self.population[i] = trial;
+                    if self.population[i].fx < self.best.fx {
+                        self.best = self.population[i].clone();
+                    }
+                }
+            }
+        }
+
         Ok(MinimizationResult {
-            x: status.x,
-            fx: status.fx,
-            evals: status.evals,
-            message: status.message,
+            x: transformed.to_external(&self.best.x),
+            fx: self.best.fx,
+            evals,
         })
     }
 }
@@ -266,38 +321,19 @@ where
             x: init.clone(),
         };
         self.population.push(self.best.clone());
-        status.evals.record_f();
-        status.initialize(transformed.to_external(&self.best.x), self.best.fx);
-        if !self.best.fx.is_finite() {
-            return Ok(());
-        }
-        let mut rejection = None;
-        for _ in 0..16 * (population_size - 1) {
-            if self.population.len() == population_size {
-                break;
-            }
+        for _ in 1..population_size {
             let x = init.add(&self.sample_offset(init.len(), config.initial_scale));
-            status.evals.record_f();
-            let fx = match transformed.trial_value(&x, args)? {
-                crate::traits::Trial::Valid(fx) => fx,
-                crate::traits::Trial::Rejected(reason) => {
-                    rejection = Some(reason);
-                    continue;
-                }
+            let candidate = Candidate {
+                fx: transformed.evaluate(&x, args)?,
+                x,
             };
-            let candidate = Candidate { x, fx };
             if candidate.fx < self.best.fx {
                 self.best = candidate.clone();
             }
             self.population.push(candidate);
         }
+        status.evals.record_many_f(self.population.len());
         status.initialize(transformed.to_external(&self.best.x), self.best.fx);
-        if self.population.len() < population_size {
-            status.message.fail_with_message(format!(
-                "population initialization exhausted after trial rejection: {}",
-                rejection.unwrap_or_default()
-            ));
-        }
         Ok(())
     }
 
@@ -312,8 +348,6 @@ where
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
         let snapshot = self.population.clone();
         let dimension = self.best.x.len();
-        let mut any_valid = false;
-        let mut rejection = None;
         for index in 0..self.population.len() {
             let [a, b, c] = self.choose_distinct_indices(snapshot.len(), index);
             let forced_index = self.rng.usize(0..dimension);
@@ -332,16 +366,11 @@ where
                     })
                     .collect(),
             );
-            status.evals.record_f();
-            let fx = match transformed.trial_value(&trial_x, args)? {
-                crate::traits::Trial::Valid(fx) => fx,
-                crate::traits::Trial::Rejected(reason) => {
-                    rejection = Some(reason);
-                    continue;
-                }
+            let trial = Candidate {
+                fx: transformed.evaluate(&trial_x, args)?,
+                x: trial_x,
             };
-            any_valid = true;
-            let trial = Candidate { x: trial_x, fx };
+            status.evals.record_f();
             if trial.fx <= self.population[index].fx {
                 self.population[index] = trial;
                 if self.population[index].fx < self.best.fx {
@@ -350,7 +379,6 @@ where
             }
         }
         status.set_position(transformed.to_external(&self.best.x), self.best.fx);
-        status.record_trial_progress(if any_valid { None } else { rejection });
         Ok(())
     }
 

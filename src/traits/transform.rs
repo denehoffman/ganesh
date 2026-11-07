@@ -692,12 +692,8 @@ where
         self.problem.evaluate(&self.to_external(internal), args)
     }
 
-    fn trial_rejection(&self, error: &E) -> Option<String> {
-        self.problem.trial_rejection(error)
-    }
-
-    fn trial_value(&self, internal: &Vector<T, B>, args: &U) -> Result<super::Trial<T>, E> {
-        self.problem.trial_value(&self.to_external(internal), args)
+    fn is_recoverable_trial_error(&self, error: &E) -> bool {
+        self.problem.is_recoverable_trial_error(error)
     }
 }
 
@@ -728,65 +724,6 @@ where
             || gradient.clone(),
             |transform| transform.pullback_gradient(internal, &gradient),
         ))
-    }
-
-    fn trial_gradient(
-        &self,
-        internal: &Vector<T, B>,
-        args: &U,
-    ) -> Result<super::Trial<Vector<T, B>>, E> {
-        use super::numeric_problem::finite_vector;
-        if let Some(transform) = self.transform {
-            let external = transform.to_external(internal);
-            Ok(self
-                .problem
-                .trial_gradient(&external, args)?
-                .map(|gradient| transform.pullback_gradient(internal, &gradient))
-                .validate(finite_vector))
-        } else {
-            self.problem.trial_gradient(internal, args)
-        }
-    }
-
-    fn trial_value_gradient(
-        &self,
-        internal: &Vector<T, B>,
-        args: &U,
-    ) -> Result<super::Trial<super::ValueGradient<T, B>>, E> {
-        use super::numeric_problem::finite_vector;
-        if let Some(transform) = self.transform {
-            let external = transform.to_external(internal);
-            Ok(self
-                .problem
-                .trial_value_gradient(&external, args)?
-                .map(|(value, gradient)| (value, transform.pullback_gradient(internal, &gradient)))
-                .validate(|(_, gradient)| finite_vector(gradient)))
-        } else {
-            self.problem.trial_value_gradient(internal, args)
-        }
-    }
-
-    fn trial_gradient_hessian(
-        &self,
-        internal: &Vector<T, B>,
-        args: &U,
-    ) -> Result<super::Trial<super::GradientHessian<T, B>>, E> {
-        use super::numeric_problem::{finite_matrix, finite_vector};
-        if let Some(transform) = self.transform {
-            let external = transform.to_external(internal);
-            Ok(self
-                .problem
-                .trial_gradient_hessian(&external, args)?
-                .map(|(gradient, hessian)| {
-                    (
-                        transform.pullback_gradient(internal, &gradient),
-                        transform.pullback_hessian(internal, &gradient, &hessian),
-                    )
-                })
-                .validate(|(gradient, hessian)| finite_vector(gradient) && finite_matrix(hessian)))
-        } else {
-            self.problem.trial_gradient_hessian(internal, args)
-        }
     }
 
     fn hessian(&self, internal: &Vector<T, B>, args: &U) -> Result<Matrix<T, B>, E> {

@@ -63,9 +63,7 @@ where
     }
 
     fn check_invariants(&mut self) -> ControlFlow<()> {
-        if self.message.success()
-            || matches!(self.message.status_type, crate::traits::StatusType::Failed)
-        {
+        if self.message.success() {
             return ControlFlow::Break(());
         }
         if !self.fx.is_finite() {
@@ -93,16 +91,6 @@ where
         self.message.step();
         self.x = x;
         self.fx = fx;
-    }
-
-    pub(crate) fn note_covariance_rejection(&mut self, reason: &str) {
-        self.hess = None;
-        self.set_cov(None);
-        let detail = format!("covariance unavailable: {reason}");
-        self.message.text = Some(match self.message.text() {
-            Some(message) => format!("{message}. {detail}").into(),
-            None => detail.into(),
-        });
     }
 
     /// Store a covariance matrix and derive its diagonal standard deviations.
