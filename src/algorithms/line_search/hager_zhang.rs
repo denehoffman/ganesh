@@ -2,10 +2,7 @@
 
 use crate::core::{EvalCounts, LinearAlgebra, NalgebraProvider, RealScalar, Vector};
 use crate::error::{GaneshError, GaneshResult};
-use crate::traits::{
-    Gradient, LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
-    Trial,
-};
+use crate::traits::{Gradient, LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 use std::marker::PhantomData;
 
 /// Generic Hager–Zhang approximate-Wolfe line search.
@@ -40,18 +37,9 @@ where
     }
 }
 
-enum ProbeError<T, E> {
-    Rejected { alpha: T, reason: String },
-    Fatal(E),
-}
-
-impl<T, E> ProbeError<T, E> {
-    fn from_trial<V>(alpha: T, result: Result<Trial<V>, E>) -> Result<V, Self> {
-        match result.map_err(Self::Fatal)? {
-            Trial::Valid(value) => Ok(value),
-            Trial::Rejected(reason) => Err(Self::Rejected { alpha, reason }),
-        }
-    }
+struct ProbeError<T, E> {
+    alpha: T,
+    source: E,
 }
 
 impl<T, B> HagerZhangLineSearch<T, B>
@@ -170,7 +158,9 @@ where
     {
         let x = x0.add_scaled(direction, alpha);
         evals.record_f();
-        ProbeError::from_trial(alpha, problem.trial_value(&x, args))
+        problem
+            .evaluate(&x, args)
+            .map_err(|source| ProbeError { alpha, source })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -187,7 +177,9 @@ where
     {
         let x = x0.add_scaled(direction, alpha);
         evals.record_g();
-        ProbeError::from_trial(alpha, problem.trial_gradient(&x, args))
+        problem
+            .gradient(&x, args)
+            .map_err(|source| ProbeError { alpha, source })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -202,9 +194,11 @@ where
     where
         P: Gradient<T, B, U, E> + ?Sized,
     {
-        let value = Self::evaluate_f(problem, x0, direction, alpha, args, evals)?;
-        let gradient = Self::evaluate_g(problem, x0, direction, alpha, args, evals)?;
-        Ok((value, gradient))
+        let x = x0.add_scaled(direction, alpha);
+        evals.record_fg();
+        problem
+            .evaluate_with_gradient(&x, args)
+            .map_err(|source| ProbeError { alpha, source })
     }
 
     fn secant(a: T, dphi_a: T, b: T, dphi_b: T) -> T {
@@ -231,11 +225,11 @@ where
         if c <= a || c >= b {
             return Ok((a, b));
         }
-        let phi_c = Self::evaluate_f(problem, x0, direction, c, args, evals)?;
         let gradient_c = Self::evaluate_g(problem, x0, direction, c, args, evals)?;
         if gradient_c.dot(direction) >= T::zero() {
             return Ok((a, c));
         }
+        let phi_c = Self::evaluate_f(problem, x0, direction, c, args, evals)?;
         if phi_c <= phi0 + epsilon_k {
             return Ok((c, b));
         }
@@ -243,11 +237,11 @@ where
         let mut b_hat = c;
         for iteration in 0..=self.max_bisects {
             let d = a_hat.mul_add(T::one() - self.theta, self.theta * b_hat);
-            let phi_d = Self::evaluate_f(problem, x0, direction, d, args, evals)?;
             let gradient_d = Self::evaluate_g(problem, x0, direction, d, args, evals)?;
             if gradient_d.dot(direction) >= T::zero() || iteration == self.max_bisects {
                 return Ok((a_hat, d));
             }
+            let phi_d = Self::evaluate_f(problem, x0, direction, d, args, evals)?;
             if phi_d <= phi0 + epsilon_k {
                 a_hat = d;
             } else {
@@ -344,7 +338,7 @@ where
         } = start;
         let dphi0 = gradient0.dot(direction);
         let epsilon_k = self.epsilon * phi0.abs();
-        let search = (|| {
+        let search = (|| -> Result<_, ProbeError<T, E>> {
             let mut a = T::epsilon();
             let mut b = max_step.unwrap_or_else(|| T::literal(1e5));
             let mut iteration = 0;
@@ -381,55 +375,71 @@ where
                 }
                 (a, b) = (next_a, next_b);
                 if iteration > self.max_iterations {
-                    return Ok(Err(LineSearchFailure::Stalled(LineSearchOutput {
-                        alpha: T::zero(),
-                        fx: phi0,
-                        gradient: gradient0.clone(),
-                    })));
+                    return Ok(Err(LineSearchOutput {
+                        alpha: a,
+                        fx: phi_a,
+                        gradient: gradient_a,
+                    }));
                 }
                 iteration += 1;
             }
         })();
-        match search {
-            Ok(result) => Ok(result),
-            Err(ProbeError::Fatal(error)) => Err(error),
-            Err(ProbeError::Rejected { alpha, mut reason }) => {
-                // An inadmissible upper endpoint has no derivative for secant interpolation.
-                let mut low = T::zero();
-                let mut high = alpha;
-                for _ in 0..=self.max_bisects {
-                    let alpha = low + (high - low) / T::literal(2.0);
-                    if alpha == low || alpha == high {
-                        break;
+        let ProbeError {
+            alpha: mut high,
+            source: mut rejected,
+        } = match search {
+            Ok(result) => return Ok(result),
+            Err(error) if problem.is_recoverable_trial_error(&error.source) => error,
+            Err(error) => return Err(error.source),
+        };
+
+        // A rejected point has no derivative for secant interpolation.
+        // Bisect back toward the known valid start using the same Wolfe conditions.
+        if let Some(cap) = max_step.filter(|cap| *cap < high) {
+            high = cap;
+        }
+        let mut low = T::zero();
+        for _ in 0..=self.max_bisects {
+            let alpha = low.mul_add(T::one() - self.theta, self.theta * high);
+            if !alpha.is_finite() || alpha <= low || alpha >= high {
+                break;
+            }
+            let trial = (|| {
+                let fx = Self::evaluate_f(problem, x0, direction, alpha, args, evals)?;
+                let gradient = Self::evaluate_g(problem, x0, direction, alpha, args, evals)?;
+                Ok((fx, gradient))
+            })();
+            match trial {
+                Ok((fx, gradient)) => {
+                    let dphi = gradient.dot(direction);
+                    if fx.is_finite()
+                        && dphi.is_finite()
+                        && self.satisfies_wolfe(alpha, fx, dphi, phi0, dphi0, epsilon_k)
+                    {
+                        return Ok(Ok(LineSearchOutput {
+                            alpha,
+                            fx,
+                            gradient,
+                        }));
                     }
-                    match Self::evaluate_fg(problem, x0, direction, alpha, args, evals) {
-                        Ok((fx, gradient)) => {
-                            let dphi = gradient.dot(direction);
-                            if self.satisfies_wolfe(alpha, fx, dphi, phi0, dphi0, epsilon_k) {
-                                return Ok(Ok(LineSearchOutput {
-                                    alpha,
-                                    fx,
-                                    gradient,
-                                }));
-                            }
-                            if fx > phi0 + epsilon_k || dphi >= T::zero() {
-                                high = alpha;
-                            } else {
-                                low = alpha;
-                            }
-                        }
-                        Err(ProbeError::Rejected {
-                            reason: message, ..
-                        }) => {
-                            reason = message;
-                            high = alpha;
-                        }
-                        Err(ProbeError::Fatal(error)) => return Err(error),
+                    if !fx.is_finite()
+                        || !dphi.is_finite()
+                        || fx > phi0 + epsilon_k
+                        || dphi >= T::zero()
+                    {
+                        high = alpha;
+                    } else {
+                        low = alpha;
                     }
                 }
-                Ok(Err(LineSearchFailure::Rejected(reason)))
+                Err(ProbeError { source, .. }) if problem.is_recoverable_trial_error(&source) => {
+                    rejected = source;
+                    high = alpha;
+                }
+                Err(ProbeError { source, .. }) => return Err(source),
             }
         }
+        Err(rejected)
     }
 }
 

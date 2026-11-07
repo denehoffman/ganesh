@@ -18,14 +18,12 @@ pub use checkpoint::CheckpointableAlgorithm;
 pub mod numeric_problem;
 pub use numeric_problem::{
     GradientHessian, ScalarCostFunction as CostFunction, ScalarGradient as Gradient,
-    ScalarLogDensity as LogDensity, Trial, ValueGradient, ValueGradientHessian,
+    ScalarLogDensity as LogDensity, ValueGradientHessian,
 };
 
 /// Module containing various line-search methods.
 pub mod linesearch;
-pub use linesearch::{
-    LineSearch, LineSearchFailure, LineSearchOutput, LineSearchResult, LineSearchStart,
-};
+pub use linesearch::{LineSearch, LineSearchOutput, LineSearchResult, LineSearchStart};
 
 /// Module containing the [`Status`] trait.
 pub mod status;

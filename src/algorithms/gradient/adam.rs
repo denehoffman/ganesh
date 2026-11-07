@@ -174,7 +174,6 @@ where
 pub struct Adam<T: RealScalar = f64, B: LinearAlgebra<T> = NalgebraProvider> {
     x: Vector<T, B>,
     fx: T,
-    gradient: Vector<T, B>,
     first_moment: Vector<T, B>,
     second_moment: Vector<T, B>,
     ema_loss: T,
@@ -191,7 +190,6 @@ where
         Self {
             x: Vector::zeros(0),
             fx: T::zero(),
-            gradient: Vector::zeros(0),
             first_moment: Vector::zeros(0),
             second_moment: Vector::zeros(0),
             ema_loss: T::zero(),
@@ -221,14 +219,14 @@ where
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
         self.x = transformed.to_internal(init);
-        status.evals.record_fg();
-        (self.fx, self.gradient) = transformed.evaluate_with_gradient(&self.x, args)?;
+        self.fx = transformed.evaluate(&self.x, args)?;
         self.first_moment = Vector::zeros(self.x.len());
         self.second_moment = Vector::zeros(self.x.len());
         // The EMA terminator starts from zero and updates after the first optimization step.
         self.ema_loss = T::zero();
         self.ema_counter = 0;
-        status.initialize(transformed.to_external(&self.x), self.fx);
+        status.evals.record_f();
+        status.initialize(init.clone(), self.fx);
         Ok(())
     }
 
@@ -241,13 +239,14 @@ where
         config: &Self::Config,
     ) -> Result<(), E> {
         let transformed = TransformedProblem::new(problem, config.transform.as_deref());
-        let gradient = &self.gradient;
+        let gradient = transformed.gradient(&self.x, args)?;
+        status.evals.record_g();
         let one = T::one();
-        let first_moment = self
+        self.first_moment = self
             .first_moment
             .scale(config.beta_1)
             .add(&gradient.scale(one - config.beta_1));
-        let second_moment = Vector::from_vec(
+        self.second_moment = Vector::from_vec(
             (0..gradient.len())
                 .map(|index| {
                     config.beta_2 * self.second_moment.get(index)
@@ -258,46 +257,19 @@ where
         let exponent = current_step.saturating_add(1).min(i32::MAX as usize) as i32;
         let alpha = config.alpha * (one - config.beta_2.powi(exponent)).sqrt()
             / (one - config.beta_1.powi(exponent));
-        let direction = Vector::from_vec(
+        self.x = Vector::from_vec(
             (0..self.x.len())
                 .map(|index| {
-                    -first_moment.get(index) / (second_moment.get(index).sqrt() + config.epsilon)
+                    self.x.get(index)
+                        - alpha * self.first_moment.get(index)
+                            / (self.second_moment.get(index).sqrt() + config.epsilon)
                 })
                 .collect(),
         );
-        let mut alpha = alpha;
-        let mut rejection = None;
-        for _ in 0..=16 {
-            let candidate = self.x.add_scaled(&direction, alpha);
-            if rejection.is_some() && candidate.sub(&self.x).norm() == T::zero() {
-                break;
-            }
-            status.evals.record_f();
-            match transformed.trial_value(&candidate, args)? {
-                crate::traits::Trial::Valid(value) => {
-                    status.evals.record_g();
-                    match transformed.trial_gradient(&candidate, args)? {
-                        crate::traits::Trial::Valid(gradient) => {
-                            self.x = candidate;
-                            self.fx = value;
-                            self.gradient = gradient;
-                            self.first_moment = first_moment;
-                            self.second_moment = second_moment;
-                            status.set_position(transformed.to_external(&self.x), self.fx);
-                            return Ok(());
-                        }
-                        crate::traits::Trial::Rejected(reason) => rejection = Some(reason),
-                    }
-                }
-                crate::traits::Trial::Rejected(reason) => rejection = Some(reason),
-            }
-            alpha = alpha / T::literal(2.0);
-        }
-        if let Some(reason) = rejection {
-            status.message.fail_with_message(format!(
-                "Adam step exhausted after trial rejection: {reason}"
-            ));
-        }
+        self.fx = transformed.evaluate(&self.x, args)?;
+        status.evals.record_f();
+        status.set_position(transformed.to_external(&self.x), self.fx);
+
         Ok(())
     }
 

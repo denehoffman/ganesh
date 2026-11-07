@@ -11,8 +11,8 @@ use ganesh::{
     },
     core::{Callbacks, EvalCounts, MaxSteps},
     traits::{
-        Algorithm, CostFunction, Gradient, LineSearch, LineSearchFailure, LineSearchResult,
-        LineSearchStart, Transform, TransformedProblem,
+        Algorithm, CostFunction, Gradient, LineSearch, LineSearchResult, LineSearchStart,
+        Transform, TransformedProblem,
     },
     Bounds, LinearAlgebra, Matrix, NalgebraProvider, RealScalar, ScaleTransform, Vector,
 };
@@ -193,7 +193,7 @@ fn more_thuente_failure_values_belong_to_the_returned_step() {
     let x: Vector = vec![1.0].into();
     let direction: Vector = vec![-0.01].into();
     let mut evals = EvalCounts::default();
-    let LineSearchFailure::Stalled(output) = MoreThuenteLineSearch::default()
+    let output = MoreThuenteLineSearch::default()
         .with_max_iterations(0)
         .search_from(
             LineSearchStart {
@@ -208,10 +208,7 @@ fn more_thuente_failure_values_belong_to_the_returned_step() {
             &mut evals,
         )
         .unwrap()
-        .unwrap_err()
-    else {
-        panic!("expected a stalled search with a valid point");
-    };
+        .unwrap_err();
     let trial = x.add_scaled(&direction, output.alpha);
     assert_eq!(output.alpha, 1.0);
     assert_eq!(output.fx, 0.5 * trial.dot(&trial));
@@ -231,7 +228,7 @@ fn more_thuente_rejects_invalid_limits_and_non_descent_without_evaluating() {
     ] {
         let problem = CountingQuadratic::default();
         let mut evals = EvalCounts::default();
-        let LineSearchFailure::Stalled(output) = MoreThuenteLineSearch::default()
+        let output = MoreThuenteLineSearch::default()
             .search_from(
                 LineSearchStart {
                     x: &x,
@@ -245,10 +242,7 @@ fn more_thuente_rejects_invalid_limits_and_non_descent_without_evaluating() {
                 &mut evals,
             )
             .unwrap()
-            .unwrap_err()
-        else {
-            panic!("expected a stalled search with a valid point");
-        };
+            .unwrap_err();
         assert_eq!(output.alpha, 0.0);
         assert_eq!(output.fx, 0.5);
         assert_eq!(output.gradient, x);
@@ -411,7 +405,7 @@ fn zoom_reuses_gradient_at_iteration_limit() {
     let x: Vector = Vector::from_vec(vec![1.0]);
     let gradient = x.clone();
     let mut evals = EvalCounts::default();
-    let LineSearchFailure::Stalled(output) = MoreThuenteLineSearch::default()
+    let output = MoreThuenteLineSearch::default()
         .with_c2(0.1)
         .unwrap()
         .with_max_zoom(0)
@@ -428,10 +422,7 @@ fn zoom_reuses_gradient_at_iteration_limit() {
             &mut evals,
         )
         .unwrap()
-        .unwrap_err()
-    else {
-        panic!("expected a stalled search with a valid point");
-    };
+        .unwrap_err();
     assert_eq!(output.alpha, 0.5);
     assert_eq!(output.fx, 0.125);
     assert_eq!(*problem.g_points.borrow(), vec![-0.5]);
