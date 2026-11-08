@@ -33,7 +33,7 @@ fn finite_positive(value: f64, name: &str) -> PyResult<()> {
 #[derive(Clone, Debug)]
 enum TransformSpec {
     Bounds(Vec<(f64, f64)>),
-    Scale(Vec<f64>),
+    Scale(ScaleTransform),
     Periodic(Vec<Option<(f64, f64)>>),
     Chain(Vec<Self>),
 }
@@ -42,9 +42,7 @@ impl TransformSpec {
     fn build(&self) -> crate::error::GaneshResult<Box<dyn Transform<f64, NalgebraProvider>>> {
         match self {
             Self::Bounds(bounds) => Ok(Box::new(Bounds::new(bounds.clone())?)),
-            Self::Scale(scales) => Ok(Box::new(ScaleTransform::from_parameter_scales(
-                scales.clone(),
-            )?)),
+            Self::Scale(transform) => Ok(Box::new(transform.clone())),
             Self::Periodic(intervals) => Ok(Box::new(PeriodicTransform::new(intervals.clone())?)),
             Self::Chain(items) => {
                 let mut items = items.iter();
@@ -68,7 +66,7 @@ fn extract_transform(value: &Bound<'_, PyAny>) -> PyResult<TransformSpec> {
         return Ok(value.spec.clone());
     }
     if let Ok(value) = value.extract::<PyRef<'_, PyScaleTransform>>() {
-        return Ok(value.spec.clone());
+        return Ok(TransformSpec::Scale(value.inner.clone()));
     }
     if let Ok(value) = value.extract::<PyRef<'_, PyPeriodicTransform>>() {
         return Ok(value.spec.clone());
@@ -103,18 +101,28 @@ impl PyBounds {
 #[pyclass(name = "ScaleTransform", frozen, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyScaleTransform {
-    spec: TransformSpec,
+    inner: ScaleTransform,
 }
 
 #[pymethods]
 impl PyScaleTransform {
     #[new]
-    fn new(scales: Vec<f64>) -> PyResult<Self> {
-        ScaleTransform::<f64, NalgebraProvider>::from_parameter_scales(scales.clone())
-            .map_err(super::ganesh_error)?;
-        Ok(Self {
-            spec: TransformSpec::Scale(scales),
-        })
+    #[pyo3(signature = (scales, *, external_bounds=None))]
+    fn new(scales: Vec<f64>, external_bounds: Option<Vec<(f64, f64)>>) -> PyResult<Self> {
+        let mut inner =
+            ScaleTransform::from_parameter_scales(scales).map_err(super::ganesh_error)?;
+        if let Some(bounds) = external_bounds {
+            inner = inner
+                .with_external_bounds(bounds)
+                .map_err(super::ganesh_error)?;
+        }
+        Ok(Self { inner })
+    }
+
+    /// Bounds in optimizer coordinates, when external bounds were provided.
+    #[getter]
+    fn internal_bounds(&self) -> Option<Vec<(f64, f64)>> {
+        self.inner.internal_bounds().map(<[_]>::to_vec)
     }
 }
 
@@ -1171,10 +1179,22 @@ mod tests {
             line_search: None,
             bounds: Some(vec![(0.0, 2.0), (-1.0, 1.0)]),
             parameter_names: None,
-            transform: Some(TransformSpec::Scale(vec![2.0, 4.0])),
+            transform: Some(TransformSpec::Scale(
+                ScaleTransform::from_parameter_scales([2.0, 4.0]).unwrap(),
+            )),
         }
         .to_rust()
         .unwrap();
+    }
+
+    #[test]
+    fn python_scale_exposes_scaled_external_bounds() {
+        let scale =
+            PyScaleTransform::new(vec![0.00197], Some(vec![(1e-12, f64::INFINITY)])).unwrap();
+        let bounds = scale.internal_bounds().unwrap();
+        let transform = TransformSpec::Scale(scale.inner).build().unwrap();
+        let internal = crate::Vector::from_vec(vec![bounds[0].0]);
+        assert_eq!(transform.to_external(&internal).to_vec(), [1e-12]);
     }
 
     #[test]
