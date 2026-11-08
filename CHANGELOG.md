@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1](https://github.com/denehoffman/ganesh/compare/v0.30.0...v0.30.1) (2026-11-08)
+
+
+### Features
+
+* **transform:** Preserve exact external bounds under scaling ([0511826](https://github.com/denehoffman/ganesh/commit/051182694db8a941d3f55c177b8056e24ff1556a))
+
 ## [0.30.0](https://github.com/denehoffman/ganesh/compare/v0.29.1...v0.30.0) (2026-11-08)
 
 
