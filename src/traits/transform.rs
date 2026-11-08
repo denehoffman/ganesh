@@ -340,7 +340,14 @@ where
     B: LinearAlgebra<T>,
 {
     multipliers: Vector<T, B>,
+    bounds: Option<ScaledBounds<T>>,
     _provider: PhantomData<B>,
+}
+
+#[derive(Clone, Debug)]
+struct ScaledBounds<T> {
+    external: Vec<(T, T)>,
+    internal: Vec<(T, T)>,
 }
 
 /// One scalar-valued parameter bound.
@@ -586,6 +593,7 @@ where
         }
         Ok(Self {
             multipliers: Vector::from_vec(multipliers),
+            bounds: None,
             _provider: PhantomData,
         })
     }
@@ -601,9 +609,92 @@ where
         Self::from_multipliers(scales.into_iter().map(|scale| T::one() / scale))
     }
 
+    /// Preserve closed external endpoints during conversion from scaled coordinates.
+    ///
+    /// Supply one pair per coordinate, with infinite endpoints for absent bounds.
+    /// Use [`Self::internal_bounds`] when configuring an algorithm with native
+    /// bounds. This conversion preserves feasibility of internally feasible
+    /// points. The algorithm is responsible for keeping its steps in bounds.
+    ///
+    /// # Errors
+    /// Returns a configuration error for a dimension mismatch, unordered
+    /// bounds, or finite endpoints that overflow or collapse after scaling.
+    pub fn with_external_bounds<I>(mut self, bounds: I) -> GaneshResult<Self>
+    where
+        I: IntoIterator<Item = (T, T)>,
+    {
+        let external: Vec<_> = bounds.into_iter().collect();
+        if external.len() != self.multipliers.len() {
+            return Err(GaneshError::ConfigError(
+                "scale bounds must match the number of multipliers".into(),
+            ));
+        }
+        let mut internal = Vec::with_capacity(external.len());
+        for (index, &(lower, upper)) in external.iter().enumerate() {
+            ScalarBound::new(lower, upper)?;
+            let multiplier = self.multipliers.get(index);
+            let scaled_lower = lower * multiplier;
+            let scaled_upper = upper * multiplier;
+            if (lower.is_finite() && !scaled_lower.is_finite())
+                || (upper.is_finite() && !scaled_upper.is_finite())
+            {
+                return Err(GaneshError::ConfigError(
+                    "finite scale bounds must remain finite after scaling".into(),
+                ));
+            }
+            let scaled = if multiplier > T::zero() {
+                (scaled_lower, scaled_upper)
+            } else {
+                (scaled_upper, scaled_lower)
+            };
+            ScalarBound::new(scaled.0, scaled.1)?;
+            internal.push(scaled);
+        }
+        self.bounds = Some(ScaledBounds { external, internal });
+        Ok(self)
+    }
+
+    /// Return the ordered bounds in optimizer coordinates, when configured.
+    pub fn internal_bounds(&self) -> Option<&[(T, T)]> {
+        self.bounds
+            .as_ref()
+            .map(|bounds| bounds.internal.as_slice())
+    }
+
     /// Return external-to-internal multipliers.
     pub const fn multipliers(&self) -> &Vector<T, B> {
         &self.multipliers
+    }
+
+    fn external_component(&self, index: usize, internal: T) -> T {
+        let multiplier = self.multipliers.get(index);
+        let external = internal / multiplier;
+        let Some(bounds) = &self.bounds else {
+            return external;
+        };
+        let (first, last) = bounds.internal[index];
+        if !internal.is_finite() || internal < first || internal > last {
+            return external;
+        }
+        let (lower, upper) = bounds.external[index];
+        let (scaled_lower, scaled_upper) = if multiplier > T::zero() {
+            (first, last)
+        } else {
+            (last, first)
+        };
+        if internal == scaled_lower {
+            return lower;
+        }
+        if internal == scaled_upper {
+            return upper;
+        }
+        if external < lower {
+            lower
+        } else if external > upper {
+            upper
+        } else {
+            external
+        }
     }
 }
 
@@ -615,7 +706,7 @@ where
     fn to_external(&self, internal: &Vector<T, B>) -> Vector<T, B> {
         Vector::from_vec(
             (0..internal.len())
-                .map(|index| internal.get(index) / self.multipliers.get(index))
+                .map(|index| self.external_component(index, internal.get(index)))
                 .collect(),
         )
     }
@@ -810,6 +901,62 @@ mod tests {
         let internal = transform.to_internal(&external);
         assert_eq!(internal.to_vec(), vec![2.0, 6.0]);
         assert_eq!(transform.to_external(&internal), external);
+    }
+
+    #[test]
+    fn scaled_closed_bounds_preserve_exact_external_values() {
+        let scale = 0.00197;
+        let lower = 1e-12_f64;
+        let upper = 2e-12;
+        let plain = ScaleTransform::<f64>::from_parameter_scales([scale, -scale, scale]).unwrap();
+        let transform = plain
+            .clone()
+            .with_external_bounds([
+                (lower, f64::INFINITY),
+                (lower, upper),
+                (f64::NEG_INFINITY, -lower),
+            ])
+            .unwrap();
+        let bounds = transform.internal_bounds().unwrap();
+        let external = Vector::from_vec(vec![lower, lower, -lower]);
+        let internal = transform.to_internal(&external);
+        assert_eq!(internal.to_vec(), [bounds[0].0, bounds[1].1, bounds[2].1]);
+        assert_eq!(
+            plain.to_external(&internal).get(0).to_bits(),
+            lower.to_bits() - 1
+        );
+        assert_eq!(transform.to_external(&internal), external);
+        let problem = TransformedProblem::new(&Quadratic, Some(&transform));
+        assert_eq!(
+            problem.evaluate(&internal, &()).unwrap(),
+            Quadratic.evaluate(&external, &()).unwrap()
+        );
+
+        let other_edge = Vector::from_vec(vec![bounds[0].0, bounds[1].0, bounds[2].1]);
+        assert_eq!(transform.to_external(&other_edge).get(1), upper);
+
+        let outside = transform.to_internal(&Vector::from_vec(vec![
+            lower / 2.0,
+            lower / 2.0,
+            -lower / 2.0,
+        ]));
+        let converted = transform.to_external(&outside);
+        assert_eq!(converted, plain.to_external(&outside));
+        assert!(converted.get(0) < lower);
+        assert!(converted.get(1) < lower);
+        assert!(converted.get(2) > -lower);
+    }
+
+    #[test]
+    fn scaled_bounds_validate_the_internal_interval() {
+        let transform = ScaleTransform::<f64>::from_multipliers([2.0]).unwrap();
+        assert!(transform.clone().with_external_bounds([]).is_err());
+        assert!(transform.with_external_bounds([(0.0, f64::MAX)]).is_err());
+
+        let transform = ScaleTransform::<f32>::from_multipliers([f32::MIN_POSITIVE]).unwrap();
+        assert!(transform
+            .with_external_bounds([(0.0, f32::from_bits(1))])
+            .is_err());
     }
 
     #[test]
